@@ -1,0 +1,15 @@
+{
+  "name": "@pls/substrate",
+  "version": "0.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "dependencies": {
+    "sql.js": "^1.12.0",
+    "@tanstack/react-query": "^5.0.0"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
