@@ -7,6 +7,7 @@ import {
   useRemoveWorkspacePanel,
   useReplacePanelLens,
   useUpdatePanelSpan,
+  useSwapPanelSpans,
   type Scope,
 } from '@pls/substrate'
 import { useWorkspaceStore } from './store'
@@ -92,6 +93,7 @@ export function WorkspaceShell() {
   const removePanel = useRemoveWorkspacePanel()
   const replacePanel = useReplacePanelLens()
   const updateSpan = useUpdatePanelSpan()
+  const swapSpans = useSwapPanelSpans()
 
   const swapyContainerRef = useRef<HTMLDivElement>(null)
   const swapyRef = useRef<ReturnType<typeof createSwapy> | null>(null)
@@ -124,6 +126,9 @@ export function WorkspaceShell() {
 
   const gridRows = GRID_ROWS
 
+  const swapSpansRef = useRef(swapSpans)
+  swapSpansRef.current = swapSpans
+
   // Swapy: init / teardown when panels or workspace change
   useEffect(() => {
     if (!swapyContainerRef.current || !panels?.length) return
@@ -135,6 +140,13 @@ export function WorkspaceShell() {
       swapyRef.current = createSwapy(swapyContainerRef.current!, {
         animation: 'spring',
         swapMode: 'hover',
+      })
+      swapyRef.current.onSwap((event) => {
+        swapSpansRef.current.mutate({
+          panelIdA: event.draggingItem,
+          panelIdB: event.swappedWithItem,
+          workspaceId: activeWorkspaceId,
+        })
       })
     }, 50)
 

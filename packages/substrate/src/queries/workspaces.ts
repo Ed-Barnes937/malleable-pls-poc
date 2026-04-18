@@ -48,6 +48,19 @@ export function updatePanelSpan(panelId: string, colSpan: number, rowSpan: numbe
   persistDb()
 }
 
+export function swapPanelSpans(panelIdA: string, panelIdB: string): void {
+  const [a] = query<{ col_span: number; row_span: number }>(
+    'SELECT col_span, row_span FROM workspace_panels WHERE id = ?', [panelIdA]
+  )
+  const [b] = query<{ col_span: number; row_span: number }>(
+    'SELECT col_span, row_span FROM workspace_panels WHERE id = ?', [panelIdB]
+  )
+  if (!a || !b) return
+  exec('UPDATE workspace_panels SET col_span = ?, row_span = ? WHERE id = ?', [b.col_span, b.row_span, panelIdA])
+  exec('UPDATE workspace_panels SET col_span = ?, row_span = ? WHERE id = ?', [a.col_span, a.row_span, panelIdB])
+  persistDb()
+}
+
 export function setWorkspaceScope(
   workspaceId: string,
   scopeType: string,
