@@ -76,8 +76,10 @@ CREATE TABLE IF NOT EXISTS workspace_panels (
   lens_type TEXT NOT NULL,
   slot_name TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
-  col_span INTEGER NOT NULL DEFAULT 1,
-  row_span INTEGER NOT NULL DEFAULT 2,
+  grid_x INTEGER NOT NULL DEFAULT 0,
+  grid_y INTEGER NOT NULL DEFAULT 0,
+  grid_w INTEGER NOT NULL DEFAULT 1,
+  grid_h INTEGER NOT NULL DEFAULT 2,
   created_at TEXT NOT NULL
 );
 

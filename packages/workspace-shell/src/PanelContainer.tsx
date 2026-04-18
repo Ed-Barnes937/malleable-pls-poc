@@ -1,4 +1,4 @@
-import { Suspense, Component, useState, useCallback, useRef, type ReactNode, type ErrorInfo } from 'react'
+import { Suspense, Component, useState, type ReactNode, type ErrorInfo } from 'react'
 import { cn } from '@pls/shared-ui'
 import { GripVertical, FileText, AlertTriangle, RefreshCw, X } from 'lucide-react'
 import { useWorkspaceStore } from './store'
@@ -42,139 +42,20 @@ function LoadingSkeleton() {
   )
 }
 
-function ResizeHandle({
-  colSpan,
-  rowSpan,
-  onResizeStart,
-  onResizeEnd,
-}: {
-  colSpan: number
-  rowSpan: number
-  onResizeStart: () => void
-  onResizeEnd: (colSpan: number, rowSpan: number) => void
-}) {
-  const handleRef = useRef<HTMLDivElement>(null)
-
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-
-    const startX = e.clientX
-    const startY = e.clientY
-    const startColSpan = colSpan
-    const startRowSpan = rowSpan
-
-    const slotEl = handleRef.current?.closest('[data-swapy-slot]') as HTMLElement | null
-    const gridEl = slotEl?.closest('[data-panel-grid]') as HTMLElement | null
-    if (!slotEl || !gridEl) return
-
-    onResizeStart()
-
-    const gridStyle = getComputedStyle(gridEl)
-    const gap = parseFloat(gridStyle.gap) || 12
-    const colTracks = gridStyle.gridTemplateColumns.split(/\s+/)
-    const rowTracks = gridStyle.gridTemplateRows.split(/\s+/)
-    const cellWidth = parseFloat(colTracks[0]) || 200
-    const cellHeight = parseFloat(rowTracks[0]) || 200
-
-    const slotRect = slotEl.getBoundingClientRect()
-
-    const overlay = document.createElement('div')
-    Object.assign(overlay.style, {
-      position: 'fixed',
-      left: `${slotRect.left}px`,
-      top: `${slotRect.top}px`,
-      width: `${slotRect.width}px`,
-      height: `${slotRect.height}px`,
-      border: '2px solid oklch(0.623 0.214 259.815 / 0.6)',
-      borderRadius: '12px',
-      background: 'oklch(0.623 0.214 259.815 / 0.05)',
-      pointerEvents: 'none',
-      zIndex: '100',
-      transition: 'width 150ms ease-out, height 150ms ease-out',
-    })
-
-    const label = document.createElement('span')
-    Object.assign(label.style, {
-      position: 'absolute',
-      bottom: '6px',
-      right: '8px',
-      fontSize: '10px',
-      fontFamily: 'var(--font-mono)',
-      fontWeight: '600',
-      color: 'oklch(0.623 0.214 259.815 / 0.8)',
-    })
-    label.textContent = `${startColSpan}×${startRowSpan}`
-    overlay.appendChild(label)
-    document.body.appendChild(overlay)
-
-    let currentColSpan = startColSpan
-    let currentRowSpan = startRowSpan
-
-    const onMouseMove = (me: MouseEvent) => {
-      const dx = me.clientX - startX
-      const dy = me.clientY - startY
-      currentColSpan = Math.max(1, Math.min(3, startColSpan + Math.round(dx / (cellWidth + gap))))
-      currentRowSpan = Math.max(1, Math.min(6, startRowSpan + Math.round(dy / (cellHeight + gap))))
-
-      const targetWidth = cellWidth * currentColSpan + gap * (currentColSpan - 1)
-      const targetHeight = cellHeight * currentRowSpan + gap * (currentRowSpan - 1)
-      overlay.style.width = `${targetWidth}px`
-      overlay.style.height = `${targetHeight}px`
-      label.textContent = `${currentColSpan}×${currentRowSpan}`
-    }
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-      overlay.remove()
-      onResizeEnd(currentColSpan, currentRowSpan)
-    }
-
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-    document.body.style.cursor = 'nwse-resize'
-    document.body.style.userSelect = 'none'
-  }, [colSpan, rowSpan, onResizeStart, onResizeEnd])
-
-  return (
-    <div
-      ref={handleRef}
-      onMouseDown={onMouseDown}
-      className="absolute bottom-1.5 right-1.5 z-20 flex h-5 w-5 cursor-nwse-resize items-center justify-center rounded-md bg-surface-overlay/90 text-neutral-600 opacity-0 ring-1 ring-border-subtle backdrop-blur-sm transition-all group-hover/panel:opacity-100 hover:text-accent hover:ring-accent/40 hover:bg-surface-overlay"
-    >
-      <svg width="8" height="8" viewBox="0 0 8 8">
-        <path d="M6 1v5.5H.5" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-        <path d="M6 4.5v2H4" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
-      </svg>
-    </div>
-  )
-}
-
 interface PanelContainerProps {
   panelId: string
   lensType: string
   dbPanelId?: string
-  colSpan: number
-  rowSpan: number
   onRemove?: () => void
   onReplace?: (newLensType: string) => void
-  onResizeStart?: () => void
-  onResizeEnd?: (colSpan: number, rowSpan: number) => void
   children: ReactNode
 }
 
 export function PanelContainer({
   panelId,
   lensType,
-  colSpan,
-  rowSpan,
   onRemove,
   onReplace,
-  onResizeStart,
-  onResizeEnd,
   children,
 }: PanelContainerProps) {
   const focusedPanelId = useWorkspaceStore((s) => s.focusedPanelId)
@@ -211,7 +92,7 @@ export function PanelContainer({
         if (newLensType && onReplace) onReplace(newLensType)
       }}
     >
-      <div className="flex items-center gap-2 border-b border-border-subtle px-3 py-2" data-swapy-handle>
+      <div className="panel-drag-handle flex items-center gap-2 border-b border-border-subtle px-3 py-2">
         <GripVertical className="h-3.5 w-3.5 shrink-0 cursor-grab text-neutral-700 transition-colors hover:text-neutral-500 active:cursor-grabbing" />
         <Icon className="h-3.5 w-3.5 text-neutral-600" />
         <span className="text-xs font-medium text-neutral-400">
@@ -234,14 +115,6 @@ export function PanelContainer({
           </Suspense>
         </PanelErrorBoundary>
       </div>
-      {onResizeEnd && onResizeStart && (
-        <ResizeHandle
-          colSpan={colSpan}
-          rowSpan={rowSpan}
-          onResizeStart={onResizeStart}
-          onResizeEnd={onResizeEnd}
-        />
-      )}
     </div>
   )
 }

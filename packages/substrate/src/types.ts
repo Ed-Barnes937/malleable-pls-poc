@@ -75,8 +75,10 @@ export interface WorkspacePanel {
   lens_type: string
   slot_name: string
   config: string
-  col_span: number
-  row_span: number
+  grid_x: number
+  grid_y: number
+  grid_w: number
+  grid_h: number
   created_at: string
 }
 

@@ -6,8 +6,7 @@ import {
   addWorkspacePanel,
   removeWorkspacePanel,
   replacePanelLens,
-  updatePanelSpan,
-  swapPanelSpans,
+  updatePanelLayouts,
   setWorkspaceScope,
 } from '../queries/workspaces'
 
@@ -73,24 +72,11 @@ export function useReplacePanelLens() {
   })
 }
 
-export function useUpdatePanelSpan() {
+export function useUpdatePanelLayouts() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (args: { panelId: string; colSpan: number; rowSpan: number; workspaceId: string }) => {
-      updatePanelSpan(args.panelId, args.colSpan, args.rowSpan)
-      return Promise.resolve()
-    },
-    onSuccess: (_, vars) => {
-      queryClient.invalidateQueries({ queryKey: ['workspace_panels', vars.workspaceId] })
-    },
-  })
-}
-
-export function useSwapPanelSpans() {
-  const queryClient = useQueryClient()
-  return useMutation({
-    mutationFn: (args: { panelIdA: string; panelIdB: string; workspaceId: string }) => {
-      swapPanelSpans(args.panelIdA, args.panelIdB)
+    mutationFn: (args: { workspaceId: string; layouts: { id: string; x: number; y: number; w: number; h: number }[] }) => {
+      updatePanelLayouts(args.layouts)
       return Promise.resolve()
     },
     onSuccess: (_, vars) => {

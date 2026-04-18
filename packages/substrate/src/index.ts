@@ -14,8 +14,7 @@ export {
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useReplacePanelLens,
-  useUpdatePanelSpan,
-  useSwapPanelSpans,
+  useUpdatePanelLayouts,
   useSetWorkspaceScope,
 } from './hooks/useWorkspaces'
 

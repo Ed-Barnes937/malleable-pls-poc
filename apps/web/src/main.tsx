@@ -1,9 +1,15 @@
-import { StrictMode, useState, useEffect } from 'react'
+import { StrictMode, useState, useEffect, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { initDb } from '@pls/substrate'
 import './index.css'
 import { App } from './App'
+
+const ReactQueryDevtools = lazy(() =>
+  import('@tanstack/react-query-devtools/production').then((m) => ({
+    default: m.ReactQueryDevtools,
+  }))
+)
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,11 +25,16 @@ const queryClient = new QueryClient({
 function Root() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showDevtools, setShowDevtools] = useState(false)
 
   useEffect(() => {
     initDb()
       .then(() => setReady(true))
       .catch((e) => setError(String(e)))
+  }, [])
+
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).tqdevtools = () => setShowDevtools((v) => !v)
   }, [])
 
   if (error) {
@@ -54,6 +65,11 @@ function Root() {
   return (
     <QueryClientProvider client={queryClient}>
       <App />
+      {showDevtools && (
+        <Suspense fallback={null}>
+          <ReactQueryDevtools initialIsOpen />
+        </Suspense>
+      )}
     </QueryClientProvider>
   )
 }

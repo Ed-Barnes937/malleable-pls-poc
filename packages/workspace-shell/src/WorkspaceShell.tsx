@@ -1,13 +1,12 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
-import { createSwapy } from 'swapy'
+import { Responsive, useContainerWidth, type LayoutItem } from 'react-grid-layout'
 import {
   useWorkspacePanels,
   useWorkspaceScopes,
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useReplacePanelLens,
-  useUpdatePanelSpan,
-  useSwapPanelSpans,
+  useUpdatePanelLayouts,
   type Scope,
 } from '@pls/substrate'
 import { useWorkspaceStore } from './store'
@@ -17,8 +16,11 @@ import { Sidebar } from './Sidebar'
 import { cn } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
 
-const MAX_COLS = 3
+import 'react-grid-layout/css/styles.css'
+
+const COLS = 3
 const GRID_ROWS = 6
+const MARGIN: [number, number] = [12, 12]
 
 function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Scope {
   const scope: Scope = {}
@@ -30,15 +32,6 @@ function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Sc
   return scope
 }
 
-function useMinWidth(minPx: number) {
-  const [ok, setOk] = useState(() => window.innerWidth >= minPx)
-  useEffect(() => {
-    const check = () => setOk(window.innerWidth >= minPx)
-    window.addEventListener('resize', check)
-    return () => window.removeEventListener('resize', check)
-  }, [minPx])
-  return ok
-}
 
 function DropZone({
   onDrop,
@@ -66,7 +59,7 @@ function DropZone({
         if (lensType) onDrop(lensType)
       }}
       className={cn(
-        'flex min-h-[80px] items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200',
+        'flex items-center justify-center rounded-xl border-2 border-dashed transition-all duration-200',
         isDragOver
           ? 'border-accent/60 bg-accent/5 text-accent'
           : 'border-border-subtle text-neutral-700 hover:border-border hover:text-neutral-600'
@@ -92,17 +85,25 @@ export function WorkspaceShell() {
   const addPanel = useAddWorkspacePanel()
   const removePanel = useRemoveWorkspacePanel()
   const replacePanel = useReplacePanelLens()
-  const updateSpan = useUpdatePanelSpan()
-  const swapSpans = useSwapPanelSpans()
-
-  const swapyContainerRef = useRef<HTMLDivElement>(null)
-  const swapyRef = useRef<ReturnType<typeof createSwapy> | null>(null)
+  const updateLayouts = useUpdatePanelLayouts()
 
   const [transitioning, setTransitioning] = useState(false)
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const [dropZoneDragOver, setDropZoneDragOver] = useState(false)
 
-  const wideEnough = useMinWidth(1024)
+  const { width: gridWidth, containerRef } = useContainerWidth({ initialWidth: 1200 })
+  const [containerHeight, setContainerHeight] = useState(600)
+
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const observer = new ResizeObserver(([entry]) => {
+      setContainerHeight(entry.contentRect.height)
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [containerRef])
 
   useEffect(() => {
     if (prevWorkspaceRef.current !== activeWorkspaceId) {
@@ -124,92 +125,66 @@ export function WorkspaceShell() {
     return map
   }, [panels])
 
-  const gridRows = GRID_ROWS
+  const layout = useMemo<LayoutItem[]>(() => {
+    if (!panels) return []
+    return panels.map((p, idx) => ({
+      i: p.id,
+      x: Number.isFinite(p.grid_x) ? p.grid_x : (idx % COLS),
+      y: Number.isFinite(p.grid_y) ? p.grid_y : Math.floor(idx / COLS) * 2,
+      w: Number.isFinite(p.grid_w) && p.grid_w > 0 ? p.grid_w : 1,
+      h: Number.isFinite(p.grid_h) && p.grid_h > 0 ? p.grid_h : 2,
+      minW: 1,
+      minH: 1,
+      maxW: COLS,
+    }))
+  }, [panels])
 
-  const swapSpansRef = useRef(swapSpans)
-  swapSpansRef.current = swapSpans
+  const rowHeight = useMemo(() => {
+    const totalMargin = MARGIN[1] * (GRID_ROWS - 1)
+    return (containerHeight - totalMargin) / GRID_ROWS
+  }, [containerHeight])
 
-  // Swapy: init / teardown when panels or workspace change
-  useEffect(() => {
-    if (!swapyContainerRef.current || !panels?.length) return
-
-    const timer = setTimeout(() => {
-      if (swapyRef.current) {
-        swapyRef.current.destroy()
-      }
-      swapyRef.current = createSwapy(swapyContainerRef.current!, {
-        animation: 'spring',
-        swapMode: 'hover',
+  const handleLayoutChange = useCallback(
+    (currentLayout: LayoutItem[]) => {
+      if (!panels?.length) return
+      const changed = currentLayout.some((item) => {
+        const panel = panels.find(p => p.id === item.i)
+        if (!panel) return false
+        return panel.grid_x !== item.x || panel.grid_y !== item.y ||
+               panel.grid_w !== item.w || panel.grid_h !== item.h
       })
-      swapyRef.current.onSwap((event) => {
-        swapSpansRef.current.mutate({
-          panelIdA: event.draggingItem,
-          panelIdB: event.swappedWithItem,
-          workspaceId: activeWorkspaceId,
-        })
+      if (!changed) return
+      updateLayouts.mutate({
+        workspaceId: activeWorkspaceId,
+        layouts: currentLayout
+          .filter(item => panels.some(p => p.id === item.i))
+          .map(item => ({ id: item.i, x: item.x, y: item.y, w: item.w, h: item.h })),
       })
-    }, 50)
-
-    return () => {
-      clearTimeout(timer)
-      if (swapyRef.current) {
-        swapyRef.current.destroy()
-        swapyRef.current = null
-      }
-    }
-  }, [activeWorkspaceId, panels])
-
-  const destroySwapy = useCallback(() => {
-    if (swapyRef.current) {
-      swapyRef.current.destroy()
-      swapyRef.current = null
-    }
-  }, [])
+    },
+    [activeWorkspaceId, panels, updateLayouts]
+  )
 
   const handleAddPanel = useCallback(
     (lensType: string) => {
-      destroySwapy()
       const slotName = `slot-${Date.now()}`
       addPanel.mutate({ workspaceId: activeWorkspaceId, lensType, slotName })
     },
-    [activeWorkspaceId, addPanel, destroySwapy]
+    [activeWorkspaceId, addPanel]
   )
 
   const handleRemovePanel = useCallback(
     (panelId: string) => {
-      destroySwapy()
       removePanel.mutate({ panelId, workspaceId: activeWorkspaceId })
     },
-    [activeWorkspaceId, removePanel, destroySwapy]
+    [activeWorkspaceId, removePanel]
   )
 
   const handleReplacePanel = useCallback(
     (panelId: string, newLensType: string) => {
-      destroySwapy()
       replacePanel.mutate({ panelId, newLensType, workspaceId: activeWorkspaceId })
     },
-    [activeWorkspaceId, replacePanel, destroySwapy]
+    [activeWorkspaceId, replacePanel]
   )
-
-  const handleResizeStart = useCallback(() => {
-    destroySwapy()
-  }, [destroySwapy])
-
-  const handleResizeEnd = useCallback(
-    (panelId: string, colSpan: number, rowSpan: number) => {
-      updateSpan.mutate({ panelId, colSpan, rowSpan, workspaceId: activeWorkspaceId })
-    },
-    [activeWorkspaceId, updateSpan]
-  )
-
-  if (!wideEnough) {
-    return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-surface p-8 text-center">
-        <p className="text-sm text-neutral-400">This demo requires a wider viewport</p>
-        <p className="text-xs text-neutral-600">Minimum 1024px — resize your browser or use a larger screen</p>
-      </div>
-    )
-  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-surface">
@@ -217,45 +192,67 @@ export function WorkspaceShell() {
 
       <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <div
-          data-panel-grid
+          ref={containerRef}
           className={cn(
-            'grid min-h-0 flex-1 gap-3 overflow-hidden p-3 transition-opacity duration-150',
+            'relative min-h-0 flex-1 overflow-hidden p-3 transition-opacity duration-150',
             transitioning ? 'opacity-0' : 'opacity-100'
           )}
-          style={{
-            gridTemplateColumns: `repeat(${MAX_COLS}, 1fr)`,
-            gridTemplateRows: `repeat(${gridRows}, 1fr)`,
-            gridAutoFlow: 'dense',
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes('application/x-lens-type')) {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'copy'
+              setDropZoneDragOver(true)
+            }
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+              setDropZoneDragOver(false)
+            }
+          }}
+          onDrop={(e) => {
+            if (e.dataTransfer.types.includes('application/x-lens-type')) {
+              e.preventDefault()
+              setDropZoneDragOver(false)
+              const lensType = e.dataTransfer.getData('application/x-lens-type')
+              if (lensType) handleAddPanel(lensType)
+            }
           }}
         >
-          <div ref={swapyContainerRef} className="contents">
-            {panels?.map((panel) => {
-              const LensComponent = getLensComponent(panel.lens_type, lensRegistry)
-              const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
-              const cs = panel.col_span ?? 1
-              const rs = panel.row_span ?? 1
+          {dropZoneDragOver && (
+            <div className="pointer-events-none absolute inset-3 z-50 flex items-center justify-center rounded-xl border-2 border-dashed border-accent/60 bg-accent/5">
+              <div className="flex flex-col items-center gap-1.5 text-accent">
+                <Plus className="h-8 w-8" />
+                <span className="text-sm font-medium">Drop to add lens</span>
+              </div>
+            </div>
+          )}
+          {panels?.length ? (
+            <Responsive
+              width={gridWidth}
+              layouts={{ lg: layout }}
+              breakpoints={{ lg: 0 }}
+              cols={{ lg: COLS }}
+              rowHeight={rowHeight}
+              margin={MARGIN}
+              containerPadding={[0, 0]}
+              compactType="vertical"
+              draggableHandle=".panel-drag-handle"
+              onLayoutChange={handleLayoutChange}
+              resizeHandles={['se']}
+              useCSSTransforms
+            >
+              {panels.map((panel) => {
+                const LensComponent = getLensComponent(panel.lens_type, lensRegistry)
+                const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
 
-              return (
-                <div
-                  key={panel.id}
-                  data-swapy-slot={panel.slot_name}
-                  className="min-h-0"
-                  style={{
-                    gridColumn: `span ${cs}`,
-                    gridRow: `span ${rs}`,
-                  }}
-                >
-                  <div data-swapy-item={panel.id} className="h-full min-h-0">
+                return (
+                  <div key={panel.id}>
                     <PanelContainer
                       panelId={`${activeWorkspaceId}-${panel.slot_name}`}
                       lensType={panel.lens_type}
                       dbPanelId={panel.id}
-                      colSpan={cs}
-                      rowSpan={rs}
                       onRemove={() => handleRemovePanel(panel.id)}
                       onReplace={(newType: string) => handleReplacePanel(panel.id, newType)}
-                      onResizeStart={handleResizeStart}
-                      onResizeEnd={(newCs, newRs) => handleResizeEnd(panel.id, newCs, newRs)}
                     >
                       <LensComponent
                         panelId={`${activeWorkspaceId}-${panel.slot_name}`}
@@ -264,16 +261,16 @@ export function WorkspaceShell() {
                       />
                     </PanelContainer>
                   </div>
-                </div>
-              )
-            })}
-          </div>
-
-          <DropZone
-            onDrop={handleAddPanel}
-            isDragOver={dropZoneDragOver}
-            setDragOver={setDropZoneDragOver}
-          />
+                )
+              })}
+            </Responsive>
+          ) : (
+            <DropZone
+              onDrop={handleAddPanel}
+              isDragOver={dropZoneDragOver}
+              setDragOver={setDropZoneDragOver}
+            />
+          )}
         </div>
       </main>
     </div>

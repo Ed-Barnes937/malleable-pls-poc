@@ -82,20 +82,33 @@ body {
   background: oklch(0.7 0 0);
 }
 
-/* Swapy drag-and-swap feedback */
-[data-swapy-highlighted] {
-  outline: 2px solid oklch(0.623 0.214 259.815 / 0.6);
-  outline-offset: -2px;
-  border-radius: 12px;
-  background: oklch(0.623 0.214 259.815 / 0.04);
-  transition: outline-color 150ms, background 150ms;
+/* react-grid-layout overrides */
+.react-grid-placeholder {
+  background: transparent !important;
+  border: none !important;
+  opacity: 0 !important;
 }
 
-[data-swapy-dragging] {
-  opacity: 0.85;
-  scale: 1.02;
-  box-shadow: 0 20px 40px oklch(0 0 0 / 0.5), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.4);
-  border-radius: 12px;
-  transition: opacity 150ms, scale 150ms, box-shadow 150ms;
+.react-grid-item.react-draggable-dragging {
   z-index: 50;
+  opacity: 0.9;
+  box-shadow: 0 20px 40px oklch(0 0 0 / 0.5);
+  border-radius: 12px;
+}
+
+.react-grid-item > .react-resizable-handle {
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.react-grid-item > .react-resizable-handle::after {
+  border-color: oklch(0.4 0 0) !important;
+  width: 7px !important;
+  height: 7px !important;
+  right: 5px !important;
+  bottom: 5px !important;
+}
+
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-color: oklch(0.623 0.214 259.815 / 0.6) !important;
 }

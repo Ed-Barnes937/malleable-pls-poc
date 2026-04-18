@@ -2,8 +2,21 @@ import initSqlJs, { type Database } from 'sql.js'
 import { SCHEMA } from './schema'
 import { seedDatabase } from './seed'
 
+const SCHEMA_VERSION = 2
+
 let dbInstance: Database | null = null
 let initPromise: Promise<Database> | null = null
+
+function isSchemaValid(db: Database): boolean {
+  try {
+    const result = db.exec("PRAGMA table_info(workspace_panels)")
+    if (!result.length) return false
+    const columns = result[0].values.map((row) => row[1] as string)
+    return columns.includes('grid_x')
+  } catch {
+    return false
+  }
+}
 
 export async function initDb(): Promise<Database> {
   if (dbInstance) return dbInstance
@@ -15,17 +28,29 @@ export async function initDb(): Promise<Database> {
     })
 
     const saved = localStorage.getItem('pls-db')
-    if (saved) {
+    const savedVersion = localStorage.getItem('pls-db-version')
+    let needsFreshDb = !saved || savedVersion !== String(SCHEMA_VERSION)
+
+    if (saved && !needsFreshDb) {
       const buf = Uint8Array.from(atob(saved), (c) => c.charCodeAt(0))
-      dbInstance = new SQL.Database(buf)
-    } else {
+      const candidate = new SQL.Database(buf)
+      if (isSchemaValid(candidate)) {
+        dbInstance = candidate
+      } else {
+        candidate.close()
+        needsFreshDb = true
+      }
+    }
+
+    if (needsFreshDb) {
       dbInstance = new SQL.Database()
       dbInstance.run(SCHEMA)
       seedDatabase(dbInstance)
+      localStorage.setItem('pls-db-version', String(SCHEMA_VERSION))
       persistDb()
     }
 
-    return dbInstance
+    return dbInstance!
   })()
 
   return initPromise

@@ -26,9 +26,14 @@ export function addWorkspacePanel(
   config: string = '{}'
 ): void {
   const id = `wp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+  const existing = query<{ grid_x: number; grid_y: number; grid_h: number }>(
+    'SELECT grid_x, grid_y, grid_h FROM workspace_panels WHERE workspace_id = ?',
+    [workspaceId]
+  )
+  const maxY = existing.reduce((max, p) => Math.max(max, p.grid_y + p.grid_h), 0)
   exec(
-    'INSERT INTO workspace_panels (id, workspace_id, lens_type, slot_name, config, col_span, row_span, created_at) VALUES (?, ?, ?, ?, ?, 1, 2, ?)',
-    [id, workspaceId, lensType, slotName, config, new Date().toISOString()]
+    'INSERT INTO workspace_panels (id, workspace_id, lens_type, slot_name, config, grid_x, grid_y, grid_w, grid_h, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, 1, 2, ?)',
+    [id, workspaceId, lensType, slotName, config, maxY, new Date().toISOString()]
   )
   persistDb()
 }
@@ -43,21 +48,15 @@ export function replacePanelLens(panelId: string, newLensType: string): void {
   persistDb()
 }
 
-export function updatePanelSpan(panelId: string, colSpan: number, rowSpan: number): void {
-  exec('UPDATE workspace_panels SET col_span = ?, row_span = ? WHERE id = ?', [colSpan, rowSpan, panelId])
-  persistDb()
-}
-
-export function swapPanelSpans(panelIdA: string, panelIdB: string): void {
-  const [a] = query<{ col_span: number; row_span: number }>(
-    'SELECT col_span, row_span FROM workspace_panels WHERE id = ?', [panelIdA]
-  )
-  const [b] = query<{ col_span: number; row_span: number }>(
-    'SELECT col_span, row_span FROM workspace_panels WHERE id = ?', [panelIdB]
-  )
-  if (!a || !b) return
-  exec('UPDATE workspace_panels SET col_span = ?, row_span = ? WHERE id = ?', [b.col_span, b.row_span, panelIdA])
-  exec('UPDATE workspace_panels SET col_span = ?, row_span = ? WHERE id = ?', [a.col_span, a.row_span, panelIdB])
+export function updatePanelLayouts(
+  layouts: { id: string; x: number; y: number; w: number; h: number }[]
+): void {
+  for (const l of layouts) {
+    exec(
+      'UPDATE workspace_panels SET grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ? WHERE id = ?',
+      [l.x, l.y, l.w, l.h, l.id]
+    )
+  }
   persistDb()
 }
 
