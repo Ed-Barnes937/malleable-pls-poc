@@ -23,6 +23,7 @@ declare module 'react-grid-layout' {
     width: number
     margin?: [number, number]
     containerPadding?: [number, number]
+    maxRows?: number
     compactType?: 'vertical' | 'horizontal' | null
     draggableHandle?: string
     draggableCancel?: string

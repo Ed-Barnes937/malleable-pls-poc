@@ -194,7 +194,7 @@ export function WorkspaceShell() {
         <div
           ref={containerRef}
           className={cn(
-            'relative min-h-0 flex-1 overflow-hidden p-3 transition-opacity duration-150',
+            'relative min-h-0 flex-1 overflow-y-auto p-3 transition-opacity duration-150',
             transitioning ? 'opacity-0' : 'opacity-100'
           )}
           onDragOver={(e) => {
