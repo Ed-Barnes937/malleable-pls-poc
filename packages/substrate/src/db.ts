@@ -63,9 +63,12 @@ export function getDb(): Database {
 
 export function persistDb(): void {
   if (!dbInstance) return
-  const data = dbInstance.export()
-  const str = btoa(String.fromCharCode(...new Uint8Array(data)))
-  localStorage.setItem('pls-db', str)
+  const bytes = new Uint8Array(dbInstance.export())
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  localStorage.setItem('pls-db', btoa(binary))
 }
 
 export function resetDb(): void {
