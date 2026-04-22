@@ -1,7 +1,7 @@
-import { useConnections } from '@pls/substrate'
+import { useConnections, useRecordingConnections } from '@pls/substrate'
 import { type LensProps } from '@pls/workspace-shell'
 import { cn } from '@pls/shared-ui'
-import { FileText, Mic, BookOpen, ArrowRight, Link2 } from 'lucide-react'
+import { FileText, Mic, ArrowRight, Link2 } from 'lucide-react'
 
 const SOURCE_ICONS: Record<string, typeof FileText> = {
   recording: Mic,
@@ -23,11 +23,26 @@ const CONCEPT_SEGMENTS: Record<string, string> = {
   'SN1 vs SN2': 'seg-chem1-04',
 }
 
-export default function ConnectionsLens({ config }: LensProps) {
-  const conceptLabel = (config.conceptLabel as string) ?? 'mitochondrial DNA'
-  const conceptSegmentId = CONCEPT_SEGMENTS[conceptLabel] ?? 'seg-bio4-04'
+export default function ConnectionsLens({ scope, config }: LensProps) {
+  const conceptLabel = config.conceptLabel as string | undefined
+  const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
+  const recordingId = (config.recordingId as string) ?? scope.recordingId
 
-  const { data: connections } = useConnections(conceptSegmentId)
+  const { data: conceptConnections } = useConnections(conceptSegmentId ?? '')
+  const { data: recordingConnections } = useRecordingConnections(recordingId)
+
+  const allConnections = [
+    ...(conceptConnections ?? []),
+    ...(recordingConnections ?? []),
+  ]
+
+  const seen = new Set<string>()
+  const connections = allConnections.filter((c) => {
+    const key = `${c.sourceId}-${c.relationship}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -35,11 +50,18 @@ export default function ConnectionsLens({ config }: LensProps) {
         <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">Connections</span>
         <div className="mt-1 flex items-center gap-2">
           <Link2 className="h-3.5 w-3.5 text-accent" />
-          <h3 className="text-sm font-semibold text-neutral-200">{conceptLabel}</h3>
+          <h3 className="text-sm font-semibold text-neutral-200">
+            {conceptLabel ?? 'All in scope'}
+          </h3>
+          {connections.length > 0 && (
+            <span className="rounded-full bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+              {connections.length}
+            </span>
+          )}
         </div>
       </div>
 
-      {!connections?.length ? (
+      {!connections.length ? (
         <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
           No connections found
         </div>

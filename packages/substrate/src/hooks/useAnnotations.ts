@@ -13,10 +13,12 @@ export function useAnnotations(scope: Scope) {
 export function useCreateAnnotation() {
   const queryClient = useQueryClient()
   return useMutation({
+    mutationKey: ['annotation:create'],
+    meta: { eventType: 'annotation:created' },
     mutationFn: (ann: NewAnnotation) => {
       createAnnotation(ann)
       persistDb()
-      return Promise.resolve()
+      return Promise.resolve(ann)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['annotations'] })

@@ -2,7 +2,7 @@ import initSqlJs, { type Database } from 'sql.js'
 import { SCHEMA } from './schema'
 import { seedDatabase } from './seed'
 
-const SCHEMA_VERSION = 2
+const SCHEMA_VERSION = 3
 
 let dbInstance: Database | null = null
 let initPromise: Promise<Database> | null = null
@@ -12,7 +12,9 @@ function isSchemaValid(db: Database): boolean {
     const result = db.exec("PRAGMA table_info(workspace_panels)")
     if (!result.length) return false
     const columns = result[0].values.map((row) => row[1] as string)
-    return columns.includes('grid_x')
+    if (!columns.includes('grid_x')) return false
+    const wfResult = db.exec("PRAGMA table_info(workflows)")
+    return wfResult.length > 0
   } catch {
     return false
   }

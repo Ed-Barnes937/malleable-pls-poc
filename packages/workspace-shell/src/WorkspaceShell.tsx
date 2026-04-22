@@ -7,6 +7,7 @@ import {
   useRemoveWorkspacePanel,
   useReplacePanelLens,
   useUpdatePanelLayouts,
+  useJobRunner,
   type Scope,
 } from '@pls/substrate'
 import { useWorkspaceStore } from './store'
@@ -78,6 +79,8 @@ function DropZone({
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+
+  useJobRunner(activeWorkspaceId)
 
   const { data: panels } = useWorkspacePanels(activeWorkspaceId)
   const { data: dbScopes } = useWorkspaceScopes(activeWorkspaceId)

@@ -21,10 +21,12 @@ export function useTagsForTarget(targetType: string, targetId: string) {
 export function useCreateTag() {
   const queryClient = useQueryClient()
   return useMutation({
+    mutationKey: ['tag:create'],
+    meta: { eventType: 'tag:created' },
     mutationFn: (tag: NewTag) => {
       createTag(tag)
       persistDb()
-      return Promise.resolve()
+      return Promise.resolve(tag)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tags'] })
@@ -38,6 +40,8 @@ export function useCreateTag() {
 export function useDeleteTag() {
   const queryClient = useQueryClient()
   return useMutation({
+    mutationKey: ['tag:delete'],
+    meta: { eventType: 'tag:deleted' },
     mutationFn: (id: string) => {
       deleteTag(id)
       persistDb()
