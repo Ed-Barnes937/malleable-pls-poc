@@ -11,6 +11,7 @@ import { useWorkspaceStore } from './store'
 import { useLensRegistry } from './LensRegistry'
 import { LENS_META } from './lens-meta'
 import { ThemeToggle } from './ThemeToggle'
+import { JobStatusIndicator } from './JobStatusIndicator'
 import { resetDb } from '@pls/substrate'
 import { RotateCcw } from 'lucide-react'
 
@@ -144,6 +145,13 @@ function WorkspaceList() {
   )
 }
 
+const CATEGORY_ORDER = ['tool', 'both', 'view'] as const
+const CATEGORY_LABELS: Record<string, string> = {
+  tool: 'Tools',
+  both: 'Tools + Views',
+  view: 'Views',
+}
+
 function LensPalette() {
   const registry = useLensRegistry()
   const lensTypes = Object.keys(registry)
@@ -153,29 +161,44 @@ function LensPalette() {
     e.dataTransfer.effectAllowed = 'copy'
   }, [])
 
+  const grouped = CATEGORY_ORDER.map((cat) => ({
+    category: cat,
+    label: CATEGORY_LABELS[cat],
+    lenses: lensTypes.filter((t) => LENS_META[t]?.category === cat),
+  })).filter((g) => g.lenses.length > 0)
+
   return (
-    <div className="flex flex-col gap-1">
-      {lensTypes.map((type) => {
-        const meta = LENS_META[type]
-        if (!meta) return null
-        const Icon = meta.icon
-        return (
-          <div
-            key={type}
-            draggable
-            onDragStart={(e) => handleDragStart(e, type)}
-            className="group flex cursor-grab items-center gap-2.5 rounded-lg px-2.5 py-2 transition-all hover:bg-surface-overlay/50 active:cursor-grabbing active:scale-[0.98]"
-          >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
-              <Icon className="h-3.5 w-3.5" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-neutral-400 group-hover:text-neutral-200">{meta.label}</p>
-              <p className="text-[10px] text-neutral-600">{meta.description}</p>
-            </div>
+    <div className="flex flex-col gap-3">
+      {grouped.map((group) => (
+        <div key={group.category}>
+          <p className="mb-1 px-1 text-[9px] font-semibold uppercase tracking-widest text-neutral-700">
+            {group.label}
+          </p>
+          <div className="flex flex-col gap-0.5">
+            {group.lenses.map((type) => {
+              const meta = LENS_META[type]
+              if (!meta) return null
+              const Icon = meta.icon
+              return (
+                <div
+                  key={type}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, type)}
+                  className="group flex cursor-grab items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-all hover:bg-surface-overlay/50 active:cursor-grabbing active:scale-[0.98]"
+                >
+                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
+                    <Icon className="h-3 w-3" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-medium text-neutral-400 group-hover:text-neutral-200">{meta.label}</p>
+                    <p className="text-[10px] text-neutral-600">{meta.description}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        )
-      })}
+        </div>
+      ))}
     </div>
   )
 }
@@ -218,6 +241,7 @@ export function Sidebar() {
 
       <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2.5">
         <ThemeToggle />
+        <JobStatusIndicator />
         <button
           onClick={() => { resetDb(); window.location.reload() }}
           className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"

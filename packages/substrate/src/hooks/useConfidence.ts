@@ -13,10 +13,12 @@ export function useConfidence(scope: Scope) {
 export function useRecordConfidence() {
   const queryClient = useQueryClient()
   return useMutation({
+    mutationKey: ['confidence:record'],
+    meta: { eventType: 'confidence:recorded' },
     mutationFn: (signal: NewConfidenceSignal) => {
       createConfidenceSignal(signal)
       persistDb()
-      return Promise.resolve()
+      return Promise.resolve(signal)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['confidence_signals'] })

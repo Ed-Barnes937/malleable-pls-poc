@@ -1,9 +1,10 @@
 import { StrictMode, useState, useEffect, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { initDb } from '@pls/substrate'
+import { QueryClient, QueryClientProvider, MutationCache } from '@tanstack/react-query'
+import { initDb, dispatchWorkflows } from '@pls/substrate'
 import './index.css'
 import { App } from './App'
+import { useWorkspaceStore } from '@pls/workspace-shell'
 
 const ReactQueryDevtools = lazy(() =>
   import('@tanstack/react-query-devtools/production').then((m) => ({
@@ -11,7 +12,27 @@ const ReactQueryDevtools = lazy(() =>
   }))
 )
 
+const mutationCache = new MutationCache({
+  onSuccess: (_data, variables, _context, mutation) => {
+    const eventType = mutation.meta?.eventType as string | undefined
+    if (!eventType) return
+
+    const depth = (mutation.meta?.depth as number) ?? 0
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId
+
+    const payload: Record<string, unknown> =
+      variables && typeof variables === 'object' ? { ...(variables as Record<string, unknown>) } : {}
+
+    if (eventType === 'confidence:recorded' && typeof payload.score === 'number' && payload.score < 40) {
+      payload.lowConfidence = 'true'
+    }
+
+    dispatchWorkflows(eventType, payload, workspaceId, depth)
+  },
+})
+
 const queryClient = new QueryClient({
+  mutationCache,
   defaultOptions: {
     queries: {
       staleTime: Infinity,

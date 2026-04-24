@@ -20,6 +20,7 @@ export function seedDatabase(db: Database) {
   seedWorkspaces(db)
   seedWorkspacePanels(db)
   seedWorkspaceScopes(db)
+  seedWorkflows(db)
 }
 
 function seedRecordings(db: Database) {
@@ -205,7 +206,7 @@ function seedWorkspacePanels(db: Database) {
     { id: 'wp-3', workspace_id: 'ws-evening-review', lens_type: 'transcript', slot_name: 'top-left', config: JSON.stringify({ recordingId: 'rec-bio-4', mode: 'review' }), grid_x: 0, grid_y: 0, grid_w: 2, grid_h: 3, created_at: '2026-03-28T09:00:00Z' },
     { id: 'wp-4', workspace_id: 'ws-evening-review', lens_type: 'test-me', slot_name: 'top-right', config: JSON.stringify({ mode: 'review' }), grid_x: 2, grid_y: 0, grid_w: 1, grid_h: 3, created_at: '2026-03-28T09:00:00Z' },
     { id: 'wp-5', workspace_id: 'ws-evening-review', lens_type: 'weekly-overview', slot_name: 'bottom-left', config: '{}', grid_x: 0, grid_y: 3, grid_w: 1, grid_h: 3, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-6', workspace_id: 'ws-evening-review', lens_type: 'connections', slot_name: 'bottom-right', config: JSON.stringify({ conceptLabel: 'mitochondrial DNA' }), grid_x: 1, grid_y: 3, grid_w: 2, grid_h: 3, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-6', workspace_id: 'ws-evening-review', lens_type: 'connections', slot_name: 'bottom-right', config: JSON.stringify({ conceptLabel: 'mitochondrial DNA', recordingId: 'rec-bio-4' }), grid_x: 1, grid_y: 3, grid_w: 2, grid_h: 3, created_at: '2026-03-28T09:00:00Z' },
     // Exam Prep — gap analysis wide across top, content below
     { id: 'wp-7', workspace_id: 'ws-exam-prep', lens_type: 'gap-analysis', slot_name: 'top-full', config: '{}', grid_x: 0, grid_y: 0, grid_w: 3, grid_h: 2, created_at: '2026-03-28T09:00:00Z' },
     { id: 'wp-8', workspace_id: 'ws-exam-prep', lens_type: 'weakest-topics', slot_name: 'bottom-left', config: '{}', grid_x: 0, grid_y: 2, grid_w: 1, grid_h: 4, created_at: '2026-03-28T09:00:00Z' },
@@ -219,5 +220,42 @@ function seedWorkspaceScopes(db: Database) {
     { id: 'ws-scope-2', workspace_id: 'ws-evening-review', scope_type: 'tag', scope_value: 'biology' },
     { id: 'ws-scope-3', workspace_id: 'ws-evening-review', scope_type: 'timeframe', scope_value: 'week' },
     { id: 'ws-scope-4', workspace_id: 'ws-exam-prep', scope_type: 'timeframe', scope_value: 'all' },
+  ])
+}
+
+function seedWorkflows(db: Database) {
+  const now = '2026-03-28T09:00:00Z'
+
+  // Audio capture: when recording completes → generate transcript
+  insert(db, 'workflows', [
+    { id: 'wf-audio-transcribe', source_lens: 'audio-capture', trigger_event: 'recording:completed', condition_field: null, condition_value: null, enabled: 1, workspace_id: null, created_at: now },
+  ])
+  insert(db, 'workflow_jobs', [
+    { id: 'wfj-audio-transcribe', workflow_id: 'wf-audio-transcribe', job_type: 'ai:transcribe', params: '{}', sort_order: 0, delay_ms: 0 },
+  ])
+
+  // Transcript: confused tag → search related docs + schedule quiz
+  insert(db, 'workflows', [
+    { id: 'wf-confused-search', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'confused', enabled: 1, workspace_id: null, created_at: now },
+  ])
+  insert(db, 'workflow_jobs', [
+    { id: 'wfj-confused-search', workflow_id: 'wf-confused-search', job_type: 'search:related-docs', params: '{}', sort_order: 0, delay_ms: 0 },
+    { id: 'wfj-confused-quiz', workflow_id: 'wf-confused-search', job_type: 'schedule:quiz', params: '{}', sort_order: 1, delay_ms: 604800000 },
+  ])
+
+  // Transcript: key-point tag → find cross-lecture connections
+  insert(db, 'workflows', [
+    { id: 'wf-keypoint-connections', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'key-point', enabled: 1, workspace_id: null, created_at: now },
+  ])
+  insert(db, 'workflow_jobs', [
+    { id: 'wfj-keypoint-connections', workflow_id: 'wf-keypoint-connections', job_type: 'ai:find-connections', params: '{}', sort_order: 0, delay_ms: 0 },
+  ])
+
+  // Test-me: low confidence → generate practice questions
+  insert(db, 'workflows', [
+    { id: 'wf-low-confidence', source_lens: 'test-me', trigger_event: 'confidence:recorded', condition_field: 'lowConfidence', condition_value: 'true', enabled: 1, workspace_id: null, created_at: now },
+  ])
+  insert(db, 'workflow_jobs', [
+    { id: 'wfj-low-confidence-qs', workflow_id: 'wf-low-confidence', job_type: 'ai:generate-questions', params: '{}', sort_order: 0, delay_ms: 0 },
   ])
 }

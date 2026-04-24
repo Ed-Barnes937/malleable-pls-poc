@@ -154,3 +154,59 @@ export interface Question {
   answer: string
   difficulty: 'easy' | 'medium' | 'hard'
 }
+
+export interface Workflow {
+  id: string
+  source_lens: string
+  trigger_event: string
+  condition_field: string | null
+  condition_value: string | null
+  enabled: number
+  workspace_id: string | null
+  created_at: string
+}
+
+export interface WorkflowJob {
+  id: string
+  workflow_id: string
+  job_type: string
+  params: string
+  sort_order: number
+  delay_ms: number
+}
+
+export interface JobRun {
+  id: string
+  workflow_id: string
+  workflow_job_id: string
+  job_type: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input: string | null
+  output: string | null
+  error: string | null
+  depth: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+export type SubstrateEventType =
+  | 'tag:created'
+  | 'tag:deleted'
+  | 'confidence:recorded'
+  | 'annotation:created'
+  | 'recording:completed'
+  | 'job:completed'
+
+export interface SubstrateEvent {
+  type: SubstrateEventType
+  payload: Record<string, unknown>
+  depth: number
+  sourceLens?: string
+}
+
+export type LensCategory = 'tool' | 'view' | 'both'
+
+export interface WorkflowWithJobs extends Workflow {
+  jobs: WorkflowJob[]
+}

@@ -5,7 +5,7 @@ export { useTranscript } from './hooks/useTranscript'
 export { useTags, useTagsForTarget, useCreateTag, useDeleteTag } from './hooks/useTags'
 export { useAnnotations, useCreateAnnotation } from './hooks/useAnnotations'
 export { useConfidence, useRecordConfidence } from './hooks/useConfidence'
-export { useConnections } from './hooks/useLinks'
+export { useConnections, useRecordingConnections } from './hooks/useLinks'
 export { useWeeklyOverview, useGapAnalysis, useWeakestTopics } from './hooks/useAggregates'
 export {
   useWorkspaces,
@@ -17,6 +17,17 @@ export {
   useUpdatePanelLayouts,
   useSetWorkspaceScope,
 } from './hooks/useWorkspaces'
+export {
+  useWorkflowsForLens,
+  useRecentJobs,
+  useRunningJobCount,
+  useToggleWorkflow,
+  useCreateWorkspaceOverride,
+  useJobRunner,
+} from './hooks/useWorkflows'
+
+export { dispatchWorkflows } from './workflows/engine'
+export { getAvailableJobTypes } from './workflows/executors'
 
 export { QUESTIONS } from './questions'
 
@@ -40,4 +51,11 @@ export type {
   NewAnnotation,
   NewConfidenceSignal,
   Question,
+  Workflow,
+  WorkflowJob,
+  WorkflowWithJobs,
+  JobRun,
+  SubstrateEvent,
+  SubstrateEventType,
+  LensCategory,
 } from './types'

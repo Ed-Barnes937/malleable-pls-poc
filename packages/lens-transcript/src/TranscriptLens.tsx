@@ -83,6 +83,14 @@ export default function TranscriptLens({ scope, config }: LensProps) {
     setAnnotationDraft('')
   }
 
+  if (!recordingId) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
+        Select a recording in scope to view transcript
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center gap-2">
