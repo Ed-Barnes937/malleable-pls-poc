@@ -5,7 +5,7 @@ import {
   useWorkspaceScopes,
   useSetWorkspaceScope,
 } from '@pls/substrate'
-import { cn } from '@pls/shared-ui'
+import { cn, SectionLabel } from '@pls/shared-ui'
 import { BookOpen, Moon, GraduationCap, ChevronDown, Layers } from 'lucide-react'
 import { useWorkspaceStore } from './store'
 import { useLensRegistry } from './LensRegistry'
@@ -56,9 +56,7 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
   return (
     <div className="flex flex-col gap-2.5">
       <div>
-        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-neutral-600">
-          Course
-        </label>
+        <SectionLabel className="mb-1">Course</SectionLabel>
         <div className="relative">
           <select
             value={currentCourse}
@@ -74,9 +72,7 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
       </div>
 
       <div>
-        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-neutral-600">
-          Recording
-        </label>
+        <SectionLabel className="mb-1">Recording</SectionLabel>
         <div className="relative">
           <select
             value={currentRecording}
@@ -93,9 +89,7 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
       </div>
 
       <div>
-        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-neutral-600">
-          Timeframe
-        </label>
+        <SectionLabel className="mb-1">Timeframe</SectionLabel>
         <div className="relative">
           <select
             value={currentTimeframe}
@@ -171,9 +165,7 @@ function LensPalette() {
     <div className="flex flex-col gap-3">
       {grouped.map((group) => (
         <div key={group.category}>
-          <p className="mb-1 px-1 text-[9px] font-semibold uppercase tracking-widest text-neutral-700">
-            {group.label}
-          </p>
+          <SectionLabel className="mb-1 px-1">{group.label}</SectionLabel>
           <div className="flex flex-col gap-0.5">
             {group.lenses.map((type) => {
               const meta = LENS_META[type]
@@ -216,23 +208,17 @@ export function Sidebar() {
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col gap-5 px-3 pb-4">
           <section>
-            <h2 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-neutral-600">
-              Workspaces
-            </h2>
+            <SectionLabel className="mb-2 px-1">Workspaces</SectionLabel>
             <WorkspaceList />
           </section>
 
           <section>
-            <h2 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-neutral-600">
-              Scope
-            </h2>
+            <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
             <ScopeEditor workspaceId={activeWorkspaceId} />
           </section>
 
           <section>
-            <h2 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-neutral-600">
-              Lenses
-            </h2>
+            <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
             <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
             <LensPalette />
           </section>

@@ -7,7 +7,7 @@
   "dependencies": {
     "@pls/substrate": "workspace:*",
     "@pls/shared-ui": "workspace:*",
-    "@pls/workspace-shell": "workspace:*",
+    "@pls/lens-framework": "workspace:*",
     "lucide-react": "^0.500.0"
   },
   "peerDependencies": {

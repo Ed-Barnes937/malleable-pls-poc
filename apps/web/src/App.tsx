@@ -1,4 +1,5 @@
-import { WorkspaceShell, LensRegistryProvider } from '@pls/workspace-shell'
+import { WorkspaceShell } from '@pls/workspace-shell'
+import { LensRegistryProvider } from '@pls/lens-framework'
 
 const lensRegistry = {
   'audio-capture': () => import('@pls/lens-audio-capture'),

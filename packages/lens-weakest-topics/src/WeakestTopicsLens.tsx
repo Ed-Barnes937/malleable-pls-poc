@@ -1,22 +1,12 @@
 import { useWeakestTopics } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
-
-const COURSE_PILL_COLORS: Record<string, string> = {
-  biology: 'bg-emerald-500/15 text-emerald-400 ring-emerald-500/20',
-  chemistry: 'bg-accent/15 text-accent ring-accent/20',
-  physics: 'bg-tag-key-point/15 text-tag-key-point ring-tag-key-point/20',
-}
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState, COURSE_PILL_COLORS } from '@pls/shared-ui'
 
 export default function WeakestTopicsLens({}: LensProps) {
   const { data: topics } = useWeakestTopics(8)
 
   if (!topics?.length) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
-        No weak topics found
-      </div>
-    )
+    return <EmptyState message="No weak topics found" />
   }
 
   return (

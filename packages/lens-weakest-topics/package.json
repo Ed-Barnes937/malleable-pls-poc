@@ -7,7 +7,7 @@
   "dependencies": {
     "@pls/substrate": "workspace:*",
     "@pls/shared-ui": "workspace:*",
-    "@pls/workspace-shell": "workspace:*"
+    "@pls/lens-framework": "workspace:*"
   },
   "peerDependencies": {
     "react": "^19.0.0",

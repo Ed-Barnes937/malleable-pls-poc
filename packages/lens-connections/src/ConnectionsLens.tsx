@@ -1,6 +1,6 @@
 import { useConnections, useRecordingConnections } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState } from '@pls/shared-ui'
 import { FileText, Mic, ArrowRight, Link2 } from 'lucide-react'
 
 const SOURCE_ICONS: Record<string, typeof FileText> = {
@@ -62,9 +62,7 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
       </div>
 
       {!connections.length ? (
-        <div className="flex flex-1 items-center justify-center text-sm text-neutral-600">
-          No connections found
-        </div>
+        <EmptyState message="No connections found" />
       ) : (
         <div className="min-h-0 flex-1 -mx-3 overflow-y-auto px-3 space-y-1">
           {connections.map((conn, i) => {
