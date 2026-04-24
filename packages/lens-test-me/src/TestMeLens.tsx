@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useTags, useConfidence, useRecordConfidence, QUESTIONS, type Question } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState } from '@pls/shared-ui'
 import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
 
 export default function TestMeLens({ scope, config }: LensProps) {
@@ -88,11 +88,7 @@ export default function TestMeLens({ scope, config }: LensProps) {
   }, [currentQuestion, recordConfidence, sortedQuestions.length])
 
   if (!currentQuestion) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
-        No questions available
-      </div>
-    )
+    return <EmptyState message="No questions available" />
   }
 
   const confidencePercent = currentQuestion.conf ?? 50

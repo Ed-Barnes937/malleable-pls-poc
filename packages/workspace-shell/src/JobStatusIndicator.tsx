@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
 import { useRunningJobCount, useRecentJobs } from '@pls/substrate'
 import { Zap } from 'lucide-react'
-import { cn } from '@pls/shared-ui'
+import { cn, StatusDot, SectionLabel } from '@pls/shared-ui'
 import { useState, useRef, useLayoutEffect, useCallback } from 'react'
 
 function JobHistoryPopover({ anchorRef, onClose }: { anchorRef: React.RefObject<HTMLButtonElement | null>; onClose: () => void }) {
@@ -25,9 +25,7 @@ function JobHistoryPopover({ anchorRef, onClose }: { anchorRef: React.RefObject<
         style={{ left: pos.left, bottom: pos.bottom }}
       >
         <div className="border-b border-border-subtle px-3 py-2">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-            Recent jobs
-          </span>
+          <SectionLabel>Recent jobs</SectionLabel>
         </div>
         <div className="max-h-48 overflow-y-auto">
           {jobs && jobs.length > 0 ? (
@@ -36,13 +34,7 @@ function JobHistoryPopover({ anchorRef, onClose }: { anchorRef: React.RefObject<
                 key={job.id}
                 className="flex items-center gap-2 border-b border-border-subtle/50 px-3 py-2 last:border-0"
               >
-                <div className={cn(
-                  'h-1.5 w-1.5 shrink-0 rounded-full',
-                  job.status === 'completed' ? 'bg-emerald-400' :
-                  job.status === 'running' ? 'bg-accent animate-pulse' :
-                  job.status === 'failed' ? 'bg-red-400' :
-                  'bg-neutral-600'
-                )} />
+                <StatusDot status={job.status === 'completed' ? 'complete' : job.status === 'running' ? 'running' : job.status === 'failed' ? 'failed' : 'idle'} />
                 <span className="flex-1 truncate text-[11px] text-neutral-400">
                   {job.job_type}
                 </span>

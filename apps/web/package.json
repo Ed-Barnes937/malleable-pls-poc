@@ -11,6 +11,7 @@
   "dependencies": {
     "@pls/lens-audio-capture": "workspace:*",
     "@pls/lens-connections": "workspace:*",
+    "@pls/lens-framework": "workspace:*",
     "@pls/lens-gap-analysis": "workspace:*",
     "@pls/lens-test-me": "workspace:*",
     "@pls/lens-transcript": "workspace:*",

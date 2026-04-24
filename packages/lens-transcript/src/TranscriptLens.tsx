@@ -1,32 +1,14 @@
 import { useState, useMemo } from 'react'
 import { useTranscript, useTags, useCreateTag, useRecording, useAnnotations, useCreateAnnotation, type Tag } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
-import { Flag, Star, HelpCircle, MessageSquare } from 'lucide-react'
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { MessageSquare } from 'lucide-react'
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
   const minutes = Math.floor(totalSeconds / 60)
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
-
-const TAG_STYLES: Record<string, { bg: string; text: string; icon: typeof Flag }> = {
-  confused: { bg: 'bg-tag-confused/15 border-tag-confused/30', text: 'text-tag-confused', icon: Flag },
-  'key-point': { bg: 'bg-tag-key-point/15 border-tag-key-point/30', text: 'text-tag-key-point', icon: Star },
-  question: { bg: 'bg-tag-question/15 border-tag-question/30', text: 'text-tag-question', icon: HelpCircle },
-}
-
-function TagPill({ tag }: { tag: Tag }) {
-  const style = TAG_STYLES[tag.label]
-  if (!style) return null
-  const Icon = style.icon
-  return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium', style.bg, style.text)}>
-      <Icon className="h-2.5 w-2.5" />
-      {tag.label}
-    </span>
-  )
 }
 
 export default function TranscriptLens({ scope, config }: LensProps) {
@@ -84,11 +66,7 @@ export default function TranscriptLens({ scope, config }: LensProps) {
   }
 
   if (!recordingId) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
-        Select a recording in scope to view transcript
-      </div>
-    )
+    return <EmptyState message="Select a recording in scope to view transcript" />
   }
 
   return (
@@ -129,7 +107,7 @@ export default function TranscriptLens({ scope, config }: LensProps) {
                   </p>
                   {segTags.length > 0 && (
                     <div className="mt-1.5 flex flex-wrap gap-1">
-                      {segTags.map((tag) => <TagPill key={tag.id} tag={tag} />)}
+                      {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
                     </div>
                   )}
                   {!isCapture && segAnnotations.length > 0 && (

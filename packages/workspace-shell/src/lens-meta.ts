@@ -1,5 +1,5 @@
 import { Mic, FileText, Brain, BarChart3, Link2, PieChart, AlertTriangle } from 'lucide-react'
-import type { LensCategory } from '@pls/substrate'
+import type { LensCategory } from '@pls/lens-framework'
 
 export const LENS_META: Record<string, { label: string; icon: typeof FileText; description: string; category: LensCategory }> = {
   'audio-capture': { label: 'Audio Capture', icon: Mic, description: 'Record & playback', category: 'tool' },

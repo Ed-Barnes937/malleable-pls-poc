@@ -1,23 +1,13 @@
 import { useWeeklyOverview } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, TrendingUp } from 'lucide-react'
-
-const COURSE_COLORS: Record<string, string> = {
-  biology: 'bg-emerald-500',
-  chemistry: 'bg-accent',
-  physics: 'bg-tag-key-point',
-}
 
 export default function WeeklyOverviewLens({ scope }: LensProps) {
   const { data: overview } = useWeeklyOverview(scope)
 
   if (!overview?.length) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
-        No data for this period
-      </div>
-    )
+    return <EmptyState message="No data for this period" />
   }
 
   const totalGaps = overview.reduce((sum, c) => sum + c.gapCount, 0)
@@ -50,12 +40,7 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
                   <span className="font-mono text-xs tabular-nums text-neutral-500">{course.percentage}%</span>
                 </div>
               </div>
-              <div className="h-2.5 rounded-full bg-neutral-800">
-                <div
-                  className={cn('h-full rounded-full transition-all duration-500', barColor)}
-                  style={{ width: `${course.percentage}%`, opacity: 0.7 }}
-                />
-              </div>
+              <ProgressBar value={course.percentage} color={barColor} size="sm" rounded />
               <div className="flex items-center gap-1 text-[10px] text-neutral-600">
                 <TrendingUp className="h-2.5 w-2.5" />
                 {course.confidentSegments} of {course.totalSegments} segments confident

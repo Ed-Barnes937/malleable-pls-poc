@@ -1,23 +1,13 @@
 import { useGapAnalysis } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
-import { cn } from '@pls/shared-ui'
+import { type LensProps } from '@pls/lens-framework'
+import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, BarChart3 } from 'lucide-react'
-
-const COURSE_COLORS: Record<string, string> = {
-  biology: 'bg-emerald-500',
-  chemistry: 'bg-accent',
-  physics: 'bg-tag-key-point',
-}
 
 export default function GapAnalysisLens({}: LensProps) {
   const { data: gaps } = useGapAnalysis()
 
   if (!gaps?.length) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-600">
-        No course data available
-      </div>
-    )
+    return <EmptyState message="No course data available" />
   }
 
   const sorted = [...gaps].sort((a, b) => a.percentage - b.percentage)
@@ -40,12 +30,7 @@ export default function GapAnalysisLens({}: LensProps) {
               </span>
               <div className="flex flex-1 items-center gap-3">
                 <div className="relative flex-1">
-                  <div className="h-4 rounded bg-neutral-800">
-                    <div
-                      className={cn('h-full rounded transition-all duration-500', barColor)}
-                      style={{ width: `${course.percentage}%`, opacity: 0.7 }}
-                    />
-                  </div>
+                  <ProgressBar value={course.percentage} color={barColor} />
                   <span className={cn(
                     'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] font-bold tabular-nums',
                     course.percentage > 50 ? 'text-neutral-100' : 'text-neutral-400'

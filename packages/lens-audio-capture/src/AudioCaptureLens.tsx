@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRecording } from '@pls/substrate'
-import { type LensProps } from '@pls/workspace-shell'
+import { type LensProps } from '@pls/lens-framework'
 import { cn } from '@pls/shared-ui'
 import { Mic, Square, Play, Pause, RotateCcw } from 'lucide-react'
 

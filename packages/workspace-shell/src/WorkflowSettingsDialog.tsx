@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom'
 import { X, Zap, ZapOff, ChevronRight } from 'lucide-react'
-import { cn } from '@pls/shared-ui'
+import { cn, Switch, Spinner } from '@pls/shared-ui'
 import {
   useWorkflowsForLens,
   useToggleWorkflow,
@@ -60,18 +60,7 @@ function WorkflowCard({ workflow }: { workflow: WorkflowWithJobs }) {
             </p>
           )}
         </div>
-        <button
-          onClick={handleToggle}
-          className={cn(
-            'flex h-6 w-10 shrink-0 items-center rounded-full px-0.5 transition-colors',
-            isEnabled ? 'bg-accent' : 'bg-neutral-700'
-          )}
-        >
-          <div className={cn(
-            'h-5 w-5 rounded-full bg-white shadow transition-transform',
-            isEnabled ? 'translate-x-4' : 'translate-x-0'
-          )} />
-        </button>
+        <Switch checked={isEnabled} onCheckedChange={handleToggle} />
       </div>
 
       <div className="flex flex-col gap-1.5">
@@ -145,7 +134,7 @@ export function WorkflowSettingsDialog({ lensType, onClose }: WorkflowSettingsDi
         <div className="max-h-[60vh] overflow-y-auto p-4">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="h-5 w-5 animate-spin rounded-full border-2 border-accent/30 border-t-accent" />
+              <Spinner size="sm" />
             </div>
           ) : workflows && workflows.length > 0 ? (
             <div className="flex flex-col gap-3">
