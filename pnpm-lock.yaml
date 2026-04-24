@@ -74,6 +74,9 @@ importers:
       '@pls/lens-weekly-overview':
         specifier: workspace:*
         version: link:../../packages/lens-weekly-overview
+      '@pls/panel-system':
+        specifier: workspace:*
+        version: link:../../packages/panel-system
       '@pls/shared-ui':
         specifier: workspace:*
         version: link:../../packages/shared-ui
