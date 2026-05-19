@@ -1,0 +1,28 @@
+import { z } from 'zod'
+import { router, publicProcedure } from '../trpc'
+
+export const jobsRouter = router({
+  recent: publicProcedure
+    .input(z.number().optional().default(5))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx`
+          SELECT * FROM job_runs
+          WHERE user_id = ${ctx.userId}
+          ORDER BY created_at DESC
+          LIMIT ${input}
+        `
+      })
+    }),
+
+  runningCount: publicProcedure
+    .query(async ({ ctx }) => {
+      return ctx.withTenant(async (tx) => {
+        const [row] = await tx`
+          SELECT COUNT(*)::int AS count FROM job_runs
+          WHERE user_id = ${ctx.userId} AND status IN ('pending', 'running')
+        `
+        return row?.count ?? 0
+      })
+    }),
+})

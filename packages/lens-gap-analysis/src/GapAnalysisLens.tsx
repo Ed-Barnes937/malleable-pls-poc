@@ -1,10 +1,10 @@
-import { useGapAnalysis } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, BarChart3 } from 'lucide-react'
 
 export default function GapAnalysisLens({}: LensProps) {
-  const { data: gaps } = useGapAnalysis()
+  const substrate = useSubstrate()
+  const { data: gaps } = substrate.useGapAnalysis()
 
   if (!gaps?.length) {
     return <EmptyState message="No course data available" />

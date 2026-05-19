@@ -1,4 +1,4 @@
-import { useWorkspaces } from '@pls/substrate'
+import { useWorkspaces } from '@pls/substrate-client'
 import { cn } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { BookOpen, Moon, GraduationCap } from 'lucide-react'

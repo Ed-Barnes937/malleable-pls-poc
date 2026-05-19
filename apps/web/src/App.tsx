@@ -1,20 +1,27 @@
 import { WorkspaceShell } from '@pls/workspace-shell'
-import { LensRegistryProvider } from '@pls/lens-framework'
+import { ManifestRegistryProvider, type PanelManifest } from '@pls/lens-framework'
+import { manifest as audioCapture } from '@pls/lens-audio-capture'
+import { manifest as transcript } from '@pls/lens-transcript'
+import { manifest as testMe } from '@pls/lens-test-me'
+import { manifest as weeklyOverview } from '@pls/lens-weekly-overview'
+import { manifest as connections } from '@pls/lens-connections'
+import { manifest as gapAnalysis } from '@pls/lens-gap-analysis'
+import { manifest as weakestTopics } from '@pls/lens-weakest-topics'
 
-const lensRegistry = {
-  'audio-capture': () => import('@pls/lens-audio-capture'),
-  'transcript': () => import('@pls/lens-transcript'),
-  'test-me': () => import('@pls/lens-test-me'),
-  'weekly-overview': () => import('@pls/lens-weekly-overview'),
-  'connections': () => import('@pls/lens-connections'),
-  'gap-analysis': () => import('@pls/lens-gap-analysis'),
-  'weakest-topics': () => import('@pls/lens-weakest-topics'),
-}
+const manifests: PanelManifest[] = [
+  audioCapture,
+  transcript,
+  testMe,
+  weeklyOverview,
+  connections,
+  gapAnalysis,
+  weakestTopics,
+]
 
 export function App() {
   return (
-    <LensRegistryProvider registry={lensRegistry}>
+    <ManifestRegistryProvider manifests={manifests}>
       <WorkspaceShell />
-    </LensRegistryProvider>
+    </ManifestRegistryProvider>
   )
 }

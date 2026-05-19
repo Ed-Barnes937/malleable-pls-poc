@@ -1,24 +1,16 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react'
 import { Panel } from '@pls/panel-system'
 import { cn } from '@pls/shared-ui'
+import { SubstrateProvider, useManifest } from '@pls/lens-framework'
 import { Zap } from 'lucide-react'
 import { useWorkspaceStore } from './store'
-import { LENS_META } from './lens-meta'
 import { WorkflowSettingsDialog } from './WorkflowSettingsDialog'
-import { useRecentJobs } from '@pls/substrate'
-
-const QUERY_KEYS_BY_LENS: Record<string, string[]> = {
-  'weekly-overview': ['weekly_overview'],
-  'connections': ['connections', 'links'],
-  'gap-analysis': ['gap_analysis'],
-  'weakest-topics': ['weakest_topics'],
-  'transcript': ['transcript_segments', 'annotations', 'tags'],
-  'test-me': ['confidence_signals'],
-  'audio-capture': ['transcript_segments'],
-}
+import { substrateBridge } from './substrate-bridge'
+import { useRecentJobs } from '@pls/substrate-client'
 
 function usePanelPulse(lensType: string) {
   const [pulsing, setPulsing] = useState(false)
+  const manifest = useManifest(lensType)
   const { data: jobs } = useRecentJobs(5)
   const prevCompletedRef = useRef(0)
 
@@ -26,7 +18,7 @@ function usePanelPulse(lensType: string) {
     if (!jobs) return
     const completed = jobs.filter((j) => j.status === 'completed').length
     if (completed > prevCompletedRef.current && prevCompletedRef.current > 0) {
-      const relevantKeys = QUERY_KEYS_BY_LENS[lensType] ?? []
+      const relevantKeys = manifest?.reads ?? []
       const hasRelevantJob = jobs.some((j) => {
         if (j.status !== 'completed' || !j.output) return false
         try {
@@ -46,7 +38,7 @@ function usePanelPulse(lensType: string) {
       }
     }
     prevCompletedRef.current = completed
-  }, [jobs, lensType])
+  }, [jobs, lensType, manifest])
 
   return pulsing
 }
@@ -69,11 +61,11 @@ export function PanelContainer({
   const setFocusedPanelId = useWorkspaceStore((s) => s.setFocusedPanelId)
   const [showWorkflows, setShowWorkflows] = useState(false)
   const pulsing = usePanelPulse(lensType)
+  const manifest = useManifest(lensType)
 
-  const meta = LENS_META[lensType]
-  const hasWorkflows = meta?.category === 'tool' || meta?.category === 'both'
+  const isWritable = manifest?.category === 'tool'
 
-  const workflowAction = hasWorkflows ? (
+  const workflowAction = isWritable ? (
     <button
       onClick={(e) => { e.stopPropagation(); setShowWorkflows(true) }}
       className={cn(
@@ -89,15 +81,20 @@ export function PanelContainer({
   return (
     <>
       <Panel
-        label={meta?.label ?? lensType}
-        icon={meta?.icon}
+        label={manifest?.label ?? lensType}
+        icon={manifest?.icon}
         onRemove={onRemove}
         headerActions={workflowAction}
         focused={focusedPanelId === panelId}
         onFocus={() => setFocusedPanelId(panelId)}
         pulsing={pulsing}
       >
-        {children}
+        <SubstrateProvider
+          reader={substrateBridge}
+          writer={isWritable ? substrateBridge : undefined}
+        >
+          {children}
+        </SubstrateProvider>
       </Panel>
       {showWorkflows && (
         <WorkflowSettingsDialog

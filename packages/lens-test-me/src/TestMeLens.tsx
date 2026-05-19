@@ -1,17 +1,20 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useTags, useConfidence, useRecordConfidence, QUESTIONS, type Question } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { QUESTIONS, type Question } from '@pls/substrate'
+import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, EmptyState } from '@pls/shared-ui'
 import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
 
 export default function TestMeLens({ scope, config }: LensProps) {
+  const substrate = useSubstrate()
+  const mutations = useSubstrateMutations()
+
   const mode = (config.mode as string) ?? 'review'
   const timerSeconds = (config.timerSeconds as number) ?? 120
   const isExam = mode === 'exam'
 
-  const { data: tags } = useTags(scope)
-  const { data: confidence } = useConfidence(scope)
-  const recordConfidence = useRecordConfidence()
+  const { data: tags } = substrate.useTags(scope)
+  const { data: confidence } = substrate.useConfidence(scope)
+  const recordConfidence = mutations.useRecordConfidence()
 
   const [currentIndex, setCurrentIndex] = useState(0)
   const [answer, setAnswer] = useState('')

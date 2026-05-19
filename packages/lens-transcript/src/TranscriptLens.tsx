@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
-import { useTranscript, useTags, useCreateTag, useRecording, useAnnotations, useCreateAnnotation, type Tag } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import type { Tag } from '@pls/substrate'
+import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, EmptyState, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
 
@@ -12,16 +12,19 @@ function formatTime(ms: number): string {
 }
 
 export default function TranscriptLens({ scope, config }: LensProps) {
-  const recordingId = (config.recordingId as string) ?? scope.recordingId ?? ''
+  const substrate = useSubstrate()
+  const mutations = useSubstrateMutations()
+
+  const recordingId = scope.recordingId ?? (config.recordingId as string) ?? ''
   const mode = (config.mode as string) ?? 'review'
   const isCapture = mode === 'capture'
 
-  const { data: recording } = useRecording(recordingId)
-  const { data: segments } = useTranscript(recordingId)
-  const { data: tags } = useTags({ ...scope, recordingId })
-  const { data: annotations } = useAnnotations({ ...scope, recordingId })
-  const createTag = useCreateTag()
-  const createAnnotation = useCreateAnnotation()
+  const { data: recording } = substrate.useRecording(recordingId)
+  const { data: segments } = substrate.useTranscript(recordingId)
+  const { data: tags } = substrate.useTags({ ...scope, recordingId })
+  const { data: annotations } = substrate.useAnnotations({ ...scope, recordingId })
+  const createTag = mutations.useCreateTag()
+  const createAnnotation = mutations.useCreateAnnotation()
 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [annotationDraft, setAnnotationDraft] = useState('')

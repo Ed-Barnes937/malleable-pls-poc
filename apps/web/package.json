@@ -20,6 +20,7 @@
     "@pls/lens-weekly-overview": "workspace:*",
     "@pls/shared-ui": "workspace:*",
     "@pls/substrate": "workspace:*",
+    "@pls/substrate-client": "workspace:*",
     "@pls/workspace-shell": "workspace:*",
     "@tanstack/react-query": "^5.99.0",
     "@tanstack/react-query-devtools": "^5.99.0",
