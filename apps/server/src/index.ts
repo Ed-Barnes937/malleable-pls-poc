@@ -59,7 +59,7 @@ const server = http.createServer((req, res) => {
   }
 })
 
-server.listen(port)
+server.listen(port, '0.0.0.0')
 startJobRunner()
 console.log(`tRPC server listening on :${port}`)
 
