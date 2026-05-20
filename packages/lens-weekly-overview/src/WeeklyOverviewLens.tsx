@@ -1,10 +1,10 @@
-import { useWeeklyOverview } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, TrendingUp } from 'lucide-react'
 
 export default function WeeklyOverviewLens({ scope }: LensProps) {
-  const { data: overview } = useWeeklyOverview(scope)
+  const substrate = useSubstrate()
+  const { data: overview } = substrate.useWeeklyOverview(scope)
 
   if (!overview?.length) {
     return <EmptyState message="No data for this period" />

@@ -5,8 +5,8 @@ import {
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
-  useJobRunner,
-} from '@pls/substrate'
+  useServerEvents,
+} from '@pls/substrate-client'
 import type { Scope } from '@pls/lens-framework'
 import { PanelGrid, type PanelGridItem } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -27,8 +27,7 @@ function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Sc
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-
-  useJobRunner(activeWorkspaceId)
+  useServerEvents()
 
   const { data: panels } = useWorkspacePanels(activeWorkspaceId)
   const { data: dbScopes } = useWorkspaceScopes(activeWorkspaceId)
@@ -49,13 +48,14 @@ export function WorkspaceShell() {
     }
   }, [activeWorkspaceId])
 
-  const scope = useMemo(() => scopesFromDb(dbScopes ?? []), [dbScopes])
+  const scope = useMemo(() => scopesFromDb((dbScopes ?? []) as { scope_type: string; scope_value: string }[]), [dbScopes])
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
     const map = new Map<string, Record<string, unknown>>()
-    for (const p of panels) {
-      map.set(p.id, { ...JSON.parse(p.config), lensType: p.lens_type })
+    for (const p of panels as unknown as { id: string; config: Record<string, unknown> | string; lens_type: string }[]) {
+      const cfg = typeof p.config === 'string' ? JSON.parse(p.config) : p.config
+      map.set(p.id, { ...cfg, lensType: p.lens_type })
     }
     return map
   }, [panels])
@@ -83,18 +83,18 @@ export function WorkspaceShell() {
   )
 
   const handleAddPanel = useCallback(
-    (lensType: string, position: { x: number; y: number; w: number; h: number }) => {
+    (lensType: string, _position: { x: number; y: number; w: number; h: number }) => {
       const slotName = `slot-${Date.now()}`
-      addPanel.mutate({ workspaceId: activeWorkspaceId, lensType, slotName, position })
+      addPanel.mutate({ workspaceId: activeWorkspaceId, lensType, slotName })
     },
     [activeWorkspaceId, addPanel]
   )
 
   const handleRemovePanel = useCallback(
     (panelId: string) => {
-      removePanel.mutate({ panelId, workspaceId: activeWorkspaceId })
+      removePanel.mutate(panelId)
     },
-    [activeWorkspaceId, removePanel]
+    [removePanel]
   )
 
   const renderPanel = useCallback(
@@ -125,7 +125,7 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-dvh overflow-hidden bg-surface">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="flex min-w-0 flex-1 flex-col overflow-auto">
         <PanelGrid
           items={gridItems}
           onLayoutChange={handleLayoutChange}

@@ -4,3 +4,10 @@ dist/
 *.tsbuildinfo
 .DS_Store
 .vercel
+uploads/
+.env
+.env.local
+.pnpm-store/
+test-results/
+playwright-report/
+playwright/.cache/

@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { useRunningJobCount, useRecentJobs } from '@pls/substrate'
+import { useRunningJobCount, useRecentJobs } from '@pls/substrate-client'
 import { Zap } from 'lucide-react'
 import { cn, StatusDot, SectionLabel } from '@pls/shared-ui'
 import { useState, useRef, useLayoutEffect, useCallback } from 'react'

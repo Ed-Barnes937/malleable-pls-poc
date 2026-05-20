@@ -1,5 +1,4 @@
-import { useConnections, useRecordingConnections } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState } from '@pls/shared-ui'
 import { FileText, Mic, ArrowRight, Link2 } from 'lucide-react'
 
@@ -24,12 +23,14 @@ const CONCEPT_SEGMENTS: Record<string, string> = {
 }
 
 export default function ConnectionsLens({ scope, config }: LensProps) {
+  const substrate = useSubstrate()
+
   const conceptLabel = config.conceptLabel as string | undefined
   const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
   const recordingId = (config.recordingId as string) ?? scope.recordingId
 
-  const { data: conceptConnections } = useConnections(conceptSegmentId ?? '')
-  const { data: recordingConnections } = useRecordingConnections(recordingId)
+  const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '')
+  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)
 
   const allConnections = [
     ...(conceptConnections ?? []),

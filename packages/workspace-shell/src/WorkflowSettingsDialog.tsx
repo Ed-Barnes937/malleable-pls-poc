@@ -5,9 +5,8 @@ import {
   useWorkflowsForLens,
   useToggleWorkflow,
   useCreateWorkspaceOverride,
-  getAvailableJobTypes,
-  type WorkflowWithJobs,
-} from '@pls/substrate'
+} from '@pls/substrate-client'
+import { getAvailableJobTypes, type WorkflowWithJobs } from '@pls/substrate'
 import { useWorkspaceStore } from './store'
 
 const JOB_TYPE_INFO = Object.fromEntries(
@@ -25,14 +24,16 @@ function WorkflowCard({ workflow }: { workflow: WorkflowWithJobs }) {
   const toggleWorkflow = useToggleWorkflow()
   const createOverride = useCreateWorkspaceOverride()
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const isEnabled = workflow.enabled === 1
+  const isEnabled = !!workflow.enabled
   const isDefault = workflow.workspace_id === null
 
   const handleToggle = () => {
     if (isDefault) {
-      createOverride.mutate(
-        { defaultWorkflow: { ...workflow, enabled: isEnabled ? 0 : 1 }, workspaceId },
-      )
+      createOverride.mutate({
+        sourceWorkflowId: workflow.id,
+        workspaceId,
+        enabled: !isEnabled,
+      })
     } else {
       toggleWorkflow.mutate({ workflowId: workflow.id, enabled: !isEnabled })
     }
@@ -109,7 +110,8 @@ interface WorkflowSettingsDialogProps {
 
 export function WorkflowSettingsDialog({ lensType, onClose }: WorkflowSettingsDialogProps) {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { data: workflows, isLoading } = useWorkflowsForLens(lensType, workspaceId)
+  const { data: rawWorkflows, isLoading } = useWorkflowsForLens(lensType, workspaceId)
+  const workflows = rawWorkflows as unknown as WorkflowWithJobs[] | undefined
 
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">

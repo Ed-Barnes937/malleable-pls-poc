@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useCallback, useState, type ReactNode } from 'react'
+import { useMemo, useCallback, useState, useRef, useEffect, type ReactNode } from 'react'
 import { Responsive, useContainerWidth, type LayoutItem, type DropConfig } from 'react-grid-layout'
 import { cn } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
@@ -16,7 +16,7 @@ export interface PanelGridItem {
 export interface PanelGridProps {
   items: PanelGridItem[]
   cols?: number
-  gridRows?: number
+  rowHeight?: number
   margin?: [number, number]
   onLayoutChange?: (layouts: PanelGridItem[]) => void
   onItemDrop?: (data: string, position: { x: number; y: number; w: number; h: number }) => void
@@ -24,9 +24,69 @@ export interface PanelGridProps {
   renderItem: (id: string) => ReactNode
   className?: string
   transitioning?: boolean
+  showGridBackground?: boolean
 }
 
 const DROPPING_ITEM = { i: '__dropping__', w: 1, h: 2 }
+
+function GridBackground({
+  gridWidth,
+  cols,
+  rowHeight,
+  margin,
+  minRows,
+}: {
+  gridWidth: number
+  cols: number
+  rowHeight: number
+  margin: [number, number]
+  minRows: number
+}) {
+  const colWidth = (gridWidth - margin[0] * (cols - 1)) / cols
+  const bgRef = useRef<HTMLDivElement>(null)
+  const [rows, setRows] = useState(minRows)
+
+  useEffect(() => {
+    const el = bgRef.current?.parentElement
+    if (!el) return
+    const viewportRows = Math.ceil(el.clientHeight / (rowHeight + margin[1])) + 1
+    setRows(Math.max(minRows, viewportRows))
+  }, [minRows, rowHeight, margin])
+
+  const cells = useMemo(() => {
+    if (colWidth <= 0 || gridWidth <= 0) return null
+    const result = []
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        result.push(
+          <div
+            key={`${col}-${row}`}
+            className="absolute rounded-lg border border-dashed border-border-subtle/40"
+            style={{
+              left: col * (colWidth + margin[0]),
+              top: row * (rowHeight + margin[1]),
+              width: colWidth,
+              height: rowHeight,
+            }}
+          />
+        )
+      }
+    }
+    return result
+  }, [cols, rows, colWidth, gridWidth, rowHeight, margin])
+
+  if (!cells) return null
+
+  return (
+    <div
+      ref={bgRef}
+      className="pointer-events-none absolute top-3 right-3 left-3"
+      style={{ height: rows * (rowHeight + margin[1]) }}
+    >
+      {cells}
+    </div>
+  )
+}
 
 function DropZone({
   onDrop,
@@ -75,7 +135,7 @@ function DropZone({
 export function PanelGrid({
   items,
   cols = 3,
-  gridRows = 6,
+  rowHeight = 80,
   margin = [12, 12],
   onLayoutChange,
   onItemDrop,
@@ -83,20 +143,10 @@ export function PanelGrid({
   renderItem,
   className,
   transitioning = false,
+  showGridBackground = false,
 }: PanelGridProps) {
   const { width: gridWidth, containerRef } = useContainerWidth({ initialWidth: 1200 })
-  const [containerHeight, setContainerHeight] = useState(600)
   const [emptyDragOver, setEmptyDragOver] = useState(false)
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const observer = new ResizeObserver(([entry]) => {
-      setContainerHeight(entry.contentRect.height)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [containerRef])
 
   const layout = useMemo<LayoutItem[]>(() => {
     return items.map((item, idx) => ({
@@ -110,11 +160,6 @@ export function PanelGrid({
       maxW: cols,
     }))
   }, [items, cols])
-
-  const rowHeight = useMemo(() => {
-    const totalMargin = margin[1] * (gridRows - 1)
-    return (containerHeight - totalMargin) / gridRows
-  }, [containerHeight, gridRows, margin])
 
   const handleLayoutChange = useCallback(
     (currentLayout: LayoutItem[]) => {
@@ -158,15 +203,29 @@ export function PanelGrid({
     [onItemDrop]
   )
 
+  const contentRows = useMemo(() => {
+    if (!items.length) return 0
+    return items.reduce((max, item) => Math.max(max, item.y + item.h), 0)
+  }, [items])
+
   return (
     <div
       ref={containerRef}
       className={cn(
-        'relative min-h-0 flex-1 overflow-y-auto p-3 transition-opacity duration-150',
+        'relative min-h-full overflow-y-auto p-3 transition-opacity duration-150',
         transitioning ? 'opacity-0' : 'opacity-100',
         className
       )}
     >
+      {showGridBackground && items.length > 0 && (
+        <GridBackground
+          gridWidth={gridWidth}
+          cols={cols}
+          rowHeight={rowHeight}
+          margin={margin}
+          minRows={contentRows + 4}
+        />
+      )}
       {items.length > 0 ? (
         <Responsive
           width={gridWidth}

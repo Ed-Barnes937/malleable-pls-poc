@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useRecording } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw } from 'lucide-react'
+import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
+
+const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001'
+const USER_ID = (import.meta as any).env?.VITE_USER_ID ?? 'dev-user-1'
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -46,19 +48,34 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
   )
 }
 
-type CaptureState = 'idle' | 'recording' | 'paused' | 'complete'
+type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
 export default function AudioCaptureLens({ scope, config }: LensProps) {
-  const recordingId = (config.recordingId as string) ?? scope.recordingId ?? ''
-  const { data: recording } = useRecording(recordingId)
+  const substrate = useSubstrate()
 
-  const [state, setState] = useState<CaptureState>('complete')
+  const recordingId = scope.recordingId ?? (config.recordingId as string) ?? ''
+  const { data: recording } = substrate.useRecording(recordingId)
+
+  const [state, setState] = useState<CaptureState>(recordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [playback, setPlayback] = useState(false)
   const [playbackPos, setPlaybackPos] = useState(0)
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null)
 
-  const duration = recording?.duration ?? 0
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => {
+    if (state === 'recording' || state === 'uploading') return
+    setState(recordingId ? 'complete' : 'idle')
+  }, [recordingId])
+
+  const duration = recording?.duration ?? elapsed
+  const activeRecordingId = lastRecordingId ?? recordingId
 
   const cleanup = useCallback(() => {
     if (intervalRef.current) {
@@ -67,30 +84,117 @@ export default function AudioCaptureLens({ scope, config }: LensProps) {
     }
   }, [])
 
-  useEffect(() => () => cleanup(), [cleanup])
-
-  const startRecording = useCallback(() => {
+  useEffect(() => () => {
     cleanup()
-    setState('recording')
-    setElapsed(0)
-    setPlayback(false)
-    setPlaybackPos(0)
-    intervalRef.current = setInterval(() => {
-      setElapsed((e) => e + 1000)
-    }, 1000)
+    streamRef.current?.getTracks().forEach((t) => t.stop())
   }, [cleanup])
 
-  const stopRecording = useCallback(() => {
+  const startRecording = useCallback(async () => {
     cleanup()
-    setState('complete')
+    setError(null)
+    chunksRef.current = []
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      })
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data)
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start(1000)
+
+      setState('recording')
+      setElapsed(0)
+      setPlayback(false)
+      setPlaybackPos(0)
+      intervalRef.current = setInterval(() => {
+        setElapsed((e) => e + 1000)
+      }, 1000)
+    } catch (err) {
+      setError('Microphone access denied')
+      console.error('mic error:', err)
+    }
   }, [cleanup])
+
+  const stopRecording = useCallback(async () => {
+    cleanup()
+    const recorder = mediaRecorderRef.current
+    if (!recorder || recorder.state === 'inactive') {
+      setState('idle')
+      return
+    }
+
+    setState('uploading')
+
+    await new Promise<void>((resolve) => {
+      recorder.onstop = () => resolve()
+      recorder.stop()
+    })
+
+    streamRef.current?.getTracks().forEach((t) => t.stop())
+    streamRef.current = null
+    mediaRecorderRef.current = null
+
+    const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+    chunksRef.current = []
+
+    if (blob.size === 0) {
+      setError('No audio captured')
+      setState('idle')
+      return
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'audio/webm',
+          'x-user-id': USER_ID,
+          'x-recording-title': `Recording ${new Date().toLocaleString()}`,
+          'x-recording-duration': String(elapsed),
+        },
+        body: blob,
+      })
+
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+
+      const data = await res.json()
+      setLastRecordingId(data.id)
+      setState('complete')
+    } catch (err) {
+      setError('Upload failed')
+      setState('idle')
+      console.error('upload error:', err)
+    }
+  }, [cleanup, elapsed])
 
   const togglePlayback = useCallback(() => {
     if (state !== 'complete') return
+
     if (playback) {
+      audioRef.current?.pause()
       cleanup()
       setPlayback(false)
     } else {
+      if (activeRecordingId && recording?.audio_url) {
+        const audio = new Audio(`${API_URL}${recording.audio_url}`)
+        audioRef.current = audio
+        audio.onended = () => {
+          cleanup()
+          setPlayback(false)
+          setPlaybackPos(0)
+        }
+        audio.play()
+      }
+
       setPlayback(true)
       setPlaybackPos(0)
       intervalRef.current = setInterval(() => {
@@ -104,7 +208,7 @@ export default function AudioCaptureLens({ scope, config }: LensProps) {
         })
       }, 1000)
     }
-  }, [state, playback, duration, cleanup])
+  }, [state, playback, duration, cleanup, activeRecordingId, recording])
 
   const progress = state === 'complete' && duration > 0
     ? (playback ? playbackPos / duration : 1)
@@ -125,15 +229,26 @@ export default function AudioCaptureLens({ scope, config }: LensProps) {
           </div>
         )}
 
+        {state === 'uploading' && (
+          <div className="flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin text-accent" />
+            <span className="text-[10px] text-neutral-400">Uploading & transcribing…</span>
+          </div>
+        )}
+
         {state === 'complete' && (
           <div className="hidden text-center @tall:block">
-            <p className="truncate text-sm font-medium text-neutral-300">{recording?.title ?? 'No recording'}</p>
+            <p className="truncate text-sm font-medium text-neutral-300">{recording?.title ?? 'Recording complete'}</p>
             <p className="mt-0.5 text-[10px] text-neutral-600">{formatTime(duration)} total</p>
           </div>
         )}
 
         {state === 'idle' && (
           <p className="text-[10px] text-neutral-500 @tall:text-sm">Ready to record</p>
+        )}
+
+        {error && (
+          <p className="text-[10px] text-tag-confused">{error}</p>
         )}
 
         <Waveform active={state === 'recording'} progress={progress} />
@@ -169,21 +284,21 @@ export default function AudioCaptureLens({ scope, config }: LensProps) {
               </button>
               {state === 'complete' && (
                 <button
-                  onClick={() => { setState('idle'); setPlayback(false); cleanup() }}
+                  onClick={() => { setState('idle'); setPlayback(false); setLastRecordingId(null); cleanup() }}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
                 >
                   <RotateCcw className="h-3 w-3 @tall:h-4 @tall:w-4" />
                 </button>
               )}
             </>
-          ) : (
+          ) : state === 'recording' ? (
             <button
               onClick={stopRecording}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
             >
               <Square className="h-3 w-3 @tall:h-4 @tall:w-4" />
             </button>
-          )}
+          ) : null}
         </div>
       </div>
 

@@ -2,11 +2,13 @@ import React, {
   createContext,
   lazy,
   useContext,
+  useMemo,
   type ComponentType,
   type LazyExoticComponent,
   type ReactNode,
 } from 'react'
 import type { LensMeta, LensProps } from './types'
+import type { PanelManifest } from './substrate-contract'
 
 export type LensLoader = () => Promise<{
   default: ComponentType<LensProps>
@@ -16,6 +18,31 @@ export type LensLoader = () => Promise<{
 export type LensRegistry = Record<string, LensLoader>
 
 const LensRegistryContext = createContext<LensRegistry>({})
+const ManifestContext = createContext<PanelManifest[]>([])
+
+export function ManifestRegistryProvider({
+  manifests,
+  children,
+}: {
+  manifests: PanelManifest[]
+  children: ReactNode
+}) {
+  const registry = useMemo(() => {
+    const reg: LensRegistry = {}
+    for (const m of manifests) {
+      reg[m.id] = m.load
+    }
+    return reg
+  }, [manifests])
+
+  return (
+    <ManifestContext.Provider value={manifests}>
+      <LensRegistryContext.Provider value={registry}>
+        {children}
+      </LensRegistryContext.Provider>
+    </ManifestContext.Provider>
+  )
+}
 
 export function LensRegistryProvider({
   registry,
@@ -29,6 +56,15 @@ export function LensRegistryProvider({
 
 export function useLensRegistry(): LensRegistry {
   return useContext(LensRegistryContext)
+}
+
+export function useManifests(): PanelManifest[] {
+  return useContext(ManifestContext)
+}
+
+export function useManifest(id: string): PanelManifest | undefined {
+  const manifests = useManifests()
+  return useMemo(() => manifests.find((m) => m.id === id), [manifests, id])
 }
 
 export function PlaceholderLens({ config }: LensProps) {

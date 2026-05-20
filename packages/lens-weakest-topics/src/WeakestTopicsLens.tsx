@@ -1,9 +1,9 @@
-import { useWeakestTopics } from '@pls/substrate'
-import { type LensProps } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, COURSE_PILL_COLORS } from '@pls/shared-ui'
 
 export default function WeakestTopicsLens({}: LensProps) {
-  const { data: topics } = useWeakestTopics(8)
+  const substrate = useSubstrate()
+  const { data: topics } = substrate.useWeakestTopics(8)
 
   if (!topics?.length) {
     return <EmptyState message="No weak topics found" />
