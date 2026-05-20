@@ -3,8 +3,8 @@ import { router, publicProcedure } from '../trpc'
 import { dispatchWorkflows } from '../workflows/dispatch'
 
 const scopeInput = z.object({
-  courseTag: z.string().optional(),
-  recordingId: z.string().optional(),
+  courseTag: z.string().max(500).optional(),
+  recordingId: z.string().max(255).optional(),
   timeframe: z.enum(['week', 'all']).optional(),
 })
 
@@ -27,11 +27,11 @@ export const annotationsRouter = router({
 
   create: publicProcedure
     .input(z.object({
-      anchor_type: z.string(),
-      anchor_id: z.string(),
+      anchor_type: z.string().max(255),
+      anchor_id: z.string().max(255),
       anchor_start_ms: z.number().optional(),
       anchor_end_ms: z.number().optional(),
-      body: z.string(),
+      body: z.string().max(10000),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

@@ -3,7 +3,7 @@ import { router, publicProcedure } from '../trpc'
 
 export const transcriptsRouter = router({
   byRecording: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`

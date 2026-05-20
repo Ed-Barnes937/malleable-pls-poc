@@ -3,8 +3,8 @@ import { router, publicProcedure } from '../trpc'
 import { dispatchWorkflows } from '../workflows/dispatch'
 
 const scopeInput = z.object({
-  courseTag: z.string().optional(),
-  recordingId: z.string().optional(),
+  courseTag: z.string().max(500).optional(),
+  recordingId: z.string().max(255).optional(),
   timeframe: z.enum(['week', 'all']).optional(),
 })
 
@@ -27,10 +27,10 @@ export const confidenceRouter = router({
 
   record: publicProcedure
     .input(z.object({
-      target_type: z.string(),
-      target_id: z.string(),
+      target_type: z.string().max(255),
+      target_id: z.string().max(255),
       score: z.number(),
-      source_lens_id: z.string(),
+      source_lens_id: z.string().max(255),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

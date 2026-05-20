@@ -4,7 +4,7 @@ import { dispatchWorkflows } from '../workflows/dispatch'
 
 export const workflowsRouter = router({
   forLens: publicProcedure
-    .input(z.object({ lensType: z.string(), workspaceId: z.string() }))
+    .input(z.object({ lensType: z.string().max(255), workspaceId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const workflows = await tx`
@@ -29,7 +29,7 @@ export const workflowsRouter = router({
     }),
 
   toggle: publicProcedure
-    .input(z.object({ workflowId: z.string(), enabled: z.boolean() }))
+    .input(z.object({ workflowId: z.string().max(255), enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx`
@@ -41,8 +41,8 @@ export const workflowsRouter = router({
 
   createOverride: publicProcedure
     .input(z.object({
-      sourceWorkflowId: z.string(),
-      workspaceId: z.string(),
+      sourceWorkflowId: z.string().max(255),
+      workspaceId: z.string().max(255),
       enabled: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
@@ -70,9 +70,9 @@ export const workflowsRouter = router({
 
   dispatch: publicProcedure
     .input(z.object({
-      eventType: z.string(),
-      payload: z.record(z.unknown()),
-      workspaceId: z.string().nullable(),
+      eventType: z.string().max(255),
+      payload: z.record(z.unknown()), // TODO: validate payload shape per event type
+      workspaceId: z.string().max(255).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

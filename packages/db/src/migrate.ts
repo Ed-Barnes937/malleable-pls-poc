@@ -36,8 +36,10 @@ async function migrate() {
     }
     const content = await readFile(join(migrationsDir, file), 'utf-8')
     console.log(`  apply ${file}`)
-    await sql.unsafe(content)
-    await sql`INSERT INTO _migrations (name) VALUES (${file})`
+    await sql.begin(async (tx) => {
+      await tx.unsafe(content)
+      await tx`INSERT INTO _migrations (name) VALUES (${file})`
+    })
   }
 
   console.log('migrations complete')

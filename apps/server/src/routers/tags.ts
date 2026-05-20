@@ -3,8 +3,8 @@ import { router, publicProcedure } from '../trpc'
 import { dispatchWorkflows } from '../workflows/dispatch'
 
 const scopeInput = z.object({
-  courseTag: z.string().optional(),
-  recordingId: z.string().optional(),
+  courseTag: z.string().max(500).optional(),
+  recordingId: z.string().max(255).optional(),
   timeframe: z.enum(['week', 'all']).optional(),
 })
 
@@ -26,7 +26,7 @@ export const tagsRouter = router({
     }),
 
   forTarget: publicProcedure
-    .input(z.object({ targetType: z.string(), targetId: z.string() }))
+    .input(z.object({ targetType: z.string().max(255), targetId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`
@@ -38,9 +38,9 @@ export const tagsRouter = router({
 
   create: publicProcedure
     .input(z.object({
-      target_type: z.string(),
-      target_id: z.string(),
-      label: z.string(),
+      target_type: z.string().max(255),
+      target_id: z.string().max(255),
+      label: z.string().max(500),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -55,7 +55,7 @@ export const tagsRouter = router({
     }),
 
   delete: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx`DELETE FROM tags WHERE id = ${input} AND user_id = ${ctx.userId}`
