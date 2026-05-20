@@ -8,10 +8,13 @@ export interface Context {
   withTenant: <T>(fn: (tx: TransactionSql) => Promise<T>) => Promise<T>
 }
 
+const USER_ID_RE = /^[a-zA-Z0-9_-]{1,128}$/
+
 export async function createContext({ req, info }: CreateHTTPContextOptions): Promise<Context> {
-  const userId = (req.headers['x-user-id'] as string)
+  const raw = (req.headers['x-user-id'] as string)
     ?? info.connectionParams?.['userId']
     ?? 'anonymous'
+  const userId = USER_ID_RE.test(raw) ? raw : 'anonymous'
 
   return {
     userId,

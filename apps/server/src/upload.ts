@@ -10,10 +10,21 @@ async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })
 }
 
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024 // 50 MB
+
 function collectBody(req: IncomingMessage): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    let totalBytes = 0
+    req.on('data', (chunk: Buffer) => {
+      totalBytes += chunk.length
+      if (totalBytes > MAX_UPLOAD_BYTES) {
+        req.destroy()
+        reject(new Error('Upload exceeds maximum size'))
+        return
+      }
+      chunks.push(chunk)
+    })
     req.on('end', () => resolve(Buffer.concat(chunks)))
     req.on('error', reject)
   })
@@ -37,7 +48,14 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const title = (req.headers['x-recording-title'] as string) ?? 'Untitled Recording'
     const durationMs = Number(req.headers['x-recording-duration'] ?? '0')
 
-    const body = await collectBody(req)
+    let body: Buffer
+    try {
+      body = await collectBody(req)
+    } catch {
+      res.writeHead(413, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: `Upload exceeds maximum size (${MAX_UPLOAD_BYTES / 1024 / 1024}MB)` }))
+      return
+    }
     if (body.length === 0) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Empty body' }))

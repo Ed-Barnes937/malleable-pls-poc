@@ -17,7 +17,10 @@ COPY apps/server/ apps/server/
 COPY packages/db/ packages/db/
 COPY package.json pnpm-workspace.yaml ./
 
-RUN mkdir -p /data/uploads
+RUN addgroup -S app && adduser -S app -G app
+RUN mkdir -p /data/uploads && chown app:app /data/uploads
+
+USER app
 
 ENV NODE_ENV=production
 ENV PORT=3001

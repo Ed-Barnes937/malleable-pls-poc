@@ -15,21 +15,28 @@ const port = Number(process.env.PORT ?? 3001)
 
 registerAllExecutors()
 
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
+  .split(',')
+  .map(o => o.trim())
+
 const trpcHandler = createHTTPHandler({
   router: appRouter,
   createContext,
-  middleware: cors({ origin: true }),
+  middleware: cors({ origin: ALLOWED_ORIGINS }),
 })
 
-function setUploadCors(res: http.ServerResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
+  const origin = req.headers.origin ?? ''
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-id, x-recording-title')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-id, x-recording-title, x-recording-duration')
 }
 
 const server = http.createServer((req, res) => {
   if (req.url?.startsWith('/upload') || req.url?.startsWith('/uploads/')) {
-    setUploadCors(res)
+    setUploadCors(req, res)
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
