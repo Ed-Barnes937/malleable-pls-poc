@@ -7,7 +7,7 @@ primary_region = "lhr"
 [env]
   PORT = "3001"
   UPLOADS_DIR = "/data/uploads"
-  ALLOWED_ORIGINS = "https://malleable-plc-poc.vercel.app,https://malleable-plc-poc-git-feat-production-architecture.vercel.app"
+  ALLOWED_ORIGINS = "https://poc-6afb768d.vercel.app,https://malleable-plc-poc.vercel.app"
 
 [http_service]
   internal_port = 3001
