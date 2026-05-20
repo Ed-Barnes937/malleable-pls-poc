@@ -31,8 +31,8 @@ BEGIN
 END
 $$;
 
--- Grant connect and usage
-GRANT CONNECT ON DATABASE malleable_pls TO pls_app;
+-- Grant connect and usage (use current_database() so it works regardless of DB name)
+DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO pls_app', current_database()); END $$;
 GRANT USAGE ON SCHEMA public TO pls_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO pls_app;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO pls_app;
