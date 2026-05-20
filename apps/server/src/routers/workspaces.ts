@@ -10,7 +10,7 @@ export const workspacesRouter = router({
     }),
 
   panels: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`
@@ -22,7 +22,7 @@ export const workspacesRouter = router({
     }),
 
   create: publicProcedure
-    .input(z.object({ name: z.string().min(1) }))
+    .input(z.object({ name: z.string().max(500).min(1) }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const [ws] = await tx`
@@ -36,10 +36,10 @@ export const workspacesRouter = router({
 
   addPanel: publicProcedure
     .input(z.object({
-      workspaceId: z.string(),
-      lensType: z.string(),
-      slotName: z.string(),
-      config: z.string().optional(),
+      workspaceId: z.string().max(255),
+      lensType: z.string().max(255),
+      slotName: z.string().max(255),
+      config: z.string().max(5000).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -53,7 +53,7 @@ export const workspacesRouter = router({
     }),
 
   removePanel: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx`DELETE FROM workspace_panels WHERE id = ${input} AND user_id = ${ctx.userId}`
@@ -61,7 +61,7 @@ export const workspacesRouter = router({
     }),
 
   delete: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx`DELETE FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId}`
@@ -70,9 +70,9 @@ export const workspacesRouter = router({
 
   updateLayouts: publicProcedure
     .input(z.object({
-      workspaceId: z.string(),
+      workspaceId: z.string().max(255),
       layouts: z.array(z.object({
-        id: z.string(),
+        id: z.string().max(255),
         x: z.number(),
         y: z.number(),
         w: z.number(),
@@ -93,7 +93,7 @@ export const workspacesRouter = router({
     }),
 
   scopes: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`
@@ -105,9 +105,9 @@ export const workspacesRouter = router({
 
   setScope: publicProcedure
     .input(z.object({
-      workspaceId: z.string(),
-      scopeType: z.string(),
-      scopeValue: z.string().nullable(),
+      workspaceId: z.string().max(255),
+      scopeType: z.string().max(255),
+      scopeValue: z.string().max(1000).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {

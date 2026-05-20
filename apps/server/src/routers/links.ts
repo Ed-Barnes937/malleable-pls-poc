@@ -3,7 +3,7 @@ import { router, publicProcedure } from '../trpc'
 
 export const linksRouter = router({
   connections: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`
@@ -20,7 +20,7 @@ export const linksRouter = router({
     }),
 
   byRecording: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         return tx`

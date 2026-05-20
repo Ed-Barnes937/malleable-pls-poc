@@ -2,8 +2,8 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 
 const scopeInput = z.object({
-  courseTag: z.string().optional(),
-  recordingId: z.string().optional(),
+  courseTag: z.string().max(500).optional(),
+  recordingId: z.string().max(255).optional(),
   timeframe: z.enum(['week', 'all']).optional(),
 })
 

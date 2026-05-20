@@ -4,8 +4,8 @@ import { router, publicProcedure } from '../trpc'
 export const recordingsRouter = router({
   list: publicProcedure
     .input(z.object({
-      courseTag: z.string().optional(),
-      recordingId: z.string().optional(),
+      courseTag: z.string().max(500).optional(),
+      recordingId: z.string().max(255).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
@@ -28,7 +28,7 @@ export const recordingsRouter = router({
     }),
 
   byId: publicProcedure
-    .input(z.string())
+    .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const [row] = await tx`
