@@ -86,15 +86,23 @@ const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
   .split(',')
   .map(o => o.trim())
 
+const ALLOWED_ORIGIN_SUFFIX = process.env.ALLOWED_ORIGIN_SUFFIX ?? ''
+
+function isAllowedOrigin(origin: string): boolean {
+  if (ALLOWED_ORIGINS.includes(origin)) return true
+  if (ALLOWED_ORIGIN_SUFFIX && origin.startsWith('https://') && origin.endsWith(ALLOWED_ORIGIN_SUFFIX)) return true
+  return false
+}
+
 const trpcHandler = createHTTPHandler({
   router: appRouter,
   createContext,
-  middleware: cors({ origin: ALLOWED_ORIGINS }),
+  middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
 })
 
 function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
   const origin = req.headers.origin ?? ''
-  if (ALLOWED_ORIGINS.includes(origin)) {
+  if (isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
