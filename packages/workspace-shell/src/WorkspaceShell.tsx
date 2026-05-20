@@ -126,14 +126,36 @@ export function WorkspaceShell() {
     <div className="flex h-dvh overflow-hidden bg-surface">
       <Sidebar />
       <main className="flex min-w-0 flex-1 flex-col overflow-auto">
-        <PanelGrid
-          items={gridItems}
-          onLayoutChange={handleLayoutChange}
-          onItemDrop={handleAddPanel}
-          renderItem={renderPanel}
-          transitioning={transitioning}
-        />
+        {!panels ? (
+          <PanelGridSkeleton />
+        ) : (
+          <PanelGrid
+            items={gridItems}
+            onLayoutChange={handleLayoutChange}
+            onItemDrop={handleAddPanel}
+            renderItem={renderPanel}
+            transitioning={transitioning}
+          />
+        )}
       </main>
+    </div>
+  )
+}
+
+function PanelGridSkeleton() {
+  return (
+    <div className="grid flex-1 grid-cols-2 gap-4 p-6">
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="flex flex-col gap-3 rounded-xl border border-border-subtle bg-surface-raised p-4"
+        >
+          <div className="h-3 w-1/3 animate-pulse rounded bg-neutral-800" />
+          <div className="h-3 w-full animate-pulse rounded bg-neutral-800/60" />
+          <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-800/40" />
+          <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/30" />
+        </div>
+      ))}
     </div>
   )
 }
