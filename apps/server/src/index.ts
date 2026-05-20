@@ -117,7 +117,19 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN
 function checkBearerToken(req: http.IncomingMessage): boolean {
   if (!AUTH_TOKEN) return true
   const header = req.headers.authorization
-  return header === `Bearer ${AUTH_TOKEN}`
+  if (header === `Bearer ${AUTH_TOKEN}`) return true
+
+  // SSE subscriptions (EventSource) can't set headers — token arrives in connectionParams query param
+  try {
+    const url = new URL(req.url ?? '', 'http://localhost')
+    const params = url.searchParams.get('connectionParams')
+    if (params) {
+      const parsed = JSON.parse(params)
+      if (parsed.Authorization === `Bearer ${AUTH_TOKEN}`) return true
+    }
+  } catch {}
+
+  return false
 }
 
 const server = http.createServer((req, res) => {
@@ -128,6 +140,10 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     // Allow CORS preflight through — the CORS handler will gate the actual request
   } else if (!checkBearerToken(req)) {
+    const origin = req.headers.origin ?? ''
+    if (isAllowedOrigin(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin)
+    }
     res.writeHead(401, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Unauthorized' }))
     return
