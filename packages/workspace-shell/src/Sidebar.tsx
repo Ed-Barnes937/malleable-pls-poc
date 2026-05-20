@@ -234,11 +234,9 @@ function WorkspaceList() {
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
-  if (!workspaces) return null
-
   return (
     <div className="flex flex-col gap-0.5">
-      {workspaces.map((ws) => {
+      {workspaces?.map((ws) => {
         const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
         const isActive = activeWorkspaceId === ws.id
         return (
