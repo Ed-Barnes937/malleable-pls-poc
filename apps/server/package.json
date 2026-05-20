@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "migrate": "tsx ../../packages/db/src/migrate.ts"
+    "migrate": "tsx ../../packages/db/src/migrate.ts",
+    "migrate-and-start": "tsx ../../packages/db/src/migrate.ts && tsx src/index.ts"
   },
   "dependencies": {
     "@pls/db": "workspace:*",

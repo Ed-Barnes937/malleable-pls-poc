@@ -1,0 +1,24 @@
+app = "malleable-pls-server"
+primary_region = "lhr"
+
+[build]
+  dockerfile = "apps/server/Dockerfile"
+
+[env]
+  PORT = "3001"
+  UPLOADS_DIR = "/data/uploads"
+
+[http_service]
+  internal_port = 3001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[mounts]
+  source = "uploads_data"
+  destination = "/data"

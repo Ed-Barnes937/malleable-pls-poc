@@ -4,7 +4,7 @@ import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
 async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })

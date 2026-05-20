@@ -9,7 +9,7 @@ import { startJobRunner } from './workflows/job-runner'
 import { registerAllExecutors } from './workflows/executors'
 import { handleUpload } from './upload'
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
 const port = Number(process.env.PORT ?? 3001)
 
