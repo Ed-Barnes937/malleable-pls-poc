@@ -30,13 +30,15 @@ const trpcClient = createTRPCClient(serverUrl, userId)
 function Root() {
   const [showDevtools, setShowDevtools] = useState(false)
 
-  ;(window as unknown as Record<string, unknown>).tqdevtools = () => setShowDevtools((v) => !v)
+  if (import.meta.env.DEV) {
+    ;(window as unknown as Record<string, unknown>).tqdevtools = () => setShowDevtools((v) => !v)
+  }
 
   return (
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <App />
-        {showDevtools && (
+        {import.meta.env.DEV && showDevtools && (
           <Suspense fallback={null}>
             <ReactQueryDevtools initialIsOpen />
           </Suspense>
