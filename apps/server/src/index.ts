@@ -106,12 +106,32 @@ function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-user-id, x-recording-title, x-recording-duration')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration')
+}
+
+// ---------------------------------------------------------------------------
+// Bearer token auth
+// ---------------------------------------------------------------------------
+const AUTH_TOKEN = process.env.AUTH_TOKEN
+
+function checkBearerToken(req: http.IncomingMessage): boolean {
+  if (!AUTH_TOKEN) return true
+  const header = req.headers.authorization
+  return header === `Bearer ${AUTH_TOKEN}`
 }
 
 const server = http.createServer((req, res) => {
   // Security headers on every response
   setSecurityHeaders(res)
+
+  // Bearer token auth (before rate limiting so invalid requests don't consume quota)
+  if (req.method === 'OPTIONS') {
+    // Allow CORS preflight through — the CORS handler will gate the actual request
+  } else if (!checkBearerToken(req)) {
+    res.writeHead(401, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Unauthorized' }))
+    return
+  }
 
   // Rate limiting
   const clientIp = getClientIp(req)

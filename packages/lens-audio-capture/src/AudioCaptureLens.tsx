@@ -5,6 +5,7 @@ import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-rea
 
 const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001'
 const USER_ID = (import.meta as any).env?.VITE_USER_ID ?? 'dev-user-1'
+const AUTH_TOKEN = (import.meta as any).env?.VITE_AUTH_TOKEN as string | undefined
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -160,6 +161,7 @@ export default function AudioCaptureLens({ scope, config }: LensProps) {
           'x-user-id': USER_ID,
           'x-recording-title': `Recording ${new Date().toLocaleString()}`,
           'x-recording-duration': String(elapsed),
+          ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
         },
         body: blob,
       })
