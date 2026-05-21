@@ -1,8 +1,23 @@
+import { useEffect } from 'react'
 import { useTheme } from './useTheme'
 import { ThemeToggle } from './ThemeToggle'
+import { CanvasEngine } from './CanvasEngine'
+import { useCanvasStore } from './canvas-store'
+import { SAMPLE_PANELS } from './sample-panels'
 
 export function App() {
   const { theme, toggle } = useTheme('dark')
+  const addPanel = useCanvasStore((s) => s.addPanel)
+  const panelCount = useCanvasStore((s) => s.panels.length)
+
+  // Seed sample panels on first mount
+  useEffect(() => {
+    if (panelCount === 0) {
+      for (const panel of SAMPLE_PANELS) {
+        addPanel(panel)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="flex h-dvh flex-col">
@@ -12,22 +27,23 @@ export function App() {
         <ThemeToggle theme={theme} onToggle={toggle} />
       </header>
 
-      {/* Canvas area — full viewport minus header, with padding for breathing room */}
+      {/* Canvas area — full viewport minus header */}
       <main
-        className="flex-1 p-6"
+        className="relative flex-1 overflow-hidden p-6"
         style={{
           background: 'var(--color-surface)',
           transition: 'var(--transition-panel)',
         }}
       >
-        {/* Empty canvas — panels will go here in future tasks */}
         <div
           className="h-full w-full rounded-[var(--radius-panel)] border border-border-subtle bg-surface-raised"
           style={{
             boxShadow: 'var(--shadow-panel)',
             transition: 'var(--transition-panel)',
           }}
-        />
+        >
+          <CanvasEngine />
+        </div>
       </main>
     </div>
   )
