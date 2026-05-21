@@ -47,6 +47,22 @@ describe('TopBar + DrawerSidebar integration', () => {
       await userEvent.click(trigger)
       expect(screen.getByTestId('drawer-sidebar').style.transform).toBe('translateX(-100%)')
     })
+
+    it('closes drawer when Escape key is pressed', async () => {
+      render(<App />)
+      await userEvent.click(screen.getByTestId('drawer-trigger'))
+      expect(screen.getByTestId('drawer-sidebar').style.transform).toBe('translateX(0)')
+
+      await userEvent.keyboard('{Escape}')
+      expect(screen.getByTestId('drawer-sidebar').style.transform).toBe('translateX(-100%)')
+      expect(screen.queryByTestId('drawer-backdrop')).not.toBeInTheDocument()
+    })
+
+    it('focuses drawer sidebar when opened', async () => {
+      render(<App />)
+      await userEvent.click(screen.getByTestId('drawer-trigger'))
+      expect(document.activeElement).toBe(screen.getByTestId('drawer-sidebar'))
+    })
   })
 
   describe('add panel button', () => {

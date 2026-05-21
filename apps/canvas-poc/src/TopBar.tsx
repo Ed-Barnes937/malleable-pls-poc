@@ -1,11 +1,13 @@
 import { Menu, Plus } from 'lucide-react'
+import type { ReactNode } from 'react'
 
 export interface TopBarProps {
   onMenuClick: () => void
   onAddPanel: () => void
+  trailing?: ReactNode
 }
 
-export function TopBar({ onMenuClick, onAddPanel }: TopBarProps) {
+export function TopBar({ onMenuClick, onAddPanel, trailing }: TopBarProps) {
   return (
     <header
       data-testid="top-bar"
@@ -40,14 +42,20 @@ export function TopBar({ onMenuClick, onAddPanel }: TopBarProps) {
       {/* Scope chip */}
       <span
         data-testid="scope-chip"
-        className="rounded-full border border-border-subtle px-2.5 py-0.5 text-xs text-text-secondary"
-        style={{ transition: 'var(--transition-panel)' }}
+        className="rounded-full px-2.5 py-0.5 text-xs text-text-secondary"
+        style={{
+          background: 'var(--color-surface-overlay)',
+          transition: 'var(--transition-panel)',
+        }}
       >
         All items
       </span>
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Trailing slot (e.g. theme toggle) */}
+      {trailing}
 
       {/* Add panel button */}
       <button

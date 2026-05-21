@@ -48,7 +48,7 @@ export function App() {
     let centerY = 200
 
     if (container) {
-      const scrollEl = container.querySelector('[data-testid="canvas-container"]')
+      const scrollEl = container.querySelector('[data-canvas-scroll]')
       if (scrollEl) {
         centerX = scrollEl.scrollLeft + scrollEl.clientWidth / 2 - NEW_PANEL_WIDTH / 2
         centerY = scrollEl.scrollTop + scrollEl.clientHeight / 2 - NEW_PANEL_HEIGHT / 2
@@ -92,8 +92,8 @@ export function App() {
       const container = canvasRef.current
       if (!container) return
 
-      // Get the canvas-container element for scroll-aware positioning
-      const scrollEl = container.querySelector('[data-testid="canvas-container"]')
+      // Get the canvas scroll element for scroll-aware positioning
+      const scrollEl = container.querySelector('[data-canvas-scroll]')
       const rect = (scrollEl ?? container).getBoundingClientRect()
 
       const rawDropX = e.clientX - rect.left + (scrollEl?.scrollLeft ?? 0) - NEW_PANEL_WIDTH / 2
@@ -123,15 +123,14 @@ export function App() {
   return (
     <div className="flex h-dvh flex-col">
       {/* Top bar */}
-      <TopBar onMenuClick={handleToggleDrawer} onAddPanel={handleAddPanel} />
+      <TopBar
+        onMenuClick={handleToggleDrawer}
+        onAddPanel={handleAddPanel}
+        trailing={<ThemeToggle theme={theme} onToggle={toggle} />}
+      />
 
       {/* Drawer sidebar */}
       <DrawerSidebar open={drawerOpen} onClose={handleCloseDrawer} />
-
-      {/* Theme toggle — positioned in the top-right area */}
-      <div className="absolute right-16 top-2" style={{ zIndex: 9999 }}>
-        <ThemeToggle theme={theme} onToggle={toggle} />
-      </div>
 
       {/* Canvas area — full viewport minus top bar */}
       <main
@@ -145,7 +144,8 @@ export function App() {
           ref={canvasRef}
           className="h-full w-full rounded-[var(--radius-panel)]"
           style={{
-            background: 'var(--color-surface)',
+            background: 'var(--color-surface-raised)',
+            boxShadow: 'var(--shadow-panel)',
             transition: 'var(--transition-panel)',
           }}
           onDragOver={handleCanvasDragOver}

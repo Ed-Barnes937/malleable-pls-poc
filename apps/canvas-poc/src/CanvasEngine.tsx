@@ -30,6 +30,7 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
   return (
     <div
       data-testid="canvas-container"
+      data-canvas-scroll
       className="relative h-full w-full overflow-auto"
     >
       {panels.map((panel) => (

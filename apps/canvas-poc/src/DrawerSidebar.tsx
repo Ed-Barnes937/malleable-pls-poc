@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
   FileText,
   Mic,
@@ -37,9 +37,30 @@ export interface DrawerSidebarProps {
 /* ── Component ── */
 
 export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
-  const handleBackdropClick = useCallback(() => {
-    onClose()
-  }, [onClose])
+  const asideRef = useRef<HTMLElement>(null)
+  const previousFocusRef = useRef<Element | null>(null)
+
+  // Fix #1: Close on Escape key
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  // Fix #2: Focus management — focus aside on open, restore focus on close
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement
+      asideRef.current?.focus()
+    } else if (previousFocusRef.current) {
+      const el = previousFocusRef.current as HTMLElement
+      if (typeof el.focus === 'function') el.focus()
+      previousFocusRef.current = null
+    }
+  }, [open])
 
   const handleDragStart = useCallback(
     (e: React.DragEvent<HTMLDivElement>, lens: LensDefinition) => {
@@ -56,7 +77,7 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       {open && (
         <div
           data-testid="drawer-backdrop"
-          onClick={handleBackdropClick}
+          onClick={onClose}
           style={{
             position: 'fixed',
             inset: 0,
@@ -69,6 +90,8 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
 
       {/* Drawer panel */}
       <aside
+        ref={asideRef}
+        tabIndex={-1}
         data-testid="drawer-sidebar"
         aria-label="Drawer sidebar"
         style={{
@@ -97,42 +120,37 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
         </div>
 
         {/* Lens palette */}
-        <nav
+        <div
           data-testid="lens-palette"
           className="flex-1 overflow-auto px-3 pb-4"
-          aria-label="Lens palette"
+          aria-label="Panel types"
         >
           <div className="grid grid-cols-2 gap-2">
             {LENS_PALETTE.map((lens) => (
               <div
                 key={lens.type}
                 data-testid={`lens-item-${lens.type}`}
+                role="button"
+                tabIndex={0}
                 draggable
                 onDragStart={(e) => handleDragStart(e, lens)}
-                className="flex cursor-grab flex-col items-center gap-1.5 rounded-[var(--radius-panel)] p-3 text-text-secondary active:cursor-grabbing"
-                style={{
-                  background: 'var(--color-surface-overlay)',
-                  transition: 'var(--transition-panel)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = 'var(--color-border)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = 'var(--color-surface-overlay)'
-                }}
+                className="flex cursor-grab flex-col items-center gap-1.5 rounded-[var(--radius-panel)] bg-[var(--color-surface-overlay)] p-3 text-text-secondary transition-[background] hover:bg-[var(--color-border)] active:cursor-grabbing"
               >
                 <lens.icon size={20} />
                 <span className="text-xs font-medium">{lens.label}</span>
               </div>
             ))}
           </div>
-        </nav>
+        </div>
 
         {/* Placeholder sections */}
         <div
           data-testid="drawer-placeholder-sections"
-          className="border-t border-border-subtle px-4 py-4"
-          style={{ transition: 'var(--transition-panel)' }}
+          className="mt-2 px-4 py-4"
+          style={{
+            background: 'var(--color-surface-overlay)',
+            transition: 'var(--transition-panel)',
+          }}
         >
           <p className="text-xs text-text-muted">More options coming soon...</p>
         </div>

@@ -32,6 +32,24 @@ describe('TopBar', () => {
     expect(screen.getByTestId('scope-chip')).toHaveTextContent('All items')
   })
 
+  it('scope chip uses background instead of border', () => {
+    render(<TopBar onMenuClick={vi.fn()} onAddPanel={vi.fn()} />)
+    const chip = screen.getByTestId('scope-chip')
+    expect(chip.style.background).toBe('var(--color-surface-overlay)')
+    expect(chip.className).not.toContain('border')
+  })
+
+  it('renders trailing content when provided', () => {
+    render(
+      <TopBar
+        onMenuClick={vi.fn()}
+        onAddPanel={vi.fn()}
+        trailing={<span data-testid="trailing-slot">Theme</span>}
+      />,
+    )
+    expect(screen.getByTestId('trailing-slot')).toBeInTheDocument()
+  })
+
   it('renders the add panel button with accessible label', () => {
     render(<TopBar onMenuClick={vi.fn()} onAddPanel={vi.fn()} />)
     const addBtn = screen.getByTestId('add-panel-button')

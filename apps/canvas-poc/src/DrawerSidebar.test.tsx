@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
+import userEvent from '@testing-library/user-event'
 import { DrawerSidebar, LENS_PALETTE } from './DrawerSidebar'
 
 describe('DrawerSidebar', () => {
@@ -44,6 +45,44 @@ describe('DrawerSidebar', () => {
       render(<DrawerSidebar open={true} onClose={vi.fn()} />)
       const sidebar = screen.getByTestId('drawer-sidebar')
       expect(sidebar.style.boxShadow).toBe('var(--shadow-panel-focused)')
+    })
+
+    it('calls onClose when Escape key is pressed', async () => {
+      const onClose = vi.fn()
+      render(<DrawerSidebar open={true} onClose={onClose} />)
+      await userEvent.keyboard('{Escape}')
+      expect(onClose).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not call onClose on Escape when closed', async () => {
+      const onClose = vi.fn()
+      render(<DrawerSidebar open={false} onClose={onClose} />)
+      await userEvent.keyboard('{Escape}')
+      expect(onClose).not.toHaveBeenCalled()
+    })
+
+    it('focuses the aside element when opened', () => {
+      const { rerender } = render(<DrawerSidebar open={false} onClose={vi.fn()} />)
+      rerender(<DrawerSidebar open={true} onClose={vi.fn()} />)
+      const sidebar = screen.getByTestId('drawer-sidebar')
+      expect(document.activeElement).toBe(sidebar)
+    })
+
+    it('restores focus to previously focused element on close', () => {
+      const button = document.createElement('button')
+      button.textContent = 'Trigger'
+      document.body.appendChild(button)
+      button.focus()
+      expect(document.activeElement).toBe(button)
+
+      const { rerender } = render(<DrawerSidebar open={true} onClose={vi.fn()} />)
+      // Focus should move to aside
+      expect(document.activeElement).toBe(screen.getByTestId('drawer-sidebar'))
+
+      rerender(<DrawerSidebar open={false} onClose={vi.fn()} />)
+      expect(document.activeElement).toBe(button)
+
+      document.body.removeChild(button)
     })
   })
 
@@ -151,7 +190,16 @@ describe('DrawerSidebar', () => {
     it('lens palette has accessible label', () => {
       render(<DrawerSidebar open={true} onClose={vi.fn()} />)
       const palette = screen.getByTestId('lens-palette')
-      expect(palette).toHaveAttribute('aria-label', 'Lens palette')
+      expect(palette).toHaveAttribute('aria-label', 'Panel types')
+    })
+
+    it('lens items have role="button" and tabIndex={0}', () => {
+      render(<DrawerSidebar open={true} onClose={vi.fn()} />)
+      for (const lens of LENS_PALETTE) {
+        const item = screen.getByTestId(`lens-item-${lens.type}`)
+        expect(item).toHaveAttribute('role', 'button')
+        expect(item).toHaveAttribute('tabindex', '0')
+      }
     })
   })
 })
