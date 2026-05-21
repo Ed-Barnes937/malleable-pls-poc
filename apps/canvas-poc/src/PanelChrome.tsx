@@ -22,12 +22,18 @@ const PANEL_ICONS: Record<PanelType, LucideIcon> = {
   note: StickyNote,
 }
 
+/* ── Deterministic waveform heights (avoids Math.random jitter on re-render) ── */
+
+const WAVEFORM_HEIGHTS = [
+  35, 68, 42, 75, 28, 82, 55, 90, 38, 72, 48, 85,
+  30, 78, 62, 88, 45, 70, 52, 95, 40, 65, 58, 80,
+]
+
 /* ── Props ── */
 
 export interface PanelChromeProps {
   title?: string
   type?: PanelType
-  focused?: boolean
   children?: ReactNode
   onClose?: () => void
   /** Passed down so the header can initiate drag via dragControls */
@@ -39,7 +45,6 @@ export interface PanelChromeProps {
 export function PanelChrome({
   title,
   type,
-  focused = false,
   children,
   onClose,
   onDragHandlePointerDown,
@@ -73,6 +78,7 @@ export function PanelChrome({
         <button
           data-testid="panel-close"
           type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation()
             onClose?.()
@@ -90,7 +96,7 @@ export function PanelChrome({
         className="flex-1 overflow-auto px-3 pb-3"
       >
         {children ?? (
-          <PlaceholderContent type={type} focused={focused} />
+          <PlaceholderContent type={type} />
         )}
       </div>
     </div>
@@ -99,7 +105,7 @@ export function PanelChrome({
 
 /* ── Placeholder content for POC ── */
 
-function PlaceholderContent({ type }: { type?: PanelType; focused?: boolean }) {
+function PlaceholderContent({ type }: { type?: PanelType }) {
   switch (type) {
     case 'document':
       return (
@@ -122,11 +128,11 @@ function PlaceholderContent({ type }: { type?: PanelType; focused?: boolean }) {
             <span className="text-xs text-text-secondary">Recording — 12:34</span>
           </div>
           <div className="flex h-8 items-end gap-0.5">
-            {Array.from({ length: 24 }, (_, i) => (
+            {WAVEFORM_HEIGHTS.map((h, i) => (
               <div
                 key={i}
                 className="flex-1 rounded-sm bg-accent/30"
-                style={{ height: `${20 + Math.sin(i * 0.8) * 60 + Math.random() * 20}%` }}
+                style={{ height: `${h}%` }}
               />
             ))}
           </div>

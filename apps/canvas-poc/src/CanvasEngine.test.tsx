@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
@@ -181,6 +181,44 @@ describe('CanvasEngine', () => {
     expect(frontPanel.style.boxShadow).toBe('var(--shadow-panel-focused)')
     const backPanel = screen.getByTestId('panel-back')
     expect(backPanel.style.boxShadow).toBe('var(--shadow-panel)')
+  })
+
+  it('applies focused shadow on hover via CSS transition (not whileHover)', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'hoverable',
+      pos_x: 0,
+      pos_y: 0,
+      width: 200,
+      height: 200,
+      z_index: 1,
+    })
+    render(<CanvasEngine />)
+    const panel = screen.getByTestId('panel-hoverable')
+    // Single panel is already focused, so it has focused shadow
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel-focused)')
+
+    // Add a second panel so the first is no longer focused
+    act(() => {
+      useCanvasStore.getState().addPanel({
+        id: 'other',
+        pos_x: 100,
+        pos_y: 100,
+        width: 200,
+        height: 200,
+        z_index: 2,
+      })
+    })
+
+    // Re-check: hoverable is no longer focused
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel)')
+
+    // Hover should elevate shadow
+    fireEvent.mouseEnter(panel)
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel-focused)')
+
+    // Un-hover should revert
+    fireEvent.mouseLeave(panel)
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel)')
   })
 
   it('applies entrance animation initial state', () => {

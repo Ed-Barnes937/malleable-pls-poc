@@ -296,8 +296,8 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
     [dragControls],
   )
 
-  // Shadow depends on focus + hover + gesture state
-  const shadow = (isFocused || isGesturing)
+  // Shadow depends on focus + hover + gesture state — all via CSS transitions
+  const shadow = (isFocused || isGesturing || isHovered)
     ? 'var(--shadow-panel-focused)'
     : 'var(--shadow-panel)'
 
@@ -334,9 +334,6 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-[var(--radius-panel)] border border-border-subtle"
-      whileHover={{
-        boxShadow: 'var(--shadow-panel-focused)',
-      }}
       /* ── Entrance animation ── */
       initial={{ scale: 0.95, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
@@ -361,7 +358,6 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
       <PanelChrome
         title={panel.title}
         type={panel.type}
-        focused={isFocused}
         onClose={handleClose}
         onDragHandlePointerDown={handleDragHandlePointerDown}
       />

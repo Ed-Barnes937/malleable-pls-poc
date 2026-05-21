@@ -30,7 +30,7 @@ describe('PanelChrome', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it('close button stops propagation (does not trigger parent handlers)', () => {
+  it('close button stops click propagation (does not trigger parent handlers)', () => {
     const parentHandler = vi.fn()
     const onClose = vi.fn()
     render(
@@ -41,6 +41,17 @@ describe('PanelChrome', () => {
     fireEvent.click(screen.getByTestId('panel-close'))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(parentHandler).not.toHaveBeenCalled()
+  })
+
+  it('close button stops pointerDown propagation (does not trigger drag)', () => {
+    const headerPointerDown = vi.fn()
+    render(
+      <div onPointerDown={headerPointerDown}>
+        <PanelChrome title="Test" onClose={vi.fn()} />
+      </div>,
+    )
+    fireEvent.pointerDown(screen.getByTestId('panel-close'))
+    expect(headerPointerDown).not.toHaveBeenCalled()
   })
 
   it('renders children in the content area', () => {
