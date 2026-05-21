@@ -70,8 +70,9 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       e.dataTransfer.setData('application/x-lens-type', lens.type)
       e.dataTransfer.setData('application/x-lens-label', lens.label)
       e.dataTransfer.effectAllowed = 'copy'
+      onClose()
     },
-    [],
+    [onClose],
   )
 
   return (

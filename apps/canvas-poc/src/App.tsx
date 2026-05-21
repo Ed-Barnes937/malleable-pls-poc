@@ -88,6 +88,8 @@ export function App() {
         title: lensLabel || 'Untitled',
         type: lensType,
       })
+
+      setDrawerOpen(true)
     },
     [addPanel],
   )

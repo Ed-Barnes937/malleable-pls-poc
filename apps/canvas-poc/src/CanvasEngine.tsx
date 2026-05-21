@@ -145,6 +145,7 @@ interface ResizeHandleProps {
 
 function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeHandleProps) {
   const resizePanel = useCanvasStore((s) => s.resizePanel)
+  const bringToFront = useCanvasStore((s) => s.bringToFront)
   const startRef = useRef<{
     startX: number
     startY: number
@@ -161,6 +162,8 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
       if (!panel) return
 
+      bringToFront(panelId)
+
       startRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -174,7 +177,7 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       const target = e.currentTarget as HTMLElement
       target.setPointerCapture(e.pointerId)
     },
-    [panelId, onGestureChange],
+    [panelId, bringToFront, onGestureChange],
   )
 
   const handlePointerMove = useCallback(
@@ -297,13 +300,14 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       // Clamp so the panel header stays reachable (can't drag off the top)
       newY = Math.max(0, newY)
 
-      // Reset motion values before updating store to prevent snap-back animation.
-      // The panel is currently at visual position (store pos + motion offset).
-      // We set motion to 0 and store to the new position in the same frame.
       x.jump(0)
       y.jump(0)
       movePanel(panel.id, newX, newY)
-      setIsGesturing(false)
+      // Delay re-enabling CSS transitions until after the position update paints,
+      // otherwise the transition animates from old → new position.
+      requestAnimationFrame(() => {
+        setIsGesturing(false)
+      })
     },
     [panel.id, movePanel, x, y, shiftRef],
   )
@@ -389,7 +393,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       onPointerDown={handlePointerDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="rounded-[var(--radius-panel)] border border-border-subtle"
+      className="rounded-[var(--radius-panel)] border border-border"
       /* ── Entrance animation ──
        * Scale-only — opacity is NOT animated here because Motion's `initial={{ opacity: 0 }}`
        * conflicts with the CSS transition on `opacity` used for focus-mode dimming. Both try
