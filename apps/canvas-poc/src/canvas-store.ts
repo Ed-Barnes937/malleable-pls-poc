@@ -23,7 +23,13 @@ export const useCanvasStore = create<CanvasState>((set) => ({
   panels: [],
 
   addPanel: (item) =>
-    set((state) => ({ panels: [...state.panels, item] })),
+    set((state) => {
+      if (state.panels.some((p) => p.id === item.id)) {
+        console.warn(`addPanel: panel with id "${item.id}" already exists — skipping`)
+        return state
+      }
+      return { panels: [...state.panels, item] }
+    }),
 
   removePanel: (id) =>
     set((state) => ({ panels: state.panels.filter((p) => p.id !== id) })),
@@ -37,7 +43,16 @@ export const useCanvasStore = create<CanvasState>((set) => ({
 
   bringToFront: (id) =>
     set((state) => {
-      const maxZ = Math.max(...state.panels.map((p) => p.z_index))
+      const panel = state.panels.find((p) => p.id === id)
+      if (!panel) return state
+
+      const maxZ = state.panels.length > 0
+        ? Math.max(...state.panels.map((p) => p.z_index))
+        : 0
+
+      // Already on top — skip to avoid unbounded z-index growth
+      if (panel.z_index === maxZ) return state
+
       return {
         panels: state.panels.map((p) =>
           p.id === id ? { ...p, z_index: maxZ + 1 } : p,

@@ -17,7 +17,7 @@ export function App() {
         addPanel(panel)
       }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [panelCount, addPanel])
 
   return (
     <div className="flex h-dvh flex-col">

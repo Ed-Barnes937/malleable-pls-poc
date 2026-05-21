@@ -32,6 +32,14 @@ describe('canvas-store', () => {
       useCanvasStore.getState().addPanel(makePanel({ id: 'b' }))
       expect(useCanvasStore.getState().panels).toHaveLength(2)
     })
+
+    it('rejects duplicate IDs', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'dup' }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'dup', pos_x: 999 }))
+      expect(useCanvasStore.getState().panels).toHaveLength(1)
+      // Original panel unchanged
+      expect(useCanvasStore.getState().panels[0].pos_x).toBe(10)
+    })
   })
 
   describe('removePanel', () => {
@@ -68,6 +76,14 @@ describe('canvas-store', () => {
       expect(panelB.pos_y).toBe(20)
     })
 
+    it('does nothing when id does not exist', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20 }))
+      useCanvasStore.getState().movePanel('nonexistent', 999, 999)
+      const panel = useCanvasStore.getState().panels[0]
+      expect(panel.pos_x).toBe(10)
+      expect(panel.pos_y).toBe(20)
+    })
+
     it('preserves other panel properties', () => {
       useCanvasStore.getState().addPanel(makePanel({ id: 'a', width: 300, height: 200, z_index: 5 }))
       useCanvasStore.getState().movePanel('a', 50, 50)
@@ -96,18 +112,26 @@ describe('canvas-store', () => {
       expect(panelB.z_index).toBe(2)
     })
 
-    it('works correctly when panel is already at front', () => {
+    it('no-ops when panel is already at front', () => {
       useCanvasStore.getState().addPanel(makePanel({ id: 'a', z_index: 1 }))
       useCanvasStore.getState().addPanel(makePanel({ id: 'b', z_index: 5 }))
       useCanvasStore.getState().bringToFront('b')
       const panel = useCanvasStore.getState().panels.find((p) => p.id === 'b')!
-      expect(panel.z_index).toBe(6)
+      // Already at max z — should remain unchanged
+      expect(panel.z_index).toBe(5)
     })
 
-    it('handles single panel', () => {
+    it('no-ops for single panel (already at top)', () => {
       useCanvasStore.getState().addPanel(makePanel({ id: 'solo', z_index: 1 }))
       useCanvasStore.getState().bringToFront('solo')
-      expect(useCanvasStore.getState().panels[0].z_index).toBe(2)
+      // Single panel is always at max z — no change
+      expect(useCanvasStore.getState().panels[0].z_index).toBe(1)
+    })
+
+    it('does nothing when id does not exist', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', z_index: 3 }))
+      useCanvasStore.getState().bringToFront('nonexistent')
+      expect(useCanvasStore.getState().panels[0].z_index).toBe(3)
     })
 
     it('works with consecutive bringToFront calls', () => {

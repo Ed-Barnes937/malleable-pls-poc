@@ -65,14 +65,14 @@ describe('CanvasEngine', () => {
     expect(greenPanel.style.zIndex).toBe('3')
   })
 
-  it('overlapping panels render in correct visual z-order', () => {
+  it('overlapping panels render with ascending z-index on DOM elements', () => {
     seedPanels()
     render(<CanvasEngine />)
-    const panels = useCanvasStore.getState().panels
-    const sorted = [...panels].sort((a, b) => a.z_index - b.z_index)
-    expect(sorted[0].id).toBe('red')
-    expect(sorted[1].id).toBe('blue')
-    expect(sorted[2].id).toBe('green')
+    const redZ = Number(screen.getByTestId('panel-red').style.zIndex)
+    const blueZ = Number(screen.getByTestId('panel-blue').style.zIndex)
+    const greenZ = Number(screen.getByTestId('panel-green').style.zIndex)
+    expect(redZ).toBeLessThan(blueZ)
+    expect(blueZ).toBeLessThan(greenZ)
   })
 
   it('updates z-index when a panel receives pointer down', () => {
