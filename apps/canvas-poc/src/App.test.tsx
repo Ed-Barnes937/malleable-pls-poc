@@ -2,15 +2,23 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, beforeEach } from 'vitest'
 import { App } from './App'
+import { useCanvasStore } from './canvas-store'
 
 describe('App', () => {
   beforeEach(() => {
     document.documentElement.removeAttribute('data-theme')
+    useCanvasStore.setState({ panels: [] })
   })
 
-  it('renders the Canvas POC heading', () => {
+  it('renders the top bar with workspace name', () => {
     render(<App />)
-    expect(screen.getByText('Canvas POC')).toBeInTheDocument()
+    expect(screen.getByTestId('top-bar')).toBeInTheDocument()
+    expect(screen.getByTestId('workspace-name')).toHaveTextContent('My Workspace')
+  })
+
+  it('renders the scope chip', () => {
+    render(<App />)
+    expect(screen.getByTestId('scope-chip')).toHaveTextContent('All items')
   })
 
   it('renders a theme toggle button', () => {
@@ -40,5 +48,15 @@ describe('App', () => {
   it('renders the canvas area', () => {
     render(<App />)
     expect(screen.getByRole('main')).toBeInTheDocument()
+  })
+
+  it('renders the drawer trigger button', () => {
+    render(<App />)
+    expect(screen.getByTestId('drawer-trigger')).toBeInTheDocument()
+  })
+
+  it('renders the add panel button', () => {
+    render(<App />)
+    expect(screen.getByTestId('add-panel-button')).toBeInTheDocument()
   })
 })
