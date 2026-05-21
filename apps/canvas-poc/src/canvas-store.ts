@@ -13,6 +13,8 @@ export const DEFAULT_SIZE_CONSTRAINTS: Required<Pick<SizeConstraints, 'minWidth'
   minHeight: 150,
 }
 
+export type PanelType = 'document' | 'audio' | 'tags' | 'chart' | 'image' | 'note'
+
 export interface PanelItem {
   id: string
   pos_x: number
@@ -20,9 +22,13 @@ export interface PanelItem {
   width: number
   height: number
   z_index: number
+  /** Display title shown in the panel header */
+  title?: string
+  /** Panel type — determines the icon shown in the header */
+  type?: PanelType
   /** Optional size constraints for resize clamping */
   constraints?: SizeConstraints
-  /** Arbitrary metadata (e.g. colour) — not used for layout logic */
+  /** Arbitrary metadata — not used for layout logic */
   meta?: Record<string, unknown>
 }
 
