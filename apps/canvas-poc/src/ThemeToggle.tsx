@@ -11,7 +11,7 @@ export function ThemeToggle({ theme, onToggle }: ThemeToggleProps) {
     <button
       onClick={onToggle}
       aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-1.5 text-sm text-text-secondary transition-colors hover:border-border hover:text-text-primary"
+      className="flex items-center gap-2 rounded-lg border border-border-subtle bg-surface-raised px-3 py-1.5 text-sm text-text-secondary hover:border-border hover:text-text-primary"
       style={{ transition: 'var(--transition-panel)' }}
     >
       {theme === 'dark' ? (

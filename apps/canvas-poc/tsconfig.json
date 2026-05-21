@@ -2,7 +2,7 @@
   "extends": "../../tsconfig.base.json",
   "include": ["src", "../../packages/*/src"],
   "compilerOptions": {
-    "types": ["vite/client"],
+    "types": ["vite/client", "@testing-library/jest-dom", "node"],
     "baseUrl": ".",
     "paths": {
       "@pls/*": ["../../packages/*/src"]

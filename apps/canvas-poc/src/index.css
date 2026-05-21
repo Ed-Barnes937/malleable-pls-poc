@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../packages/*/src/**/*.{ts,tsx}";
 
 @theme {
   /* ── Warm material surface tokens (dark mode defaults) ── */
