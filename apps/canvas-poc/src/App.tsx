@@ -15,6 +15,7 @@ const NEW_PANEL_HEIGHT = 220
 export function App() {
   const { theme, toggle } = useTheme('dark')
   const addPanel = useCanvasStore((s) => s.addPanel)
+  const organizePanels = useCanvasStore((s) => s.organizePanels)
   const panelCount = useCanvasStore((s) => s.panels.length)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -40,6 +41,12 @@ export function App() {
   const handleAddPanel = useCallback(() => {
     setDrawerOpen(true)
   }, [])
+
+  const handleOrganize = useCallback(() => {
+    const scrollEl = canvasRef.current?.querySelector('[data-canvas-scroll]')
+    const width = scrollEl?.clientWidth ?? canvasRef.current?.clientWidth ?? 1200
+    organizePanels(width)
+  }, [organizePanels])
 
   /** Handle drop from lens palette onto canvas */
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
@@ -91,6 +98,7 @@ export function App() {
       <TopBar
         onMenuClick={handleToggleDrawer}
         onAddPanel={handleAddPanel}
+        onOrganize={handleOrganize}
         trailing={<ThemeToggle theme={theme} onToggle={toggle} />}
       />
 

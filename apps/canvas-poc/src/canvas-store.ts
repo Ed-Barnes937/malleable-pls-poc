@@ -94,6 +94,9 @@ interface CanvasState {
   exitFullscreen: () => void
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
 
+  /** Auto-organize panels into a non-overlapping grid layout */
+  organizePanels: (canvasWidth: number) => void
+
   /** Workspace background */
   background: BackgroundConfig
   setBackground: (background: BackgroundConfig) => void
@@ -238,6 +241,32 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       state.enterFullscreen(id, canvasWidth, canvasHeight)
     }
   },
+
+  /* ── Auto-organize ── */
+
+  organizePanels: (canvasWidth: number) =>
+    set((state) => {
+      const GAP = 20
+      const sorted = [...state.panels].sort((a, b) => (b.width * b.height) - (a.width * a.height))
+
+      let curX = GAP
+      let curY = GAP
+      let rowHeight = 0
+
+      const updated = sorted.map((panel, i) => {
+        if (i > 0 && curX + panel.width + GAP > canvasWidth) {
+          curX = GAP
+          curY += rowHeight + GAP
+          rowHeight = 0
+        }
+        const placed = { ...panel, pos_x: curX, pos_y: curY, z_index: i + 1 }
+        curX += panel.width + GAP
+        rowHeight = Math.max(rowHeight, panel.height)
+        return placed
+      })
+
+      return { panels: updated }
+    }),
 
   /* ── Workspace background ── */
 
