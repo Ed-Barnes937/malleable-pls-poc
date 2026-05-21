@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
-import { useCanvasStore } from './canvas-store'
+import { useCanvasStore, type PanelItem } from './canvas-store'
 
 /**
  * Testing notes:
@@ -22,7 +22,12 @@ function seedPanels() {
 
 describe('CanvasEngine', () => {
   beforeEach(() => {
-    useCanvasStore.setState({ panels: [] })
+    useCanvasStore.setState({
+      panels: [],
+      focusModePanelId: null,
+      fullscreenPanelId: null,
+      preFullscreenLayout: null,
+    })
   })
 
   it('renders the canvas container', () => {
@@ -297,6 +302,122 @@ describe('CanvasEngine', () => {
 
       const handlesContainer = screen.getByTestId('resize-handles-test')
       expect(handlesContainer.style.pointerEvents).toBe('auto')
+    })
+  })
+
+  describe('focus mode', () => {
+    it('dims non-focused panels to 0.3 opacity when focus mode is active', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFocusMode('green')
+      })
+
+      const redPanel = screen.getByTestId('panel-red')
+      const bluePanel = screen.getByTestId('panel-blue')
+      const greenPanel = screen.getByTestId('panel-green')
+
+      expect(redPanel.style.opacity).toBe('0.3')
+      expect(bluePanel.style.opacity).toBe('0.3')
+      expect(greenPanel.style.opacity).toBe('1')
+    })
+
+    it('restores full opacity when focus mode is exited', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFocusMode('green')
+      })
+
+      act(() => {
+        useCanvasStore.getState().exitFocusMode()
+      })
+
+      const redPanel = screen.getByTestId('panel-red')
+      const bluePanel = screen.getByTestId('panel-blue')
+
+      expect(redPanel.style.opacity).toBe('1')
+      expect(bluePanel.style.opacity).toBe('1')
+    })
+
+    it('clicking canvas background exits focus mode', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFocusMode('green')
+      })
+
+      expect(useCanvasStore.getState().focusModePanelId).toBe('green')
+
+      const canvas = screen.getByTestId('canvas-container')
+      // Fire pointerDown directly on the canvas (not on a child panel)
+      fireEvent.pointerDown(canvas)
+
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+
+    it('opacity transition is included in transition style', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      const redPanel = screen.getByTestId('panel-red')
+      const transition = redPanel.style.transition
+      expect(transition).toContain('opacity')
+    })
+  })
+
+  describe('fullscreen', () => {
+    it('renders a fullscreen toggle button in panel chrome', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'fs-test',
+        pos_x: 0,
+        pos_y: 0,
+        width: 200,
+        height: 200,
+        z_index: 1,
+        title: 'Fullscreen Test',
+      })
+      render(<CanvasEngine />)
+      expect(screen.getByTestId('panel-fullscreen')).toBeInTheDocument()
+    })
+
+    it('fullscreen button has correct aria-label', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'fs-test',
+        pos_x: 0,
+        pos_y: 0,
+        width: 200,
+        height: 200,
+        z_index: 1,
+        title: 'My Panel',
+      })
+      render(<CanvasEngine />)
+      expect(screen.getByLabelText('Fullscreen My Panel')).toBeInTheDocument()
+    })
+
+    it('disables resize handles when panel is fullscreen', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'fs-test',
+        pos_x: 10,
+        pos_y: 20,
+        width: 200,
+        height: 200,
+        z_index: 1,
+      })
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFullscreen('fs-test', 800, 600)
+      })
+
+      const panel = screen.getByTestId('panel-fs-test')
+      // Even if hovered, handles should be disabled in fullscreen
+      fireEvent.mouseEnter(panel)
+      const handlesContainer = screen.getByTestId('resize-handles-fs-test')
+      expect(handlesContainer.style.pointerEvents).toBe('none')
     })
   })
 })

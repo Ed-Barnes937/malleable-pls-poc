@@ -16,7 +16,12 @@ function makePanel(overrides: Partial<PanelItem> = {}): PanelItem {
 describe('canvas-store', () => {
   beforeEach(() => {
     // Reset store to empty state before each test
-    useCanvasStore.setState({ panels: [] })
+    useCanvasStore.setState({
+      panels: [],
+      focusModePanelId: null,
+      fullscreenPanelId: null,
+      preFullscreenLayout: null,
+    })
   })
 
   describe('addPanel', () => {
@@ -256,6 +261,127 @@ describe('canvas-store', () => {
       const result = clampDimensions(100, 100, { minWidth: 400, maxWidth: 300, minHeight: 50, maxHeight: 500 })
       expect(result.width).toBe(400)  // min wins over contradictory max
       expect(result.height).toBe(100) // normal clamping, value is within range
+    })
+  })
+
+  describe('focusMode', () => {
+    it('enterFocusMode sets focusModePanelId', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().enterFocusMode('a')
+      expect(useCanvasStore.getState().focusModePanelId).toBe('a')
+    })
+
+    it('enterFocusMode no-ops for non-existent panel', () => {
+      useCanvasStore.getState().enterFocusMode('nonexistent')
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+
+    it('exitFocusMode clears focusModePanelId', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().enterFocusMode('a')
+      useCanvasStore.getState().exitFocusMode()
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+
+    it('toggleFocusMode enters when not active', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().toggleFocusMode('a')
+      expect(useCanvasStore.getState().focusModePanelId).toBe('a')
+    })
+
+    it('toggleFocusMode exits when already active for same panel', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().enterFocusMode('a')
+      useCanvasStore.getState().toggleFocusMode('a')
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+
+    it('toggleFocusMode switches to different panel', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b' }))
+      useCanvasStore.getState().enterFocusMode('a')
+      useCanvasStore.getState().toggleFocusMode('b')
+      expect(useCanvasStore.getState().focusModePanelId).toBe('b')
+    })
+
+    it('toggleFocusMode no-ops for non-existent panel when not focused', () => {
+      useCanvasStore.getState().toggleFocusMode('nonexistent')
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+  })
+
+  describe('fullscreen', () => {
+    it('enterFullscreen sets panel to fill canvas area with padding', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+
+      const state = useCanvasStore.getState()
+      expect(state.fullscreenPanelId).toBe('a')
+      expect(state.preFullscreenLayout).toEqual({ pos_x: 10, pos_y: 20, width: 200, height: 150 })
+
+      const panel = state.panels.find((p) => p.id === 'a')!
+      expect(panel.pos_x).toBe(16)
+      expect(panel.pos_y).toBe(16)
+      expect(panel.width).toBe(768) // 800 - 32
+      expect(panel.height).toBe(568) // 600 - 32
+    })
+
+    it('enterFullscreen no-ops for non-existent panel', () => {
+      useCanvasStore.getState().enterFullscreen('nonexistent', 800, 600)
+      expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+    })
+
+    it('exitFullscreen restores previous layout', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+      useCanvasStore.getState().exitFullscreen()
+
+      const state = useCanvasStore.getState()
+      expect(state.fullscreenPanelId).toBeNull()
+      expect(state.preFullscreenLayout).toBeNull()
+
+      const panel = state.panels.find((p) => p.id === 'a')!
+      expect(panel.pos_x).toBe(10)
+      expect(panel.pos_y).toBe(20)
+      expect(panel.width).toBe(200)
+      expect(panel.height).toBe(150)
+    })
+
+    it('exitFullscreen clears state when no layout stored', () => {
+      useCanvasStore.getState().exitFullscreen()
+      expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+      expect(useCanvasStore.getState().preFullscreenLayout).toBeNull()
+    })
+
+    it('toggleFullscreen enters then exits', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+
+      // Enter
+      useCanvasStore.getState().toggleFullscreen('a', 800, 600)
+      expect(useCanvasStore.getState().fullscreenPanelId).toBe('a')
+      expect(useCanvasStore.getState().panels.find((p) => p.id === 'a')!.width).toBe(768)
+
+      // Exit
+      useCanvasStore.getState().toggleFullscreen('a', 800, 600)
+      expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+      expect(useCanvasStore.getState().panels.find((p) => p.id === 'a')!.width).toBe(200)
+    })
+
+    it('toggleFullscreen no-ops for non-existent panel when not fullscreen', () => {
+      useCanvasStore.getState().toggleFullscreen('nonexistent', 800, 600)
+      expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+    })
+
+    it('does not modify other panels during fullscreen', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b', pos_x: 50, pos_y: 60, width: 300, height: 250 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+
+      const panelB = useCanvasStore.getState().panels.find((p) => p.id === 'b')!
+      expect(panelB.pos_x).toBe(50)
+      expect(panelB.pos_y).toBe(60)
+      expect(panelB.width).toBe(300)
+      expect(panelB.height).toBe(250)
     })
   })
 })
