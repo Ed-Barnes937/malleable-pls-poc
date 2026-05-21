@@ -61,6 +61,46 @@ describe('canvas-store', () => {
       useCanvasStore.getState().removePanel('nonexistent')
       expect(useCanvasStore.getState().panels).toHaveLength(1)
     })
+
+    it('clears focusModePanelId when the focused panel is removed', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b' }))
+      useCanvasStore.getState().enterFocusMode('a')
+      expect(useCanvasStore.getState().focusModePanelId).toBe('a')
+
+      useCanvasStore.getState().removePanel('a')
+      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
+    })
+
+    it('preserves focusModePanelId when a different panel is removed', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b' }))
+      useCanvasStore.getState().enterFocusMode('a')
+
+      useCanvasStore.getState().removePanel('b')
+      expect(useCanvasStore.getState().focusModePanelId).toBe('a')
+    })
+
+    it('clears fullscreenPanelId and preFullscreenLayout when the fullscreened panel is removed', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+      expect(useCanvasStore.getState().fullscreenPanelId).toBe('a')
+      expect(useCanvasStore.getState().preFullscreenLayout).not.toBeNull()
+
+      useCanvasStore.getState().removePanel('a')
+      expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+      expect(useCanvasStore.getState().preFullscreenLayout).toBeNull()
+    })
+
+    it('preserves fullscreen state when a different panel is removed', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b' }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+
+      useCanvasStore.getState().removePanel('b')
+      expect(useCanvasStore.getState().fullscreenPanelId).toBe('a')
+      expect(useCanvasStore.getState().preFullscreenLayout).not.toBeNull()
+    })
   })
 
   describe('movePanel', () => {
@@ -329,6 +369,35 @@ describe('canvas-store', () => {
     it('enterFullscreen no-ops for non-existent panel', () => {
       useCanvasStore.getState().enterFullscreen('nonexistent', 800, 600)
       expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+    })
+
+    it('enterFullscreen no-ops when another panel is already fullscreened', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b', pos_x: 50, pos_y: 60, width: 300, height: 250 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+
+      // Try to fullscreen b — should be ignored
+      useCanvasStore.getState().enterFullscreen('b', 800, 600)
+
+      const state = useCanvasStore.getState()
+      expect(state.fullscreenPanelId).toBe('a')
+      // Original layout for panel a is still preserved
+      expect(state.preFullscreenLayout).toEqual({ pos_x: 10, pos_y: 20, width: 200, height: 150 })
+      // Panel b should be unchanged
+      const panelB = state.panels.find((p) => p.id === 'b')!
+      expect(panelB.pos_x).toBe(50)
+      expect(panelB.width).toBe(300)
+    })
+
+    it('toggleFullscreen no-ops when another panel is already fullscreened', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 200, height: 150 }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b', pos_x: 50, pos_y: 60, width: 300, height: 250 }))
+      useCanvasStore.getState().enterFullscreen('a', 800, 600)
+
+      // Toggle fullscreen on b — should be ignored because a is already fullscreened
+      useCanvasStore.getState().toggleFullscreen('b', 800, 600)
+
+      expect(useCanvasStore.getState().fullscreenPanelId).toBe('a')
     })
 
     it('exitFullscreen restores previous layout', () => {

@@ -299,7 +299,10 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
-  }, [panel.id, bringToFront])
+    if (isDimmed) {
+      useCanvasStore.getState().enterFocusMode(panel.id)
+    }
+  }, [panel.id, bringToFront, isDimmed])
 
   const handleDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
@@ -375,7 +378,11 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-[var(--radius-panel)] border border-border-subtle"
-      /* ── Entrance animation (scale only; opacity is driven by CSS transition via style prop) ── */
+      /* ── Entrance animation ──
+       * Scale-only — opacity is NOT animated here because Motion's `initial={{ opacity: 0 }}`
+       * conflicts with the CSS transition on `opacity` used for focus-mode dimming. Both try
+       * to control the same property, causing flickers. The CSS transition on opacity
+       * (in `transitionStyle`) handles the dim/undim smoothly, so we accept scale-only entrance. */
       initial={{ scale: 0.95 }}
       animate={{ scale: 1 }}
       transition={{ type: 'tween', duration: 0.2 }}
@@ -397,6 +404,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       </div>
 
       <PanelChrome
+        panelId={panel.id}
         title={panel.title}
         type={panel.type}
         onClose={handleClose}

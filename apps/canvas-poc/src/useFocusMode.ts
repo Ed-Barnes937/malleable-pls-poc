@@ -71,5 +71,8 @@ export function useFocusMode(): void {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally empty:
+    // the handler reads current state imperatively via `useCanvasStore.getState()`
+    // so it never goes stale. Adding store actions as deps would cause unnecessary re-subscribes.
   }, [])
 }

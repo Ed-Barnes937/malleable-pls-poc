@@ -85,7 +85,7 @@ interface CanvasState {
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
 }
 
-export const useCanvasStore = create<CanvasState>((set) => ({
+export const useCanvasStore = create<CanvasState>((set, get) => ({
   panels: [],
 
   addPanel: (item) =>
@@ -98,7 +98,12 @@ export const useCanvasStore = create<CanvasState>((set) => ({
     }),
 
   removePanel: (id) =>
-    set((state) => ({ panels: state.panels.filter((p) => p.id !== id) })),
+    set((state) => ({
+      panels: state.panels.filter((p) => p.id !== id),
+      focusModePanelId: state.focusModePanelId === id ? null : state.focusModePanelId,
+      fullscreenPanelId: state.fullscreenPanelId === id ? null : state.fullscreenPanelId,
+      preFullscreenLayout: state.fullscreenPanelId === id ? null : state.preFullscreenLayout,
+    })),
 
   movePanel: (id, pos_x, pos_y) =>
     set((state) => ({
@@ -163,6 +168,9 @@ export const useCanvasStore = create<CanvasState>((set) => ({
 
   enterFullscreen: (id, canvasWidth, canvasHeight) =>
     set((state) => {
+      // No-op if any panel is already fullscreened (prevents losing the first panel's layout)
+      if (state.fullscreenPanelId) return state
+
       const panel = state.panels.find((p) => p.id === id)
       if (!panel) return state
 
@@ -208,50 +216,12 @@ export const useCanvasStore = create<CanvasState>((set) => ({
       }
     }),
 
-  toggleFullscreen: (id, canvasWidth, canvasHeight) =>
-    set((state) => {
-      if (state.fullscreenPanelId === id) {
-        // Exit fullscreen — restore previous layout
-        if (!state.preFullscreenLayout) {
-          return { fullscreenPanelId: null, preFullscreenLayout: null }
-        }
-        const { pos_x, pos_y, width, height } = state.preFullscreenLayout
-        return {
-          fullscreenPanelId: null,
-          preFullscreenLayout: null,
-          panels: state.panels.map((p) =>
-            p.id === id
-              ? { ...p, pos_x, pos_y, width, height }
-              : p,
-          ),
-        }
-      }
-
-      // Enter fullscreen
-      const panel = state.panels.find((p) => p.id === id)
-      if (!panel) return state
-
-      const PADDING = 16
-
-      return {
-        fullscreenPanelId: id,
-        preFullscreenLayout: {
-          pos_x: panel.pos_x,
-          pos_y: panel.pos_y,
-          width: panel.width,
-          height: panel.height,
-        },
-        panels: state.panels.map((p) =>
-          p.id === id
-            ? {
-                ...p,
-                pos_x: PADDING,
-                pos_y: PADDING,
-                width: canvasWidth - PADDING * 2,
-                height: canvasHeight - PADDING * 2,
-              }
-            : p,
-        ),
-      }
-    }),
+  toggleFullscreen: (id, canvasWidth, canvasHeight) => {
+    const state = get()
+    if (state.fullscreenPanelId === id) {
+      state.exitFullscreen()
+    } else {
+      state.enterFullscreen(id, canvasWidth, canvasHeight)
+    }
+  },
 }))

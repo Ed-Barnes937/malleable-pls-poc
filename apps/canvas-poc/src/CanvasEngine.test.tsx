@@ -160,7 +160,7 @@ describe('CanvasEngine', () => {
     })
     render(<CanvasEngine />)
     expect(screen.getByTestId('panel-closable')).toBeInTheDocument()
-    fireEvent.click(screen.getByTestId('panel-close'))
+    fireEvent.click(screen.getByTestId('panel-close-closable'))
     expect(screen.queryByTestId('panel-closable')).not.toBeInTheDocument()
   })
 
@@ -381,7 +381,7 @@ describe('CanvasEngine', () => {
         title: 'Fullscreen Test',
       })
       render(<CanvasEngine />)
-      expect(screen.getByTestId('panel-fullscreen')).toBeInTheDocument()
+      expect(screen.getByTestId('panel-fullscreen-fs-test')).toBeInTheDocument()
     })
 
     it('fullscreen button has correct aria-label', () => {
@@ -418,6 +418,38 @@ describe('CanvasEngine', () => {
       fireEvent.mouseEnter(panel)
       const handlesContainer = screen.getByTestId('resize-handles-fs-test')
       expect(handlesContainer.style.pointerEvents).toBe('none')
+    })
+  })
+
+  describe('clicking dimmed panel switches focus', () => {
+    it('switches focus mode to the clicked dimmed panel', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFocusMode('green')
+      })
+
+      // red is dimmed — clicking it should switch focus to red
+      const redPanel = screen.getByTestId('panel-red')
+      fireEvent.pointerDown(redPanel)
+
+      expect(useCanvasStore.getState().focusModePanelId).toBe('red')
+    })
+
+    it('does not change focus mode when clicking the already-focused panel', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFocusMode('green')
+      })
+
+      // green is focused (not dimmed) — clicking it should not change focus
+      const greenPanel = screen.getByTestId('panel-green')
+      fireEvent.pointerDown(greenPanel)
+
+      expect(useCanvasStore.getState().focusModePanelId).toBe('green')
     })
   })
 })

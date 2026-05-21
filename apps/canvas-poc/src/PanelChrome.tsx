@@ -34,6 +34,8 @@ const WAVEFORM_HEIGHTS = [
 /* ── Props ── */
 
 export interface PanelChromeProps {
+  /** Panel ID — used for unique test IDs */
+  panelId?: string
   title?: string
   type?: PanelType
   children?: ReactNode
@@ -49,6 +51,7 @@ export interface PanelChromeProps {
 /* ── Component ── */
 
 export function PanelChrome({
+  panelId,
   title,
   type,
   children,
@@ -85,7 +88,7 @@ export function PanelChrome({
         </span>
         {onToggleFullscreen && (
           <button
-            data-testid="panel-fullscreen"
+            data-testid={panelId ? `panel-fullscreen-${panelId}` : 'panel-fullscreen'}
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -99,7 +102,7 @@ export function PanelChrome({
           </button>
         )}
         <button
-          data-testid="panel-close"
+          data-testid={panelId ? `panel-close-${panelId}` : 'panel-close'}
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
