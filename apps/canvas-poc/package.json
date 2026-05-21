@@ -9,6 +9,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pls/lens-audio-capture": "workspace:*",
+    "@pls/lens-framework": "workspace:*",
+    "@pls/lens-transcript": "workspace:*",
+    "@pls/shared-ui": "workspace:*",
+    "@pls/substrate": "workspace:*",
     "lucide-react": "^0.500.0",
     "motion": "^12.0.0",
     "react": "^19.0.0",

@@ -13,7 +13,7 @@ export const DEFAULT_SIZE_CONSTRAINTS: Required<Pick<SizeConstraints, 'minWidth'
   minHeight: 150,
 }
 
-export type PanelType = 'document' | 'audio' | 'tags' | 'chart' | 'image' | 'note'
+export type PanelType = 'document' | 'audio' | 'tags' | 'chart' | 'image' | 'note' | 'transcript'
 
 export interface PanelItem {
   id: string

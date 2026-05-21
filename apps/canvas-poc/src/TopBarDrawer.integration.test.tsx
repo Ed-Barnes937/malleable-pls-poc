@@ -93,7 +93,7 @@ describe('TopBar + DrawerSidebar integration', () => {
 
       const panels = useCanvasStore.getState().panels
       const newPanel = panels[panels.length - 1]
-      const validTypes = ['document', 'audio', 'tags', 'chart', 'image', 'note']
+      const validTypes = ['document', 'audio', 'tags', 'chart', 'image', 'note', 'transcript']
       expect(validTypes).toContain(newPanel.type)
     })
 
