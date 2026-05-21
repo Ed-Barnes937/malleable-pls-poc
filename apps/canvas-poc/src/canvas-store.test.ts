@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useCanvasStore, type PanelItem } from './canvas-store'
+import { useCanvasStore, clampDimensions, DEFAULT_SIZE_CONSTRAINTS, type PanelItem } from './canvas-store'
 
 function makePanel(overrides: Partial<PanelItem> = {}): PanelItem {
   return {
@@ -143,6 +143,106 @@ describe('canvas-store', () => {
 
       useCanvasStore.getState().bringToFront('b')
       expect(useCanvasStore.getState().panels.find((p) => p.id === 'b')!.z_index).toBe(4)
+    })
+  })
+
+  describe('resizePanel', () => {
+    it('changes position and dimensions', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', pos_x: 10, pos_y: 20, width: 300, height: 200 }))
+      useCanvasStore.getState().resizePanel('a', 5, 15, 400, 250)
+      const panel = useCanvasStore.getState().panels[0]
+      expect(panel.pos_x).toBe(5)
+      expect(panel.pos_y).toBe(15)
+      expect(panel.width).toBe(400)
+      expect(panel.height).toBe(250)
+    })
+
+    it('clamps to default minimum dimensions', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', width: 300, height: 200 }))
+      useCanvasStore.getState().resizePanel('a', 10, 20, 50, 30)
+      const panel = useCanvasStore.getState().panels[0]
+      expect(panel.width).toBe(DEFAULT_SIZE_CONSTRAINTS.minWidth)
+      expect(panel.height).toBe(DEFAULT_SIZE_CONSTRAINTS.minHeight)
+    })
+
+    it('clamps to custom constraints', () => {
+      useCanvasStore.getState().addPanel(makePanel({
+        id: 'a',
+        width: 300,
+        height: 200,
+        constraints: { minWidth: 100, minHeight: 100, maxWidth: 500, maxHeight: 400 },
+      }))
+      // Below min
+      useCanvasStore.getState().resizePanel('a', 0, 0, 50, 50)
+      let panel = useCanvasStore.getState().panels[0]
+      expect(panel.width).toBe(100)
+      expect(panel.height).toBe(100)
+
+      // Above max
+      useCanvasStore.getState().resizePanel('a', 0, 0, 800, 600)
+      panel = useCanvasStore.getState().panels[0]
+      expect(panel.width).toBe(500)
+      expect(panel.height).toBe(400)
+    })
+
+    it('does not modify other panels', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', width: 300, height: 200 }))
+      useCanvasStore.getState().addPanel(makePanel({ id: 'b', pos_x: 50, pos_y: 60, width: 250, height: 180 }))
+      useCanvasStore.getState().resizePanel('a', 0, 0, 400, 300)
+      const panelB = useCanvasStore.getState().panels.find((p) => p.id === 'b')!
+      expect(panelB.width).toBe(250)
+      expect(panelB.height).toBe(180)
+    })
+
+    it('does nothing when id does not exist', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', width: 300, height: 200 }))
+      useCanvasStore.getState().resizePanel('nonexistent', 0, 0, 400, 300)
+      const panel = useCanvasStore.getState().panels[0]
+      expect(panel.width).toBe(300)
+      expect(panel.height).toBe(200)
+    })
+
+    it('preserves z_index and meta', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a', z_index: 5, width: 300, height: 200, meta: { colour: 'red' } }))
+      useCanvasStore.getState().resizePanel('a', 0, 0, 400, 300)
+      const panel = useCanvasStore.getState().panels[0]
+      expect(panel.z_index).toBe(5)
+      expect(panel.meta?.colour).toBe('red')
+    })
+  })
+
+  describe('clampDimensions', () => {
+    it('returns unclamped values when within defaults', () => {
+      const result = clampDimensions(300, 200)
+      expect(result).toEqual({ width: 300, height: 200 })
+    })
+
+    it('clamps to system default minimums', () => {
+      const result = clampDimensions(50, 30)
+      expect(result).toEqual({ width: 200, height: 150 })
+    })
+
+    it('clamps to custom min constraints', () => {
+      const result = clampDimensions(50, 30, { minWidth: 100, minHeight: 80 })
+      expect(result).toEqual({ width: 100, height: 80 })
+    })
+
+    it('clamps to custom max constraints', () => {
+      const result = clampDimensions(1000, 800, { maxWidth: 500, maxHeight: 400 })
+      expect(result).toEqual({ width: 500, height: 400 })
+    })
+
+    it('handles both min and max simultaneously', () => {
+      const constraints = { minWidth: 100, minHeight: 80, maxWidth: 500, maxHeight: 400 }
+      expect(clampDimensions(50, 50, constraints)).toEqual({ width: 100, height: 80 })
+      expect(clampDimensions(600, 500, constraints)).toEqual({ width: 500, height: 400 })
+      expect(clampDimensions(300, 200, constraints)).toEqual({ width: 300, height: 200 })
+    })
+
+    it('uses system defaults when constraints omit min values', () => {
+      const result = clampDimensions(50, 30, { maxWidth: 500 })
+      expect(result.width).toBe(200) // system default minWidth
+      expect(result.height).toBe(150) // system default minHeight
     })
   })
 })
