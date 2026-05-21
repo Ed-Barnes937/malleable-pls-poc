@@ -8,9 +8,11 @@ import { PanelChrome } from './PanelChrome'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
+  onDragOver?: (e: React.DragEvent) => void
+  onDrop?: (e: React.DragEvent) => void
 }
 
-export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
+export function CanvasEngine({ onLayoutChange, onDragOver, onDrop }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
@@ -53,6 +55,8 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
       data-canvas-scroll
       className="relative z-[1] h-full w-full overflow-auto"
       onPointerDown={handleCanvasPointerDown}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       {panels.map((panel) => (
         <DraggablePanel
@@ -290,9 +294,15 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
         newY = snapToGrid(newY)
       }
 
+      // Clamp so the panel header stays reachable (can't drag off the top)
+      newY = Math.max(0, newY)
+
+      // Reset motion values before updating store to prevent snap-back animation.
+      // The panel is currently at visual position (store pos + motion offset).
+      // We set motion to 0 and store to the new position in the same frame.
+      x.jump(0)
+      y.jump(0)
       movePanel(panel.id, newX, newY)
-      x.set(0)
-      y.set(0)
       setIsGesturing(false)
     },
     [panel.id, movePanel, x, y, shiftRef],
@@ -336,9 +346,10 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
   const handleToggleFullscreen = useCallback(() => {
     const canvas = canvasRef?.current
     if (!canvas) return
+    bringToFront(panel.id)
     const rect = canvas.getBoundingClientRect()
     toggleFullscreen(panel.id, rect.width, rect.height)
-  }, [panel.id, toggleFullscreen, canvasRef])
+  }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
   // Shadow depends on focus + hover + gesture state — all via CSS transitions
   const shadow = (isFocused || isGesturing || isHovered)

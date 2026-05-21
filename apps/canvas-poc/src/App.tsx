@@ -36,43 +36,10 @@ export function App() {
     setDrawerOpen(false)
   }, [])
 
-  /** Add a panel at the center of the visible canvas area */
+  /** Add button opens the drawer so the user can pick a panel type */
   const handleAddPanel = useCallback(() => {
-    const container = canvasRef.current
-    const panels = useCanvasStore.getState().panels
-    const maxZ = panels.length > 0
-      ? Math.max(...panels.map((p) => p.z_index))
-      : 0
-
-    // Default to center of viewport if canvas ref is unavailable
-    let centerX = 200
-    let centerY = 200
-
-    if (container) {
-      const scrollEl = container.querySelector('[data-canvas-scroll]')
-      if (scrollEl) {
-        centerX = scrollEl.scrollLeft + scrollEl.clientWidth / 2 - NEW_PANEL_WIDTH / 2
-        centerY = scrollEl.scrollTop + scrollEl.clientHeight / 2 - NEW_PANEL_HEIGHT / 2
-      } else {
-        centerX = container.clientWidth / 2 - NEW_PANEL_WIDTH / 2
-        centerY = container.clientHeight / 2 - NEW_PANEL_HEIGHT / 2
-      }
-    }
-
-    // Pick a random panel type from the lens palette
-    const randomLens = LENS_PALETTE[Math.floor(Math.random() * LENS_PALETTE.length)]
-
-    addPanel({
-      id: crypto.randomUUID(),
-      pos_x: Math.max(0, centerX),
-      pos_y: Math.max(0, centerY),
-      width: NEW_PANEL_WIDTH,
-      height: NEW_PANEL_HEIGHT,
-      z_index: maxZ + 1,
-      title: randomLens.label,
-      type: randomLens.type,
-    })
-  }, [addPanel])
+    setDrawerOpen(true)
+  }, [])
 
   /** Handle drop from lens palette onto canvas */
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
@@ -90,15 +57,12 @@ export function App() {
 
       e.preventDefault()
 
-      const container = canvasRef.current
-      if (!container) return
+      // The drop target is the CanvasEngine scroll container itself
+      const scrollEl = e.currentTarget as HTMLElement
+      const rect = scrollEl.getBoundingClientRect()
 
-      // Get the canvas scroll element for scroll-aware positioning
-      const scrollEl = container.querySelector('[data-canvas-scroll]')
-      const rect = (scrollEl ?? container).getBoundingClientRect()
-
-      const rawDropX = e.clientX - rect.left + (scrollEl?.scrollLeft ?? 0) - NEW_PANEL_WIDTH / 2
-      const rawDropY = e.clientY - rect.top + (scrollEl?.scrollTop ?? 0) - NEW_PANEL_HEIGHT / 2
+      const rawDropX = e.clientX - rect.left + scrollEl.scrollLeft - NEW_PANEL_WIDTH / 2
+      const rawDropY = e.clientY - rect.top + scrollEl.scrollTop - NEW_PANEL_HEIGHT / 2
       const dropX = Number.isFinite(rawDropX) ? Math.max(0, rawDropX) : 0
       const dropY = Number.isFinite(rawDropY) ? Math.max(0, rawDropY) : 0
 
@@ -149,12 +113,13 @@ export function App() {
             boxShadow: 'var(--shadow-panel)',
             transition: 'var(--transition-panel)',
           }}
-          onDragOver={handleCanvasDragOver}
-          onDrop={handleCanvasDrop}
           data-testid="canvas-drop-zone"
         >
           <WorkspaceBackground />
-          <CanvasEngine />
+          <CanvasEngine
+            onDragOver={handleCanvasDragOver}
+            onDrop={handleCanvasDrop}
+          />
         </div>
       </main>
     </div>
