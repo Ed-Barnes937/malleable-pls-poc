@@ -33,10 +33,14 @@ describe('WorkspaceBackground', () => {
   })
 
   describe('none background (default)', () => {
-    it('color layer is transparent', () => {
+    it('both color layers are transparent', () => {
       render(<WorkspaceBackground />)
-      const layer = screen.getByTestId('workspace-bg-color-layer')
-      expect(layer.style.background).toBe('transparent')
+      const layerA = screen.getByTestId('workspace-bg-color-layer-a')
+      const layerB = screen.getByTestId('workspace-bg-color-layer-b')
+      // One layer will be transparent with opacity 1, the other transparent with opacity 0
+      // Either way, visually both are transparent
+      expect(layerA.style.background).toBe('transparent')
+      expect(layerB.style.background).toBe('transparent')
     })
 
     it('image layer has opacity 0', () => {
@@ -47,11 +51,21 @@ describe('WorkspaceBackground', () => {
   })
 
   describe('solid background', () => {
-    it('applies solid color to the color layer', () => {
+    it('applies solid color to one of the color layers at full opacity', () => {
       useCanvasStore.setState({ background: { type: 'solid', value: 'oklch(0.85 0.04 75)' } })
       render(<WorkspaceBackground />)
-      const layer = screen.getByTestId('workspace-bg-color-layer')
-      expect(layer.style.background).toBe('oklch(0.85 0.04 75)')
+      const layerA = screen.getByTestId('workspace-bg-color-layer-a')
+      const layerB = screen.getByTestId('workspace-bg-color-layer-b')
+
+      // Exactly one layer should have the solid color with opacity 1
+      const activeLayer =
+        layerA.style.background === 'oklch(0.85 0.04 75)' ? layerA : layerB
+      const inactiveLayer = activeLayer === layerA ? layerB : layerA
+
+      expect(activeLayer.style.background).toBe('oklch(0.85 0.04 75)')
+      expect(activeLayer.style.opacity).toBe('1')
+      expect(inactiveLayer.style.background).toBe('transparent')
+      expect(inactiveLayer.style.opacity).toBe('0')
     })
 
     it('image layer remains at opacity 0', () => {
@@ -63,23 +77,28 @@ describe('WorkspaceBackground', () => {
   })
 
   describe('gradient background', () => {
-    it('applies gradient to the color layer', () => {
+    it('applies gradient to one of the color layers at full opacity', () => {
       const gradient = 'linear-gradient(135deg, oklch(0.78 0.08 55), oklch(0.65 0.10 25))'
       useCanvasStore.setState({ background: { type: 'gradient', value: gradient } })
       render(<WorkspaceBackground />)
-      const layer = screen.getByTestId('workspace-bg-color-layer')
-      // jsdom may normalize trailing zeroes (0.10 -> 0.1)
-      expect(layer.style.background).toContain('linear-gradient')
-      expect(layer.style.background).toContain('oklch')
+      const layerA = screen.getByTestId('workspace-bg-color-layer-a')
+      const layerB = screen.getByTestId('workspace-bg-color-layer-b')
+
+      // One layer should contain the gradient and be visible
+      const activeLayer =
+        layerA.style.background.includes('linear-gradient') ? layerA : layerB
+
+      expect(activeLayer.style.background).toContain('linear-gradient')
+      expect(activeLayer.style.background).toContain('oklch')
+      expect(activeLayer.style.opacity).toBe('1')
     })
   })
 
   describe('image background', () => {
-    it('sets background-image on the image layer', () => {
+    it('sets background-image on the image layer with quoted URL', () => {
       useCanvasStore.setState({ background: { type: 'image', value: 'https://example.com/bg.jpg' } })
       render(<WorkspaceBackground />)
       const layer = screen.getByTestId('workspace-bg-image-layer')
-      // jsdom may add quotes inside url()
       expect(layer.style.backgroundImage).toContain('https://example.com/bg.jpg')
     })
 
@@ -90,11 +109,13 @@ describe('WorkspaceBackground', () => {
       expect(layer.style.opacity).toBe('1')
     })
 
-    it('color layer is transparent for image backgrounds', () => {
+    it('both color layers are transparent for image backgrounds', () => {
       useCanvasStore.setState({ background: { type: 'image', value: 'https://example.com/bg.jpg' } })
       render(<WorkspaceBackground />)
-      const layer = screen.getByTestId('workspace-bg-color-layer')
-      expect(layer.style.background).toBe('transparent')
+      const layerA = screen.getByTestId('workspace-bg-color-layer-a')
+      const layerB = screen.getByTestId('workspace-bg-color-layer-b')
+      expect(layerA.style.background).toBe('transparent')
+      expect(layerB.style.background).toBe('transparent')
     })
 
     it('image layer has background-size: cover', () => {
@@ -103,13 +124,30 @@ describe('WorkspaceBackground', () => {
       const layer = screen.getByTestId('workspace-bg-image-layer')
       expect(layer.style.backgroundSize).toBe('cover')
     })
+
+    it('sanitises dangerous characters from image URLs', () => {
+      useCanvasStore.setState({
+        background: { type: 'image', value: 'https://example.com/bg.jpg"\\onerror=alert(1)' },
+      })
+      render(<WorkspaceBackground />)
+      const layer = screen.getByTestId('workspace-bg-image-layer')
+      // The double-quote and backslash should be stripped
+      expect(layer.style.backgroundImage).not.toContain('"\\')
+      expect(layer.style.backgroundImage).toContain('https://example.com/bg.jpg')
+    })
   })
 
   describe('transitions', () => {
-    it('color layer has 300ms ease-out transition on background', () => {
+    it('color layer A has 300ms ease-out opacity transition', () => {
       render(<WorkspaceBackground />)
-      const layer = screen.getByTestId('workspace-bg-color-layer')
-      expect(layer.style.transition).toBe('background 300ms ease-out')
+      const layer = screen.getByTestId('workspace-bg-color-layer-a')
+      expect(layer.style.transition).toBe('opacity 300ms ease-out')
+    })
+
+    it('color layer B has 300ms ease-out opacity transition', () => {
+      render(<WorkspaceBackground />)
+      const layer = screen.getByTestId('workspace-bg-color-layer-b')
+      expect(layer.style.transition).toBe('opacity 300ms ease-out')
     })
 
     it('image layer has 300ms ease-out transition on opacity', () => {

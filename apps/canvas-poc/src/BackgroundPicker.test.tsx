@@ -76,6 +76,19 @@ describe('BackgroundPicker', () => {
       expect(state.background).toEqual(firstSolid.config)
     })
 
+    it('clicking a solid preset clears the image URL input', async () => {
+      const user = userEvent.setup()
+      render(<BackgroundPicker />)
+      const input = screen.getByTestId('bg-image-url')
+      await user.click(input)
+      await user.type(input, 'https://example.com/bg.jpg')
+      expect(input).toHaveValue('https://example.com/bg.jpg')
+
+      const slug = SOLID_PRESETS[0].label.toLowerCase().replace(/\s+/g, '-')
+      fireEvent.click(screen.getByTestId(`bg-solid-${slug}`))
+      expect(input).toHaveValue('')
+    })
+
     it('active solid preset gets an accent ring', () => {
       useCanvasStore.setState({ background: SOLID_PRESETS[0].config })
       render(<BackgroundPicker />)
@@ -193,32 +206,29 @@ describe('BackgroundPicker', () => {
       expect(event.stopPropagation).toHaveBeenCalled()
     })
 
-    it('solid preset click events are stopped', () => {
+    it('solid preset click updates the store', () => {
       render(<BackgroundPicker />)
       const slug = SOLID_PRESETS[0].label.toLowerCase().replace(/\s+/g, '-')
       const btn = screen.getByTestId(`bg-solid-${slug}`)
 
-      let propagated = false
-      const wrapper = btn.parentElement!.parentElement!.parentElement!
-      wrapper.addEventListener('click', () => { propagated = true })
       fireEvent.click(btn)
-      // The click handler calls stopPropagation, but fireEvent still fires on the element.
-      // We verify the store was updated which confirms the handler ran.
+      // Verify the store was updated which confirms the handler ran.
       expect(useCanvasStore.getState().background).toEqual(SOLID_PRESETS[0].config)
     })
 
     it('keyboard events on image URL input are stopped (prevents drawer Escape)', async () => {
-      const user = userEvent.setup()
       render(<BackgroundPicker />)
       const input = screen.getByTestId('bg-image-url')
-      await user.click(input)
 
-      // Typing should not propagate key events
+      // Add a native listener before React renders its handler
       const keydownSpy = vi.fn()
       document.addEventListener('keydown', keydownSpy)
-      await user.type(input, 'a')
-      // userEvent fires synthetic events that go through React — the stopPropagation
-      // in our handler prevents the native event from reaching document listeners
+
+      // Simulate a keydown via fireEvent (native dispatch) — stopPropagation
+      // in our React handler prevents it from reaching document listeners
+      fireEvent.keyDown(input, { key: 'a' })
+      expect(keydownSpy).not.toHaveBeenCalled()
+
       document.removeEventListener('keydown', keydownSpy)
     })
   })

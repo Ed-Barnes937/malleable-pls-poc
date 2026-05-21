@@ -47,6 +47,7 @@ export function BackgroundPicker() {
     (e: React.MouseEvent, preset: BackgroundPreset) => {
       e.stopPropagation()
       setBackground(preset.config)
+      setImageUrl('')
     },
     [setBackground],
   )
