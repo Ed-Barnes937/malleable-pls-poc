@@ -1,5 +1,18 @@
 import { create } from 'zustand'
 
+export interface SizeConstraints {
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
+}
+
+/** System default minimum dimensions when no constraints are specified */
+export const DEFAULT_SIZE_CONSTRAINTS: Required<Pick<SizeConstraints, 'minWidth' | 'minHeight'>> = {
+  minWidth: 200,
+  minHeight: 150,
+}
+
 export interface PanelItem {
   id: string
   pos_x: number
@@ -7,8 +20,33 @@ export interface PanelItem {
   width: number
   height: number
   z_index: number
+  /** Optional size constraints for resize clamping */
+  constraints?: SizeConstraints
   /** Arbitrary metadata (e.g. colour) — not used for layout logic */
   meta?: Record<string, unknown>
+}
+
+/** Clamp dimensions to the panel's size constraints (or system defaults).
+ *  If min exceeds max for either axis, min wins (the panel cannot shrink
+ *  below its minimum regardless of a misconfigured maximum). */
+export function clampDimensions(
+  width: number,
+  height: number,
+  constraints?: SizeConstraints,
+): { width: number; height: number } {
+  const minW = constraints?.minWidth ?? DEFAULT_SIZE_CONSTRAINTS.minWidth
+  const minH = constraints?.minHeight ?? DEFAULT_SIZE_CONSTRAINTS.minHeight
+  const maxW = constraints?.maxWidth ?? Infinity
+  const maxH = constraints?.maxHeight ?? Infinity
+
+  // Effective max must be at least min to avoid contradictions
+  const effectiveMaxW = Math.max(maxW, minW)
+  const effectiveMaxH = Math.max(maxH, minH)
+
+  return {
+    width: Math.min(Math.max(width, minW), effectiveMaxW),
+    height: Math.min(Math.max(height, minH), effectiveMaxH),
+  }
 }
 
 interface CanvasState {
@@ -16,6 +54,7 @@ interface CanvasState {
   addPanel: (item: PanelItem) => void
   removePanel: (id: string) => void
   movePanel: (id: string, pos_x: number, pos_y: number) => void
+  resizePanel: (id: string, pos_x: number, pos_y: number, width: number, height: number) => void
   bringToFront: (id: string) => void
 }
 
@@ -39,6 +78,15 @@ export const useCanvasStore = create<CanvasState>((set) => ({
       panels: state.panels.map((p) =>
         p.id === id ? { ...p, pos_x, pos_y } : p,
       ),
+    })),
+
+  resizePanel: (id, pos_x, pos_y, width, height) =>
+    set((state) => ({
+      panels: state.panels.map((p) => {
+        if (p.id !== id) return p
+        const clamped = clampDimensions(width, height, p.constraints)
+        return { ...p, pos_x, pos_y, width: clamped.width, height: clamped.height }
+      }),
     })),
 
   bringToFront: (id) =>

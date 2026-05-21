@@ -128,4 +128,67 @@ describe('CanvasEngine', () => {
     render(<CanvasEngine />)
     expect(screen.getByText('labelled')).toBeInTheDocument()
   })
+
+  describe('resize handles', () => {
+    it('renders 8 resize handles per panel', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'resizable',
+        pos_x: 0,
+        pos_y: 0,
+        width: 300,
+        height: 200,
+        z_index: 1,
+      })
+      render(<CanvasEngine />)
+
+      const directions = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+      for (const dir of directions) {
+        expect(screen.getByTestId(`resize-handle-${dir}`)).toBeInTheDocument()
+      }
+    })
+
+    it('renders resize handles for each panel', () => {
+      seedPanels()
+      render(<CanvasEngine />)
+
+      // Each panel should have its own resize handles container
+      expect(screen.getByTestId('resize-handles-red')).toBeInTheDocument()
+      expect(screen.getByTestId('resize-handles-blue')).toBeInTheDocument()
+      expect(screen.getByTestId('resize-handles-green')).toBeInTheDocument()
+    })
+
+    it('resize handles container has pointer-events none by default', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'test',
+        pos_x: 0,
+        pos_y: 0,
+        width: 300,
+        height: 200,
+        z_index: 1,
+      })
+      render(<CanvasEngine />)
+
+      const handlesContainer = screen.getByTestId('resize-handles-test')
+      // Not hovered — pointer events should be none
+      expect(handlesContainer.style.pointerEvents).toBe('none')
+    })
+
+    it('resize handles container gets pointer-events on mouse enter', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'test',
+        pos_x: 0,
+        pos_y: 0,
+        width: 300,
+        height: 200,
+        z_index: 1,
+      })
+      render(<CanvasEngine />)
+
+      const panel = screen.getByTestId('panel-test')
+      fireEvent.mouseEnter(panel)
+
+      const handlesContainer = screen.getByTestId('resize-handles-test')
+      expect(handlesContainer.style.pointerEvents).toBe('auto')
+    })
+  })
 })
