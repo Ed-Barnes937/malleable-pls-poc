@@ -7,6 +7,8 @@ import {
   Image,
   StickyNote,
   X,
+  Maximize2,
+  Minimize2,
   type LucideIcon,
 } from 'lucide-react'
 import type { PanelType } from './canvas-store'
@@ -32,22 +34,31 @@ const WAVEFORM_HEIGHTS = [
 /* ── Props ── */
 
 export interface PanelChromeProps {
+  /** Panel ID — used for unique test IDs */
+  panelId?: string
   title?: string
   type?: PanelType
   children?: ReactNode
   onClose?: () => void
   /** Passed down so the header can initiate drag via dragControls */
   onDragHandlePointerDown?: (e: React.PointerEvent) => void
+  /** Whether this panel is currently fullscreen */
+  isFullscreen?: boolean
+  /** Toggle fullscreen for this panel */
+  onToggleFullscreen?: () => void
 }
 
 /* ── Component ── */
 
 export function PanelChrome({
+  panelId,
   title,
   type,
   children,
   onClose,
   onDragHandlePointerDown,
+  isFullscreen,
+  onToggleFullscreen,
 }: PanelChromeProps) {
   const Icon = type ? PANEL_ICONS[type] : FileText
 
@@ -75,8 +86,23 @@ export function PanelChrome({
         >
           {title ?? 'Untitled'}
         </span>
+        {onToggleFullscreen && (
+          <button
+            data-testid={panelId ? `panel-fullscreen-${panelId}` : 'panel-fullscreen'}
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFullscreen()
+            }}
+            className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            aria-label={isFullscreen ? `Exit fullscreen ${title ?? 'panel'}` : `Fullscreen ${title ?? 'panel'}`}
+          >
+            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+          </button>
+        )}
         <button
-          data-testid="panel-close"
+          data-testid={panelId ? `panel-close-${panelId}` : 'panel-close'}
           type="button"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {

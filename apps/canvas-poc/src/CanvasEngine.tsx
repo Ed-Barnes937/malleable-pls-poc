@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion, useDragControls, useMotionValue } from 'motion/react'
 import { useCanvasStore, clampDimensions, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
+import { useFocusMode } from './useFocusMode'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
 
@@ -11,7 +12,14 @@ export interface CanvasEngineProps {
 
 export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
+  const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
+  const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
+  const exitFocusMode = useCanvasStore((s) => s.exitFocusMode)
   const shiftRef = useShiftKey()
+  const canvasRef = useRef<HTMLDivElement>(null)
+
+  // Activate keyboard shortcuts (F, Escape)
+  useFocusMode()
 
   const prevPanelsRef = useRef(panels)
 
@@ -27,10 +35,23 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
     }
   }, [panels, onLayoutChange])
 
+  /** Clicking the canvas background exits focus mode */
+  const handleCanvasPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      // Only fire when clicking directly on the canvas — not on a panel
+      if (e.target === e.currentTarget && focusModePanelId) {
+        exitFocusMode()
+      }
+    },
+    [focusModePanelId, exitFocusMode],
+  )
+
   return (
     <div
+      ref={canvasRef}
       data-testid="canvas-container"
       className="relative h-full w-full overflow-auto"
+      onPointerDown={handleCanvasPointerDown}
     >
       {panels.map((panel) => (
         <DraggablePanel
@@ -38,6 +59,9 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
           panel={panel}
           shiftRef={shiftRef}
           isFocused={panel.z_index === maxZIndex}
+          isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
+          isFullscreen={fullscreenPanelId === panel.id}
+          canvasRef={canvasRef}
         />
       ))}
     </div>
@@ -224,12 +248,19 @@ interface DraggablePanelProps {
   panel: PanelItem
   shiftRef: React.RefObject<boolean>
   isFocused: boolean
+  /** Whether this panel should be dimmed (focus mode active on another panel) */
+  isDimmed?: boolean
+  /** Whether this panel is currently fullscreen */
+  isFullscreen?: boolean
+  /** Ref to the canvas container, used for measuring fullscreen dimensions */
+  canvasRef?: React.RefObject<HTMLDivElement | null>
 }
 
-function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, canvasRef }: DraggablePanelProps) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
+  const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
   const [isHovered, setIsHovered] = useState(false)
   const [isGesturing, setIsGesturing] = useState(false)
 
@@ -268,7 +299,10 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
-  }, [panel.id, bringToFront])
+    if (isDimmed) {
+      useCanvasStore.getState().enterFocusMode(panel.id)
+    }
+  }, [panel.id, bringToFront, isDimmed])
 
   const handleDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
@@ -291,10 +325,19 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
   /** Header triggers drag via dragControls */
   const handleDragHandlePointerDown = useCallback(
     (e: React.PointerEvent) => {
+      // Disable drag when fullscreen
+      if (isFullscreen) return
       dragControls.start(e)
     },
-    [dragControls],
+    [dragControls, isFullscreen],
   )
+
+  const handleToggleFullscreen = useCallback(() => {
+    const canvas = canvasRef?.current
+    if (!canvas) return
+    const rect = canvas.getBoundingClientRect()
+    toggleFullscreen(panel.id, rect.width, rect.height)
+  }, [panel.id, toggleFullscreen, canvasRef])
 
   // Shadow depends on focus + hover + gesture state — all via CSS transitions
   const shadow = (isFocused || isGesturing || isHovered)
@@ -304,13 +347,13 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
   // Transition for smooth animated position/size changes when at rest
   const transitionStyle = isGesturing
     ? undefined
-    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel)'
+    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
 
   return (
     <motion.div
       data-testid={`panel-${panel.id}`}
       data-panel-id={panel.id}
-      drag
+      drag={!isFullscreen}
       dragControls={dragControls}
       dragListener={false}
       dragMomentum={false}
@@ -323,6 +366,7 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
         zIndex: panel.z_index,
         backgroundColor: 'var(--color-surface-raised)',
         boxShadow: shadow,
+        opacity: isDimmed ? 0.3 : 1,
         transition: transitionStyle,
         x,
         y,
@@ -334,14 +378,18 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-[var(--radius-panel)] border border-border-subtle"
-      /* ── Entrance animation ── */
-      initial={{ scale: 0.95, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
+      /* ── Entrance animation ──
+       * Scale-only — opacity is NOT animated here because Motion's `initial={{ opacity: 0 }}`
+       * conflicts with the CSS transition on `opacity` used for focus-mode dimming. Both try
+       * to control the same property, causing flickers. The CSS transition on opacity
+       * (in `transitionStyle`) handles the dim/undim smoothly, so we accept scale-only entrance. */
+      initial={{ scale: 0.95 }}
+      animate={{ scale: 1 }}
       transition={{ type: 'tween', duration: 0.2 }}
     >
-      {/* Resize handles — only interactive on hover */}
+      {/* Resize handles — only interactive on hover, disabled in fullscreen */}
       <div
-        style={{ pointerEvents: isHovered ? 'auto' : 'none' }}
+        style={{ pointerEvents: (isHovered && !isFullscreen) ? 'auto' : 'none' }}
         data-testid={`resize-handles-${panel.id}`}
       >
         {ALL_DIRECTIONS.map((dir) => (
@@ -356,10 +404,13 @@ function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
       </div>
 
       <PanelChrome
+        panelId={panel.id}
         title={panel.title}
         type={panel.type}
         onClose={handleClose}
         onDragHandlePointerDown={handleDragHandlePointerDown}
+        isFullscreen={isFullscreen}
+        onToggleFullscreen={handleToggleFullscreen}
       />
     </motion.div>
   )
