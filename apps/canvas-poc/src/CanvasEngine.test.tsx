@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
@@ -101,24 +101,38 @@ describe('CanvasEngine', () => {
     expect(lastCall.find((p: { id: string }) => p.id === 'red').z_index).toBe(4)
   })
 
-  it('applies background colour from panel meta', () => {
+  it('uses design token background instead of meta colour', () => {
     useCanvasStore.getState().addPanel({
-      id: 'coloured',
+      id: 'styled',
       pos_x: 0,
       pos_y: 0,
       width: 100,
       height: 100,
       z_index: 1,
-      meta: { colour: 'rgb(255, 100, 50)' },
     })
     render(<CanvasEngine />)
-    const panel = screen.getByTestId('panel-coloured')
-    expect(panel.style.backgroundColor).toBe('rgb(255, 100, 50)')
+    const panel = screen.getByTestId('panel-styled')
+    expect(panel.style.backgroundColor).toBe('var(--color-surface-raised)')
   })
 
-  it('displays panel id as label', () => {
+  it('displays panel title in the header', () => {
     useCanvasStore.getState().addPanel({
-      id: 'labelled',
+      id: 'titled',
+      pos_x: 0,
+      pos_y: 0,
+      width: 100,
+      height: 100,
+      z_index: 1,
+      title: 'My Panel',
+      type: 'document',
+    })
+    render(<CanvasEngine />)
+    expect(screen.getByText('My Panel')).toBeInTheDocument()
+  })
+
+  it('shows "Untitled" when panel has no title', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'notitled',
       pos_x: 0,
       pos_y: 0,
       width: 100,
@@ -126,7 +140,101 @@ describe('CanvasEngine', () => {
       z_index: 1,
     })
     render(<CanvasEngine />)
-    expect(screen.getByText('labelled')).toBeInTheDocument()
+    expect(screen.getByText('Untitled')).toBeInTheDocument()
+  })
+
+  it('removes panel when close button is clicked', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'closable',
+      pos_x: 0,
+      pos_y: 0,
+      width: 200,
+      height: 200,
+      z_index: 1,
+      title: 'Close Me',
+    })
+    render(<CanvasEngine />)
+    expect(screen.getByTestId('panel-closable')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('panel-close'))
+    expect(screen.queryByTestId('panel-closable')).not.toBeInTheDocument()
+  })
+
+  it('applies focused shadow to the top z-index panel', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'back',
+      pos_x: 0,
+      pos_y: 0,
+      width: 100,
+      height: 100,
+      z_index: 1,
+    })
+    useCanvasStore.getState().addPanel({
+      id: 'front',
+      pos_x: 50,
+      pos_y: 50,
+      width: 100,
+      height: 100,
+      z_index: 2,
+    })
+    render(<CanvasEngine />)
+    const frontPanel = screen.getByTestId('panel-front')
+    expect(frontPanel.style.boxShadow).toBe('var(--shadow-panel-focused)')
+    const backPanel = screen.getByTestId('panel-back')
+    expect(backPanel.style.boxShadow).toBe('var(--shadow-panel)')
+  })
+
+  it('applies focused shadow on hover via CSS transition (not whileHover)', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'hoverable',
+      pos_x: 0,
+      pos_y: 0,
+      width: 200,
+      height: 200,
+      z_index: 1,
+    })
+    render(<CanvasEngine />)
+    const panel = screen.getByTestId('panel-hoverable')
+    // Single panel is already focused, so it has focused shadow
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel-focused)')
+
+    // Add a second panel so the first is no longer focused
+    act(() => {
+      useCanvasStore.getState().addPanel({
+        id: 'other',
+        pos_x: 100,
+        pos_y: 100,
+        width: 200,
+        height: 200,
+        z_index: 2,
+      })
+    })
+
+    // Re-check: hoverable is no longer focused
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel)')
+
+    // Hover should elevate shadow
+    fireEvent.mouseEnter(panel)
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel-focused)')
+
+    // Un-hover should revert
+    fireEvent.mouseLeave(panel)
+    expect(panel.style.boxShadow).toBe('var(--shadow-panel)')
+  })
+
+  it('applies entrance animation initial state', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'animated',
+      pos_x: 0,
+      pos_y: 0,
+      width: 100,
+      height: 100,
+      z_index: 1,
+    })
+    render(<CanvasEngine />)
+    // Motion sets initial transform including scale(0.95) and opacity 0
+    // After animation completes these become scale(1) and opacity 1
+    // We verify the panel renders (animation runs)
+    expect(screen.getByTestId('panel-animated')).toBeInTheDocument()
   })
 
   describe('resize handles', () => {

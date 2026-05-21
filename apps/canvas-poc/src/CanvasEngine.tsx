@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { motion, useMotionValue } from 'motion/react'
+import { motion, useDragControls, useMotionValue } from 'motion/react'
 import { useCanvasStore, clampDimensions, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
 import { snapToGrid } from './snap'
+import { PanelChrome } from './PanelChrome'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -13,6 +14,11 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
   const shiftRef = useShiftKey()
 
   const prevPanelsRef = useRef(panels)
+
+  // Compute max z_index to determine which panel is focused
+  const maxZIndex = panels.length > 0
+    ? Math.max(...panels.map((p) => p.z_index))
+    : 0
 
   useEffect(() => {
     if (prevPanelsRef.current !== panels) {
@@ -27,7 +33,12 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
       className="relative h-full w-full overflow-auto"
     >
       {panels.map((panel) => (
-        <DraggablePanel key={panel.id} panel={panel} shiftRef={shiftRef} />
+        <DraggablePanel
+          key={panel.id}
+          panel={panel}
+          shiftRef={shiftRef}
+          isFocused={panel.z_index === maxZIndex}
+        />
       ))}
     </div>
   )
@@ -212,14 +223,17 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 interface DraggablePanelProps {
   panel: PanelItem
   shiftRef: React.RefObject<boolean>
+  isFocused: boolean
 }
 
-function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, isFocused }: DraggablePanelProps) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
+  const removePanel = useCanvasStore((s) => s.removePanel)
   const [isHovered, setIsHovered] = useState(false)
   const [isGesturing, setIsGesturing] = useState(false)
 
+  const dragControls = useDragControls()
   const x = useMotionValue(0)
   const y = useMotionValue(0)
 
@@ -270,16 +284,35 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
     [panel.id, shiftRef, x, y],
   )
 
+  const handleClose = useCallback(() => {
+    removePanel(panel.id)
+  }, [panel.id, removePanel])
+
+  /** Header triggers drag via dragControls */
+  const handleDragHandlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      dragControls.start(e)
+    },
+    [dragControls],
+  )
+
+  // Shadow depends on focus + hover + gesture state — all via CSS transitions
+  const shadow = (isFocused || isGesturing || isHovered)
+    ? 'var(--shadow-panel-focused)'
+    : 'var(--shadow-panel)'
+
   // Transition for smooth animated position/size changes when at rest
   const transitionStyle = isGesturing
     ? undefined
-    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel)'
+    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel)'
 
   return (
     <motion.div
       data-testid={`panel-${panel.id}`}
       data-panel-id={panel.id}
       drag
+      dragControls={dragControls}
+      dragListener={false}
       dragMomentum={false}
       style={{
         position: 'absolute',
@@ -288,7 +321,8 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
         width: panel.width,
         height: panel.height,
         zIndex: panel.z_index,
-        backgroundColor: (panel.meta?.colour as string) ?? 'var(--color-surface-raised)',
+        backgroundColor: 'var(--color-surface-raised)',
+        boxShadow: shadow,
         transition: transitionStyle,
         x,
         y,
@@ -299,11 +333,11 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
       onPointerDown={handlePointerDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="cursor-grab rounded-[var(--radius-panel)] border border-border-subtle active:cursor-grabbing"
-      whileHover={{
-        boxShadow: 'var(--shadow-panel-focused)',
-      }}
-      transition={{ type: 'tween', duration: 0.15 }}
+      className="rounded-[var(--radius-panel)] border border-border-subtle"
+      /* ── Entrance animation ── */
+      initial={{ scale: 0.95, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: 'tween', duration: 0.2 }}
     >
       {/* Resize handles — only interactive on hover */}
       <div
@@ -321,11 +355,12 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
         ))}
       </div>
 
-      <div className="flex h-full w-full items-center justify-center select-none">
-        <span className="text-sm font-medium text-text-secondary opacity-60">
-          {panel.id}
-        </span>
-      </div>
+      <PanelChrome
+        title={panel.title}
+        type={panel.type}
+        onClose={handleClose}
+        onDragHandlePointerDown={handleDragHandlePointerDown}
+      />
     </motion.div>
   )
 }
