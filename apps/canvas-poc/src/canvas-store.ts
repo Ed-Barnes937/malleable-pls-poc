@@ -63,6 +63,16 @@ export interface PanelLayout {
   height: number
 }
 
+/** Workspace background configuration */
+export type BackgroundType = 'solid' | 'gradient' | 'image' | 'none'
+
+export interface BackgroundConfig {
+  type: BackgroundType
+  value: string
+}
+
+export const DEFAULT_BACKGROUND: BackgroundConfig = { type: 'none', value: '' }
+
 interface CanvasState {
   panels: PanelItem[]
   addPanel: (item: PanelItem) => void
@@ -83,6 +93,10 @@ interface CanvasState {
   enterFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
   exitFullscreen: () => void
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
+
+  /** Workspace background */
+  background: BackgroundConfig
+  setBackground: (background: BackgroundConfig) => void
 }
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
@@ -224,4 +238,10 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       state.enterFullscreen(id, canvasWidth, canvasHeight)
     }
   },
+
+  /* ── Workspace background ── */
+
+  background: DEFAULT_BACKGROUND,
+
+  setBackground: (background) => set({ background }),
 }))

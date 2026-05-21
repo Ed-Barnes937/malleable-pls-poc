@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useCanvasStore, clampDimensions, DEFAULT_SIZE_CONSTRAINTS, type PanelItem } from './canvas-store'
+import { useCanvasStore, clampDimensions, DEFAULT_SIZE_CONSTRAINTS, DEFAULT_BACKGROUND, type PanelItem } from './canvas-store'
 
 function makePanel(overrides: Partial<PanelItem> = {}): PanelItem {
   return {
@@ -21,6 +21,7 @@ describe('canvas-store', () => {
       focusModePanelId: null,
       fullscreenPanelId: null,
       preFullscreenLayout: null,
+      background: DEFAULT_BACKGROUND,
     })
   })
 
@@ -451,6 +452,46 @@ describe('canvas-store', () => {
       expect(panelB.pos_y).toBe(60)
       expect(panelB.width).toBe(300)
       expect(panelB.height).toBe(250)
+    })
+  })
+
+  describe('background', () => {
+    it('defaults to { type: "none", value: "" }', () => {
+      const state = useCanvasStore.getState()
+      expect(state.background).toEqual({ type: 'none', value: '' })
+    })
+
+    it('setBackground updates to a solid color', () => {
+      useCanvasStore.getState().setBackground({ type: 'solid', value: 'oklch(0.85 0.04 75)' })
+      const state = useCanvasStore.getState()
+      expect(state.background).toEqual({ type: 'solid', value: 'oklch(0.85 0.04 75)' })
+    })
+
+    it('setBackground updates to a gradient', () => {
+      const gradient = 'linear-gradient(135deg, oklch(0.78 0.08 55), oklch(0.65 0.10 25))'
+      useCanvasStore.getState().setBackground({ type: 'gradient', value: gradient })
+      const state = useCanvasStore.getState()
+      expect(state.background).toEqual({ type: 'gradient', value: gradient })
+    })
+
+    it('setBackground updates to an image URL', () => {
+      useCanvasStore.getState().setBackground({ type: 'image', value: 'https://example.com/bg.jpg' })
+      const state = useCanvasStore.getState()
+      expect(state.background).toEqual({ type: 'image', value: 'https://example.com/bg.jpg' })
+    })
+
+    it('setBackground resets to none', () => {
+      useCanvasStore.getState().setBackground({ type: 'solid', value: 'red' })
+      useCanvasStore.getState().setBackground({ type: 'none', value: '' })
+      const state = useCanvasStore.getState()
+      expect(state.background).toEqual({ type: 'none', value: '' })
+    })
+
+    it('setBackground does not affect panel state', () => {
+      useCanvasStore.getState().addPanel(makePanel({ id: 'a' }))
+      useCanvasStore.getState().setBackground({ type: 'solid', value: 'blue' })
+      expect(useCanvasStore.getState().panels).toHaveLength(1)
+      expect(useCanvasStore.getState().panels[0].id).toBe('a')
     })
   })
 })

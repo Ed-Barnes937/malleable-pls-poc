@@ -6,6 +6,7 @@ import { useCanvasStore, type PanelType } from './canvas-store'
 import { SAMPLE_PANELS } from './sample-panels'
 import { TopBar } from './TopBar'
 import { DrawerSidebar, LENS_PALETTE } from './DrawerSidebar'
+import { WorkspaceBackground } from './WorkspaceBackground'
 
 /** Default dimensions for newly created panels */
 const NEW_PANEL_WIDTH = 280
@@ -142,7 +143,7 @@ export function App() {
       >
         <div
           ref={canvasRef}
-          className="h-full w-full rounded-[var(--radius-panel)]"
+          className="relative h-full w-full rounded-[var(--radius-panel)]"
           style={{
             background: 'var(--color-surface-raised)',
             boxShadow: 'var(--shadow-panel)',
@@ -152,6 +153,7 @@ export function App() {
           onDrop={handleCanvasDrop}
           data-testid="canvas-drop-zone"
         >
+          <WorkspaceBackground />
           <CanvasEngine />
         </div>
       </main>

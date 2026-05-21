@@ -98,9 +98,10 @@ describe('DrawerSidebar', () => {
       expect(screen.getByTestId('lens-palette')).toBeInTheDocument()
     })
 
-    it('renders placeholder sections', () => {
+    it('renders background picker section', () => {
       render(<DrawerSidebar open={true} onClose={vi.fn()} />)
-      expect(screen.getByTestId('drawer-placeholder-sections')).toBeInTheDocument()
+      expect(screen.getByTestId('drawer-background-section')).toBeInTheDocument()
+      expect(screen.getByTestId('background-picker')).toBeInTheDocument()
     })
 
     it('sidebar is positioned fixed', () => {

@@ -51,7 +51,7 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
       ref={canvasRef}
       data-testid="canvas-container"
       data-canvas-scroll
-      className="relative h-full w-full overflow-auto"
+      className="relative z-[1] h-full w-full overflow-auto"
       onPointerDown={handleCanvasPointerDown}
     >
       {panels.map((panel) => (

@@ -9,6 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { PanelType } from './canvas-store'
+import { BackgroundPicker } from './BackgroundPicker'
 
 /* ── Lens definitions ── */
 
@@ -119,40 +120,43 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
           <h2 className="text-sm font-semibold text-text-primary">Panels</h2>
         </div>
 
-        {/* Lens palette */}
-        <div
-          data-testid="lens-palette"
-          className="flex-1 overflow-auto px-3 pb-4"
-          aria-label="Panel types"
-        >
-          <div className="grid grid-cols-2 gap-2">
-            {LENS_PALETTE.map((lens) => (
-              <div
-                key={lens.type}
-                data-testid={`lens-item-${lens.type}`}
-                role="button"
-                tabIndex={0}
-                draggable
-                onDragStart={(e) => handleDragStart(e, lens)}
-                className="flex cursor-grab flex-col items-center gap-1.5 rounded-[var(--radius-panel)] bg-[var(--color-surface-overlay)] p-3 text-text-secondary transition-[background] hover:bg-[var(--color-border)] active:cursor-grabbing"
-              >
-                <lens.icon size={20} />
-                <span className="text-xs font-medium">{lens.label}</span>
-              </div>
-            ))}
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-auto">
+          {/* Lens palette */}
+          <div
+            data-testid="lens-palette"
+            className="px-3 pb-4"
+            aria-label="Panel types"
+          >
+            <div className="grid grid-cols-2 gap-2">
+              {LENS_PALETTE.map((lens) => (
+                <div
+                  key={lens.type}
+                  data-testid={`lens-item-${lens.type}`}
+                  role="button"
+                  tabIndex={0}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, lens)}
+                  className="flex cursor-grab flex-col items-center gap-1.5 rounded-[var(--radius-panel)] bg-[var(--color-surface-overlay)] p-3 text-text-secondary transition-[background] hover:bg-[var(--color-border)] active:cursor-grabbing"
+                >
+                  <lens.icon size={20} />
+                  <span className="text-xs font-medium">{lens.label}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Placeholder sections */}
-        <div
-          data-testid="drawer-placeholder-sections"
-          className="mt-2 px-4 py-4"
-          style={{
-            background: 'var(--color-surface-overlay)',
-            transition: 'var(--transition-panel)',
-          }}
-        >
-          <p className="text-xs text-text-muted">More options coming soon...</p>
+          {/* Background picker section */}
+          <div
+            data-testid="drawer-background-section"
+            className="mt-2 px-4 py-4"
+            style={{
+              background: 'var(--color-surface-overlay)',
+              transition: 'var(--transition-panel)',
+            }}
+          >
+            <BackgroundPicker />
+          </div>
         </div>
       </aside>
     </>
