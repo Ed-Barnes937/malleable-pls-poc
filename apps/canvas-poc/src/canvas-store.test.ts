@@ -244,5 +244,18 @@ describe('canvas-store', () => {
       expect(result.width).toBe(200) // system default minWidth
       expect(result.height).toBe(150) // system default minHeight
     })
+
+    it('min wins when min exceeds max', () => {
+      const result = clampDimensions(250, 200, { minWidth: 500, maxWidth: 300, minHeight: 400, maxHeight: 200 })
+      // min takes priority — effective max becomes min
+      expect(result.width).toBe(500)
+      expect(result.height).toBe(400)
+    })
+
+    it('handles min > max for one axis only', () => {
+      const result = clampDimensions(100, 100, { minWidth: 400, maxWidth: 300, minHeight: 50, maxHeight: 500 })
+      expect(result.width).toBe(400)  // min wins over contradictory max
+      expect(result.height).toBe(100) // normal clamping, value is within range
+    })
   })
 })

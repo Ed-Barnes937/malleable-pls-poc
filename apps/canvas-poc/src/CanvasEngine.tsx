@@ -100,9 +100,10 @@ interface ResizeHandleProps {
   direction: HandleDirection
   panelId: string
   shiftRef: React.RefObject<boolean>
+  onGestureChange: (active: boolean) => void
 }
 
-function ResizeHandle({ direction, panelId, shiftRef }: ResizeHandleProps) {
+function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeHandleProps) {
   const resizePanel = useCanvasStore((s) => s.resizePanel)
   const startRef = useRef<{
     startX: number
@@ -129,10 +130,11 @@ function ResizeHandle({ direction, panelId, shiftRef }: ResizeHandleProps) {
         panelH: panel.height,
       }
 
+      onGestureChange(true)
       const target = e.currentTarget as HTMLElement
       target.setPointerCapture(e.pointerId)
     },
-    [panelId],
+    [panelId, onGestureChange],
   )
 
   const handlePointerMove = useCallback(
@@ -145,50 +147,37 @@ function ResizeHandle({ direction, panelId, shiftRef }: ResizeHandleProps) {
       const deltaX = e.clientX - startX
       const deltaY = e.clientY - startY
 
-      let newX = panelX
-      let newY = panelY
       let newW = panelW
       let newH = panelH
 
-      // Horizontal axis
+      // Compute raw dimensions from pointer delta
       if (axes.dx === 1) {
-        // East edge: grow width
         newW = panelW + deltaX
       } else if (axes.dx === -1) {
-        // West edge: move origin + shrink width
-        newX = panelX + deltaX
         newW = panelW - deltaX
       }
 
-      // Vertical axis
       if (axes.dy === 1) {
-        // South edge: grow height
         newH = panelH + deltaY
       } else if (axes.dy === -1) {
-        // North edge: move origin + shrink height
-        newY = panelY + deltaY
         newH = panelH - deltaY
       }
 
-      // Apply shift-snap to dimensions
+      // Snap dimensions first (before clamping) so position derivation is consistent
       if (shiftRef.current) {
         newW = snapToGrid(newW)
         newH = snapToGrid(newH)
-        if (axes.dx !== 0) newX = snapToGrid(newX)
-        if (axes.dy !== 0) newY = snapToGrid(newY)
       }
 
-      // Clamp dimensions (store also clamps, but pre-clamp to fix position)
+      // Clamp dimensions
       const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
       const clamped = clampDimensions(newW, newH, panel?.constraints)
 
-      // If clamping changed dimensions, adjust position for leading-edge handles
-      if (axes.dx === -1) {
-        newX = panelX + panelW - clamped.width
-      }
-      if (axes.dy === -1) {
-        newY = panelY + panelH - clamped.height
-      }
+      // Derive position from the snapped+clamped dimensions.
+      // For trailing edges (east/south), origin stays fixed.
+      // For leading edges (west/north), origin = original origin + original size - final size.
+      const newX = axes.dx === -1 ? panelX + panelW - clamped.width : panelX
+      const newY = axes.dy === -1 ? panelY + panelH - clamped.height : panelY
 
       resizePanel(panelId, newX, newY, clamped.width, clamped.height)
     },
@@ -200,10 +189,11 @@ function ResizeHandle({ direction, panelId, shiftRef }: ResizeHandleProps) {
       if (!startRef.current) return
       e.stopPropagation()
       startRef.current = null
+      onGestureChange(false)
       const target = e.currentTarget as HTMLElement
       target.releasePointerCapture(e.pointerId)
     },
-    [],
+    [onGestureChange],
   )
 
   return (
@@ -232,6 +222,10 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
 
   const x = useMotionValue(0)
   const y = useMotionValue(0)
+
+  const handleResizeGestureChange = useCallback((active: boolean) => {
+    setIsGesturing(active)
+  }, [])
 
   const handleDragStart = useCallback(() => {
     setIsGesturing(true)
@@ -322,6 +316,7 @@ function DraggablePanel({ panel, shiftRef }: DraggablePanelProps) {
             direction={dir}
             panelId={panel.id}
             shiftRef={shiftRef}
+            onGestureChange={handleResizeGestureChange}
           />
         ))}
       </div>

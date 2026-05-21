@@ -26,7 +26,9 @@ export interface PanelItem {
   meta?: Record<string, unknown>
 }
 
-/** Clamp dimensions to the panel's size constraints (or system defaults) */
+/** Clamp dimensions to the panel's size constraints (or system defaults).
+ *  If min exceeds max for either axis, min wins (the panel cannot shrink
+ *  below its minimum regardless of a misconfigured maximum). */
 export function clampDimensions(
   width: number,
   height: number,
@@ -37,9 +39,13 @@ export function clampDimensions(
   const maxW = constraints?.maxWidth ?? Infinity
   const maxH = constraints?.maxHeight ?? Infinity
 
+  // Effective max must be at least min to avoid contradictions
+  const effectiveMaxW = Math.max(maxW, minW)
+  const effectiveMaxH = Math.max(maxH, minH)
+
   return {
-    width: Math.min(Math.max(width, minW), maxW),
-    height: Math.min(Math.max(height, minH), maxH),
+    width: Math.min(Math.max(width, minW), effectiveMaxW),
+    height: Math.min(Math.max(height, minH), effectiveMaxH),
   }
 }
 

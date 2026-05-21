@@ -33,7 +33,20 @@ Used `useShiftKey()` hook returning a `RefObject<boolean>` instead of React stat
 For shift-snap during Motion drag, we hook into the `onDrag` callback to override `x`/`y` motion values in real-time when Shift is held, rather than only snapping on drag-end. This gives visual snap feedback during the gesture.
 
 ### 2025-05-21: Transitions disabled during gestures via isGesturing state
-A `isGesturing` boolean state is set true on `onDragStart` and false on `onDragEnd`. When gesturing, the CSS `transition` property is removed from the panel to prevent lag. Resize handles manage their own pointer capture so they don't set this flag — they write directly to the store on each pointer-move, and the transition would only apply to external programmatic changes.
+A `isGesturing` boolean state is set true on `onDragStart` and false on `onDragEnd`. Resize handles also signal gesture state via an `onGestureChange` callback passed from the parent `DraggablePanel`. When gesturing, the CSS `transition` property is removed from the panel to prevent lag during both drag and resize.
 
 ### 2025-05-21: Resize handles stop propagation to avoid triggering panel drag
 Each resize handle calls `e.stopPropagation()` and `e.preventDefault()` on pointer-down to prevent the event from bubbling up to the Motion drag handler. This keeps resize and drag coexisting on the same element.
+
+### 2025-05-21: Leading-edge position derived from snapped+clamped dimensions
+For leading-edge handles (west/north), position is not snapped independently. Instead, dimensions are snapped and clamped first, then position is derived as `originalOrigin + originalSize - finalSize`. This ensures position and dimensions stay consistent and avoids the snapped position being overwritten by the clamping derivation.
+
+### 2025-05-21: clampDimensions min-wins-over-max guard
+When `minWidth > maxWidth` or `minHeight > maxHeight`, the effective max is raised to equal the min. This prevents contradictory constraints from violating the minimum size guarantee.
+
+### 2025-05-21: useShiftKey resets on window blur
+Added a `blur` event listener to reset the shift ref to false when the window loses focus. This prevents the shift state from getting stuck if the user alt-tabs while holding Shift.
+
+### Known limitations (POC scope)
+- **Mid-gesture shift toggle jitter**: If Shift is pressed mid-drag (snapping visual), then released, motion values stay at snapped positions until drag-end. No un-snap path during active drag.
+- **6px dead zone between edge and corner handles**: Corner handles are 12x12 centered on corners (extend 6px inward), but edge handles start 12px in, leaving a small gap. Minor UX polish for future iteration.
