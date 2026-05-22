@@ -20,7 +20,8 @@ import {
 import { useWorkspaceStore } from './store'
 import { getLensComponent, useLensRegistry } from './LensRegistry'
 import { PanelContainer } from './PanelContainer'
-import { Sidebar } from './Sidebar'
+import { TopBar } from './TopBar'
+import { DrawerSidebar } from './DrawerSidebar'
 
 function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Scope {
   const scope: Scope = {}
@@ -51,6 +52,7 @@ export function WorkspaceShell() {
   const setBackground = useCanvasStore((s) => s.setBackground)
 
   const [transitioning, setTransitioning] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const prevWorkspaceRef = useRef(activeWorkspaceId)
 
   // Workspace transition animation
@@ -239,10 +241,32 @@ export function WorkspaceShell() {
     [manifests],
   )
 
+  // Auto-organize panels into a tidy grid
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const handleOrganize = useCallback(() => {
+    const el = canvasRef.current
+    if (!el) return
+    const { organizePanels } = useCanvasStore.getState()
+    organizePanels(el.clientWidth, el.clientHeight)
+    // Persist the new layout to DB
+    const updated = useCanvasStore.getState().panels
+    handleLayoutChange(updated)
+  }, [handleLayoutChange])
+
+  // Open drawer when "Add" button is clicked in TopBar
+  const handleAddPanel = useCallback(() => {
+    setDrawerOpen(true)
+  }, [])
+
   return (
-    <div className="flex h-dvh overflow-hidden bg-surface">
-      <Sidebar />
-      <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="flex h-dvh flex-col overflow-hidden bg-surface">
+      <TopBar
+        onMenuClick={() => setDrawerOpen((v) => !v)}
+        onAddPanel={handleAddPanel}
+        onOrganize={handleOrganize}
+      />
+      <DrawerSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {!panels ? (
           <CanvasSkeleton />
         ) : (

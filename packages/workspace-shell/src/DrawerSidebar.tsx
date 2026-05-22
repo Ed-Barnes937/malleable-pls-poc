@@ -1,4 +1,4 @@
-import { useCallback, useState, useRef, useEffect } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   useWorkspaces,
   useRecordings,
@@ -8,12 +8,20 @@ import {
   useDeleteWorkspace,
 } from '@pls/substrate-client'
 import { cn, SectionLabel, Dialog } from '@pls/shared-ui'
-import { BookOpen, Moon, GraduationCap, ChevronDown, Layers, RotateCcw, Plus, Trash2 } from 'lucide-react'
+import {
+  BookOpen,
+  Moon,
+  GraduationCap,
+  ChevronDown,
+  Plus,
+  Trash2,
+  RotateCcw,
+} from 'lucide-react'
 import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
 import { BackgroundPicker } from '@pls/panel-system'
-import { ThemeToggle } from './ThemeToggle'
-import { JobStatusIndicator } from './JobStatusIndicator'
+
+/* ── Constants ── */
 
 const WORKSPACE_ICONS: Record<string, typeof BookOpen> = {
   'ws-in-lecture': BookOpen,
@@ -34,6 +42,14 @@ const TIMEFRAMES = [
   { value: 'all', label: 'All time' },
 ]
 
+const CATEGORY_ORDER = ['tool', 'view'] as const
+const CATEGORY_LABELS: Record<string, string> = {
+  tool: 'Tools',
+  view: 'Views',
+}
+
+/* ── Scope Editor ── */
+
 function ScopeEditor({ workspaceId }: { workspaceId: string }) {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
   const { data: recordings } = useRecordings()
@@ -47,7 +63,7 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
     (scopeType: string, value: string) => {
       setScope.mutate({ workspaceId, scopeType, scopeValue: value || null })
     },
-    [workspaceId, setScope]
+    [workspaceId, setScope],
   )
 
   const selectClass =
@@ -64,7 +80,9 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
             className={selectClass}
           >
             {COURSES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
             ))}
           </select>
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
@@ -81,7 +99,9 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
           >
             <option value="">All recordings</option>
             {recordings?.map((r) => (
-              <option key={r.id} value={r.id}>{r.title}</option>
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
             ))}
           </select>
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
@@ -104,7 +124,9 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
             className={selectClass}
           >
             {TIMEFRAMES.map((t) => (
-              <option key={t.value} value={t.value}>{t.label}</option>
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
             ))}
           </select>
           <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
@@ -113,6 +135,8 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
     </div>
   )
 }
+
+/* ── Create Workspace Dialog ── */
 
 function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
@@ -131,19 +155,24 @@ function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () =
     e.preventDefault()
     const trimmed = name.trim()
     if (!trimmed) return
-    createWorkspace.mutate({ name: trimmed }, {
-      onSuccess: (ws) => {
-        setActiveWorkspaceId(ws.id)
-        onClose()
+    createWorkspace.mutate(
+      { name: trimmed },
+      {
+        onSuccess: (ws) => {
+          setActiveWorkspaceId(ws.id)
+          onClose()
+        },
       },
-    })
+    )
   }
 
   return (
     <Dialog open={open} onClose={onClose} title="New Workspace">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label htmlFor="ws-name" className="mb-1 block text-xs text-neutral-400">Name</label>
+          <label htmlFor="ws-name" className="mb-1 block text-xs text-neutral-400">
+            Name
+          </label>
           <input
             ref={inputRef}
             id="ws-name"
@@ -167,13 +196,15 @@ function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () =
             disabled={!name.trim() || createWorkspace.isPending}
             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-40"
           >
-            {createWorkspace.isPending ? 'Creating…' : 'Create'}
+            {createWorkspace.isPending ? 'Creating...' : 'Create'}
           </button>
         </div>
       </form>
     </Dialog>
   )
 }
+
+/* ── Delete Workspace Dialog ── */
 
 function DeleteWorkspaceDialog({
   open,
@@ -205,7 +236,9 @@ function DeleteWorkspaceDialog({
   return (
     <Dialog open={open} onClose={onClose} title="Delete Workspace">
       <p className="mb-4 text-xs text-neutral-400">
-        Are you sure you want to delete <span className="font-medium text-neutral-200">{workspace?.name}</span>? This will remove all panels and settings for this workspace.
+        Are you sure you want to delete{' '}
+        <span className="font-medium text-neutral-200">{workspace?.name}</span>? This will remove
+        all panels and settings for this workspace.
       </p>
       <div className="flex justify-end gap-2">
         <button
@@ -221,12 +254,14 @@ function DeleteWorkspaceDialog({
           disabled={deleteWorkspace.isPending}
           className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-40"
         >
-          {deleteWorkspace.isPending ? 'Deleting…' : 'Delete'}
+          {deleteWorkspace.isPending ? 'Deleting...' : 'Delete'}
         </button>
       </div>
     </Dialog>
   )
 }
+
+/* ── Workspace List ── */
 
 function WorkspaceList() {
   const { data: workspaces } = useWorkspaces()
@@ -248,7 +283,7 @@ function WorkspaceList() {
                 'flex flex-1 items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-all',
                 isActive
                   ? 'bg-accent/10 text-accent ring-1 ring-accent/20'
-                  : 'text-neutral-500 hover:bg-surface-overlay/50 hover:text-neutral-300'
+                  : 'text-neutral-500 hover:bg-surface-overlay/50 hover:text-neutral-300',
               )}
             >
               <Icon className="h-3.5 w-3.5 shrink-0" />
@@ -284,19 +319,19 @@ function WorkspaceList() {
   )
 }
 
-const CATEGORY_ORDER = ['tool', 'view'] as const
-const CATEGORY_LABELS: Record<string, string> = {
-  tool: 'Tools',
-  view: 'Views',
-}
+/* ── Lens Palette ── */
 
-function LensPalette() {
+function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
   const manifests = useManifests()
 
-  const handleDragStart = useCallback((e: React.DragEvent, lensType: string) => {
-    e.dataTransfer.setData('application/x-lens-type', lensType)
-    e.dataTransfer.effectAllowed = 'copy'
-  }, [])
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, lensType: string) => {
+      e.dataTransfer.setData('application/x-lens-type', lensType)
+      e.dataTransfer.effectAllowed = 'copy'
+      onDragStart?.()
+    },
+    [onDragStart],
+  )
 
   const grouped = CATEGORY_ORDER.map((cat) => ({
     category: cat,
@@ -323,7 +358,9 @@ function LensPalette() {
                     <Icon className="h-3 w-3" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[11px] font-medium text-neutral-400 group-hover:text-neutral-200">{m.label}</p>
+                    <p className="text-[11px] font-medium text-neutral-400 group-hover:text-neutral-200">
+                      {m.label}
+                    </p>
                     <p className="text-[10px] text-neutral-600">{m.description}</p>
                   </div>
                 </div>
@@ -336,52 +373,128 @@ function LensPalette() {
   )
 }
 
-export function Sidebar() {
+/* ── Drawer Sidebar ── */
+
+export interface DrawerSidebarProps {
+  open: boolean
+  onClose: () => void
+}
+
+export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
+  const asideRef = useRef<HTMLElement>(null)
+  const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
 
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [open, onClose])
+
+  // Focus management — focus aside on open, restore focus on close
+  useEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement
+      asideRef.current?.focus()
+    } else if (previousFocusRef.current) {
+      const el = previousFocusRef.current as HTMLElement
+      if (typeof el.focus === 'function') el.focus()
+      previousFocusRef.current = null
+    }
+  }, [open])
+
+  // Close drawer when a lens drag starts (POC pattern)
+  const handleLensDragStart = useCallback(() => {
+    onClose()
+  }, [onClose])
+
   return (
-    <aside className="flex h-full w-[240px] shrink-0 flex-col border-r border-border-subtle bg-surface">
-      <div className="flex items-center gap-2 px-4 py-3">
-        <Layers className="h-4 w-4 text-accent" />
-        <h1 className="text-sm font-semibold tracking-tight text-neutral-300">Malleable PLS</h1>
-      </div>
+    <>
+      {/* Backdrop */}
+      {open && (
+        <div
+          data-testid="drawer-backdrop"
+          onClick={onClose}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 10000,
+            background: 'oklch(0 0 0 / 0.4)',
+            transition: 'var(--transition-panel)',
+          }}
+        />
+      )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="flex flex-col gap-5 px-3 pb-4">
-          <section>
-            <SectionLabel className="mb-2 px-1">Workspaces</SectionLabel>
-            <WorkspaceList />
-          </section>
+      {/* Drawer panel */}
+      <aside
+        ref={asideRef}
+        tabIndex={-1}
+        data-testid="drawer-sidebar"
+        aria-label="Drawer sidebar"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: 280,
+          zIndex: 10001,
+          background: 'var(--color-surface-raised)',
+          boxShadow: open ? 'var(--shadow-panel-focused)' : 'none',
+          transform: open ? 'translateX(0)' : 'translateX(-100%)',
+          transition: `transform var(--transition-panel), box-shadow var(--transition-panel)`,
+          borderRadius: '0 var(--radius-panel) var(--radius-panel) 0',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+        }}
+      >
+        {/* Scrollable content */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex flex-col gap-5 px-3 py-4">
+            {/* Workspaces */}
+            <section>
+              <SectionLabel className="mb-2 px-1">Workspaces</SectionLabel>
+              <WorkspaceList />
+            </section>
 
-          <section>
-            <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
-            <ScopeEditor workspaceId={activeWorkspaceId} />
-          </section>
+            {/* Scope */}
+            <section>
+              <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
+              <ScopeEditor workspaceId={activeWorkspaceId} />
+            </section>
 
-          <section>
-            <BackgroundPicker />
-          </section>
+            {/* Background */}
+            <section>
+              <BackgroundPicker />
+            </section>
 
-          <section>
-            <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
-            <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
-            <LensPalette />
-          </section>
+            {/* Lenses */}
+            <section>
+              <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
+              <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
+              <LensPalette onDragStart={handleLensDragStart} />
+            </section>
+          </div>
         </div>
-      </div>
 
-      <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2.5">
-        <ThemeToggle />
-        <JobStatusIndicator />
-        <button
-          onClick={() => { window.location.reload() }}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
-          title="Reset demo data"
-        >
-          <RotateCcw className="h-3 w-3" />
-          Reset
-        </button>
-      </div>
-    </aside>
+        {/* Footer */}
+        <div className="flex items-center justify-end border-t border-border-subtle px-3 py-2.5">
+          <button
+            onClick={() => {
+              window.location.reload()
+            }}
+            className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
+            title="Reset demo data"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+        </div>
+      </aside>
+    </>
   )
 }
