@@ -359,13 +359,13 @@ export function Sidebar() {
           </section>
 
           <section>
-            <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
-            <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
-            <LensPalette />
+            <BackgroundPicker />
           </section>
 
           <section>
-            <BackgroundPicker />
+            <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
+            <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
+            <LensPalette />
           </section>
         </div>
       </div>
