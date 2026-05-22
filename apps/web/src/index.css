@@ -8,11 +8,12 @@
 }
 
 @theme {
-  --color-surface: oklch(0.145 0 0);
-  --color-surface-raised: oklch(0.178 0 0);
-  --color-surface-overlay: oklch(0.212 0 0);
-  --color-border: oklch(0.3 0 0);
-  --color-border-subtle: oklch(0.22 0 0);
+  /* ── Warm material surface tokens (OKLch with warm amber hue) ── */
+  --color-surface: oklch(0.145 0.008 60);
+  --color-surface-raised: oklch(0.178 0.010 60);
+  --color-surface-overlay: oklch(0.212 0.010 60);
+  --color-border: oklch(0.3 0.008 60);
+  --color-border-subtle: oklch(0.22 0.008 60);
 
   --color-tag-confused: oklch(0.637 0.237 25.331);
   --color-tag-key-point: oklch(0.795 0.184 86.047);
@@ -21,21 +22,43 @@
   --color-accent: oklch(0.623 0.214 259.815);
   --color-accent-foreground: oklch(0.985 0 0);
 
+  /* ── Text tokens (warm tint) ── */
+  --color-text-primary: oklch(0.93 0.005 60);
+  --color-text-secondary: oklch(0.65 0.005 60);
+  --color-text-muted: oklch(0.45 0.005 60);
+
+  /* ── Shadow tokens ── */
+  --shadow-panel: 0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.06);
+  --shadow-panel-focused: 0 2px 4px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.10), 0 0 0 1px rgba(0,0,0,0.08);
+
+  /* ── Radius & transition ── */
+  --radius-panel: 16px;
+  --transition-panel: 200ms ease-out;
+
   --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 body {
   font-family: var(--font-sans);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
 }
 
 /* ── Light theme: flip surfaces + invert neutral scale ── */
 [data-theme="light"] {
-  --color-surface: oklch(0.965 0 0);
-  --color-surface-raised: oklch(1.0 0 0);
-  --color-surface-overlay: oklch(0.94 0 0);
-  --color-border: oklch(0.85 0 0);
-  --color-border-subtle: oklch(0.91 0 0);
+  --color-surface: oklch(0.97 0.008 60);
+  --color-surface-raised: oklch(0.99 0.006 60);
+  --color-surface-overlay: oklch(0.95 0.008 60);
+  --color-border: oklch(0.85 0.008 60);
+  --color-border-subtle: oklch(0.90 0.006 60);
+
+  --color-text-primary: oklch(0.20 0.005 60);
+  --color-text-secondary: oklch(0.45 0.005 60);
+  --color-text-muted: oklch(0.65 0.005 60);
+
+  --shadow-panel: 0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04), 0 0 0 1px rgba(0,0,0,0.04);
+  --shadow-panel-focused: 0 2px 4px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.07), 0 0 0 1px rgba(0,0,0,0.05);
 
   --color-neutral-50: oklch(0.145 0 0);
   --color-neutral-100: oklch(0.205 0 0);
@@ -80,35 +103,4 @@ body {
 }
 [data-theme="light"] ::-webkit-scrollbar-thumb:hover {
   background: oklch(0.7 0 0);
-}
-
-/* react-grid-layout overrides */
-.react-grid-placeholder {
-  background: transparent !important;
-  border: none !important;
-  opacity: 0 !important;
-}
-
-.react-grid-item.react-draggable-dragging {
-  z-index: 50;
-  opacity: 0.9;
-  box-shadow: 0 20px 40px oklch(0 0 0 / 0.5);
-  border-radius: 12px;
-}
-
-.react-grid-item > .react-resizable-handle {
-  width: 20px !important;
-  height: 20px !important;
-}
-
-.react-grid-item > .react-resizable-handle::after {
-  border-color: oklch(0.4 0 0) !important;
-  width: 7px !important;
-  height: 7px !important;
-  right: 5px !important;
-  bottom: 5px !important;
-}
-
-.react-grid-item:hover > .react-resizable-handle::after {
-  border-color: oklch(0.623 0.214 259.815 / 0.6) !important;
 }
