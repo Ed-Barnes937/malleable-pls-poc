@@ -23,17 +23,17 @@ export function addWorkspacePanel(
   workspaceId: string,
   lensType: string,
   slotName: string,
-  config: string = '{}'
+  config: string = '{}',
+  pos_x: number = 0,
+  pos_y: number = 0,
+  width: number = 280,
+  height: number = 220,
+  z_index: number = 0,
 ): void {
   const id = `wp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
-  const existing = query<{ grid_x: number; grid_y: number; grid_h: number }>(
-    'SELECT grid_x, grid_y, grid_h FROM workspace_panels WHERE workspace_id = ?',
-    [workspaceId]
-  )
-  const maxY = existing.reduce((max, p) => Math.max(max, p.grid_y + p.grid_h), 0)
   exec(
-    'INSERT INTO workspace_panels (id, workspace_id, lens_type, slot_name, config, grid_x, grid_y, grid_w, grid_h, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, 1, 2, ?)',
-    [id, workspaceId, lensType, slotName, config, maxY, new Date().toISOString()]
+    'INSERT INTO workspace_panels (id, workspace_id, lens_type, slot_name, config, pos_x, pos_y, width, height, z_index, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    [id, workspaceId, lensType, slotName, config, pos_x, pos_y, width, height, z_index, new Date().toISOString()]
   )
   persistDb()
 }
@@ -49,14 +49,26 @@ export function replacePanelLens(panelId: string, newLensType: string): void {
 }
 
 export function updatePanelLayouts(
-  layouts: { id: string; x: number; y: number; w: number; h: number }[]
+  layouts: { id: string; pos_x: number; pos_y: number; width: number; height: number; z_index: number }[]
 ): void {
   for (const l of layouts) {
     exec(
-      'UPDATE workspace_panels SET grid_x = ?, grid_y = ?, grid_w = ?, grid_h = ? WHERE id = ?',
-      [l.x, l.y, l.w, l.h, l.id]
+      'UPDATE workspace_panels SET pos_x = ?, pos_y = ?, width = ?, height = ?, z_index = ? WHERE id = ?',
+      [l.pos_x, l.pos_y, l.width, l.height, l.z_index, l.id]
     )
   }
+  persistDb()
+}
+
+export function updateWorkspaceBackground(
+  workspaceId: string,
+  backgroundType: string,
+  backgroundValue: string
+): void {
+  exec(
+    'UPDATE workspaces SET background_type = ?, background_value = ? WHERE id = ?',
+    [backgroundType, backgroundValue, workspaceId]
+  )
   persistDb()
 }
 

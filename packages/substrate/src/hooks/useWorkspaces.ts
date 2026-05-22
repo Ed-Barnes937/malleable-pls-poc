@@ -7,6 +7,7 @@ import {
   removeWorkspacePanel,
   replacePanelLens,
   updatePanelLayouts,
+  updateWorkspaceBackground,
   setWorkspaceScope,
 } from '../queries/workspaces'
 
@@ -75,12 +76,25 @@ export function useReplacePanelLens() {
 export function useUpdatePanelLayouts() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (args: { workspaceId: string; layouts: { id: string; x: number; y: number; w: number; h: number }[] }) => {
+    mutationFn: (args: { workspaceId: string; layouts: { id: string; pos_x: number; pos_y: number; width: number; height: number; z_index: number }[] }) => {
       updatePanelLayouts(args.layouts)
       return Promise.resolve()
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_panels', vars.workspaceId] })
+    },
+  })
+}
+
+export function useUpdateWorkspaceBackground() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { workspaceId: string; backgroundType: string; backgroundValue: string }) => {
+      updateWorkspaceBackground(args.workspaceId, args.backgroundType, args.backgroundValue)
+      return Promise.resolve()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     },
   })
 }

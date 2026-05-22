@@ -62,24 +62,33 @@ export function WorkspaceShell() {
 
   const gridItems = useMemo<PanelGridItem[]>(() => {
     if (!panels) return []
+    // Map pixel-based DB fields to PanelGrid's x/y/w/h interface
+    // PanelGrid still uses grid units; this will be replaced when we switch to freeform canvas
     return panels.map((p) => ({
       id: p.id,
-      x: p.grid_x,
-      y: p.grid_y,
-      w: p.grid_w,
-      h: p.grid_h,
+      x: Math.round(p.pos_x / 300),
+      y: Math.round(p.pos_y / 180),
+      w: Math.max(1, Math.round(p.width / 300)),
+      h: Math.max(1, Math.round(p.height / 180)),
     }))
   }, [panels])
 
   const handleLayoutChange = useCallback(
     (layouts: PanelGridItem[]) => {
       if (!panels?.length) return
-      updateLayouts.mutate({
-        workspaceId: activeWorkspaceId,
-        layouts: layouts.map((item) => ({ id: item.id, x: item.x, y: item.y, w: item.w, h: item.h })),
-      })
+      // Convert grid units back to pixel positions for the DB
+      updateLayouts.mutate(
+        layouts.map((item) => ({
+          id: item.id,
+          pos_x: item.x * 300,
+          pos_y: item.y * 180,
+          width: item.w * 300,
+          height: item.h * 180,
+          z_index: 0,
+        }))
+      )
     },
-    [activeWorkspaceId, panels, updateLayouts]
+    [panels, updateLayouts]
   )
 
   const handleAddPanel = useCallback(
