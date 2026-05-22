@@ -84,18 +84,29 @@ export function WorkspaceShell() {
     if (!panels || panels === prevPanelDataRef.current) return
     prevPanelDataRef.current = panels
 
-    const canvasPanels: PanelItem[] = panels.map((p) => ({
-      id: p.id,
-      pos_x: p.pos_x,
-      pos_y: p.pos_y,
-      width: p.width,
-      height: p.height,
-      z_index: p.z_index,
-      title: undefined, // Resolved from manifest at render time
-      lensType: p.lens_type,
-    }))
+    const canvasPanels: PanelItem[] = panels.map((p) => {
+      const m = manifests.find((man) => man.id === p.lens_type)
+      return {
+        id: p.id,
+        pos_x: p.pos_x,
+        pos_y: p.pos_y,
+        width: p.width,
+        height: p.height,
+        z_index: p.z_index,
+        title: undefined, // Resolved from manifest at render time
+        lensType: p.lens_type,
+        constraints: m
+          ? {
+              minWidth: m.minWidth,
+              minHeight: m.minHeight,
+              maxWidth: m.maxWidth,
+              maxHeight: m.maxHeight,
+            }
+          : undefined,
+      }
+    })
     setPanels(canvasPanels)
-  }, [panels, setPanels])
+  }, [panels, setPanels, manifests])
 
   // Sync workspace background to canvas store
   useEffect(() => {
@@ -163,11 +174,15 @@ export function WorkspaceShell() {
       const lensType = e.dataTransfer.getData('application/x-lens-type')
       if (!lensType) return
 
+      const m = manifests.find((man) => man.id === lensType)
+      const width = m?.defaultWidth ?? 400
+      const height = m?.defaultHeight ?? 300
+
       const slotName = `slot-${Date.now()}`
       // Calculate drop position relative to the canvas
       const rect = e.currentTarget.getBoundingClientRect()
-      const pos_x = Math.round(e.clientX - rect.left - 150) // Center the panel roughly
-      const pos_y = Math.round(e.clientY - rect.top - 100)
+      const pos_x = Math.round(e.clientX - rect.left - width / 2)
+      const pos_y = Math.round(e.clientY - rect.top - height / 2)
 
       addPanel.mutate({
         workspaceId: activeWorkspaceId,
@@ -175,14 +190,14 @@ export function WorkspaceShell() {
         slotName,
         pos_x: Math.max(0, pos_x),
         pos_y: Math.max(0, pos_y),
-        width: 400,
-        height: 300,
+        width,
+        height,
         z_index: (useCanvasStore.getState().panels.length > 0
           ? Math.max(...useCanvasStore.getState().panels.map((p) => p.z_index)) + 1
           : 1),
       })
     },
-    [activeWorkspaceId, addPanel],
+    [activeWorkspaceId, addPanel, manifests],
   )
 
   // Handle panel removal — remove from DB then let query invalidation update canvas store

@@ -11,4 +11,8 @@ export const manifest: PanelManifest = {
   category: 'view',
   reads: ['weekly_overview'],
   load: () => import('./WeeklyOverviewLens'),
+  minWidth: 350,
+  minHeight: 250,
+  defaultWidth: 460,
+  defaultHeight: 340,
 }
