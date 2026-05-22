@@ -89,5 +89,15 @@ export interface PanelManifest {
   reads: TableName[]
   writes?: TableName[]
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
+
+  /** Size constraints — used to clamp resize and provide defaults for new panels */
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
+  defaultWidth?: number
+  defaultHeight?: number
+
+  /** @deprecated Use individual size fields instead */
   defaultSize?: { w: number; h: number }
 }

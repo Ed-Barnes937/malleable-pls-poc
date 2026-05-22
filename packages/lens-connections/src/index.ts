@@ -11,4 +11,8 @@ export const manifest: PanelManifest = {
   category: 'view',
   reads: ['links'],
   load: () => import('./ConnectionsLens'),
+  minWidth: 280,
+  minHeight: 200,
+  defaultWidth: 400,
+  defaultHeight: 320,
 }

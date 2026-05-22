@@ -12,4 +12,8 @@ export const manifest: PanelManifest = {
   reads: ['tags', 'confidence_signals'],
   writes: ['confidence_signals'],
   load: () => import('./TestMeLens'),
+  minWidth: 300,
+  minHeight: 250,
+  defaultWidth: 400,
+  defaultHeight: 350,
 }

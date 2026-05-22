@@ -11,4 +11,8 @@ export const manifest: PanelManifest = {
   category: 'view',
   reads: ['weakest_topics'],
   load: () => import('./WeakestTopicsLens'),
+  minWidth: 200,
+  minHeight: 150,
+  defaultWidth: 340,
+  defaultHeight: 280,
 }
