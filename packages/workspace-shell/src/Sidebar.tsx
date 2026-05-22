@@ -11,6 +11,7 @@ import { cn, SectionLabel, Dialog } from '@pls/shared-ui'
 import { BookOpen, Moon, GraduationCap, ChevronDown, Layers, RotateCcw, Plus, Trash2 } from 'lucide-react'
 import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
+import { BackgroundPicker } from '@pls/panel-system'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 
@@ -361,6 +362,10 @@ export function Sidebar() {
             <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
             <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
             <LensPalette />
+          </section>
+
+          <section>
+            <BackgroundPicker />
           </section>
         </div>
       </div>
