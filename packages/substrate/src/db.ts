@@ -11,7 +11,7 @@ function isSchemaValid(db: Database): boolean {
   try {
     const result = db.exec("PRAGMA table_info(workspace_panels)")
     if (!result.length) return false
-    const columns = result[0].values.map((row) => row[1] as string)
+    const columns = result[0].values.map((row: unknown[]) => row[1] as string)
     if (!columns.includes('pos_x')) return false
     const wfResult = db.exec("PRAGMA table_info(workflows)")
     return wfResult.length > 0
