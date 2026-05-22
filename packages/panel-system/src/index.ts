@@ -14,6 +14,3 @@ export {
   type BackgroundType,
 } from './canvas-store'
 export { snapToGrid, GRID_SIZE } from './snap'
-
-// Legacy exports — kept for backwards compatibility during migration
-export { PanelGrid, type PanelGridProps, type PanelGridItem } from './PanelGrid'
