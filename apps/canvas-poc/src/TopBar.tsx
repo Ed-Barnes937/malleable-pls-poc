@@ -1,13 +1,14 @@
-import { Menu, Plus } from 'lucide-react'
+import { Menu, Plus, LayoutGrid } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 export interface TopBarProps {
   onMenuClick: () => void
   onAddPanel: () => void
+  onOrganize?: () => void
   trailing?: ReactNode
 }
 
-export function TopBar({ onMenuClick, onAddPanel, trailing }: TopBarProps) {
+export function TopBar({ onMenuClick, onAddPanel, onOrganize, trailing }: TopBarProps) {
   return (
     <header
       data-testid="top-bar"
@@ -56,6 +57,19 @@ export function TopBar({ onMenuClick, onAddPanel, trailing }: TopBarProps) {
 
       {/* Trailing slot (e.g. theme toggle) */}
       {trailing}
+
+      {/* Organize button */}
+      {onOrganize && (
+        <button
+          data-testid="organize-button"
+          type="button"
+          onClick={onOrganize}
+          aria-label="Auto-organize panels"
+          className="flex items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+        >
+          <LayoutGrid size={16} />
+        </button>
+      )}
 
       {/* Add panel button */}
       <button

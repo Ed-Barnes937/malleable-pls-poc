@@ -170,7 +170,7 @@ describe('DrawerSidebar', () => {
       fireEvent.dragStart(documentLens, { dataTransfer: mockDataTransfer })
 
       expect(mockDataTransfer.setData).toHaveBeenCalledWith('application/x-lens-type', 'document')
-      expect(mockDataTransfer.setData).toHaveBeenCalledWith('application/x-lens-label', 'Transcript')
+      expect(mockDataTransfer.setData).toHaveBeenCalledWith('application/x-lens-label', 'Document')
       expect(mockDataTransfer.effectAllowed).toBe('copy')
     })
 
@@ -184,8 +184,8 @@ describe('DrawerSidebar', () => {
       expect(types).toContain('note')
     })
 
-    it('LENS_PALETTE has 6 entries', () => {
-      expect(LENS_PALETTE).toHaveLength(6)
+    it('LENS_PALETTE has 7 entries', () => {
+      expect(LENS_PALETTE).toHaveLength(7)
     })
 
     it('lens palette has accessible label', () => {

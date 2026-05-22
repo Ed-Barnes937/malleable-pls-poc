@@ -8,9 +8,11 @@ import { PanelChrome } from './PanelChrome'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
+  onDragOver?: (e: React.DragEvent) => void
+  onDrop?: (e: React.DragEvent) => void
 }
 
-export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
+export function CanvasEngine({ onLayoutChange, onDragOver, onDrop }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
@@ -51,8 +53,10 @@ export function CanvasEngine({ onLayoutChange }: CanvasEngineProps) {
       ref={canvasRef}
       data-testid="canvas-container"
       data-canvas-scroll
-      className="relative z-[1] h-full w-full overflow-auto"
+      className="relative z-[1] h-full w-full overflow-hidden"
       onPointerDown={handleCanvasPointerDown}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
     >
       {panels.map((panel) => (
         <DraggablePanel
@@ -141,6 +145,7 @@ interface ResizeHandleProps {
 
 function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeHandleProps) {
   const resizePanel = useCanvasStore((s) => s.resizePanel)
+  const bringToFront = useCanvasStore((s) => s.bringToFront)
   const startRef = useRef<{
     startX: number
     startY: number
@@ -157,6 +162,8 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
       if (!panel) return
 
+      bringToFront(panelId)
+
       startRef.current = {
         startX: e.clientX,
         startY: e.clientY,
@@ -170,7 +177,7 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       const target = e.currentTarget as HTMLElement
       target.setPointerCapture(e.pointerId)
     },
-    [panelId, onGestureChange],
+    [panelId, bringToFront, onGestureChange],
   )
 
   const handlePointerMove = useCallback(
@@ -290,12 +297,23 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
         newY = snapToGrid(newY)
       }
 
+      const canvas = canvasRef?.current
+      if (canvas) {
+        const visible = Math.min(100, current.width / 2, current.height / 2)
+        newX = Math.max(visible - current.width, Math.min(newX, canvas.clientWidth - visible))
+        newY = Math.max(0, Math.min(newY, canvas.clientHeight - visible))
+      }
+
+      x.jump(0)
+      y.jump(0)
       movePanel(panel.id, newX, newY)
-      x.set(0)
-      y.set(0)
-      setIsGesturing(false)
+      // Delay re-enabling CSS transitions until after the position update paints,
+      // otherwise the transition animates from old → new position.
+      requestAnimationFrame(() => {
+        setIsGesturing(false)
+      })
     },
-    [panel.id, movePanel, x, y, shiftRef],
+    [panel.id, movePanel, x, y, shiftRef, canvasRef],
   )
 
   const handlePointerDown = useCallback(() => {
@@ -307,16 +325,32 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
 
   const handleDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
+      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
+      if (!current) return
+
+      let offsetX = info.offset.x
+      let offsetY = info.offset.y
+
       if (shiftRef.current) {
-        const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-        if (!current) return
-        const snappedX = snapToGrid(current.pos_x + info.offset.x) - current.pos_x
-        const snappedY = snapToGrid(current.pos_y + info.offset.y) - current.pos_y
-        x.set(snappedX)
-        y.set(snappedY)
+        offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
+        offsetY = snapToGrid(current.pos_y + offsetY) - current.pos_y
       }
+
+      const canvas = canvasRef?.current
+      if (canvas) {
+        const visible = Math.min(100, current.width / 2, current.height / 2)
+        const minX = visible - current.width - current.pos_x
+        const maxX = canvas.clientWidth - visible - current.pos_x
+        const minY = -current.pos_y
+        const maxY = canvas.clientHeight - visible - current.pos_y
+        offsetX = Math.max(minX, Math.min(maxX, offsetX))
+        offsetY = Math.max(minY, Math.min(maxY, offsetY))
+      }
+
+      x.set(offsetX)
+      y.set(offsetY)
     },
-    [panel.id, shiftRef, x, y],
+    [panel.id, shiftRef, x, y, canvasRef],
   )
 
   const handleClose = useCallback(() => {
@@ -336,9 +370,10 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
   const handleToggleFullscreen = useCallback(() => {
     const canvas = canvasRef?.current
     if (!canvas) return
+    bringToFront(panel.id)
     const rect = canvas.getBoundingClientRect()
     toggleFullscreen(panel.id, rect.width, rect.height)
-  }, [panel.id, toggleFullscreen, canvasRef])
+  }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
   // Shadow depends on focus + hover + gesture state — all via CSS transitions
   const shadow = (isFocused || isGesturing || isHovered)
@@ -378,7 +413,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       onPointerDown={handlePointerDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="rounded-[var(--radius-panel)] border border-border-subtle"
+      className="rounded-[var(--radius-panel)] border border-border"
       /* ── Entrance animation ──
        * Scale-only — opacity is NOT animated here because Motion's `initial={{ opacity: 0 }}`
        * conflicts with the CSS transition on `opacity` used for focus-mode dimming. Both try

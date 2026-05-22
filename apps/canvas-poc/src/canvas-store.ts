@@ -13,7 +13,7 @@ export const DEFAULT_SIZE_CONSTRAINTS: Required<Pick<SizeConstraints, 'minWidth'
   minHeight: 150,
 }
 
-export type PanelType = 'document' | 'audio' | 'tags' | 'chart' | 'image' | 'note'
+export type PanelType = 'document' | 'audio' | 'tags' | 'chart' | 'image' | 'note' | 'transcript'
 
 export interface PanelItem {
   id: string
@@ -93,6 +93,9 @@ interface CanvasState {
   enterFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
   exitFullscreen: () => void
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
+
+  /** Auto-organize panels into a non-overlapping grid layout */
+  organizePanels: (canvasWidth: number, canvasHeight: number) => void
 
   /** Workspace background */
   background: BackgroundConfig
@@ -238,6 +241,46 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       state.enterFullscreen(id, canvasWidth, canvasHeight)
     }
   },
+
+  /* ── Auto-organize ── */
+
+  organizePanels: (canvasWidth: number, canvasHeight: number) =>
+    set((state) => {
+      const GAP = 20
+      const sorted = [...state.panels].sort((a, b) => (b.width * b.height) - (a.width * a.height))
+
+      let curX = GAP
+      let curY = GAP
+      let rowHeight = 0
+
+      const placed = sorted.map((panel, i) => {
+        if (i > 0 && curX + panel.width + GAP > canvasWidth) {
+          curX = GAP
+          curY += rowHeight + GAP
+          rowHeight = 0
+        }
+        const p = { ...panel, pos_x: curX, pos_y: curY, z_index: i + 1 }
+        curX += panel.width + GAP
+        rowHeight = Math.max(rowHeight, panel.height)
+        return p
+      })
+
+      const totalHeight = curY + rowHeight + GAP
+      if (totalHeight > canvasHeight && canvasHeight > 0) {
+        const scale = canvasHeight / totalHeight
+        return {
+          panels: placed.map((p) => ({
+            ...p,
+            pos_x: p.pos_x * scale,
+            pos_y: p.pos_y * scale,
+            width: Math.max(p.width * scale, p.constraints?.minWidth ?? DEFAULT_SIZE_CONSTRAINTS.minWidth),
+            height: Math.max(p.height * scale, p.constraints?.minHeight ?? DEFAULT_SIZE_CONSTRAINTS.minHeight),
+          })),
+        }
+      }
+
+      return { panels: placed }
+    }),
 
   /* ── Workspace background ── */
 

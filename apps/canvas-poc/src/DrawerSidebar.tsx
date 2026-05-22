@@ -6,6 +6,7 @@ import {
   BarChart3,
   Image,
   StickyNote,
+  ScrollText,
   type LucideIcon,
 } from 'lucide-react'
 import type { PanelType } from './canvas-store'
@@ -20,8 +21,9 @@ export interface LensDefinition {
 }
 
 export const LENS_PALETTE: LensDefinition[] = [
-  { type: 'document', label: 'Transcript', icon: FileText },
+  { type: 'transcript', label: 'Transcript', icon: ScrollText },
   { type: 'audio', label: 'Audio', icon: Mic },
+  { type: 'document', label: 'Document', icon: FileText },
   { type: 'tags', label: 'Tags', icon: Tags },
   { type: 'chart', label: 'Chart', icon: BarChart3 },
   { type: 'image', label: 'Image', icon: Image },
@@ -68,8 +70,9 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       e.dataTransfer.setData('application/x-lens-type', lens.type)
       e.dataTransfer.setData('application/x-lens-label', lens.label)
       e.dataTransfer.effectAllowed = 'copy'
+      onClose()
     },
-    [],
+    [onClose],
   )
 
   return (

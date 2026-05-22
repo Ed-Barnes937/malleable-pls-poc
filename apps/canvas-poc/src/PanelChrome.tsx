@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { Component, type ReactNode, type ErrorInfo } from 'react'
 import {
   FileText,
   Mic,
@@ -6,12 +6,17 @@ import {
   BarChart3,
   Image,
   StickyNote,
+  ScrollText,
   X,
   Maximize2,
   Minimize2,
+  AlertTriangle,
   type LucideIcon,
 } from 'lucide-react'
 import type { PanelType } from './canvas-store'
+import { MockSubstrateProvider } from './MockSubstrateProvider'
+import TranscriptLens from '@pls/lens-transcript'
+import AudioCaptureLens from '@pls/lens-audio-capture'
 
 /* ── Icon map ── */
 
@@ -22,6 +27,46 @@ const PANEL_ICONS: Record<PanelType, LucideIcon> = {
   chart: BarChart3,
   image: Image,
   note: StickyNote,
+  transcript: ScrollText,
+}
+
+/* ── Error boundary for lens components ── */
+
+interface ErrorBoundaryState { error: Error | null }
+
+class LensErrorBoundary extends Component<
+  { children: ReactNode; title?: string },
+  ErrorBoundaryState
+> {
+  state: ErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`Lens error in "${this.props.title}":`, error, info)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+          <AlertTriangle size={24} className="text-text-muted" />
+          <p className="text-xs text-text-secondary">This lens failed to render</p>
+          <p className="text-[10px] text-text-muted">{this.state.error.message}</p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="mt-1 rounded-md bg-surface-overlay px-3 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+          >
+            Retry
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
 }
 
 /* ── Deterministic waveform heights (avoids Math.random jitter on re-render) ── */
@@ -122,11 +167,43 @@ export function PanelChrome({
         className="flex-1 overflow-auto px-3 pb-3"
       >
         {children ?? (
-          <PlaceholderContent type={type} />
+          <LensContent type={type} title={title} panelId={panelId} />
         )}
       </div>
     </div>
   )
+}
+
+/* ── Lens content router — real lenses for transcript/audio, placeholders for the rest ── */
+
+function LensContent({ type, title, panelId }: { type?: PanelType; title?: string; panelId?: string }) {
+  if (type === 'transcript') {
+    return (
+      <LensErrorBoundary title={title}>
+        <MockSubstrateProvider>
+          <TranscriptLens
+            panelId={panelId ?? 'transcript'}
+            scope={{ recordingId: 'rec-1' }}
+            config={{ mode: 'review' }}
+          />
+        </MockSubstrateProvider>
+      </LensErrorBoundary>
+    )
+  }
+  if (type === 'audio') {
+    return (
+      <LensErrorBoundary title={title}>
+        <MockSubstrateProvider>
+          <AudioCaptureLens
+            panelId={panelId ?? 'audio'}
+            scope={{ recordingId: 'rec-1' }}
+            config={{}}
+          />
+        </MockSubstrateProvider>
+      </LensErrorBoundary>
+    )
+  }
+  return <PlaceholderContent type={type} />
 }
 
 /* ── Placeholder content for POC ── */
