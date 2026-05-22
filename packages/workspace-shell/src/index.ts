@@ -1,4 +1,8 @@
 export { WorkspaceShell } from './WorkspaceShell'
 export { useWorkspaceStore } from './store'
 export { LensRegistryProvider } from './LensRegistry'
+export { WorkspaceBackground } from './WorkspaceBackground'
+export { BackgroundPicker } from './BackgroundPicker'
+export { useWorkspaceBackground } from './useWorkspaceBackground'
+export type { BackgroundConfig, BackgroundType } from './useWorkspaceBackground'
 export type { LensProps } from './types'

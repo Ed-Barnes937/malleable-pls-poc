@@ -13,6 +13,7 @@ import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
+import { BackgroundPicker } from './BackgroundPicker'
 
 const WORKSPACE_ICONS: Record<string, typeof BookOpen> = {
   'ws-in-lecture': BookOpen,
@@ -355,6 +356,10 @@ export function Sidebar() {
           <section>
             <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
             <ScopeEditor workspaceId={activeWorkspaceId} />
+          </section>
+
+          <section>
+            <BackgroundPicker />
           </section>
 
           <section>

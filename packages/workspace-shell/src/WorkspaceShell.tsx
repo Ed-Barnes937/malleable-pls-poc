@@ -13,6 +13,7 @@ import { useWorkspaceStore } from './store'
 import { getLensComponent, useLensRegistry } from './LensRegistry'
 import { PanelContainer } from './PanelContainer'
 import { Sidebar } from './Sidebar'
+import { WorkspaceBackground } from './WorkspaceBackground'
 
 function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Scope {
   const scope: Scope = {}
@@ -134,7 +135,8 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-dvh overflow-hidden bg-surface">
       <Sidebar />
-      <main className="flex min-w-0 flex-1 flex-col overflow-auto">
+      <main className="relative flex min-w-0 flex-1 flex-col overflow-auto">
+        <WorkspaceBackground />
         {!panels ? (
           <PanelGridSkeleton />
         ) : (
