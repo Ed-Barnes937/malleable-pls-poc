@@ -18,6 +18,8 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       name,
       owner_id: 'dev-user-1',
       created_at: new Date().toISOString(),
+      background_type: 'none',
+      background_value: '',
     }
     db.workspaces.push(ws)
     return ws
@@ -32,8 +34,9 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   })
 
   router.register('workspaces.addPanel', (input) => {
-    const { workspaceId, lensType, slotName, config } = input as {
+    const { workspaceId, lensType, slotName, config, pos_x, pos_y, width, height, z_index } = input as {
       workspaceId: string; lensType: string; slotName: string; config?: string
+      pos_x?: number; pos_y?: number; width?: number; height?: number; z_index?: number
     }
     const panel = {
       id: `wp-${crypto.randomUUID().slice(0, 8)}`,
@@ -41,10 +44,11 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       lens_type: lensType,
       slot_name: slotName,
       config: config ?? '{}',
-      grid_x: 0,
-      grid_y: 0,
-      grid_w: 1,
-      grid_h: 2,
+      pos_x: pos_x ?? 0,
+      pos_y: pos_y ?? 0,
+      width: width ?? 280,
+      height: height ?? 220,
+      z_index: z_index ?? 0,
       created_at: new Date().toISOString(),
     }
     db.workspacePanels.push(panel)
@@ -58,19 +62,31 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   })
 
   router.register('workspaces.updateLayouts', (input) => {
-    const { layouts } = input as {
-      workspaceId: string
-      layouts: Array<{ id: string; x: number; y: number; w: number; h: number }>
-    }
+    const layouts = input as Array<{
+      id: string; pos_x: number; pos_y: number; width: number; height: number; z_index: number
+    }>
     for (const item of layouts) {
       const panel = db.workspacePanels.find((p) => p.id === item.id)
       if (panel) {
-        panel.grid_x = item.x
-        panel.grid_y = item.y
-        panel.grid_w = item.w
-        panel.grid_h = item.h
+        panel.pos_x = item.pos_x
+        panel.pos_y = item.pos_y
+        panel.width = item.width
+        panel.height = item.height
+        panel.z_index = item.z_index
       }
     }
+  })
+
+  router.register('workspaces.updateBackground', (input) => {
+    const { workspaceId, backgroundType, backgroundValue } = input as {
+      workspaceId: string; backgroundType: string; backgroundValue: string
+    }
+    const ws = db.workspaces.find((w) => w.id === workspaceId)
+    if (ws) {
+      ws.background_type = backgroundType
+      ws.background_value = backgroundValue
+    }
+    return ws
   })
 
   router.register('workspaces.scopes', (input) => {

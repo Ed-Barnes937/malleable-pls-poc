@@ -9,6 +9,7 @@ export {
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
+  useUpdateWorkspaceBackground,
   useSetWorkspaceScope,
   useRecordings,
   useRecentJobs,
