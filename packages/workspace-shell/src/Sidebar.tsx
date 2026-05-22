@@ -11,9 +11,9 @@ import { cn, SectionLabel, Dialog } from '@pls/shared-ui'
 import { BookOpen, Moon, GraduationCap, ChevronDown, Layers, RotateCcw, Plus, Trash2 } from 'lucide-react'
 import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
+import { BackgroundPicker } from '@pls/panel-system'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
-import { BackgroundPicker } from './BackgroundPicker'
 
 const WORKSPACE_ICONS: Record<string, typeof BookOpen> = {
   'ws-in-lecture': BookOpen,

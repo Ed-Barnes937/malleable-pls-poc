@@ -1,9 +1,5 @@
 import { useCallback, useState } from 'react'
-import {
-  useWorkspaceBackground,
-  DEFAULT_BACKGROUND,
-  type BackgroundConfig,
-} from './useWorkspaceBackground'
+import { useCanvasStore, DEFAULT_BACKGROUND, type BackgroundConfig } from './canvas-store'
 
 /* ── Preset solid colors (warm OKLch tones) ── */
 
@@ -43,7 +39,8 @@ export const GRADIENT_PRESETS: BackgroundPreset[] = [
 /* ── Component ── */
 
 export function BackgroundPicker() {
-  const { background, setBackground } = useWorkspaceBackground()
+  const background = useCanvasStore((s) => s.background)
+  const setBackground = useCanvasStore((s) => s.setBackground)
   const [imageUrl, setImageUrl] = useState('')
 
   const handlePresetClick = useCallback(
@@ -92,7 +89,6 @@ export function BackgroundPicker() {
     [imageUrl, setBackground],
   )
 
-  /** Prevent pointer events on inputs from triggering canvas interactions */
   const stopPointerPropagation = useCallback((e: React.PointerEvent) => {
     e.stopPropagation()
   }, [])
@@ -106,15 +102,13 @@ export function BackgroundPicker() {
       className="space-y-3"
       onPointerDown={stopPointerPropagation}
     >
-      {/* Section header */}
-      <h3 className="text-xs font-semibold text-neutral-400">Background</h3>
+      <h3 className="text-xs font-semibold text-text-secondary">Background</h3>
 
-      {/* None / reset */}
       <button
         data-testid="bg-none"
         type="button"
         onClick={handleNoneClick}
-        className="w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium text-neutral-500 transition-colors"
+        className="w-full rounded-[var(--radius-panel)] px-3 py-1.5 text-left text-xs font-medium text-text-secondary transition-[background]"
         style={{
           background:
             background.type === 'none'
@@ -125,9 +119,8 @@ export function BackgroundPicker() {
         None
       </button>
 
-      {/* Solid color swatches */}
       <div>
-        <p className="mb-1.5 text-xs text-neutral-600">Solids</p>
+        <p className="mb-1.5 text-xs text-text-muted">Solids</p>
         <div
           data-testid="bg-solids"
           className="grid grid-cols-3 gap-1.5"
@@ -140,7 +133,7 @@ export function BackgroundPicker() {
               onClick={(e) => handlePresetClick(e, preset)}
               aria-label={preset.label}
               title={preset.label}
-              className="aspect-square rounded-md transition-shadow"
+              className="aspect-square rounded-[calc(var(--radius-panel)*0.5)] transition-[box-shadow]"
               style={{
                 background: preset.config.value,
                 boxShadow: isActive(preset)
@@ -152,9 +145,8 @@ export function BackgroundPicker() {
         </div>
       </div>
 
-      {/* Gradient swatches */}
       <div>
-        <p className="mb-1.5 text-xs text-neutral-600">Gradients</p>
+        <p className="mb-1.5 text-xs text-text-muted">Gradients</p>
         <div
           data-testid="bg-gradients"
           className="grid grid-cols-2 gap-1.5"
@@ -167,7 +159,7 @@ export function BackgroundPicker() {
               onClick={(e) => handlePresetClick(e, preset)}
               aria-label={preset.label}
               title={preset.label}
-              className="aspect-[2/1] rounded-md transition-shadow"
+              className="aspect-[2/1] rounded-[calc(var(--radius-panel)*0.5)] transition-[box-shadow]"
               style={{
                 background: preset.config.value,
                 boxShadow: isActive(preset)
@@ -179,9 +171,8 @@ export function BackgroundPicker() {
         </div>
       </div>
 
-      {/* Image URL input */}
       <div>
-        <p className="mb-1.5 text-xs text-neutral-600">Image URL</p>
+        <p className="mb-1.5 text-xs text-text-muted">Image URL</p>
         <input
           data-testid="bg-image-url"
           type="url"
@@ -191,10 +182,10 @@ export function BackgroundPicker() {
           onKeyDown={handleImageUrlKeyDown}
           onBlur={handleImageUrlBlur}
           onPointerDown={stopPointerPropagation}
-          className="w-full rounded-md px-2.5 py-1.5 text-xs text-neutral-200 placeholder:text-neutral-700 outline-none"
+          className="w-full rounded-[calc(var(--radius-panel)*0.5)] px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted outline-none"
           style={{
             background: 'var(--color-surface)',
-            border: '1px solid var(--color-border-subtle)',
+            transition: 'var(--transition-panel)',
           }}
         />
       </div>

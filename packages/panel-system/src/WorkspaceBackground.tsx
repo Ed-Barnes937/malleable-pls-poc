@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { useWorkspaceBackground } from './useWorkspaceBackground'
+import { useCanvasStore } from './canvas-store'
 
 /**
  * Sanitise a URL for safe interpolation inside CSS `url("...")`.
@@ -11,40 +11,29 @@ function sanitizeCssUrl(raw: string): string {
 }
 
 /**
- * WorkspaceBackground renders a background layer behind the panel area.
+ * WorkspaceBackground renders a background layer behind canvas panels.
  *
  * It uses stacked layers with opacity crossfades for all background types:
  * - Solid colors and gradients use two alternating color layers that crossfade
- *   via opacity. CSS `background` cannot smoothly transition between gradients
- *   or between a solid and a gradient — it snaps instantly. The two-layer
- *   approach works around this by always fading between an opaque layer and a
- *   transparent one.
+ *   via opacity.
  * - Image URLs use a separate opacity crossfade layer.
- *
- * The background config is sourced from the active workspace via
- * useWorkspaceBackground (which reads from the DB with optimistic overrides).
  */
 export function WorkspaceBackground() {
-  const { background } = useWorkspaceBackground()
+  const background = useCanvasStore((s) => s.background)
 
   const isImage = background.type === 'image' && background.value.trim() !== ''
   const isSolidOrGradient = background.type === 'solid' || background.type === 'gradient'
 
-  // Track the previous color/gradient value so we can crossfade between the
-  // old layer (fading out) and the new layer (fading in).
   const prevColorRef = useRef<string>('transparent')
   const flipRef = useRef(false)
 
-  // Determine the current color value
   const currentColor = isSolidOrGradient ? background.value : 'transparent'
 
-  // When the color value changes, flip which layer is "on top"
   if (currentColor !== prevColorRef.current) {
     flipRef.current = !flipRef.current
     prevColorRef.current = currentColor
   }
 
-  // One layer shows the current color at full opacity, the other is transparent
   const layerAColor = flipRef.current ? currentColor : 'transparent'
   const layerBColor = flipRef.current ? 'transparent' : currentColor
   const layerAOpacity = flipRef.current ? 1 : 0
@@ -62,7 +51,6 @@ export function WorkspaceBackground() {
         pointerEvents: 'none',
       }}
     >
-      {/* Color layer A — one of two alternating crossfade layers */}
       <div
         data-testid="workspace-bg-color-layer-a"
         style={{
@@ -73,8 +61,6 @@ export function WorkspaceBackground() {
           transition: 'opacity 300ms ease-out',
         }}
       />
-
-      {/* Color layer B — the other alternating crossfade layer */}
       <div
         data-testid="workspace-bg-color-layer-b"
         style={{
@@ -85,8 +71,6 @@ export function WorkspaceBackground() {
           transition: 'opacity 300ms ease-out',
         }}
       />
-
-      {/* Image layer — opacity crossfade */}
       <div
         data-testid="workspace-bg-image-layer"
         style={{
