@@ -95,7 +95,7 @@ interface CanvasState {
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
 
   /** Auto-organize panels into a non-overlapping grid layout */
-  organizePanels: (canvasWidth: number) => void
+  organizePanels: (canvasWidth: number, canvasHeight: number) => void
 
   /** Workspace background */
   background: BackgroundConfig
@@ -244,7 +244,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
   /* ── Auto-organize ── */
 
-  organizePanels: (canvasWidth: number) =>
+  organizePanels: (canvasWidth: number, canvasHeight: number) =>
     set((state) => {
       const GAP = 20
       const sorted = [...state.panels].sort((a, b) => (b.width * b.height) - (a.width * a.height))
@@ -253,19 +253,33 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       let curY = GAP
       let rowHeight = 0
 
-      const updated = sorted.map((panel, i) => {
+      const placed = sorted.map((panel, i) => {
         if (i > 0 && curX + panel.width + GAP > canvasWidth) {
           curX = GAP
           curY += rowHeight + GAP
           rowHeight = 0
         }
-        const placed = { ...panel, pos_x: curX, pos_y: curY, z_index: i + 1 }
+        const p = { ...panel, pos_x: curX, pos_y: curY, z_index: i + 1 }
         curX += panel.width + GAP
         rowHeight = Math.max(rowHeight, panel.height)
-        return placed
+        return p
       })
 
-      return { panels: updated }
+      const totalHeight = curY + rowHeight + GAP
+      if (totalHeight > canvasHeight && canvasHeight > 0) {
+        const scale = canvasHeight / totalHeight
+        return {
+          panels: placed.map((p) => ({
+            ...p,
+            pos_x: p.pos_x * scale,
+            pos_y: p.pos_y * scale,
+            width: Math.max(p.width * scale, p.constraints?.minWidth ?? DEFAULT_SIZE_CONSTRAINTS.minWidth),
+            height: Math.max(p.height * scale, p.constraints?.minHeight ?? DEFAULT_SIZE_CONSTRAINTS.minHeight),
+          })),
+        }
+      }
+
+      return { panels: placed }
     }),
 
   /* ── Workspace background ── */

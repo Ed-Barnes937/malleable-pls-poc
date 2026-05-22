@@ -53,7 +53,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop }: CanvasEngin
       ref={canvasRef}
       data-testid="canvas-container"
       data-canvas-scroll
-      className="relative z-[1] h-full w-full overflow-auto"
+      className="relative z-[1] h-full w-full overflow-hidden"
       onPointerDown={handleCanvasPointerDown}
       onDragOver={onDragOver}
       onDrop={onDrop}
@@ -297,8 +297,12 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
         newY = snapToGrid(newY)
       }
 
-      // Clamp so the panel header stays reachable (can't drag off the top)
-      newY = Math.max(0, newY)
+      const canvas = canvasRef?.current
+      if (canvas) {
+        const visible = Math.min(100, current.width / 2, current.height / 2)
+        newX = Math.max(visible - current.width, Math.min(newX, canvas.clientWidth - visible))
+        newY = Math.max(0, Math.min(newY, canvas.clientHeight - visible))
+      }
 
       x.jump(0)
       y.jump(0)
@@ -309,7 +313,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
         setIsGesturing(false)
       })
     },
-    [panel.id, movePanel, x, y, shiftRef],
+    [panel.id, movePanel, x, y, shiftRef, canvasRef],
   )
 
   const handlePointerDown = useCallback(() => {
@@ -321,16 +325,32 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
 
   const handleDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
+      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
+      if (!current) return
+
+      let offsetX = info.offset.x
+      let offsetY = info.offset.y
+
       if (shiftRef.current) {
-        const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-        if (!current) return
-        const snappedX = snapToGrid(current.pos_x + info.offset.x) - current.pos_x
-        const snappedY = snapToGrid(current.pos_y + info.offset.y) - current.pos_y
-        x.set(snappedX)
-        y.set(snappedY)
+        offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
+        offsetY = snapToGrid(current.pos_y + offsetY) - current.pos_y
       }
+
+      const canvas = canvasRef?.current
+      if (canvas) {
+        const visible = Math.min(100, current.width / 2, current.height / 2)
+        const minX = visible - current.width - current.pos_x
+        const maxX = canvas.clientWidth - visible - current.pos_x
+        const minY = -current.pos_y
+        const maxY = canvas.clientHeight - visible - current.pos_y
+        offsetX = Math.max(minX, Math.min(maxX, offsetX))
+        offsetY = Math.max(minY, Math.min(maxY, offsetY))
+      }
+
+      x.set(offsetX)
+      y.set(offsetY)
     },
-    [panel.id, shiftRef, x, y],
+    [panel.id, shiftRef, x, y, canvasRef],
   )
 
   const handleClose = useCallback(() => {

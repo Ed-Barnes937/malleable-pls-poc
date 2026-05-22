@@ -45,7 +45,8 @@ export function App() {
   const handleOrganize = useCallback(() => {
     const scrollEl = canvasRef.current?.querySelector('[data-canvas-scroll]')
     const width = scrollEl?.clientWidth ?? canvasRef.current?.clientWidth ?? 1200
-    organizePanels(width)
+    const height = scrollEl?.clientHeight ?? canvasRef.current?.clientHeight ?? 800
+    organizePanels(width, height)
   }, [organizePanels])
 
   /** Handle drop from lens palette onto canvas */
