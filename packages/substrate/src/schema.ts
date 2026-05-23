@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
   owner_id TEXT NOT NULL DEFAULT 'student-1',
   created_at TEXT NOT NULL,
   background_type TEXT NOT NULL DEFAULT 'none',
-  background_value TEXT NOT NULL DEFAULT ''
+  background_value TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS workspace_panels (

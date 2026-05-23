@@ -6,6 +6,7 @@ export {
   useWorkspaceScopes,
   useCreateWorkspace,
   useDeleteWorkspace,
+  useReorderWorkspaces,
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,

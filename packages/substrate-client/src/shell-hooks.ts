@@ -26,6 +26,28 @@ export function useDeleteWorkspace() {
   })
 }
 
+export function useReorderWorkspaces() {
+  const utils = trpc.useUtils()
+  return trpc.workspaces.reorder.useMutation({
+    onMutate: async (ids) => {
+      await utils.workspaces.list.cancel()
+      const prev = utils.workspaces.list.getData()
+      if (prev) {
+        const byId = new Map(prev.map((w) => [w.id as string, w]))
+        const reordered = ids
+          .map((id) => byId.get(id))
+          .filter(Boolean) as typeof prev
+        utils.workspaces.list.setData(undefined, reordered)
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) utils.workspaces.list.setData(undefined, ctx.prev)
+    },
+    onSettled: () => utils.workspaces.list.invalidate(),
+  })
+}
+
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({

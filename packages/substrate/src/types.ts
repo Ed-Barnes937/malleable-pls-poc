@@ -69,6 +69,7 @@ export interface Workspace {
   created_at: string
   background_type: string
   background_value: string
+  sort_order: number
 }
 
 export interface WorkspacePanel {

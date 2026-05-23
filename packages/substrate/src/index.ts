@@ -17,6 +17,7 @@ export {
   useUpdatePanelLayouts,
   useUpdateWorkspaceBackground,
   useSetWorkspaceScope,
+  useReorderWorkspaces,
 } from './hooks/useWorkspaces'
 export {
   useWorkflowsForLens,

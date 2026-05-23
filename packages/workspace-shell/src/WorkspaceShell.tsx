@@ -321,6 +321,7 @@ export function WorkspaceShell() {
               onLayoutChange={handleLayoutChange}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
+              onRemovePanel={handleRemovePanel}
               renderPanel={renderPanel}
               getIcon={getIcon}
               getLabel={getLabel}
