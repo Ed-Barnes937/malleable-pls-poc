@@ -10,6 +10,7 @@ export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
   onDragOver?: (e: React.DragEvent) => void
   onDrop?: (e: React.DragEvent) => void
+  onRemovePanel?: (panelId: string) => void
   /** Render the content for each panel. Receives the panel ID and should return
    *  the lens component wrapped in SubstrateProvider + error boundary. */
   renderPanel?: (panelId: string) => ReactNode
@@ -19,7 +20,7 @@ export interface CanvasEngineProps {
   getLabel?: (lensType: string) => string | undefined
 }
 
-export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, renderPanel, getIcon, getLabel }: CanvasEngineProps) {
+export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel, renderPanel, getIcon, getLabel }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
@@ -73,6 +74,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, renderPanel, 
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
           isFullscreen={fullscreenPanelId === panel.id}
           canvasRef={canvasRef}
+          onRemovePanel={onRemovePanel}
           renderPanel={renderPanel}
           getIcon={getIcon}
           getLabel={getLabel}
@@ -261,12 +263,13 @@ interface DraggablePanelProps {
   isDimmed?: boolean
   isFullscreen?: boolean
   canvasRef?: React.RefObject<HTMLDivElement | null>
+  onRemovePanel?: (panelId: string) => void
   renderPanel?: (panelId: string) => ReactNode
   getIcon?: (lensType: string) => ComponentType<{ className?: string }> | undefined
   getLabel?: (lensType: string) => string | undefined
 }
 
-function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, canvasRef, renderPanel, getIcon, getLabel }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel }: DraggablePanelProps) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
@@ -354,8 +357,12 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
   )
 
   const handleClose = useCallback(() => {
-    removePanel(panel.id)
-  }, [panel.id, removePanel])
+    if (onRemovePanel) {
+      onRemovePanel(panel.id)
+    } else {
+      removePanel(panel.id)
+    }
+  }, [panel.id, removePanel, onRemovePanel])
 
   const handleDragHandlePointerDown = useCallback(
     (e: React.PointerEvent) => {
