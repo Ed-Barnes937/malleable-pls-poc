@@ -54,6 +54,7 @@ export function WorkspaceShell() {
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const prevWorkspaceRef = useRef(activeWorkspaceId)
+  const canvasRef = useRef<HTMLDivElement>(null)
 
   // Workspace transition animation
   useEffect(() => {
@@ -80,22 +81,23 @@ export function WorkspaceShell() {
     return map
   }, [panels])
 
-  // Sync DB panels to canvas store whenever the server data changes
-  const prevPanelDataRef = useRef<typeof panels>(null)
+  // Sync DB panels to canvas store.
+  // Full sync on workspace switch; after that only add/remove panels so we
+  // never overwrite positions the user has dragged but not yet persisted.
+  const syncedWorkspaceRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!panels || panels === prevPanelDataRef.current) return
-    prevPanelDataRef.current = panels
+    if (!panels) return
 
-    const canvasPanels: PanelItem[] = panels.map((p) => {
+    const buildItem = (p: (typeof panels)[number]): PanelItem => {
       const m = manifests.find((man) => man.id === p.lens_type)
       return {
         id: p.id,
-        pos_x: p.pos_x,
-        pos_y: p.pos_y,
-        width: p.width,
-        height: p.height,
-        z_index: p.z_index,
-        title: undefined, // Resolved from manifest at render time
+        pos_x: Number(p.pos_x) || 0,
+        pos_y: Number(p.pos_y) || 0,
+        width: Number(p.width) || 280,
+        height: Number(p.height) || 220,
+        z_index: Number(p.z_index) || 0,
+        title: undefined,
         lensType: p.lens_type,
         constraints: m
           ? {
@@ -106,9 +108,35 @@ export function WorkspaceShell() {
             }
           : undefined,
       }
-    })
-    setPanels(canvasPanels)
-  }, [panels, setPanels, manifests])
+    }
+
+    if (syncedWorkspaceRef.current !== activeWorkspaceId) {
+      syncedWorkspaceRef.current = activeWorkspaceId
+      const items = panels.map(buildItem)
+      setPanels(items)
+
+      // Auto-organize if all panels are stacked at the same position (migration default)
+      if (items.length > 1 && items.every((p) => p.pos_x === items[0].pos_x && p.pos_y === items[0].pos_y)) {
+        const el = canvasRef.current
+        if (el) {
+          useCanvasStore.getState().organizePanels(el.clientWidth, el.clientHeight)
+        }
+      }
+      return
+    }
+
+    // Incremental sync: only add new panels / remove deleted ones
+    const store = useCanvasStore.getState()
+    const storeIds = new Set(store.panels.map((p) => p.id))
+    const dbIds = new Set(panels.map((p) => p.id))
+
+    for (const p of panels) {
+      if (!storeIds.has(p.id)) store.addPanel(buildItem(p))
+    }
+    for (const p of store.panels) {
+      if (!dbIds.has(p.id)) store.removePanel(p.id)
+    }
+  }, [panels, activeWorkspaceId, setPanels, manifests])
 
   // Sync workspace background to canvas store
   useEffect(() => {
@@ -257,7 +285,6 @@ export function WorkspaceShell() {
   )
 
   // Auto-organize panels into a tidy grid
-  const canvasRef = useRef<HTMLDivElement>(null)
   const handleOrganize = useCallback(() => {
     const el = canvasRef.current
     if (!el) return
