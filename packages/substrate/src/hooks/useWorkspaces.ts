@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { Workspace } from '../types'
 import {
   getWorkspaces,
   getWorkspacePanels,
@@ -120,7 +121,22 @@ export function useReorderWorkspaces() {
       reorderWorkspaces(ids)
       return Promise.resolve()
     },
-    onSuccess: () => {
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: ['workspaces'] })
+      const prev = queryClient.getQueryData<Workspace[]>(['workspaces'])
+      if (prev) {
+        const byId = new Map(prev.map((w) => [w.id, w]))
+        queryClient.setQueryData(['workspaces'], ids.map((id, i) => {
+          const w = byId.get(id)!
+          return { ...w, sort_order: i }
+        }))
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['workspaces'], ctx.prev)
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     },
   })

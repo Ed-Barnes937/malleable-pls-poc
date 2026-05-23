@@ -18,31 +18,37 @@ export function WorkspaceSwitcher() {
 
   const [dragIdx, setDragIdx] = useState<number | null>(null)
   const [dropIdx, setDropIdx] = useState<number | null>(null)
+  const [dragging, setDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const dragStartX = useRef(0)
-  const didDrag = useRef(false)
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
   const getDropIndex = useCallback(
     (clientX: number) => {
-      if (!containerRef.current || !workspaces) return null
-      const buttons = Array.from(containerRef.current.querySelectorAll<HTMLElement>('[data-ws-idx]'))
-      for (let i = 0; i < buttons.length; i++) {
-        const rect = buttons[i].getBoundingClientRect()
+      for (let i = 0; i < tabRefs.current.length; i++) {
+        const el = tabRefs.current[i]
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
         if (clientX < rect.left + rect.width / 2) return i
       }
-      return buttons.length
+      return tabRefs.current.length
     },
-    [workspaces],
+    [],
   )
+
+  const resetDrag = useCallback(() => {
+    setDragIdx(null)
+    setDropIdx(null)
+    setDragging(false)
+  }, [])
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent, idx: number) => {
-      // Only primary button
       if (e.button !== 0) return
       e.currentTarget.setPointerCapture(e.pointerId)
       dragStartX.current = e.clientX
-      didDrag.current = false
       setDragIdx(idx)
+      setDragging(false)
     },
     [],
   )
@@ -50,72 +56,76 @@ export function WorkspaceSwitcher() {
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       if (dragIdx === null) return
-      if (!didDrag.current && Math.abs(e.clientX - dragStartX.current) < 5) return
-      didDrag.current = true
-      const drop = getDropIndex(e.clientX)
-      setDropIdx(drop)
+      if (!dragging && Math.abs(e.clientX - dragStartX.current) < 5) return
+      if (!dragging) setDragging(true)
+      setDropIdx(getDropIndex(e.clientX))
     },
-    [dragIdx, getDropIndex],
+    [dragIdx, dragging, getDropIndex],
   )
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
       if (dragIdx === null || !workspaces) {
-        setDragIdx(null)
-        setDropIdx(null)
+        resetDrag()
         return
       }
 
-      if (didDrag.current && dropIdx !== null) {
-        const ids = workspaces.map((ws) => ws.id)
-        const [moved] = ids.splice(dragIdx, 1)
+      if (dragging && dropIdx !== null) {
         const insertAt = dropIdx > dragIdx ? dropIdx - 1 : dropIdx
-        ids.splice(insertAt, 0, moved)
-        reorder.mutate(ids)
+        if (insertAt !== dragIdx) {
+          const ids = workspaces.map((ws) => ws.id)
+          const [moved] = ids.splice(dragIdx, 1)
+          ids.splice(insertAt, 0, moved)
+          reorder.mutate(ids)
+        }
       } else {
-        // It was a click, not a drag
         setActiveWorkspaceId(workspaces[dragIdx].id)
       }
 
-      ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
-      setDragIdx(null)
-      setDropIdx(null)
+      try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId) } catch {}
+      resetDrag()
     },
-    [dragIdx, dropIdx, workspaces, reorder, setActiveWorkspaceId],
+    [dragIdx, dropIdx, dragging, workspaces, reorder, setActiveWorkspaceId, resetDrag],
   )
+
+  const onLostPointerCapture = useCallback(() => {
+    resetDrag()
+  }, [resetDrag])
 
   if (!workspaces) return null
 
   return (
-    <div ref={containerRef} className="flex items-center gap-0.5 rounded-lg bg-surface p-1">
+    <div ref={containerRef} className="flex items-center gap-0.5 rounded-lg bg-surface p-1 touch-none">
       {workspaces.map((ws, idx) => {
         const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
         const isActive = activeWorkspaceId === ws.id
-        const isDragging = dragIdx === idx && didDrag.current
-        const showDropBefore = didDrag.current && dropIdx === idx && dragIdx !== idx && dragIdx !== idx - 1
+        const isDragging = dragging && dragIdx === idx
+        const showDropBefore = dragging && dropIdx === idx && dragIdx !== idx && dragIdx !== idx - 1
 
         return (
-          <div key={ws.id} className="relative flex items-center" data-ws-idx={idx}>
+          <div key={ws.id} className="relative flex items-center">
             {showDropBefore && (
               <div className="absolute -left-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
             )}
             <button
+              ref={(el) => { tabRefs.current[idx] = el }}
               onPointerDown={(e) => onPointerDown(e, idx)}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
+              onLostPointerCapture={onLostPointerCapture}
               className={cn(
                 'relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 select-none',
                 isActive
                   ? 'bg-surface-raised text-neutral-100 shadow-sm shadow-black/20'
                   : 'text-neutral-500 hover:bg-surface-overlay/30 hover:text-neutral-300',
                 isDragging && 'opacity-40',
-                dragIdx !== null && 'cursor-grabbing',
+                dragging && 'cursor-grabbing',
               )}
             >
               <Icon className="h-3.5 w-3.5" />
               {ws.name}
             </button>
-            {didDrag.current && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
+            {dragging && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
               <div className="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
             )}
           </div>

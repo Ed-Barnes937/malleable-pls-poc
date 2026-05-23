@@ -88,6 +88,12 @@ export const workspacesRouter = router({
     .input(z.array(z.string().max(255)))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
+        const existing = await tx`SELECT id FROM workspaces WHERE user_id = ${ctx.userId}`
+        const existingIds = new Set(existing.map((r) => r.id as string))
+        const inputIds = new Set(input)
+        if (inputIds.size !== existingIds.size || input.some((id) => !existingIds.has(id))) {
+          throw new Error('Reorder must include exactly all workspace IDs')
+        }
         for (let i = 0; i < input.length; i++) {
           await tx`UPDATE workspaces SET sort_order = ${i} WHERE id = ${input[i]} AND user_id = ${ctx.userId}`
         }
