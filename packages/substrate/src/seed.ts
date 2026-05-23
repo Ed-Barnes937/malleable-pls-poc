@@ -191,9 +191,9 @@ function seedConfidenceSignals(db: Database) {
 
 function seedWorkspaces(db: Database) {
   insert(db, 'workspaces', [
-    { id: 'ws-in-lecture', name: 'In Lecture', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '' },
-    { id: 'ws-evening-review', name: 'Evening Review', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '' },
-    { id: 'ws-exam-prep', name: 'Exam Prep', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '' },
+    { id: 'ws-in-lecture', name: 'In Lecture', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '', sort_order: 0 },
+    { id: 'ws-evening-review', name: 'Evening Review', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '', sort_order: 1 },
+    { id: 'ws-exam-prep', name: 'Exam Prep', owner_id: 'student-1', created_at: '2026-03-28T09:00:00Z', background_type: 'none', background_value: '', sort_order: 2 },
   ])
 }
 

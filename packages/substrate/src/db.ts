@@ -2,7 +2,7 @@ import initSqlJs, { type Database } from 'sql.js'
 import { SCHEMA } from './schema'
 import { seedDatabase } from './seed'
 
-const SCHEMA_VERSION = 4
+const SCHEMA_VERSION = 5
 
 let dbInstance: Database | null = null
 let initPromise: Promise<Database> | null = null

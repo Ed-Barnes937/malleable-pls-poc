@@ -5,7 +5,7 @@ export const workspacesRouter = router({
   list: publicProcedure
     .query(async ({ ctx }) => {
       return ctx.withTenant(async (tx) => {
-        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY created_at, id`
+        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY sort_order, created_at, id`
       })
     }),
 
@@ -26,8 +26,8 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const [ws] = await tx`
-          INSERT INTO workspaces (user_id, name)
-          VALUES (${ctx.userId}, ${input.name})
+          INSERT INTO workspaces (user_id, name, sort_order)
+          VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
         return ws
@@ -81,6 +81,16 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         await tx`DELETE FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId}`
+      })
+    }),
+
+  reorder: publicProcedure
+    .input(z.array(z.string().max(255)))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        for (let i = 0; i < input.length; i++) {
+          await tx`UPDATE workspaces SET sort_order = ${i} WHERE id = ${input[i]} AND user_id = ${ctx.userId}`
+        }
       })
     }),
 

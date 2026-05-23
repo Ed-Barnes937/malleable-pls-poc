@@ -9,6 +9,7 @@ import {
   updatePanelLayouts,
   updateWorkspaceBackground,
   setWorkspaceScope,
+  reorderWorkspaces,
 } from '../queries/workspaces'
 
 export function useWorkspaces() {
@@ -108,6 +109,19 @@ export function useSetWorkspaceScope() {
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_scopes', vars.workspaceId] })
+    },
+  })
+}
+
+export function useReorderWorkspaces() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => {
+      reorderWorkspaces(ids)
+      return Promise.resolve()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     },
   })
 }

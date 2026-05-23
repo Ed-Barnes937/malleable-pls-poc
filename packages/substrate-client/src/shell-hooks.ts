@@ -26,6 +26,13 @@ export function useDeleteWorkspace() {
   })
 }
 
+export function useReorderWorkspaces() {
+  const utils = trpc.useUtils()
+  return trpc.workspaces.reorder.useMutation({
+    onSuccess: () => utils.workspaces.list.invalidate(),
+  })
+}
+
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({

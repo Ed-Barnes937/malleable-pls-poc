@@ -2,7 +2,14 @@ import { query, exec, persistDb } from '../db'
 import type { Workspace, WorkspacePanel, WorkspaceScope } from '../types'
 
 export function getWorkspaces(): Workspace[] {
-  return query<Workspace>('SELECT * FROM workspaces ORDER BY created_at ASC, id ASC')
+  return query<Workspace>('SELECT * FROM workspaces ORDER BY sort_order ASC, created_at ASC, id ASC')
+}
+
+export function reorderWorkspaces(ids: string[]): void {
+  for (let i = 0; i < ids.length; i++) {
+    exec('UPDATE workspaces SET sort_order = ? WHERE id = ?', [i, ids[i]])
+  }
+  persistDb()
 }
 
 export function getWorkspacePanels(workspaceId: string): WorkspacePanel[] {
