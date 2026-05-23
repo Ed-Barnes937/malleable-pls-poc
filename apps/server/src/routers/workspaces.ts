@@ -5,7 +5,7 @@ export const workspacesRouter = router({
   list: publicProcedure
     .query(async ({ ctx }) => {
       return ctx.withTenant(async (tx) => {
-        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY created_at`
+        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY created_at, id`
       })
     }),
 

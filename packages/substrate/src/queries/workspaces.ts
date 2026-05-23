@@ -2,7 +2,7 @@ import { query, exec, persistDb } from '../db'
 import type { Workspace, WorkspacePanel, WorkspaceScope } from '../types'
 
 export function getWorkspaces(): Workspace[] {
-  return query<Workspace>('SELECT * FROM workspaces ORDER BY created_at ASC')
+  return query<Workspace>('SELECT * FROM workspaces ORDER BY created_at ASC, id ASC')
 }
 
 export function getWorkspacePanels(workspaceId: string): WorkspacePanel[] {
