@@ -5,7 +5,7 @@ export const workspacesRouter = router({
   list: publicProcedure
     .query(async ({ ctx }) => {
       return ctx.withTenant(async (tx) => {
-        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY created_at`
+        return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY sort_order, created_at, id`
       })
     }),
 
@@ -26,8 +26,8 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const [ws] = await tx`
-          INSERT INTO workspaces (user_id, name)
-          VALUES (${ctx.userId}, ${input.name})
+          INSERT INTO workspaces (user_id, name, sort_order)
+          VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
         return ws
@@ -40,12 +40,28 @@ export const workspacesRouter = router({
       lensType: z.string().max(255),
       slotName: z.string().max(255),
       config: z.string().max(5000).optional(),
+      pos_x: z.number().int().optional(),
+      pos_y: z.number().int().optional(),
+      width: z.number().int().optional(),
+      height: z.number().int().optional(),
+      z_index: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
         const [panel] = await tx`
-          INSERT INTO workspace_panels (user_id, workspace_id, lens_type, slot_name, config)
-          VALUES (${ctx.userId}, ${input.workspaceId}, ${input.lensType}, ${input.slotName}, ${input.config ?? '{}'})
+          INSERT INTO workspace_panels (user_id, workspace_id, lens_type, slot_name, config, pos_x, pos_y, width, height, z_index)
+          VALUES (
+            ${ctx.userId},
+            ${input.workspaceId},
+            ${input.lensType},
+            ${input.slotName},
+            ${input.config ?? '{}'},
+            ${input.pos_x ?? 0},
+            ${input.pos_y ?? 0},
+            ${input.width ?? 280},
+            ${input.height ?? 220},
+            ${input.z_index ?? 0}
+          )
           RETURNING *
         `
         return panel
@@ -68,27 +84,61 @@ export const workspacesRouter = router({
       })
     }),
 
+  reorder: publicProcedure
+    .input(z.array(z.string().max(255)))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const existing = await tx`SELECT id FROM workspaces WHERE user_id = ${ctx.userId}`
+        const existingIds = new Set(existing.map((r) => r.id as string))
+        const inputIds = new Set(input)
+        if (inputIds.size !== existingIds.size || input.some((id) => !existingIds.has(id))) {
+          throw new Error('Reorder must include exactly all workspace IDs')
+        }
+        for (let i = 0; i < input.length; i++) {
+          await tx`UPDATE workspaces SET sort_order = ${i} WHERE id = ${input[i]} AND user_id = ${ctx.userId}`
+        }
+      })
+    }),
+
   updateLayouts: publicProcedure
+    .input(z.array(z.object({
+      id: z.string().max(255),
+      pos_x: z.number().int(),
+      pos_y: z.number().int(),
+      width: z.number().int(),
+      height: z.number().int(),
+      z_index: z.number().int(),
+    })))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        for (const item of input) {
+          await tx`
+            UPDATE workspace_panels
+            SET pos_x = ${item.pos_x}, pos_y = ${item.pos_y},
+                width = ${item.width}, height = ${item.height},
+                z_index = ${item.z_index}
+            WHERE id = ${item.id} AND user_id = ${ctx.userId}
+          `
+        }
+      })
+    }),
+
+  updateBackground: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
-      layouts: z.array(z.object({
-        id: z.string().max(255),
-        x: z.number(),
-        y: z.number(),
-        w: z.number(),
-        h: z.number(),
-      })),
+      backgroundType: z.string().max(255),
+      backgroundValue: z.string().max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
       return ctx.withTenant(async (tx) => {
-        for (const item of input.layouts) {
-          await tx`
-            UPDATE workspace_panels
-            SET grid_x = ${item.x}, grid_y = ${item.y},
-                grid_w = ${item.w}, grid_h = ${item.h}
-            WHERE id = ${item.id} AND workspace_id = ${input.workspaceId} AND user_id = ${ctx.userId}
-          `
-        }
+        const [ws] = await tx`
+          UPDATE workspaces
+          SET background_type = ${input.backgroundType},
+              background_value = ${input.backgroundValue}
+          WHERE id = ${input.workspaceId} AND user_id = ${ctx.userId}
+          RETURNING *
+        `
+        return ws
       })
     }),
 

@@ -67,7 +67,10 @@ CREATE TABLE IF NOT EXISTS workspaces (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   owner_id TEXT NOT NULL DEFAULT 'student-1',
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  background_type TEXT NOT NULL DEFAULT 'none',
+  background_value TEXT NOT NULL DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS workspace_panels (
@@ -76,10 +79,11 @@ CREATE TABLE IF NOT EXISTS workspace_panels (
   lens_type TEXT NOT NULL,
   slot_name TEXT NOT NULL,
   config TEXT NOT NULL DEFAULT '{}',
-  grid_x INTEGER NOT NULL DEFAULT 0,
-  grid_y INTEGER NOT NULL DEFAULT 0,
-  grid_w INTEGER NOT NULL DEFAULT 1,
-  grid_h INTEGER NOT NULL DEFAULT 2,
+  pos_x INTEGER NOT NULL DEFAULT 0,
+  pos_y INTEGER NOT NULL DEFAULT 0,
+  width INTEGER NOT NULL DEFAULT 280,
+  height INTEGER NOT NULL DEFAULT 220,
+  z_index INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 

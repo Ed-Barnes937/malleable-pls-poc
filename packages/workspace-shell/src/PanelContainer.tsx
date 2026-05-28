@@ -1,14 +1,56 @@
-import { useState, useEffect, useRef, type ReactNode } from 'react'
-import { Panel } from '@pls/panel-system'
-import { cn } from '@pls/shared-ui'
+import { Suspense, Component, useState, useEffect, useRef, type ReactNode, type ErrorInfo } from 'react'
 import { SubstrateProvider, useManifest } from '@pls/lens-framework'
-import { Zap } from 'lucide-react'
-import { useWorkspaceStore } from './store'
-import { WorkflowSettingsDialog } from './WorkflowSettingsDialog'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { substrateBridge } from './substrate-bridge'
 import { useRecentJobs } from '@pls/substrate-client'
 
-function usePanelPulse(lensType: string) {
+/* ── Error boundary ── */
+
+interface ErrorBoundaryProps { children: ReactNode; label: string }
+interface ErrorBoundaryState { error: Error | null }
+
+class LensErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error(`[${this.props.label}]`, error, info) }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
+          <AlertTriangle size={24} className="text-text-muted" />
+          <p className="text-xs text-text-secondary">This lens failed to render</p>
+          <p className="text-[10px] text-text-muted">{this.state.error.message}</p>
+          <button
+            type="button"
+            onClick={() => this.setState({ error: null })}
+            className="mt-1 flex items-center gap-1.5 rounded-md bg-surface-overlay px-3 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Retry
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+/* ── Loading skeleton ── */
+
+function LoadingSkeleton() {
+  return (
+    <div className="flex h-full flex-col gap-3 p-1">
+      <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-800" />
+      <div className="h-3 w-full animate-pulse rounded bg-neutral-800/60" />
+      <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-800/40" />
+      <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/30" />
+    </div>
+  )
+}
+
+/* ── Pulse animation hook (reacts to completed jobs) ── */
+
+export function usePanelPulse(lensType: string) {
   const [pulsing, setPulsing] = useState(false)
   const manifest = useManifest(lensType)
   const { data: jobs } = useRecentJobs(5)
@@ -43,6 +85,8 @@ function usePanelPulse(lensType: string) {
   return pulsing
 }
 
+/* ── PanelContainer ── */
+
 interface PanelContainerProps {
   panelId: string
   lensType: string
@@ -51,57 +95,28 @@ interface PanelContainerProps {
   children: ReactNode
 }
 
+/**
+ * PanelContainer wraps a lens component with SubstrateProvider, error boundary,
+ * and Suspense. In the new canvas-based layout, the outer chrome (header, drag,
+ * close, fullscreen) is handled by PanelChrome inside CanvasEngine.
+ */
 export function PanelContainer({
-  panelId,
   lensType,
-  onRemove,
   children,
 }: PanelContainerProps) {
-  const focusedPanelId = useWorkspaceStore((s) => s.focusedPanelId)
-  const setFocusedPanelId = useWorkspaceStore((s) => s.setFocusedPanelId)
-  const [showWorkflows, setShowWorkflows] = useState(false)
-  const pulsing = usePanelPulse(lensType)
   const manifest = useManifest(lensType)
-
   const isWritable = manifest?.category === 'tool'
 
-  const workflowAction = isWritable ? (
-    <button
-      onClick={(e) => { e.stopPropagation(); setShowWorkflows(true) }}
-      className={cn(
-        'flex h-5 w-5 items-center justify-center rounded transition-colors',
-        'text-neutral-700 hover:bg-surface-overlay hover:text-accent'
-      )}
-      title="Workflow settings"
-    >
-      <Zap className="h-3 w-3" />
-    </button>
-  ) : undefined
-
   return (
-    <>
-      <Panel
-        label={manifest?.label ?? lensType}
-        icon={manifest?.icon}
-        onRemove={onRemove}
-        headerActions={workflowAction}
-        focused={focusedPanelId === panelId}
-        onFocus={() => setFocusedPanelId(panelId)}
-        pulsing={pulsing}
-      >
+    <LensErrorBoundary label={manifest?.label ?? lensType}>
+      <Suspense fallback={<LoadingSkeleton />}>
         <SubstrateProvider
           reader={substrateBridge}
           writer={isWritable ? substrateBridge : undefined}
         >
           {children}
         </SubstrateProvider>
-      </Panel>
-      {showWorkflows && (
-        <WorkflowSettingsDialog
-          lensType={lensType}
-          onClose={() => setShowWorkflows(false)}
-        />
-      )}
-    </>
+      </Suspense>
+    </LensErrorBoundary>
   )
 }

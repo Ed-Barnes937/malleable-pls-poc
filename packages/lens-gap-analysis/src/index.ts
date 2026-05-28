@@ -11,4 +11,8 @@ export const manifest: PanelManifest = {
   category: 'view',
   reads: ['gap_analysis'],
   load: () => import('./GapAnalysisLens'),
+  minWidth: 350,
+  minHeight: 250,
+  defaultWidth: 460,
+  defaultHeight: 340,
 }

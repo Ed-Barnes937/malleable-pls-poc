@@ -67,6 +67,9 @@ export interface Workspace {
   name: string
   owner_id: string
   created_at: string
+  background_type: string
+  background_value: string
+  sort_order: number
 }
 
 export interface WorkspacePanel {
@@ -75,10 +78,11 @@ export interface WorkspacePanel {
   lens_type: string
   slot_name: string
   config: string
-  grid_x: number
-  grid_y: number
-  grid_w: number
-  grid_h: number
+  pos_x: number
+  pos_y: number
+  width: number
+  height: number
+  z_index: number
   created_at: string
 }
 

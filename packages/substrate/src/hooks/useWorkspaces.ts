@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { Workspace } from '../types'
 import {
   getWorkspaces,
   getWorkspacePanels,
@@ -7,7 +8,9 @@ import {
   removeWorkspacePanel,
   replacePanelLens,
   updatePanelLayouts,
+  updateWorkspaceBackground,
   setWorkspaceScope,
+  reorderWorkspaces,
 } from '../queries/workspaces'
 
 export function useWorkspaces() {
@@ -75,12 +78,25 @@ export function useReplacePanelLens() {
 export function useUpdatePanelLayouts() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (args: { workspaceId: string; layouts: { id: string; x: number; y: number; w: number; h: number }[] }) => {
+    mutationFn: (args: { workspaceId: string; layouts: { id: string; pos_x: number; pos_y: number; width: number; height: number; z_index: number }[] }) => {
       updatePanelLayouts(args.layouts)
       return Promise.resolve()
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_panels', vars.workspaceId] })
+    },
+  })
+}
+
+export function useUpdateWorkspaceBackground() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (args: { workspaceId: string; backgroundType: string; backgroundValue: string }) => {
+      updateWorkspaceBackground(args.workspaceId, args.backgroundType, args.backgroundValue)
+      return Promise.resolve()
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     },
   })
 }
@@ -94,6 +110,34 @@ export function useSetWorkspaceScope() {
     },
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ['workspace_scopes', vars.workspaceId] })
+    },
+  })
+}
+
+export function useReorderWorkspaces() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (ids: string[]) => {
+      reorderWorkspaces(ids)
+      return Promise.resolve()
+    },
+    onMutate: async (ids) => {
+      await queryClient.cancelQueries({ queryKey: ['workspaces'] })
+      const prev = queryClient.getQueryData<Workspace[]>(['workspaces'])
+      if (prev) {
+        const byId = new Map(prev.map((w) => [w.id, w]))
+        queryClient.setQueryData(['workspaces'], ids.map((id, i) => {
+          const w = byId.get(id)!
+          return { ...w, sort_order: i }
+        }))
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['workspaces'], ctx.prev)
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['workspaces'] })
     },
   })
 }

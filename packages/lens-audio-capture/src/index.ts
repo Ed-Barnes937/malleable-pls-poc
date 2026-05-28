@@ -12,4 +12,8 @@ export const manifest: PanelManifest = {
   reads: ['recordings'],
   writes: ['recordings'],
   load: () => import('./AudioCaptureLens'),
+  minWidth: 280,
+  minHeight: 200,
+  defaultWidth: 380,
+  defaultHeight: 280,
 }
