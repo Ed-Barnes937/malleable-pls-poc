@@ -200,18 +200,18 @@ function seedWorkspaces(db: Database) {
 function seedWorkspacePanels(db: Database) {
   // Pixel positions approximate old grid layout: ~300px per grid column, ~180px per grid row
   insert(db, 'workspace_panels', [
-    // In Lecture — audio capture left + transcript right (full height)
-    { id: 'wp-1', workspace_id: 'ws-in-lecture', lens_type: 'audio-capture', slot_name: 'sidebar', config: JSON.stringify({ recordingId: 'rec-bio-4' }), pos_x: 20, pos_y: 20, width: 280, height: 700, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-1b', workspace_id: 'ws-in-lecture', lens_type: 'transcript', slot_name: 'main', config: JSON.stringify({ recordingId: 'rec-bio-4', mode: 'capture' }), pos_x: 320, pos_y: 20, width: 580, height: 1060, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    // Evening Review — 2x2 grid
-    { id: 'wp-3', workspace_id: 'ws-evening-review', lens_type: 'transcript', slot_name: 'top-left', config: JSON.stringify({ recordingId: 'rec-bio-4', mode: 'review' }), pos_x: 20, pos_y: 20, width: 580, height: 520, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-4', workspace_id: 'ws-evening-review', lens_type: 'test-me', slot_name: 'top-right', config: JSON.stringify({ mode: 'review' }), pos_x: 620, pos_y: 20, width: 280, height: 520, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-5', workspace_id: 'ws-evening-review', lens_type: 'weekly-overview', slot_name: 'bottom-left', config: '{}', pos_x: 20, pos_y: 560, width: 280, height: 520, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-6', workspace_id: 'ws-evening-review', lens_type: 'connections', slot_name: 'bottom-right', config: JSON.stringify({ conceptLabel: 'mitochondrial DNA', recordingId: 'rec-bio-4' }), pos_x: 320, pos_y: 560, width: 580, height: 520, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    // Exam Prep — gap analysis wide across top, content below
-    { id: 'wp-7', workspace_id: 'ws-exam-prep', lens_type: 'gap-analysis', slot_name: 'top-full', config: '{}', pos_x: 20, pos_y: 20, width: 880, height: 340, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-8', workspace_id: 'ws-exam-prep', lens_type: 'weakest-topics', slot_name: 'bottom-left', config: '{}', pos_x: 20, pos_y: 380, width: 280, height: 700, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
-    { id: 'wp-9', workspace_id: 'ws-exam-prep', lens_type: 'test-me', slot_name: 'bottom-right', config: JSON.stringify({ mode: 'exam', timerSeconds: 120 }), pos_x: 320, pos_y: 380, width: 580, height: 700, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    // In Lecture — compact audio capture left + dominant transcript right
+    { id: 'wp-1', workspace_id: 'ws-in-lecture', lens_type: 'audio-capture', slot_name: 'sidebar', config: JSON.stringify({ recordingId: 'rec-bio-4' }), pos_x: 20, pos_y: 20, width: 300, height: 460, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-1b', workspace_id: 'ws-in-lecture', lens_type: 'transcript', slot_name: 'main', config: JSON.stringify({ recordingId: 'rec-bio-4', mode: 'capture' }), pos_x: 340, pos_y: 20, width: 620, height: 1060, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    // Evening Review — large transcript with a stack of smaller review lenses
+    { id: 'wp-3', workspace_id: 'ws-evening-review', lens_type: 'transcript', slot_name: 'top-left', config: JSON.stringify({ recordingId: 'rec-bio-4', mode: 'review' }), pos_x: 20, pos_y: 20, width: 580, height: 640, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-4', workspace_id: 'ws-evening-review', lens_type: 'test-me', slot_name: 'top-right', config: JSON.stringify({ mode: 'review' }), pos_x: 620, pos_y: 20, width: 340, height: 300, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-6', workspace_id: 'ws-evening-review', lens_type: 'connections', slot_name: 'bottom-right', config: JSON.stringify({ conceptLabel: 'mitochondrial DNA', recordingId: 'rec-bio-4' }), pos_x: 620, pos_y: 340, width: 340, height: 320, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-5', workspace_id: 'ws-evening-review', lens_type: 'weekly-overview', slot_name: 'bottom-left', config: '{}', pos_x: 20, pos_y: 680, width: 580, height: 300, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    // Exam Prep — gap analysis wide across top, tall topic list + medium quiz below
+    { id: 'wp-7', workspace_id: 'ws-exam-prep', lens_type: 'gap-analysis', slot_name: 'top-full', config: '{}', pos_x: 20, pos_y: 20, width: 880, height: 300, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-8', workspace_id: 'ws-exam-prep', lens_type: 'weakest-topics', slot_name: 'bottom-left', config: '{}', pos_x: 20, pos_y: 340, width: 300, height: 760, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
+    { id: 'wp-9', workspace_id: 'ws-exam-prep', lens_type: 'test-me', slot_name: 'bottom-right', config: JSON.stringify({ mode: 'exam', timerSeconds: 120 }), pos_x: 360, pos_y: 340, width: 540, height: 520, z_index: 0, created_at: '2026-03-28T09:00:00Z' },
   ])
 }
 
