@@ -376,9 +376,11 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
   // Shadow depends on focus + hover + gesture state — all via CSS transitions
-  const shadow = (isFocused || isGesturing || isHovered)
-    ? 'var(--shadow-panel-focused)'
-    : 'var(--shadow-panel)'
+  const shadow = isGesturing
+    ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
+    : (isFocused || isHovered)
+      ? 'var(--shadow-panel-focused)'
+      : 'var(--shadow-panel)'
 
   // Transition for smooth animated position/size changes when at rest
   const transitionStyle = isGesturing
@@ -420,7 +422,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
        * to control the same property, causing flickers. The CSS transition on opacity
        * (in `transitionStyle`) handles the dim/undim smoothly, so we accept scale-only entrance. */
       initial={{ scale: 0.95 }}
-      animate={{ scale: 1 }}
+      animate={{ scale: isGesturing ? 1.015 : 1 }}
       transition={{ type: 'tween', duration: 0.2 }}
     >
       {/* Resize handles — only interactive on hover, disabled in fullscreen */}
