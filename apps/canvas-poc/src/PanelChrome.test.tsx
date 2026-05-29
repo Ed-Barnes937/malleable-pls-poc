@@ -94,6 +94,14 @@ describe('PanelChrome', () => {
     expect(onDragHandlePointerDown).toHaveBeenCalledTimes(1)
   })
 
+  it('header is visually distinct from content (divider + background tint)', () => {
+    render(<PanelChrome title="Test" />)
+    const header = screen.getByTestId('panel-header')
+    expect(header.className).toContain('border-b')
+    expect(header.className).toContain('border-border-subtle')
+    expect(header.className).toContain('bg-surface-overlay/50')
+  })
+
   it('renders distinct icons for different panel types', () => {
     const { unmount: u1 } = render(<PanelChrome title="A" type="document" />)
     const docIcon = screen.getByTestId('panel-icon').innerHTML
