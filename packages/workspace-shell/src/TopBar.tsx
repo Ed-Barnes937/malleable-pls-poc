@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceScopes } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
+import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { BackgroundPicker } from '@pls/panel-system'
 
@@ -96,6 +97,9 @@ export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Job activity */}
+      <JobStatusIndicator />
 
       {/* Theme toggle */}
       <ThemeToggle />

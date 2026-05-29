@@ -5,7 +5,7 @@ export const eventBus = new EventEmitter()
 eventBus.setMaxListeners(100)
 
 export interface ServerEvent {
-  type: 'job:completed' | 'job:failed' | 'data:changed'
+  type: 'job:started' | 'job:completed' | 'job:failed' | 'data:changed'
   table?: string
   jobType?: string
   userId: string

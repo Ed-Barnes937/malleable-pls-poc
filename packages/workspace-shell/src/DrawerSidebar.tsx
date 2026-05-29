@@ -8,6 +8,7 @@ import { cn, SectionLabel } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
+import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 
 /* ── Constants ── */
 
@@ -254,6 +255,12 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
             <section>
               <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
               <ScopeEditor workspaceId={activeWorkspaceId} />
+            </section>
+
+            {/* Workflows */}
+            <section>
+              <SectionLabel className="mb-2 px-1">Workflows</SectionLabel>
+              <WorkflowSettingsPanel />
             </section>
 
             {/* Lenses */}
