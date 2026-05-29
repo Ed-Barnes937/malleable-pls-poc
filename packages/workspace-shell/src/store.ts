@@ -9,7 +9,7 @@ interface WorkspaceUIState {
 }
 
 export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
-  activeWorkspaceId: 'ws-evening-review',
+  activeWorkspaceId: 'ws-in-lecture',
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
 
   focusedPanelId: null,
