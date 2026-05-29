@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Pencil, Trash2, ChevronRight, ZapOff } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronRight, ZapOff, AlertTriangle } from 'lucide-react'
 import { cn, Switch, Spinner, SectionLabel } from '@pls/shared-ui'
 import {
   useWorkflowsForWorkspace,
@@ -137,7 +137,7 @@ type EditorState = { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; wor
 
 export function WorkflowSettingsPanel() {
   const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { data: rawWorkflows, isLoading } = useWorkflowsForWorkspace(workspaceId)
+  const { data: rawWorkflows, isLoading, isError, error } = useWorkflowsForWorkspace(workspaceId)
   const workflows = rawWorkflows as unknown as WorkflowWithJobs[] | undefined
   const [editor, setEditor] = useState<EditorState>({ mode: 'closed' })
 
@@ -146,6 +146,12 @@ export function WorkflowSettingsPanel() {
       {isLoading ? (
         <div className="flex items-center justify-center py-6">
           <Spinner size="sm" />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 py-6 text-center">
+          <AlertTriangle className="h-5 w-5 text-red-400" />
+          <p className="text-[11px] text-red-300">Couldn’t load workflows</p>
+          <p className="px-3 text-[10px] text-neutral-600">{error?.message ?? 'Request failed'}</p>
         </div>
       ) : workflows && workflows.length > 0 ? (
         workflows.map((wf) => (
