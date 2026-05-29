@@ -5,6 +5,7 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@pls/workflows": "workspace:*",
     "sql.js": "^1.12.0",
     "@tanstack/react-query": "^5.0.0"
   },

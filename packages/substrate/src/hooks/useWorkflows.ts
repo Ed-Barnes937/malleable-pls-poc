@@ -1,16 +1,16 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { createWorkflowEngine, createJobRunner } from '@pls/workflows'
+import type { RunnerEvent } from '@pls/workflows'
 import {
   getWorkflowsForLens,
   getRecentJobRuns,
   getRunningJobCount,
-  getPendingJobRuns,
-  updateJobRunStatus,
   setWorkflowEnabled,
   createWorkspaceOverride,
 } from '../queries/workflows'
-import { executeJob } from '../workflows/executors'
-import { dispatchWorkflows } from '../workflows/engine'
+import { createSqlJsAdapter } from '../workflows/sql-js-adapter'
+import { createSubstrateExecutorRegistry, AFFECTED_QUERY_KEYS } from '../workflows/executors'
 import { persistDb } from '../db'
 import type { WorkflowWithJobs } from '../types'
 
@@ -72,53 +72,61 @@ export function useCreateWorkspaceOverride() {
 
 export function useJobRunner(workspaceId: string) {
   const queryClient = useQueryClient()
-  const processingRef = useRef(false)
 
-  const processJobs = useCallback(async () => {
-    if (processingRef.current) return
-    processingRef.current = true
+  // Build the core engine + runner from `@pls/workflows`. `scopeId` carries
+  // the opaque substrate workspace id (LOCKED DECISION 2). The sql.js adapter
+  // maps `commit()` -> `persistDb()` (LOCKED DECISION 1) and
+  // `claimPendingJobRuns` -> a plain SELECT (LOCKED DECISION 3). `maxRetries`
+  // is 0 for substrate (no backoff column).
+  const runner = useMemo(() => {
+    const adapter = createSqlJsAdapter()
+    const executors = createSubstrateExecutorRegistry()
+    // The runner closes over the engine; cascades dispatch via
+    // `engine.dispatch({ type, payload }, { scopeId })` internally, replacing
+    // the old local `dispatchWorkflows` / `matchesCondition`.
+    const engine = createWorkflowEngine({ adapter })
+    return createJobRunner({
+      adapter,
+      executors,
+      engine,
+      scopeId: workspaceId,
+      maxRetries: 0,
+    })
+  }, [workspaceId])
 
-    try {
-      const pending = getPendingJobRuns()
-      if (pending.length === 0) return
-
-      for (const job of pending) {
-        updateJobRunStatus(job.id, 'running')
-        persistDb()
+  // Subscribe for query invalidation. COARSE invalidation on `job:completed`
+  // (LOCKED DECISION 5): always invalidate ['job_runs'] + ['job_runs_count'],
+  // plus the domain tables the executor's job_type is known to touch.
+  // TODO: this is coarser than the old per-key invalidation, which used the
+  // concrete `affectedQueryKeys` the executor returned for that specific run.
+  // Could be made fine-grained again via a side channel later.
+  useEffect(() => {
+    const unsubscribe = runner.onEvent((event: RunnerEvent) => {
+      if (event.type === 'job:started') {
         queryClient.invalidateQueries({ queryKey: ['job_runs'] })
         queryClient.invalidateQueries({ queryKey: ['job_runs_count'] })
+        return
+      }
 
-        try {
-          const input = job.input ? JSON.parse(job.input) : {}
-          const result = await executeJob(job.job_type, input)
+      // job:completed | job:failed
+      queryClient.invalidateQueries({ queryKey: ['job_runs'] })
+      queryClient.invalidateQueries({ queryKey: ['job_runs_count'] })
 
-          updateJobRunStatus(job.id, 'completed', JSON.stringify(result.output))
-          persistDb()
-
-          for (const keys of result.affectedQueryKeys) {
-            queryClient.invalidateQueries({ queryKey: keys })
-          }
-
-          if (result.eventType) {
-            dispatchWorkflows(result.eventType, result.output, workspaceId, job.depth)
-          }
-
-          queryClient.invalidateQueries({ queryKey: ['job_runs'] })
-          queryClient.invalidateQueries({ queryKey: ['job_runs_count'] })
-        } catch (err) {
-          updateJobRunStatus(job.id, 'failed', undefined, String(err))
-          persistDb()
-          queryClient.invalidateQueries({ queryKey: ['job_runs'] })
-          queryClient.invalidateQueries({ queryKey: ['job_runs_count'] })
+      if (event.type === 'job:completed') {
+        const affected = AFFECTED_QUERY_KEYS[event.jobRun.job_type] ?? []
+        for (const keys of affected) {
+          queryClient.invalidateQueries({ queryKey: keys })
         }
       }
-    } finally {
-      processingRef.current = false
-    }
-  }, [queryClient, workspaceId])
+    })
+    return unsubscribe
+  }, [runner, queryClient])
 
+  // Drive processOnce on the existing ~1s interval.
   useEffect(() => {
-    const interval = setInterval(processJobs, 1000)
+    const interval = setInterval(() => {
+      void runner.processOnce()
+    }, 1000)
     return () => clearInterval(interval)
-  }, [processJobs])
+  }, [runner])
 }
