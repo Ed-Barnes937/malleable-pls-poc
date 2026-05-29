@@ -6,6 +6,7 @@ import {
 } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
+import { JobStatusIndicator } from './JobStatusIndicator'
 
 export interface TopBarProps {
   onMenuClick: () => void
@@ -92,6 +93,9 @@ export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Job activity */}
+      <JobStatusIndicator />
 
       {/* Theme toggle */}
       <ThemeToggle />

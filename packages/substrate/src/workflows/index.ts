@@ -1,2 +1,2 @@
 export { dispatchWorkflows } from './engine'
-export { executeJob, getAvailableJobTypes } from './executors'
+export { executeJob, getAvailableJobTypes, getAvailableTriggerEvents } from './executors'

@@ -21,6 +21,7 @@ import {
 import { useWorkspaceStore } from './store'
 import { useManifests } from '@pls/lens-framework'
 import { BackgroundPicker } from '@pls/panel-system'
+import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 
 /* ── Constants ── */
 
@@ -550,6 +551,12 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
             {/* Background */}
             <section>
               <BackgroundPicker />
+            </section>
+
+            {/* Workflows */}
+            <section>
+              <SectionLabel className="mb-2 px-1">Workflows</SectionLabel>
+              <WorkflowSettingsPanel />
             </section>
 
             {/* Lenses */}

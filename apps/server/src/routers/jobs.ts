@@ -25,4 +25,17 @@ export const jobsRouter = router({
         return row?.count ?? 0
       })
     }),
+
+  forWorkflow: publicProcedure
+    .input(z.object({ workflowId: z.string().max(255), limit: z.number().int().optional().default(10) }))
+    .query(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        return tx`
+          SELECT * FROM job_runs
+          WHERE user_id = ${ctx.userId} AND workflow_id = ${input.workflowId}
+          ORDER BY created_at DESC
+          LIMIT ${input.limit}
+        `
+      })
+    }),
 })

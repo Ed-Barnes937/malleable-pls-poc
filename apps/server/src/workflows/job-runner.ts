@@ -38,6 +38,7 @@ async function processJobs(): Promise<void> {
         }
 
         await store.updateJobRunStatus(tx, job.id, 'running')
+        emitEvent({ type: 'job:started', jobType: job.job_type, userId: user_id })
 
         try {
           const input = { ...(job.input ?? {}), _userId: user_id }
