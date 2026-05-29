@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { BackgroundPicker, SOLID_PRESETS, GRADIENT_PRESETS } from './BackgroundPicker'
 import { useCanvasStore, DEFAULT_BACKGROUND } from './canvas-store'

@@ -1,4 +1,10 @@
-import type { Executor, ExecutorMeta, ExecutorRegistry, JobResult } from './types'
+import type {
+  Executor,
+  ExecutorContext,
+  ExecutorMeta,
+  ExecutorRegistry,
+  JobResult,
+} from './types'
 
 interface Entry {
   executor: Executor
@@ -16,12 +22,16 @@ export function createExecutorRegistry(): ExecutorRegistry {
       entries.set(jobType, { executor, meta })
     },
 
-    async execute(jobType, input): Promise<JobResult> {
+    async execute(
+      jobType: string,
+      input: Record<string, unknown>,
+      ctx: ExecutorContext,
+    ): Promise<JobResult> {
       const entry = entries.get(jobType)
       if (!entry) {
         throw new Error(`Unknown job type: ${jobType}`)
       }
-      return entry.executor(input)
+      return entry.executor(input, ctx)
     },
 
     getAvailableTypes() {
