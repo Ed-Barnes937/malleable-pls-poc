@@ -1,11 +1,10 @@
-import { Menu, Plus, LayoutGrid } from 'lucide-react'
-import { useMemo } from 'react'
-import {
-  useWorkspaces,
-  useWorkspaceScopes,
-} from '@pls/substrate-client'
+import { Menu, Plus, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useWorkspaceScopes } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
+import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { BackgroundPicker } from '@pls/panel-system'
 
 export interface TopBarProps {
   onMenuClick: () => void
@@ -13,10 +12,6 @@ export interface TopBarProps {
   onOrganize?: () => void
 }
 
-/**
- * Summarise the active scope filters into a compact chip label.
- * Returns "All items" when nothing is filtered.
- */
 function useScopeSummary(workspaceId: string): string {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
 
@@ -38,14 +33,28 @@ function useScopeSummary(workspaceId: string): string {
 
 export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const { data: workspaces } = useWorkspaces()
   const scopeSummary = useScopeSummary(activeWorkspaceId)
 
-  const workspaceName = useMemo(() => {
-    if (!workspaces) return '…'
-    const ws = workspaces.find((w) => w.id === activeWorkspaceId)
-    return ws?.name ?? 'Workspace'
-  }, [workspaces, activeWorkspaceId])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsRef = useRef<HTMLDivElement>(null)
+  const settingsBtnRef = useRef<HTMLButtonElement>(null)
+
+  const toggleSettings = useCallback(() => {
+    setSettingsOpen((v) => !v)
+  }, [])
+
+  useEffect(() => {
+    if (!settingsOpen) return
+    const handler = (e: MouseEvent) => {
+      if (
+        settingsRef.current?.contains(e.target as Node) ||
+        settingsBtnRef.current?.contains(e.target as Node)
+      ) return
+      setSettingsOpen(false)
+    }
+    document.addEventListener('pointerdown', handler)
+    return () => document.removeEventListener('pointerdown', handler)
+  }, [settingsOpen])
 
   return (
     <header
@@ -70,13 +79,8 @@ export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
         <Menu size={18} />
       </button>
 
-      {/* Workspace name */}
-      <span
-        data-testid="workspace-name"
-        className="text-sm font-semibold text-text-primary"
-      >
-        {workspaceName}
-      </span>
+      {/* Workspace tabs */}
+      <WorkspaceSwitcher />
 
       {/* Scope chip */}
       <span
@@ -95,6 +99,44 @@ export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
 
       {/* Theme toggle */}
       <ThemeToggle />
+
+      {/* Settings popover */}
+      <div className="relative">
+        <button
+          ref={settingsBtnRef}
+          data-testid="settings-button"
+          type="button"
+          onClick={toggleSettings}
+          aria-label="Settings"
+          className="flex items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+        >
+          <Settings size={16} />
+        </button>
+        {settingsOpen && (
+          <div
+            ref={settingsRef}
+            data-testid="settings-popover"
+            className="absolute right-0 top-full mt-2 w-64 rounded-[var(--radius-panel)] border border-border-subtle p-4"
+            style={{
+              background: 'var(--color-surface-raised)',
+              boxShadow: 'var(--shadow-panel-focused)',
+              zIndex: 10002,
+            }}
+          >
+            <BackgroundPicker />
+            <div className="mt-3 border-t border-border-subtle pt-3">
+              <button
+                onClick={() => window.location.reload()}
+                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
+                title="Reset demo data"
+              >
+                <RotateCcw className="h-3 w-3" />
+                Reset
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Organize button */}
       {onOrganize && (
