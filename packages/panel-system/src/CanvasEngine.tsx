@@ -380,9 +380,11 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
     toggleFullscreen(panel.id, rect.width, rect.height)
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
-  const shadow = (isFocused || isGesturing || isHovered)
-    ? 'var(--shadow-panel-focused)'
-    : 'var(--shadow-panel)'
+  const shadow = isGesturing
+    ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
+    : (isFocused || isHovered)
+      ? 'var(--shadow-panel-focused)'
+      : 'var(--shadow-panel)'
 
   const transitionStyle = isGesturing
     ? undefined
@@ -422,7 +424,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-[var(--radius-panel)] border border-border"
       initial={{ scale: 0.95 }}
-      animate={{ scale: 1 }}
+      animate={{ scale: isGesturing ? 1.015 : 1 }}
       transition={{ type: 'tween', duration: 0.2 }}
     >
       {/* Resize handles */}

@@ -115,7 +115,7 @@ export function PanelChrome({
       {/* ── Header (drag handle) ── */}
       <div
         data-testid="panel-header"
-        className="flex shrink-0 cursor-grab items-center gap-2 px-3 py-2 select-none active:cursor-grabbing"
+        className="flex shrink-0 cursor-grab items-center gap-2 border-b border-border-subtle bg-surface-overlay/50 px-3 py-2 select-none active:cursor-grabbing"
         style={{ touchAction: 'none' }}
         onPointerDown={onDragHandlePointerDown}
       >
