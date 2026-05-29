@@ -107,4 +107,12 @@ describe('PanelChrome', () => {
     fireEvent.pointerDown(screen.getByTestId('panel-header'))
     expect(onDragHandlePointerDown).toHaveBeenCalledTimes(1)
   })
+
+  it('header is visually distinct from content (divider + background tint)', () => {
+    render(<PanelChrome title="Test" />)
+    const header = screen.getByTestId('panel-header')
+    expect(header.className).toContain('border-b')
+    expect(header.className).toContain('border-border-subtle')
+    expect(header.className).toContain('bg-surface-overlay/50')
+  })
 })

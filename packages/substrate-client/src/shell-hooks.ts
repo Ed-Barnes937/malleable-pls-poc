@@ -96,26 +96,71 @@ export function useWorkflowsForLens(lensType: string, workspaceId: string) {
   return trpc.workflows.forLens.useQuery({ lensType, workspaceId })
 }
 
+export function useWorkflowsForWorkspace(workspaceId: string) {
+  return trpc.workflows.forWorkspace.useQuery({ workspaceId })
+}
+
+function invalidateWorkflows(utils: ReturnType<typeof trpc.useUtils>) {
+  utils.workflows.forLens.invalidate()
+  utils.workflows.forWorkspace.invalidate()
+}
+
 export function useToggleWorkflow() {
   const utils = trpc.useUtils()
   return trpc.workflows.toggle.useMutation({
-    onSuccess: () => utils.workflows.forLens.invalidate(),
+    onSuccess: () => invalidateWorkflows(utils),
   })
 }
 
 export function useCreateWorkspaceOverride() {
   const utils = trpc.useUtils()
   return trpc.workflows.createOverride.useMutation({
-    onSuccess: () => utils.workflows.forLens.invalidate(),
+    onSuccess: () => invalidateWorkflows(utils),
   })
 }
 
-export function useServerEvents() {
+export function useCreateWorkflow() {
+  const utils = trpc.useUtils()
+  return trpc.workflows.create.useMutation({
+    onSuccess: () => invalidateWorkflows(utils),
+  })
+}
+
+export function useUpdateWorkflow() {
+  const utils = trpc.useUtils()
+  return trpc.workflows.update.useMutation({
+    onSuccess: () => invalidateWorkflows(utils),
+  })
+}
+
+export function useDeleteWorkflow() {
+  const utils = trpc.useUtils()
+  return trpc.workflows.delete.useMutation({
+    onSuccess: () => invalidateWorkflows(utils),
+  })
+}
+
+export interface JobEvent {
+  type: 'job:started' | 'job:completed' | 'job:failed' | 'data:changed'
+  jobType?: string
+}
+
+export interface ServerEventHandlers {
+  onJobStarted?: (event: JobEvent) => void
+  onJobCompleted?: (event: JobEvent) => void
+  onJobFailed?: (event: JobEvent) => void
+}
+
+export function useServerEvents(handlers?: ServerEventHandlers) {
   const utils = trpc.useUtils()
   return trpc.events.onDataChange.useSubscription(undefined, {
     onError: () => {},
     onData: (event) => {
-      if (event.type === 'job:completed') {
+      if (event.type === 'job:started') {
+        utils.jobs.recent.invalidate()
+        utils.jobs.runningCount.invalidate()
+        handlers?.onJobStarted?.(event)
+      } else if (event.type === 'job:completed') {
         utils.jobs.recent.invalidate()
         utils.jobs.runningCount.invalidate()
         utils.recordings.invalidate()
@@ -124,9 +169,11 @@ export function useServerEvents() {
         utils.links.invalidate()
         utils.confidence.invalidate()
         utils.aggregates.invalidate()
+        handlers?.onJobCompleted?.(event)
       } else if (event.type === 'job:failed') {
         utils.jobs.recent.invalidate()
         utils.jobs.runningCount.invalidate()
+        handlers?.onJobFailed?.(event)
       }
     },
   })
