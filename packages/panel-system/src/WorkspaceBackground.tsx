@@ -46,7 +46,6 @@ export function WorkspaceBackground() {
         position: 'absolute',
         inset: 0,
         zIndex: 0,
-        borderRadius: 'var(--radius-panel)',
         overflow: 'hidden',
         pointerEvents: 'none',
       }}
