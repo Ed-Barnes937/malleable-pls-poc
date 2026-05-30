@@ -309,16 +309,10 @@ export function WorkspaceShell() {
     handleLayoutChange(updated)
   }, [handleLayoutChange])
 
-  // Open drawer when "Add" button is clicked in TopBar
-  const handleAddPanel = useCallback(() => {
-    setDrawerOpen(true)
-  }, [])
-
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
-        onAddPanel={handleAddPanel}
         onOrganize={handleOrganize}
       />
       <DrawerSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
