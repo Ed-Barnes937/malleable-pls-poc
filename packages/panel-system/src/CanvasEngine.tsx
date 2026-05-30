@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentType, type Reac
 import { motion, useDragControls, useMotionValue } from 'motion/react'
 import { useCanvasStore, clampDimensions, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
-import { useFocusMode } from './useFocusMode'
+import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
 
@@ -24,12 +24,14 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const panels = useCanvasStore((s) => s.panels)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
+  const selectedPanelId = useCanvasStore((s) => s.selectedPanelId)
   const exitFocusMode = useCanvasStore((s) => s.exitFocusMode)
+  const selectPanel = useCanvasStore((s) => s.selectPanel)
   const shiftRef = useShiftKey()
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Activate keyboard shortcuts (F, Escape)
-  useFocusMode()
+  // Activate keyboard shortcuts (Tab cycle, f fullscreen, Backspace remove, Escape)
+  useCanvasKeyboard({ onRemovePanel, canvasRef })
 
   const prevPanelsRef = useRef(panels)
 
@@ -45,14 +47,14 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     }
   }, [panels, onLayoutChange])
 
-  /** Clicking the canvas background exits focus mode */
+  /** Clicking the canvas background clears the selection and exits focus mode */
   const handleCanvasPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (e.target === e.currentTarget && focusModePanelId) {
-        exitFocusMode()
-      }
+      if (e.target !== e.currentTarget) return
+      if (focusModePanelId) exitFocusMode()
+      selectPanel(null)
     },
-    [focusModePanelId, exitFocusMode],
+    [focusModePanelId, exitFocusMode, selectPanel],
   )
 
   return (
@@ -71,6 +73,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           panel={panel}
           shiftRef={shiftRef}
           isFocused={panel.z_index === maxZIndex}
+          isSelected={selectedPanelId === panel.id}
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
           isFullscreen={fullscreenPanelId === panel.id}
           canvasRef={canvasRef}
@@ -260,6 +263,7 @@ interface DraggablePanelProps {
   panel: PanelItem
   shiftRef: React.RefObject<boolean>
   isFocused: boolean
+  isSelected?: boolean
   isDimmed?: boolean
   isFullscreen?: boolean
   canvasRef?: React.RefObject<HTMLDivElement | null>
@@ -269,7 +273,7 @@ interface DraggablePanelProps {
   getLabel?: (lensType: string) => string | undefined
 }
 
-function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel }: DraggablePanelProps) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
@@ -321,6 +325,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
+    useCanvasStore.getState().selectPanel(panel.id)
     if (isDimmed) {
       useCanvasStore.getState().enterFocusMode(panel.id)
     }
@@ -382,9 +387,11 @@ function DraggablePanel({ panel, shiftRef, isFocused, isDimmed, isFullscreen, ca
 
   const shadow = isGesturing
     ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
-    : (isFocused || isHovered)
-      ? 'var(--shadow-panel-focused)'
-      : 'var(--shadow-panel)'
+    : isSelected
+      ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.7)'
+      : (isFocused || isHovered)
+        ? 'var(--shadow-panel-focused)'
+        : 'var(--shadow-panel)'
 
   const transitionStyle = isGesturing
     ? undefined

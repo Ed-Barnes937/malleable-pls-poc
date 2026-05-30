@@ -80,6 +80,12 @@ interface CanvasState {
   resizePanel: (id: string, pos_x: number, pos_y: number, width: number, height: number) => void
   bringToFront: (id: string) => void
 
+  /** Currently selected panel — drives keyboard shortcuts and the selection ring */
+  selectedPanelId: string | null
+  selectPanel: (id: string | null) => void
+  /** Move selection to the next (or previous) panel, cycling and bringing it to front */
+  selectNext: (reverse?: boolean) => void
+
   /** Focus mode — dims all panels except this one. Distinct from z-order focus. */
   focusModePanelId: string | null
   enterFocusMode: (id: string) => void
@@ -104,7 +110,7 @@ interface CanvasState {
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   panels: [],
 
-  setPanels: (panels) => set({ panels }),
+  setPanels: (panels) => set({ panels, selectedPanelId: null }),
 
   addPanel: (item) =>
     set((state) => {
@@ -118,6 +124,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
   removePanel: (id) =>
     set((state) => ({
       panels: state.panels.filter((p) => p.id !== id),
+      selectedPanelId: state.selectedPanelId === id ? null : state.selectedPanelId,
       focusModePanelId: state.focusModePanelId === id ? null : state.focusModePanelId,
       fullscreenPanelId: state.fullscreenPanelId === id ? null : state.fullscreenPanelId,
       preFullscreenLayout: state.fullscreenPanelId === id ? null : state.preFullscreenLayout,
@@ -157,6 +164,30 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ),
       }
     }),
+
+  /* ── Selection ── */
+
+  selectedPanelId: null,
+
+  selectPanel: (id) =>
+    set((state) =>
+      id !== null && !state.panels.some((p) => p.id === id)
+        ? state
+        : { selectedPanelId: id },
+    ),
+
+  selectNext: (reverse = false) => {
+    const state = get()
+    const ids = state.panels.map((p) => p.id)
+    if (ids.length === 0) return
+    const idx = state.selectedPanelId ? ids.indexOf(state.selectedPanelId) : -1
+    const next =
+      idx === -1
+        ? (reverse ? ids[ids.length - 1] : ids[0])
+        : ids[(idx + (reverse ? -1 : 1) + ids.length) % ids.length]
+    set({ selectedPanelId: next })
+    state.bringToFront(next)
+  },
 
   /* ── Focus mode ── */
 
