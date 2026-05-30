@@ -223,17 +223,21 @@ export function WorkspaceShell() {
       const height = m?.defaultHeight ?? 300
 
       const slotName = `slot-${Date.now()}`
-      // Calculate drop position relative to the canvas
+      // Anchor the panel's top-left at the cursor, then clamp within the canvas
+      // so it stays fully visible. (Centering on the cursor caused drops near
+      // the top/left edge to collapse to 0,0 once the negative result was clamped.)
       const rect = e.currentTarget.getBoundingClientRect()
-      const pos_x = Math.round(e.clientX - rect.left - width / 2)
-      const pos_y = Math.round(e.clientY - rect.top - height / 2)
+      const maxX = Math.max(0, rect.width - width)
+      const maxY = Math.max(0, rect.height - height)
+      const pos_x = Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX)
+      const pos_y = Math.min(Math.max(0, Math.round(e.clientY - rect.top)), maxY)
 
       addPanel.mutate({
         workspaceId: activeWorkspaceId,
         lensType,
         slotName,
-        pos_x: Math.max(0, pos_x),
-        pos_y: Math.max(0, pos_y),
+        pos_x,
+        pos_y,
         width,
         height,
         z_index: (useCanvasStore.getState().panels.length > 0
