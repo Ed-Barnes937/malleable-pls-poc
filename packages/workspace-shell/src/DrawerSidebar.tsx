@@ -143,26 +143,25 @@ function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
     <div className="flex flex-col gap-3">
       {grouped.map((group) => (
         <div key={group.category}>
-          <SectionLabel className="mb-1 px-1">{group.label}</SectionLabel>
-          <div className="flex flex-col gap-0.5">
+          <SectionLabel className="mb-1.5 px-1">{group.label}</SectionLabel>
+          <div className="grid grid-cols-2 gap-1.5">
             {group.lenses.map((m) => {
               const Icon = m.icon
               return (
                 <div
                   key={m.id}
+                  data-lens-type={m.id}
                   draggable
                   onDragStart={(e) => handleDragStart(e, m.id)}
-                  className="group flex cursor-grab items-center gap-2.5 rounded-lg px-2.5 py-1.5 transition-all hover:bg-surface-overlay/50 active:cursor-grabbing active:scale-[0.98]"
+                  title={m.description}
+                  className="group flex aspect-square cursor-grab flex-col items-center justify-center gap-1.5 rounded-lg bg-surface-overlay/40 p-2 ring-1 ring-border-subtle transition-all hover:bg-surface-overlay/70 hover:ring-accent/30 active:cursor-grabbing active:scale-[0.97]"
                 >
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
-                    <Icon className="h-3 w-3" />
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
+                    <Icon className="h-4 w-4" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-medium text-neutral-400 group-hover:text-neutral-200">
-                      {m.label}
-                    </p>
-                    <p className="text-[10px] text-neutral-600">{m.description}</p>
-                  </div>
+                  <p className="w-full truncate text-center text-[10px] font-medium text-neutral-400 group-hover:text-neutral-200">
+                    {m.label}
+                  </p>
                 </div>
               )
             })}
