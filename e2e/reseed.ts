@@ -23,9 +23,15 @@ export async function reseed() {
       await sql.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
     }
 
-    const seedPath = resolve(__dirname, '../packages/db/src/migrations/002_seed.sql')
-    const seedSql = readFileSync(seedPath, 'utf-8')
-    await sql.unsafe(seedSql)
+    // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
+    // columns), since 006 replaced the grid columns 002 originally used.
+    for (const file of ['002_seed.sql', '008_seed_panels.sql']) {
+      const seedSql = readFileSync(
+        resolve(__dirname, `../packages/db/src/migrations/${file}`),
+        'utf-8',
+      )
+      await sql.unsafe(seedSql)
+    }
   } finally {
     await sql.end()
   }
