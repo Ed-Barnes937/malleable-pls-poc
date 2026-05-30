@@ -1,4 +1,4 @@
-import { Menu, Plus, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
+import { Menu, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceScopes } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
@@ -9,7 +9,6 @@ import { BackgroundPicker } from '@pls/panel-system'
 
 export interface TopBarProps {
   onMenuClick: () => void
-  onAddPanel: () => void
   onOrganize?: () => void
 }
 
@@ -32,7 +31,7 @@ function useScopeSummary(workspaceId: string): string {
   }, [scopes])
 }
 
-export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
+export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const scopeSummary = useScopeSummary(activeWorkspaceId)
 
@@ -154,22 +153,6 @@ export function TopBar({ onMenuClick, onAddPanel, onOrganize }: TopBarProps) {
           <LayoutGrid size={16} />
         </button>
       )}
-
-      {/* Add panel button */}
-      <button
-        data-testid="add-panel-button"
-        type="button"
-        onClick={onAddPanel}
-        aria-label="Add panel"
-        className="flex items-center gap-1.5 rounded-[var(--radius-panel)] px-3 py-1.5 text-sm font-medium text-accent-foreground"
-        style={{
-          background: 'var(--color-accent)',
-          transition: 'var(--transition-panel)',
-        }}
-      >
-        <Plus size={16} />
-        Add
-      </button>
     </header>
   )
 }
