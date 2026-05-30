@@ -97,6 +97,8 @@ export interface PanelManifest {
   category: 'tool' | 'view'
   reads: TableName[]
   writes?: TableName[]
+  /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
+  emits?: string[]
   /**
    * Workspace-level filter dimensions this lens consumes. The shell unions
    * these across all panels in a workspace to decide which scope controls

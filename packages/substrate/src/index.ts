@@ -28,7 +28,7 @@ export {
   useJobRunner,
 } from './hooks/useWorkflows'
 
-export { getAvailableJobTypes, getAvailableTriggerEvents } from './workflows/executors'
+export { getAvailableJobTypes, getAvailableTriggerEvents, getTriggerEventsForLens } from './workflows/executors'
 
 export { QUESTIONS } from './questions'
 

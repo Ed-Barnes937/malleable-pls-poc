@@ -11,6 +11,7 @@ export const manifest: PanelManifest = {
   category: 'tool',
   reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
   writes: ['tags', 'annotations'],
+  emits: ['tag:created', 'annotation:created'],
   load: () => import('./TranscriptLens'),
   minWidth: 300,
   minHeight: 250,

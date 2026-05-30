@@ -223,3 +223,8 @@ export function getAvailableTriggerEvents(): { event: string; label: string }[] 
     { event: 'annotation:created', label: 'When a note is added' },
   ]
 }
+
+export function getTriggerEventsForLens(emits: readonly string[]): { event: string; label: string }[] {
+  const allowed = new Set(emits)
+  return getAvailableTriggerEvents().filter((t) => allowed.has(t.event))
+}
