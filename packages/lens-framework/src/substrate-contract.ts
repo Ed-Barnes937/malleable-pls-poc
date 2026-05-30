@@ -88,6 +88,8 @@ export interface PanelManifest {
   category: 'tool' | 'view'
   reads: TableName[]
   writes?: TableName[]
+  /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
+  emits?: string[]
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */
