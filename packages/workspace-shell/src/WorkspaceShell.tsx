@@ -1,4 +1,6 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
+import { LayoutGrid, Plus } from 'lucide-react'
+import { EmptyState } from '@pls/shared-ui'
 import {
   useWorkspaces,
   useWorkspacePanels,
@@ -340,6 +342,28 @@ export function WorkspaceShell() {
               getIcon={getIcon}
               getLabel={getLabel}
             />
+            {panels.length === 0 && (
+              <div
+                data-testid="workspace-empty-state"
+                className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
+              >
+                <EmptyState
+                  icon={LayoutGrid}
+                  message="This workspace is empty. Add a lens to get started."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setDrawerOpen(true)}
+                      className="pointer-events-auto mt-1 inline-flex items-center gap-1.5 rounded-[var(--radius-panel)] px-3 py-1.5 text-sm font-medium text-accent-foreground transition-colors"
+                      style={{ background: 'var(--color-accent)' }}
+                    >
+                      <Plus size={16} />
+                      Add lenses
+                    </button>
+                  }
+                />
+              </div>
+            )}
           </div>
         )}
       </main>
