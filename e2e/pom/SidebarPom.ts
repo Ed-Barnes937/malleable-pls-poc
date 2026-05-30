@@ -7,7 +7,6 @@ export class SidebarPom {
   readonly newWorkspaceButton: Locator
   readonly scopeSection: Locator
   readonly courseSelect: Locator
-  readonly recordingSelect: Locator
   readonly timeframeSelect: Locator
   readonly lensItems: Locator
 
@@ -15,10 +14,9 @@ export class SidebarPom {
     this.root = page.locator('aside')
     this.workspaceButtons = this.root.locator('section').first().locator('.group')
     this.newWorkspaceButton = this.root.getByText('New workspace')
-    this.scopeSection = this.root.locator('section').nth(1)
-    this.courseSelect = this.scopeSection.getByRole('combobox').first()
-    this.recordingSelect = this.scopeSection.getByRole('combobox').nth(1)
-    this.timeframeSelect = this.scopeSection.getByRole('combobox').nth(2)
+    this.scopeSection = this.root.getByTestId('scope-section')
+    this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course filter' })
+    this.timeframeSelect = this.scopeSection.getByRole('combobox', { name: 'Timeframe filter' })
     this.lensItems = this.root.locator('[draggable="true"]')
   }
 
@@ -37,10 +35,6 @@ export class SidebarPom {
 
   async selectCourse(label: string) {
     await this.courseSelect.selectOption({ label })
-  }
-
-  async selectRecording(label: string) {
-    await this.recordingSelect.selectOption({ label })
   }
 
   async selectTimeframe(label: string) {

@@ -174,8 +174,9 @@ INSERT INTO workspaces (id, user_id, name, created_at) VALUES
 -- ---------------------------------------------------------------------------
 -- Workspace scopes
 -- ---------------------------------------------------------------------------
+-- Note: the in-lecture recording target lives on each panel's `config.recordingId`
+-- (see 008_seed_panels.sql). No workspace-level recording scope exists anymore.
 INSERT INTO workspace_scopes (id, user_id, workspace_id, scope_type, scope_value) VALUES
-  ('ws-scope-1', 'dev-user-1', 'ws-in-lecture',     'recording',  'rec-bio-4'),
   ('ws-scope-2', 'dev-user-1', 'ws-evening-review', 'tag',        'biology'),
   ('ws-scope-3', 'dev-user-1', 'ws-evening-review', 'timeframe',  'week'),
   ('ws-scope-4', 'dev-user-1', 'ws-exam-prep',      'timeframe',  'all');
