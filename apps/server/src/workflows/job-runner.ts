@@ -9,15 +9,11 @@ const POLL_INTERVAL_MS = 2000
 
 /**
  * Translate a core RunnerEvent into the server's ServerEvent shape (adding
- * userId + table) and push it onto the EventBus. The runner also emits
- * `job:started`, which has no ServerEvent equivalent and is ignored.
+ * userId) and push it onto the EventBus. The server surfaces job:started /
+ * job:completed / job:failed in the workflow UI, so all three are forwarded.
  */
 function bridgeRunnerEvent(userId: string, event: RunnerEvent) {
-  if (event.type === 'job:completed') {
-    emitEvent({ type: 'job:completed', jobType: event.jobRun.job_type, userId })
-  } else if (event.type === 'job:failed') {
-    emitEvent({ type: 'job:failed', jobType: event.jobRun.job_type, userId })
-  }
+  emitEvent({ type: event.type, jobType: event.jobRun.job_type, userId })
 }
 
 async function processJobs(): Promise<void> {

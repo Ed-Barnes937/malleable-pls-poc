@@ -11,6 +11,7 @@ import {
 } from '@pls/substrate-client'
 import type { Scope } from '@pls/lens-framework'
 import { useManifests } from '@pls/lens-framework'
+import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
   WorkspaceBackground,
@@ -22,6 +23,15 @@ import { getLensComponent, useLensRegistry } from './LensRegistry'
 import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
+import { ToastHost, useToastStore } from './toast'
+
+const JOB_LABELS: Record<string, string> = Object.fromEntries(
+  getAvailableJobTypes().map((j) => [j.type, j.label]),
+)
+
+function jobLabel(jobType?: string): string {
+  return (jobType && JOB_LABELS[jobType]) || 'Job'
+}
 
 function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Scope {
   const scope: Scope = {}
@@ -37,7 +47,11 @@ export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  useServerEvents()
+  const pushToast = useToastStore((s) => s.push)
+  useServerEvents({
+    onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
+    onJobFailed: (event) => pushToast({ message: `${jobLabel(event.jobType)} failed`, tone: 'error' }),
+  })
 
   const { data: workspaces } = useWorkspaces()
   const { data: panels } = useWorkspacePanels(activeWorkspaceId)
@@ -329,6 +343,7 @@ export function WorkspaceShell() {
           </div>
         )}
       </main>
+      <ToastHost />
     </div>
   )
 }

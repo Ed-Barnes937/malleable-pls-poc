@@ -214,3 +214,12 @@ export function createSubstrateExecutorRegistry(): ExecutorRegistry {
 export function getAvailableJobTypes(): { type: string; label: string; category: string }[] {
   return createSubstrateExecutorRegistry().getAvailableTypes()
 }
+
+export function getAvailableTriggerEvents(): { event: string; label: string }[] {
+  return [
+    { event: 'recording:completed', label: 'When a recording is completed' },
+    { event: 'tag:created', label: 'When a tag is added' },
+    { event: 'confidence:recorded', label: 'When confidence is recorded' },
+    { event: 'annotation:created', label: 'When a note is added' },
+  ]
+}

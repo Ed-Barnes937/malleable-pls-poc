@@ -16,8 +16,13 @@ export {
   useRecentJobs,
   useRunningJobCount,
   useWorkflowsForLens,
+  useWorkflowsForWorkspace,
   useToggleWorkflow,
   useCreateWorkspaceOverride,
+  useCreateWorkflow,
+  useUpdateWorkflow,
+  useDeleteWorkflow,
   useServerEvents,
 } from './shell-hooks'
+export type { JobEvent, ServerEventHandlers } from './shell-hooks'
 export type { AppRouter } from './trpc'

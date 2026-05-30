@@ -19,6 +19,99 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
   })
 
+  router.register('workflows.forWorkspace', (input) => {
+    const { workspaceId } = input as { workspaceId: string }
+    const matching = db.workflows.filter(
+      (w) => w.workspace_id === null || w.workspace_id === workspaceId,
+    )
+
+    return matching
+      .map((w): WorkflowWithJobs => ({
+        ...w,
+        jobs: db.workflowJobs
+          .filter((j) => j.workflow_id === w.id)
+          .sort((a, b) => a.sort_order - b.sort_order),
+      }))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+  })
+
+  router.register('workflows.create', (input) => {
+    const { workspaceId, sourceLens, triggerEvent, conditionField, conditionValue, enabled, jobs } =
+      input as {
+        workspaceId: string | null
+        sourceLens: string
+        triggerEvent: string
+        conditionField?: string | null
+        conditionValue?: string | null
+        enabled?: boolean
+        jobs: { jobType: string; params?: Record<string, unknown>; sortOrder: number; delayMs?: number }[]
+      }
+
+    const workflow = {
+      id: `wf-${crypto.randomUUID().slice(0, 8)}`,
+      source_lens: sourceLens,
+      trigger_event: triggerEvent,
+      condition_field: conditionField ?? null,
+      condition_value: conditionValue ?? null,
+      enabled: enabled === false ? 0 : 1,
+      workspace_id: workspaceId,
+      created_at: new Date().toISOString(),
+    }
+    db.workflows.push(workflow)
+
+    for (const job of jobs) {
+      db.workflowJobs.push({
+        id: `wfj-${crypto.randomUUID().slice(0, 8)}`,
+        workflow_id: workflow.id,
+        job_type: job.jobType,
+        params: JSON.stringify(job.params ?? {}),
+        sort_order: job.sortOrder,
+        delay_ms: job.delayMs ?? 0,
+      })
+    }
+
+    return workflow
+  })
+
+  router.register('workflows.update', (input) => {
+    const { workflowId, triggerEvent, conditionField, conditionValue, enabled, jobs } = input as {
+      workflowId: string
+      triggerEvent: string
+      conditionField?: string | null
+      conditionValue?: string | null
+      enabled: boolean
+      jobs: { jobType: string; params?: Record<string, unknown>; sortOrder: number; delayMs?: number }[]
+    }
+
+    const workflow = db.workflows.find((w) => w.id === workflowId)
+    if (!workflow) return null
+
+    workflow.trigger_event = triggerEvent
+    workflow.condition_field = conditionField ?? null
+    workflow.condition_value = conditionValue ?? null
+    workflow.enabled = enabled ? 1 : 0
+
+    db.workflowJobs = db.workflowJobs.filter((j) => j.workflow_id !== workflowId)
+    for (const job of jobs) {
+      db.workflowJobs.push({
+        id: `wfj-${crypto.randomUUID().slice(0, 8)}`,
+        workflow_id: workflowId,
+        job_type: job.jobType,
+        params: JSON.stringify(job.params ?? {}),
+        sort_order: job.sortOrder,
+        delay_ms: job.delayMs ?? 0,
+      })
+    }
+
+    return workflow
+  })
+
+  router.register('workflows.delete', (input) => {
+    const { workflowId } = input as { workflowId: string }
+    db.workflows = db.workflows.filter((w) => w.id !== workflowId)
+    db.workflowJobs = db.workflowJobs.filter((j) => j.workflow_id !== workflowId)
+  })
+
   router.register('workflows.toggle', (input) => {
     const { workflowId, enabled } = input as { workflowId: string; enabled: boolean }
     const wf = db.workflows.find((w) => w.id === workflowId)
