@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test'
-import { SidebarPom, PanelGridPom, PanelContainerPom } from './pom'
+import { TopBarPom, PanelGridPom, PanelContainerPom } from './pom'
 
 test.describe('Panel management', () => {
   test('panels are visible for the default workspace', async ({ page }) => {
     await page.goto('/')
-    const sidebar = new SidebarPom(page)
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    await sidebar.expectActiveWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
     await grid.expectPanelCount(4)
     await grid.expectHasPanel('Transcript')
     await grid.expectHasPanel('Test Me')

@@ -1,15 +1,15 @@
 import { test, expect } from '@playwright/test'
-import { SidebarPom, PanelGridPom } from './pom'
+import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Exam prep drill', () => {
   test('answering wrong in TestMe advances question and updates confidence', async ({ page }) => {
     await page.goto('/')
-    const sidebar = new SidebarPom(page)
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
     // Switch to Exam Prep
-    await sidebar.switchToWorkspace('Exam Prep')
-    await sidebar.expectActiveWorkspace('Exam Prep')
+    await topBar.switchToWorkspace('Exam Prep')
+    await topBar.expectActiveWorkspace('Exam Prep')
 
     await grid.expectHasPanel('Gap Analysis')
     await grid.expectHasPanel('Weakest Topics')

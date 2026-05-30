@@ -1,6 +1,7 @@
 export { DialogPom } from './DialogPom'
 export { SwitchPom } from './SwitchPom'
 export { SidebarPom } from './SidebarPom'
+export { TopBarPom } from './TopBarPom'
 export { CreateWorkspaceDialogPom } from './CreateWorkspaceDialogPom'
 export { DeleteWorkspaceDialogPom } from './DeleteWorkspaceDialogPom'
 export { PanelGridPom } from './PanelGridPom'

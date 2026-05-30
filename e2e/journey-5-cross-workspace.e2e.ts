@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test'
-import { SidebarPom, PanelGridPom } from './pom'
+import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Cross-workspace data flow', () => {
   test('confused tag in Evening Review increases gap count in Exam Prep', async ({ page }) => {
     await page.goto('/')
-    const sidebar = new SidebarPom(page)
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
     // Start in Evening Review (default)
-    await sidebar.expectActiveWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
 
     const transcriptPanel = grid.panelByLabel('Transcript')
     const weeklyPanel = grid.panelByLabel('This Week')
@@ -31,8 +31,8 @@ test.describe('Journey: Cross-workspace data flow', () => {
     await expect(weeklyPanel.getByText(`${initialGapCount + 1} gaps to review`)).toBeVisible({ timeout: 10000 })
 
     // Switch to Exam Prep
-    await sidebar.switchToWorkspace('Exam Prep')
-    await sidebar.expectActiveWorkspace('Exam Prep')
+    await topBar.switchToWorkspace('Exam Prep')
+    await topBar.expectActiveWorkspace('Exam Prep')
 
     // Gap Analysis should reflect the new confused tag
     const gapPanel = grid.panelByLabel('Gap Analysis')
@@ -42,11 +42,11 @@ test.describe('Journey: Cross-workspace data flow', () => {
 
   test('confidence recorded in Evening Review reflects in Exam Prep weakest topics', async ({ page }) => {
     await page.goto('/')
-    const sidebar = new SidebarPom(page)
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
     // Start in Evening Review
-    await sidebar.expectActiveWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
 
     const testMePanel = grid.panelByLabel('Test Me')
 
@@ -62,8 +62,8 @@ test.describe('Journey: Cross-workspace data flow', () => {
     await expect(testMePanel.getByText(/^2\//)).toBeVisible()
 
     // Switch to Exam Prep
-    await sidebar.switchToWorkspace('Exam Prep')
-    await sidebar.expectActiveWorkspace('Exam Prep')
+    await topBar.switchToWorkspace('Exam Prep')
+    await topBar.expectActiveWorkspace('Exam Prep')
 
     // WeakestTopics should reflect the lowered confidence
     const weakestPanel = grid.panelByLabel('Weakest Topics')

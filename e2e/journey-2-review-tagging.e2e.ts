@@ -1,14 +1,14 @@
 import { test, expect } from '@playwright/test'
-import { SidebarPom, PanelGridPom } from './pom'
+import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Evening review with tagging', () => {
   test('tagging a segment as confused updates the weekly overview gap count', async ({ page }) => {
     await page.goto('/')
-    const sidebar = new SidebarPom(page)
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
     // Default workspace is "Evening Review"
-    await sidebar.expectActiveWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
     await grid.expectHasPanel('Transcript')
     await grid.expectHasPanel('This Week')
 

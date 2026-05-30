@@ -108,12 +108,17 @@ export function WorkspaceSwitcher() {
           const showDropBefore = dragging && dropIdx === idx && dragIdx !== idx && dragIdx !== idx - 1
 
           return (
-            <div key={ws.id} className="group/tab relative flex items-center">
+            <div
+              key={ws.id}
+              data-testid="workspace-tab"
+              className="group/tab relative flex items-center"
+            >
               {showDropBefore && (
                 <div className="absolute -left-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
               )}
               <button
                 ref={(el) => { tabRefs.current[idx] = el }}
+                aria-current={isActive ? 'page' : undefined}
                 onPointerDown={(e) => onPointerDown(e, idx)}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
