@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import {
-  useRecordings,
+  useWorkspacePanels,
   useWorkspaceScopes,
   useSetWorkspaceScope,
 } from '@pls/substrate-client'
-import { cn, SectionLabel } from '@pls/shared-ui'
-import { ChevronDown, Plus } from 'lucide-react'
+import { SectionLabel } from '@pls/shared-ui'
+import { ChevronDown } from 'lucide-react'
 import { useWorkspaceStore } from './store'
-import { useManifests } from '@pls/lens-framework'
+import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 
 /* ── Constants ── */
@@ -33,13 +33,16 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 /* ── Scope Editor ── */
 
-function ScopeEditor({ workspaceId }: { workspaceId: string }) {
+/**
+ * Renders only the scope pickers whose dimensions are declared by at least
+ * one lens in the active workspace's manifests. Returns null when no panel
+ * declares any filter dimension — the section is hidden entirely.
+ */
+function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeDims: Set<ScopeDim> }) {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const { data: recordings } = useRecordings()
   const setScope = useSetWorkspaceScope()
 
   const currentCourse = scopes?.find((s) => s.scope_type === 'tag')?.scope_value ?? ''
-  const currentRecording = scopes?.find((s) => s.scope_type === 'recording')?.scope_value ?? ''
   const currentTimeframe = scopes?.find((s) => s.scope_type === 'timeframe')?.scope_value ?? ''
 
   const handleChange = useCallback(
@@ -54,69 +57,65 @@ function ScopeEditor({ workspaceId }: { workspaceId: string }) {
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div>
-        <SectionLabel className="mb-1">Course</SectionLabel>
-        <div className="relative">
-          <select
-            value={currentCourse}
-            onChange={(e) => handleChange('tag', e.target.value)}
-            className={selectClass}
-          >
-            {COURSES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
+      {activeDims.has('courseTag') && (
+        <div>
+          <SectionLabel className="mb-1">Course</SectionLabel>
+          <div className="relative">
+            <select
+              value={currentCourse}
+              onChange={(e) => handleChange('tag', e.target.value)}
+              className={selectClass}
+            >
+              {COURSES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
+          </div>
         </div>
-      </div>
+      )}
 
-      <div>
-        <SectionLabel className="mb-1">Recording</SectionLabel>
-        <div className="relative">
-          <select
-            value={currentRecording}
-            onChange={(e) => handleChange('recording', e.target.value)}
-            className={selectClass}
-          >
-            <option value="">All recordings</option>
-            {recordings?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
+      {activeDims.has('timeframe') && (
+        <div>
+          <SectionLabel className="mb-1">Timeframe</SectionLabel>
+          <div className="relative">
+            <select
+              value={currentTimeframe}
+              onChange={(e) => handleChange('timeframe', e.target.value)}
+              className={selectClass}
+            >
+              {TIMEFRAMES.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
+          </div>
         </div>
-        <button
-          onClick={() => setScope.mutate({ workspaceId, scopeType: 'recording', scopeValue: '' })}
-          className="mt-1.5 flex w-full items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10"
-        >
-          <Plus className="h-3 w-3" />
-          New Recording
-        </button>
-      </div>
-
-      <div>
-        <SectionLabel className="mb-1">Timeframe</SectionLabel>
-        <div className="relative">
-          <select
-            value={currentTimeframe}
-            onChange={(e) => handleChange('timeframe', e.target.value)}
-            className={selectClass}
-          >
-            {TIMEFRAMES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
-        </div>
-      </div>
+      )}
     </div>
   )
+}
+
+/**
+ * Returns the union of `manifest.filters` across all lenses currently in
+ * the workspace. Drives both whether to render the Scope section and which
+ * pickers to show inside it.
+ */
+function useActiveScopeDims(workspaceId: string): Set<ScopeDim> {
+  const { data: panels } = useWorkspacePanels(workspaceId)
+  const manifests = useManifests()
+  return useMemo(() => {
+    const dims = new Set<ScopeDim>()
+    for (const p of panels ?? []) {
+      const m = manifests.find((man) => man.id === p.lens_type)
+      for (const d of m?.filters ?? []) dims.add(d)
+    }
+    return dims
+  }, [panels, manifests])
 }
 
 /* ── Lens Palette ── */
@@ -183,6 +182,7 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
   const asideRef = useRef<HTMLElement>(null)
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeScopeDims = useActiveScopeDims(activeWorkspaceId)
 
   useEffect(() => {
     if (!open) return
@@ -250,11 +250,13 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       >
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-5 px-3 py-4">
-            {/* Scope */}
-            <section>
-              <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
-              <ScopeEditor workspaceId={activeWorkspaceId} />
-            </section>
+            {/* Scope — hidden when no lens in this workspace declares a filter dim */}
+            {activeScopeDims.size > 0 && (
+              <section data-testid="scope-section">
+                <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
+                <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
+              </section>
+            )}
 
             {/* Workflows */}
             <section>

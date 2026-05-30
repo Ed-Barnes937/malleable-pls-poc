@@ -123,6 +123,30 @@ export const workspacesRouter = router({
       })
     }),
 
+  updatePanelConfig: publicProcedure
+    .input(z.object({
+      panelId: z.string().max(255),
+      configPatch: z.record(z.string(), z.unknown()),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return ctx.withTenant(async (tx) => {
+        const [existing] = await tx`
+          SELECT config FROM workspace_panels
+          WHERE id = ${input.panelId} AND user_id = ${ctx.userId}
+        `
+        if (!existing) throw new Error('Panel not found')
+        const current = typeof existing.config === 'string'
+          ? JSON.parse(existing.config)
+          : (existing.config as Record<string, unknown>)
+        const merged = { ...current, ...input.configPatch }
+        await tx`
+          UPDATE workspace_panels
+          SET config = ${JSON.stringify(merged)}
+          WHERE id = ${input.panelId} AND user_id = ${ctx.userId}
+        `
+      })
+    }),
+
   updateBackground: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
