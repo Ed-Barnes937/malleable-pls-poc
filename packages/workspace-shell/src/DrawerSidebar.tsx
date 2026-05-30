@@ -62,6 +62,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
           <SectionLabel className="mb-1">Course</SectionLabel>
           <div className="relative">
             <select
+              aria-label="Course filter"
               value={currentCourse}
               onChange={(e) => handleChange('tag', e.target.value)}
               className={selectClass}
@@ -82,6 +83,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
           <SectionLabel className="mb-1">Timeframe</SectionLabel>
           <div className="relative">
             <select
+              aria-label="Timeframe filter"
               value={currentTimeframe}
               onChange={(e) => handleChange('timeframe', e.target.value)}
               className={selectClass}
