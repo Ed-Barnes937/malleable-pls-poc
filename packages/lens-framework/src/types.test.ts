@@ -11,7 +11,6 @@ describe('Scope', () => {
   it('can have all fields populated', () => {
     const scope: Scope = {
       courseTag: 'cs101',
-      recordingId: 'rec_1',
       timeframe: 'week',
     }
     expectTypeOf(scope).toMatchTypeOf<Scope>()

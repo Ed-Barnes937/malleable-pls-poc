@@ -63,17 +63,6 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('0:00')).toBeVisible()
   })
 
-  test('shows complete state when recording exists in scope', async ({ mount, page, simulator }) => {
-    await injectMocks(page)
-    await mount(
-      <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{ recordingId: 'rec-bio-4' }} config={{}} />
-      </AudioCaptureHarness>,
-    )
-
-    await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
-  })
-
   test('shows complete state when recording exists in config', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     await mount(
@@ -83,17 +72,6 @@ test.describe('AudioCaptureLens', () => {
     )
 
     await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
-  })
-
-  test('scope recordingId takes priority over config', async ({ mount, page, simulator }) => {
-    await injectMocks(page)
-    await mount(
-      <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{ recordingId: 'rec-chem-1' }} config={{ recordingId: 'rec-bio-4' }} />
-      </AudioCaptureHarness>,
-    )
-
-    await expect(page.getByText('Chemistry Lecture: Organic Reactions')).toBeVisible()
   })
 
   test('clicking record starts recording state', async ({ mount, page, simulator }) => {

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import type { Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { cn, EmptyState, RecordingPicker, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
 
 function formatTime(ms: number): string {
@@ -11,16 +11,17 @@ function formatTime(ms: number): string {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
-export default function TranscriptLens({ scope, config }: LensProps) {
+export default function TranscriptLens({ scope, config, onConfigChange }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
-  const recordingId = scope.recordingId ?? (config.recordingId as string) ?? ''
+  const recordingId = (config.recordingId as string) ?? ''
   const mode = (config.mode as string) ?? 'review'
   const isCapture = mode === 'capture'
 
   const { data: recording } = substrate.useRecording(recordingId)
   const { data: segments } = substrate.useTranscript(recordingId)
+  const { data: recordings } = substrate.useRecordings()
   const { data: tags } = substrate.useTags({ ...scope, recordingId })
   const { data: annotations } = substrate.useAnnotations({ ...scope, recordingId })
   const createTag = mutations.useCreateTag()
@@ -68,12 +69,28 @@ export default function TranscriptLens({ scope, config }: LensProps) {
     setAnnotationDraft('')
   }
 
+  const picker = onConfigChange && (
+    <RecordingPicker
+      value={recordingId || undefined}
+      recordings={recordings ?? undefined}
+      onChange={(id) => onConfigChange({ recordingId: id ?? '' })}
+    />
+  )
+
   if (!recordingId) {
-    return <EmptyState message="Select a recording in scope to view transcript" />
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        {picker}
+        <div className="flex flex-1 items-center justify-center">
+          <EmptyState message="Select a recording to view transcript" />
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      {picker}
       <div className="flex items-center gap-2">
         <span className="truncate text-[11px] font-medium text-neutral-400">
           {recording?.title ?? 'Loading...'}

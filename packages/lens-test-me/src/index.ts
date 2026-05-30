@@ -12,6 +12,7 @@ export const manifest: PanelManifest = {
   reads: ['tags', 'confidence_signals'],
   writes: ['confidence_signals'],
   emits: ['confidence:recorded'],
+  filters: ['courseTag', 'timeframe'],
   load: () => import('./TestMeLens'),
   minWidth: 300,
   minHeight: 250,

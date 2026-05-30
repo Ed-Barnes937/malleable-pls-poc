@@ -13,7 +13,16 @@ import type {
   NewAnnotation,
   NewConfidenceSignal,
 } from '@pls/substrate'
-import type { Scope } from './types'
+import type { Scope, ScopeDim } from './types'
+
+/**
+ * Query input for substrate hooks. Extends the workspace-level `Scope` with
+ * `recordingId`, which is a per-panel target rather than a workspace-level
+ * filter — tools spread their workspace scope and add their recording.
+ */
+export interface QueryFilter extends Scope {
+  recordingId?: string
+}
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -51,16 +60,16 @@ export type TableName =
 // ---------------------------------------------------------------------------
 
 export interface SubstrateReader {
-  useRecordings: (scope?: Scope) => QueryResult<Recording[]>
+  useRecordings: (filter?: QueryFilter) => QueryResult<Recording[]>
   useRecording: (id: string) => QueryResult<Recording>
   useTranscript: (recordingId: string) => QueryResult<TranscriptSegment[]>
-  useTags: (scope: Scope) => QueryResult<Tag[]>
+  useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useTagsForTarget: (targetType: string, targetId: string) => QueryResult<Tag[]>
-  useAnnotations: (scope: Scope) => QueryResult<Annotation[]>
-  useConfidence: (scope: Scope) => QueryResult<ConfidenceSignal[]>
+  useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
+  useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
   useConnections: (conceptSegmentId: string) => QueryResult<ConnectionResult[]>
   useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
-  useWeeklyOverview: (scope: Scope) => QueryResult<CourseOverview[]>
+  useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
   useGapAnalysis: () => QueryResult<CourseGap[]>
   useWeakestTopics: (limit?: number) => QueryResult<WeakTopic[]>
 }
@@ -90,6 +99,13 @@ export interface PanelManifest {
   writes?: TableName[]
   /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
   emits?: string[]
+  /**
+   * Workspace-level filter dimensions this lens consumes. The shell unions
+   * these across all panels in a workspace to decide which scope controls
+   * to surface. Omit (or leave empty) for lenses that don't consume any
+   * workspace-level filter — they'll receive an empty scope.
+   */
+  filters?: ScopeDim[]
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

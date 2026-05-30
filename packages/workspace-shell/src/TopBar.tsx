@@ -12,22 +12,21 @@ export interface TopBarProps {
   onOrganize?: () => void
 }
 
-function useScopeSummary(workspaceId: string): string {
+function useScopeSummary(workspaceId: string): string | null {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
 
   return useMemo(() => {
-    if (!scopes || scopes.length === 0) return 'All items'
+    if (!scopes || scopes.length === 0) return null
     const parts: string[] = []
     for (const s of scopes as { scope_type: string; scope_value: string }[]) {
       if (!s.scope_value) continue
       if (s.scope_type === 'tag') parts.push(s.scope_value)
-      if (s.scope_type === 'recording') parts.push('1 recording')
       if (s.scope_type === 'timeframe') {
         if (s.scope_value === 'week') parts.push('This week')
         else if (s.scope_value === 'all') parts.push('All time')
       }
     }
-    return parts.length > 0 ? parts.join(' · ') : 'All items'
+    return parts.length > 0 ? parts.join(' · ') : null
   }, [scopes])
 }
 
@@ -82,17 +81,19 @@ export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
       {/* Workspace tabs */}
       <WorkspaceSwitcher />
 
-      {/* Scope chip */}
-      <span
-        data-testid="scope-chip"
-        className="rounded-full px-2.5 py-0.5 text-xs text-text-secondary"
-        style={{
-          background: 'var(--color-surface-overlay)',
-          transition: 'var(--transition-panel)',
-        }}
-      >
-        {scopeSummary}
-      </span>
+      {/* Scope chip — hidden when no filters are active */}
+      {scopeSummary && (
+        <span
+          data-testid="scope-chip"
+          className="rounded-full px-2.5 py-0.5 text-xs text-text-secondary"
+          style={{
+            background: 'var(--color-surface-overlay)',
+            transition: 'var(--transition-panel)',
+          }}
+        >
+          {scopeSummary}
+        </span>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

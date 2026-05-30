@@ -4,7 +4,7 @@ import TranscriptLens from './TranscriptLens'
 
 const defaultProps = {
   panelId: 'test-panel',
-  scope: { recordingId: 'rec-bio-4' },
+  scope: {},
   config: { recordingId: 'rec-bio-4', mode: 'review' },
 }
 
@@ -49,5 +49,5 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
     </TestProviders>,
   )
 
-  await expect(page.getByText('Select a recording in scope to view transcript')).toBeVisible()
+  await expect(page.getByText('Select a recording to view transcript')).toBeVisible()
 })
