@@ -1,10 +1,6 @@
+import { createExecutorRegistry } from '@pls/workflows'
+import type { ExecutorContext, ExecutorRegistry, JobResult, WorkflowEvent } from '@pls/workflows'
 import { exec, query } from '../db'
-
-interface JobResult {
-  output: Record<string, unknown>
-  eventType?: string
-  affectedQueryKeys: string[][]
-}
 
 function randomId(): string {
   return crypto.randomUUID()
@@ -17,12 +13,37 @@ function simulateDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// ---------------------------------------------------------------------------
+// affectedQueryKeys side channel.
+//
+// LOCKED DECISION 5: `affectedQueryKeys` is NOT part of the core JobResult.
+// Executors expose the domain tables they touch via this exported map so the
+// runner hook can do COARSE query invalidation on `job:completed`.
+// TODO: this is coarser than the old per-key invalidation (it keys off
+// job_type, not the concrete keys the executor returned). Could be made
+// fine-grained again via a side channel that carries per-run keys (e.g. a
+// WeakMap keyed by jobRun id) later.
+// ---------------------------------------------------------------------------
+export const AFFECTED_QUERY_KEYS: Record<string, string[][]> = {
+  'ai:transcribe': [['transcript'], ['transcript_segments']],
+  'search:related-docs': [['connections'], ['connections_recording'], ['links']],
+  'schedule:quiz': [['annotations']],
+  'ai:generate-questions': [['annotations']],
+  'ai:find-connections': [['connections'], ['connections_recording'], ['links']],
+}
+
+// The `job:completed` cascade event substrate workflows trigger on. Mirrors the
+// old `eventType: 'job:completed'` string, now expressed as a WorkflowEvent.
+function completedEvent(payload: Record<string, unknown>): WorkflowEvent {
+  return { type: 'job:completed', payload }
+}
+
 async function executeTranscribe(input: Record<string, unknown>): Promise<JobResult> {
   await simulateDelay()
 
-  const recordingId = input.recordingId as string ?? input.target_id as string
+  const recordingId = (input.recordingId as string) ?? (input.target_id as string)
   if (!recordingId) {
-    return { output: { skipped: true, reason: 'no recordingId' }, affectedQueryKeys: [] }
+    return { output: { skipped: true, reason: 'no recordingId' } }
   }
 
   const existing = query<{ count: number }>(
@@ -30,7 +51,7 @@ async function executeTranscribe(input: Record<string, unknown>): Promise<JobRes
     [recordingId]
   )
   if ((existing[0]?.count ?? 0) > 0) {
-    return { output: { skipped: true, reason: 'transcript already exists' }, affectedQueryKeys: [] }
+    return { output: { skipped: true, reason: 'transcript already exists' } }
   }
 
   const segments = [
@@ -47,11 +68,8 @@ async function executeTranscribe(input: Record<string, unknown>): Promise<JobRes
     )
   }
 
-  return {
-    output: { segmentsCreated: segments.length, recordingId },
-    eventType: 'job:completed',
-    affectedQueryKeys: [['transcript', recordingId], ['transcript_segments']],
-  }
+  const output = { segmentsCreated: segments.length, recordingId }
+  return { output, events: [completedEvent(output)] }
 }
 
 async function executeSearchRelatedDocs(input: Record<string, unknown>): Promise<JobResult> {
@@ -59,7 +77,7 @@ async function executeSearchRelatedDocs(input: Record<string, unknown>): Promise
 
   const segmentId = input.target_id as string
   if (!segmentId) {
-    return { output: { skipped: true }, affectedQueryKeys: [] }
+    return { output: { skipped: true } }
   }
 
   const existingLinks = query<{ count: number }>(
@@ -67,7 +85,7 @@ async function executeSearchRelatedDocs(input: Record<string, unknown>): Promise
     [segmentId]
   )
   if ((existingLinks[0]?.count ?? 0) >= 3) {
-    return { output: { skipped: true, reason: 'enough links exist' }, affectedQueryKeys: [] }
+    return { output: { skipped: true, reason: 'enough links exist' } }
   }
 
   const candidates = query<{ id: string }>(
@@ -93,11 +111,8 @@ async function executeSearchRelatedDocs(input: Record<string, unknown>): Promise
     }
   }
 
-  return {
-    output: { linksCreated, segmentId },
-    eventType: linksCreated > 0 ? 'job:completed' : undefined,
-    affectedQueryKeys: linksCreated > 0 ? [['connections'], ['connections_recording'], ['links']] : [],
-  }
+  const output = { linksCreated, segmentId }
+  return { output, events: linksCreated > 0 ? [completedEvent(output)] : [] }
 }
 
 async function executeScheduleQuiz(input: Record<string, unknown>): Promise<JobResult> {
@@ -105,7 +120,7 @@ async function executeScheduleQuiz(input: Record<string, unknown>): Promise<JobR
 
   const segmentId = input.target_id as string
   if (!segmentId) {
-    return { output: { skipped: true }, affectedQueryKeys: [] }
+    return { output: { skipped: true } }
   }
 
   const delayMs = (input._delayMs as number) || 7 * 24 * 60 * 60 * 1000
@@ -117,10 +132,7 @@ async function executeScheduleQuiz(input: Record<string, unknown>): Promise<JobR
     [randomId(), segmentId, `[Auto] Quiz scheduled for review`, scheduledFor]
   )
 
-  return {
-    output: { scheduledFor, segmentId },
-    affectedQueryKeys: [['annotations']],
-  }
+  return { output: { scheduledFor, segmentId } }
 }
 
 async function executeGenerateQuestions(input: Record<string, unknown>): Promise<JobResult> {
@@ -128,7 +140,7 @@ async function executeGenerateQuestions(input: Record<string, unknown>): Promise
 
   const segmentId = input.target_id as string
   if (!segmentId) {
-    return { output: { skipped: true }, affectedQueryKeys: [] }
+    return { output: { skipped: true } }
   }
 
   exec(
@@ -137,10 +149,7 @@ async function executeGenerateQuestions(input: Record<string, unknown>): Promise
     [randomId(), segmentId, '[Auto] Practice question generated for low-confidence topic', new Date().toISOString()]
   )
 
-  return {
-    output: { segmentId, questionsGenerated: 1 },
-    affectedQueryKeys: [['annotations']],
-  }
+  return { output: { segmentId, questionsGenerated: 1 } }
 }
 
 async function executeFindConnections(input: Record<string, unknown>): Promise<JobResult> {
@@ -148,7 +157,7 @@ async function executeFindConnections(input: Record<string, unknown>): Promise<J
 
   const segmentId = input.target_id as string
   if (!segmentId) {
-    return { output: { skipped: true }, affectedQueryKeys: [] }
+    return { output: { skipped: true } }
   }
 
   const candidates = query<{ id: string; text: string }>(
@@ -173,42 +182,37 @@ async function executeFindConnections(input: Record<string, unknown>): Promise<J
     }
   }
 
-  return {
-    output: { linksCreated, segmentId },
-    affectedQueryKeys: linksCreated > 0 ? [['connections'], ['connections_recording'], ['links']] : [],
-  }
+  return { output: { linksCreated, segmentId } }
 }
 
-const EXECUTORS: Record<string, (input: Record<string, unknown>) => Promise<JobResult>> = {
-  'ai:transcribe': executeTranscribe,
-  'search:related-docs': executeSearchRelatedDocs,
-  'schedule:quiz': executeScheduleQuiz,
-  'ai:generate-questions': executeGenerateQuestions,
-  'ai:find-connections': executeFindConnections,
-}
+// Each executor adopts the shared `Executor` signature
+// `(input, ctx: ExecutorContext) => Promise<JobResult>`. Substrate's bodies
+// ignore `ctx` (no `_userId` reliance — they hardcode author_id 'system'), but
+// the parameter is accepted so the contract matches.
+const SUBSTRATE_EXECUTORS: Array<{
+  type: string
+  label: string
+  category: string
+  executor: (input: Record<string, unknown>, ctx: ExecutorContext) => Promise<JobResult>
+}> = [
+  { type: 'ai:transcribe', label: 'Generate transcript', category: 'AI', executor: (input) => executeTranscribe(input) },
+  { type: 'search:related-docs', label: 'Search related documents', category: 'Search', executor: (input) => executeSearchRelatedDocs(input) },
+  { type: 'schedule:quiz', label: 'Schedule quiz review', category: 'Schedule', executor: (input) => executeScheduleQuiz(input) },
+  { type: 'ai:generate-questions', label: 'Generate practice questions', category: 'AI', executor: (input) => executeGenerateQuestions(input) },
+  { type: 'ai:find-connections', label: 'Find cross-lecture connections', category: 'AI', executor: (input) => executeFindConnections(input) },
+]
 
-export async function executeJob(
-  jobType: string,
-  input: Record<string, unknown>
-): Promise<JobResult> {
-  const executor = EXECUTORS[jobType]
-  if (!executor) {
-    return {
-      output: { error: `Unknown job type: ${jobType}` },
-      affectedQueryKeys: [],
-    }
+/** Builds a fresh registry with all substrate executors registered. */
+export function createSubstrateExecutorRegistry(): ExecutorRegistry {
+  const registry = createExecutorRegistry()
+  for (const { type, label, category, executor } of SUBSTRATE_EXECUTORS) {
+    registry.register(type, executor, { label, category })
   }
-  return executor(input)
+  return registry
 }
 
 export function getAvailableJobTypes(): { type: string; label: string; category: string }[] {
-  return [
-    { type: 'ai:transcribe', label: 'Generate transcript', category: 'AI' },
-    { type: 'search:related-docs', label: 'Search related documents', category: 'Search' },
-    { type: 'schedule:quiz', label: 'Schedule quiz review', category: 'Schedule' },
-    { type: 'ai:generate-questions', label: 'Generate practice questions', category: 'AI' },
-    { type: 'ai:find-connections', label: 'Find cross-lecture connections', category: 'AI' },
-  ]
+  return createSubstrateExecutorRegistry().getAvailableTypes()
 }
 
 export function getAvailableTriggerEvents(): { event: string; label: string }[] {

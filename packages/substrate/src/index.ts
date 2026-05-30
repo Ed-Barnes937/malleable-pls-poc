@@ -28,7 +28,6 @@ export {
   useJobRunner,
 } from './hooks/useWorkflows'
 
-export { dispatchWorkflows } from './workflows/engine'
 export { getAvailableJobTypes, getAvailableTriggerEvents } from './workflows/executors'
 
 export { QUESTIONS } from './questions'

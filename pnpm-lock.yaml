@@ -117,6 +117,9 @@ importers:
       '@pls/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pls/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
       '@trpc/server':
         specifier: ^11.1.0
         version: 11.17.0(typescript@5.8.3)
@@ -435,6 +438,9 @@ importers:
 
   packages/substrate:
     dependencies:
+      '@pls/workflows':
+        specifier: workspace:*
+        version: link:../workflows
       '@tanstack/react-query':
         specifier: ^5.0.0
         version: 5.99.0(react@19.2.5)

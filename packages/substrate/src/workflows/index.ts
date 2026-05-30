@@ -1,2 +1,7 @@
-export { dispatchWorkflows } from './engine'
-export { executeJob, getAvailableJobTypes, getAvailableTriggerEvents } from './executors'
+export { createSqlJsAdapter } from './sql-js-adapter'
+export {
+  createSubstrateExecutorRegistry,
+  getAvailableJobTypes,
+  getAvailableTriggerEvents,
+  AFFECTED_QUERY_KEYS,
+} from './executors'
