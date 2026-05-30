@@ -168,19 +168,8 @@ INSERT INTO workspaces (id, user_id, name, created_at) VALUES
   ('ws-evening-review', 'dev-user-1', 'Evening Review', '2026-03-28T09:00:00Z'),
   ('ws-exam-prep', 'dev-user-1', 'Exam Prep', '2026-03-28T09:00:00Z');
 
--- ---------------------------------------------------------------------------
--- Workspace panels
--- ---------------------------------------------------------------------------
-INSERT INTO workspace_panels (id, user_id, workspace_id, lens_type, slot_name, config, grid_x, grid_y, grid_w, grid_h, created_at) VALUES
-  ('wp-1',  'dev-user-1', 'ws-in-lecture',     'audio-capture',   'sidebar',      '{"recordingId":"rec-bio-4"}', 0, 0, 1, 4, '2026-03-28T09:00:00Z'),
-  ('wp-1b', 'dev-user-1', 'ws-in-lecture',     'transcript',      'main',         '{"recordingId":"rec-bio-4","mode":"capture"}', 1, 0, 2, 6, '2026-03-28T09:00:00Z'),
-  ('wp-3',  'dev-user-1', 'ws-evening-review', 'transcript',      'top-left',     '{"recordingId":"rec-bio-4","mode":"review"}', 0, 0, 2, 3, '2026-03-28T09:00:00Z'),
-  ('wp-4',  'dev-user-1', 'ws-evening-review', 'test-me',         'top-right',    '{"mode":"review"}', 2, 0, 1, 3, '2026-03-28T09:00:00Z'),
-  ('wp-5',  'dev-user-1', 'ws-evening-review', 'weekly-overview', 'bottom-left',  '{}', 0, 3, 1, 3, '2026-03-28T09:00:00Z'),
-  ('wp-6',  'dev-user-1', 'ws-evening-review', 'connections',     'bottom-right', '{"conceptLabel":"mitochondrial DNA","recordingId":"rec-bio-4"}', 1, 3, 2, 3, '2026-03-28T09:00:00Z'),
-  ('wp-7',  'dev-user-1', 'ws-exam-prep',      'gap-analysis',    'top-full',     '{}', 0, 0, 3, 2, '2026-03-28T09:00:00Z'),
-  ('wp-8',  'dev-user-1', 'ws-exam-prep',      'weakest-topics',  'bottom-left',  '{}', 0, 2, 1, 4, '2026-03-28T09:00:00Z'),
-  ('wp-9',  'dev-user-1', 'ws-exam-prep',      'test-me',         'bottom-right', '{"mode":"exam","timerSeconds":120}', 1, 2, 2, 4, '2026-03-28T09:00:00Z');
+-- Workspace panels are seeded separately in 008_seed_panels.sql, after the
+-- freeform-canvas migration (006) replaces grid columns with pixel columns.
 
 -- ---------------------------------------------------------------------------
 -- Workspace scopes
