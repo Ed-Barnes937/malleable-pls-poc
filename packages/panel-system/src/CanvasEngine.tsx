@@ -18,9 +18,11 @@ export interface CanvasEngineProps {
   getIcon?: (lensType: string) => ComponentType<{ className?: string }> | undefined
   /** Resolve display label for a panel's lens type */
   getLabel?: (lensType: string) => string | undefined
+  /** Render extra header actions (e.g. per-lens config buttons) inside PanelChrome. */
+  renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel, renderPanel, getIcon, getLabel }: CanvasEngineProps) {
+export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
@@ -81,6 +83,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderPanel={renderPanel}
           getIcon={getIcon}
           getLabel={getLabel}
+          renderHeaderActions={renderHeaderActions}
         />
       ))}
     </div>
@@ -271,9 +274,10 @@ interface DraggablePanelProps {
   renderPanel?: (panelId: string) => ReactNode
   getIcon?: (lensType: string) => ComponentType<{ className?: string }> | undefined
   getLabel?: (lensType: string) => string | undefined
+  renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
@@ -458,6 +462,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
         onDragHandlePointerDown={handleDragHandlePointerDown}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
+        headerActions={renderHeaderActions?.(panel.id)}
       >
         {renderPanel?.(panel.id)}
       </PanelChrome>
