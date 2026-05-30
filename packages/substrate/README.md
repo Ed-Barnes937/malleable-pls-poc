@@ -36,5 +36,4 @@ Wraps the browser SQLite database with typed React hooks for every domain entity
 
 ## Internal Dependencies
 
-- `@pls/substrate-core` — low-level database abstraction
 - `@pls/workflows` — workflow engine types

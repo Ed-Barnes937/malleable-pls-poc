@@ -2,9 +2,7 @@
   "name": "@pls/workflows",
   "version": "0.0.0",
   "private": true,
+  "description": "Storage-agnostic workflow engine: pure TypeScript domain logic and a StorageAdapter interface implemented by backends (substrate sql.js / server postgres). No sql.js, @pls/db, postgres, or react dependencies.",
   "main": "src/index.ts",
-  "types": "src/index.ts",
-  "peerDependencies": {
-    "react": "^19.0.0"
-  }
+  "types": "src/index.ts"
 }

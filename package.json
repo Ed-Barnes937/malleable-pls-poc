@@ -12,7 +12,6 @@
     "dev:web": "VITE_API_URL=http://localhost:3001 VITE_USER_ID=dev-user-1 pnpm --filter @pls/web run dev",
     "test": "vitest run",
     "test:watch": "vitest",
-    "dev:poc": "pnpm --filter @pls/canvas-poc run dev",
     "test:ct": "playwright test --config playwright-ct.config.ts",
     "test:e2e": "playwright test --config playwright.config.ts"
   },

@@ -1,7 +1,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
-import { useCanvasStore, type PanelItem } from './canvas-store'
+import { useCanvasStore } from './canvas-store'
 
 /**
  * Testing notes:
@@ -11,6 +11,13 @@ import { useCanvasStore, type PanelItem } from './canvas-store'
  *   are therefore tested indirectly via store action tests (canvas-store.test.ts).
  * - Component tests here verify: rendering at correct positions, z-index ordering
  *   on pointer down, and that the onLayoutChange callback fires.
+ *
+ * Divergence from the POC version:
+ * - The package CanvasEngine no longer derives panel content or icons from a
+ *   `type` field. Panel display titles come from `panel.title` (falling back to
+ *   getLabel(lensType) then 'Untitled'), and icons are resolved via the optional
+ *   getIcon prop. POC assertions that relied on internal type-driven placeholder
+ *   content have no equivalent and are dropped.
  */
 
 function seedPanels() {
@@ -129,7 +136,6 @@ describe('CanvasEngine', () => {
       height: 100,
       z_index: 1,
       title: 'My Panel',
-      type: 'document',
     })
     render(<CanvasEngine />)
     expect(screen.getByText('My Panel')).toBeInTheDocument()
@@ -148,6 +154,20 @@ describe('CanvasEngine', () => {
     expect(screen.getByText('Untitled')).toBeInTheDocument()
   })
 
+  it('resolves the display label from getLabel when no title is set', () => {
+    useCanvasStore.getState().addPanel({
+      id: 'lensed',
+      pos_x: 0,
+      pos_y: 0,
+      width: 100,
+      height: 100,
+      z_index: 1,
+      lensType: 'transcript',
+    })
+    render(<CanvasEngine getLabel={(t) => (t === 'transcript' ? 'Transcript' : undefined)} />)
+    expect(screen.getByText('Transcript')).toBeInTheDocument()
+  })
+
   it('removes panel when close button is clicked', () => {
     useCanvasStore.getState().addPanel({
       id: 'closable',
@@ -162,6 +182,24 @@ describe('CanvasEngine', () => {
     expect(screen.getByTestId('panel-closable')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('panel-close-closable'))
     expect(screen.queryByTestId('panel-closable')).not.toBeInTheDocument()
+  })
+
+  it('calls onRemovePanel instead of store removal when provided', () => {
+    const onRemovePanel = vi.fn()
+    useCanvasStore.getState().addPanel({
+      id: 'closable',
+      pos_x: 0,
+      pos_y: 0,
+      width: 200,
+      height: 200,
+      z_index: 1,
+      title: 'Close Me',
+    })
+    render(<CanvasEngine onRemovePanel={onRemovePanel} />)
+    fireEvent.click(screen.getByTestId('panel-close-closable'))
+    expect(onRemovePanel).toHaveBeenCalledWith('closable')
+    // Store removal is delegated to the consumer, so the panel stays
+    expect(screen.getByTestId('panel-closable')).toBeInTheDocument()
   })
 
   it('applies focused shadow to the top z-index panel', () => {
