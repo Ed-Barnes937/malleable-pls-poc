@@ -15,7 +15,7 @@ export default function TranscriptLens({ scope, config }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
-  const recordingId = scope.recordingId ?? (config.recordingId as string) ?? ''
+  const recordingId = (config.recordingId as string) ?? ''
   const mode = (config.mode as string) ?? 'review'
   const isCapture = mode === 'capture'
 
@@ -69,7 +69,7 @@ export default function TranscriptLens({ scope, config }: LensProps) {
   }
 
   if (!recordingId) {
-    return <EmptyState message="Select a recording in scope to view transcript" />
+    return <EmptyState message="Select a recording to view transcript" />
   }
 
   return (

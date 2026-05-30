@@ -1,5 +1,4 @@
-import type { SubstrateWriter, QueryResult, MutationHandle } from '@pls/lens-framework'
-import type { Scope } from '@pls/lens-framework'
+import type { SubstrateWriter, QueryResult, MutationHandle, QueryFilter } from '@pls/lens-framework'
 import { trpc } from './trpc'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -13,8 +12,8 @@ function adaptMutation<TInput, TOutput = TInput>(mutation: any): MutationHandle<
 }
 
 export const substrateTrpc: SubstrateWriter = {
-  useRecordings(scope?: Scope) {
-    return adapt(trpc.recordings.list.useQuery(scope ? { courseTag: scope.courseTag, recordingId: scope.recordingId } : undefined))
+  useRecordings(filter?: QueryFilter) {
+    return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, recordingId: filter.recordingId } : undefined))
   },
 
   useRecording(id: string) {
@@ -25,20 +24,20 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.transcripts.byRecording.useQuery(recordingId, { enabled: !!recordingId }))
   },
 
-  useTags(scope: Scope) {
-    return adapt(trpc.tags.list.useQuery({ courseTag: scope.courseTag, recordingId: scope.recordingId, timeframe: scope.timeframe }))
+  useTags(filter: QueryFilter) {
+    return adapt(trpc.tags.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
 
   useTagsForTarget(targetType: string, targetId: string) {
     return adapt(trpc.tags.forTarget.useQuery({ targetType, targetId }))
   },
 
-  useAnnotations(scope: Scope) {
-    return adapt(trpc.annotations.list.useQuery({ courseTag: scope.courseTag, recordingId: scope.recordingId, timeframe: scope.timeframe }))
+  useAnnotations(filter: QueryFilter) {
+    return adapt(trpc.annotations.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
 
-  useConfidence(scope: Scope) {
-    return adapt(trpc.confidence.list.useQuery({ courseTag: scope.courseTag, recordingId: scope.recordingId, timeframe: scope.timeframe }))
+  useConfidence(filter: QueryFilter) {
+    return adapt(trpc.confidence.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
 
   useConnections(conceptSegmentId: string) {
@@ -49,8 +48,8 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.links.byRecording.useQuery(recordingId ?? '', { enabled: !!recordingId }))
   },
 
-  useWeeklyOverview(scope: Scope) {
-    return adapt(trpc.aggregates.weeklyOverview.useQuery({ courseTag: scope.courseTag, recordingId: scope.recordingId, timeframe: scope.timeframe }))
+  useWeeklyOverview(filter: QueryFilter) {
+    return adapt(trpc.aggregates.weeklyOverview.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
 
   useGapAnalysis() {

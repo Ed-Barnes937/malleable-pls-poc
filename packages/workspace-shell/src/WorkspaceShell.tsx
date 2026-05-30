@@ -39,7 +39,6 @@ function scopesFromDb(scopes: { scope_type: string; scope_value: string }[]): Sc
   const scope: Scope = {}
   for (const s of scopes) {
     if (s.scope_type === 'tag') scope.courseTag = s.scope_value
-    if (s.scope_type === 'recording') scope.recordingId = s.scope_value
     if (s.scope_type === 'timeframe') scope.timeframe = s.scope_value as 'week' | 'all'
   }
   return scope
