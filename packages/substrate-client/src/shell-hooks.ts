@@ -66,6 +66,13 @@ export function useUpdatePanelLayouts() {
   return trpc.workspaces.updateLayouts.useMutation()
 }
 
+export function useUpdatePanelConfig() {
+  const utils = trpc.useUtils()
+  return trpc.workspaces.updatePanelConfig.useMutation({
+    onSuccess: () => utils.workspaces.panels.invalidate(),
+  })
+}
+
 export function useUpdateWorkspaceBackground() {
   const utils = trpc.useUtils()
   return trpc.workspaces.updateBackground.useMutation({

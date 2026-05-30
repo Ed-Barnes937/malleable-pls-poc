@@ -10,6 +10,7 @@ export {
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
+  useUpdatePanelConfig,
   useUpdateWorkspaceBackground,
   useSetWorkspaceScope,
   useRecordings,

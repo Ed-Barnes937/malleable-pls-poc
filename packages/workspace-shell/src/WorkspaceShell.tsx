@@ -8,6 +8,7 @@ import {
   useAddWorkspacePanel,
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
+  useUpdatePanelConfig,
   useUpdateWorkspaceBackground,
   useServerEvents,
 } from '@pls/substrate-client'
@@ -61,6 +62,7 @@ export function WorkspaceShell() {
   const addPanel = useAddWorkspacePanel()
   const removePanel = useRemoveWorkspacePanel()
   const updateLayouts = useUpdatePanelLayouts()
+  const updatePanelConfig = useUpdatePanelConfig()
   const updateBackground = useUpdateWorkspaceBackground()
 
   const setPanels = useCanvasStore((s) => s.setPanels)
@@ -278,11 +280,12 @@ export function WorkspaceShell() {
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
             scope={scope}
             config={config}
+            onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, activeWorkspaceId, scope, handleRemovePanel],
+    [panels, panelConfigs, lensRegistry, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig],
   )
 
   // Icon resolver: look up icon from the manifest registry

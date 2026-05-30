@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn } from '@pls/shared-ui'
+import { cn, RecordingPicker } from '@pls/shared-ui'
 import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
 
 const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001'
@@ -51,11 +51,12 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 
 type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
-export default function AudioCaptureLens({ config }: LensProps) {
+export default function AudioCaptureLens({ config, onConfigChange }: LensProps) {
   const substrate = useSubstrate()
 
   const recordingId = (config.recordingId as string) ?? ''
   const { data: recording } = substrate.useRecording(recordingId)
+  const { data: recordings } = substrate.useRecordings()
 
   const [state, setState] = useState<CaptureState>(recordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
@@ -218,6 +219,16 @@ export default function AudioCaptureLens({ config }: LensProps) {
 
   return (
     <div className="container-size flex h-full min-h-0 flex-col overflow-hidden">
+      {onConfigChange && (
+        <div className="shrink-0 px-3 pb-2 pt-1">
+          <RecordingPicker
+            value={recordingId || undefined}
+            recordings={recordings ?? undefined}
+            onChange={(id) => onConfigChange({ recordingId: id ?? '' })}
+            emptyLabel="Start new recording"
+          />
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
         {state === 'recording' && (
           <div className="flex items-center gap-1.5">
