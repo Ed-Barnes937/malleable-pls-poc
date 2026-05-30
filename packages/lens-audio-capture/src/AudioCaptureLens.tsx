@@ -51,10 +51,10 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 
 type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
-export default function AudioCaptureLens({ scope, config }: LensProps) {
+export default function AudioCaptureLens({ config }: LensProps) {
   const substrate = useSubstrate()
 
-  const recordingId = scope.recordingId ?? (config.recordingId as string) ?? ''
+  const recordingId = (config.recordingId as string) ?? ''
   const { data: recording } = substrate.useRecording(recordingId)
 
   const [state, setState] = useState<CaptureState>(recordingId ? 'complete' : 'idle')

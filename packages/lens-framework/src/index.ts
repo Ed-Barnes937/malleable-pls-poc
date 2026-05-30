@@ -1,7 +1,8 @@
-export type { Scope, LensCategory, LensMeta, LensProps } from './types'
+export type { Scope, ScopeDim, LensCategory, LensMeta, LensProps } from './types'
 export type { LensLoader, LensRegistry } from './registry'
 export type {
   QueryResult,
+  QueryFilter,
   MutationHandle,
   TableName,
   SubstrateReader,

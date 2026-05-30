@@ -2,9 +2,10 @@ import type { ComponentType } from 'react'
 
 export interface Scope {
   courseTag?: string
-  recordingId?: string
   timeframe?: 'week' | 'all'
 }
+
+export type ScopeDim = 'courseTag' | 'timeframe'
 
 export type LensCategory = 'tool' | 'view' | 'both'
 
