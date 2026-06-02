@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from './utils'
 
@@ -22,7 +23,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
 
   if (!open) return null
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
         data-testid="dialog-backdrop"
@@ -63,6 +64,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
