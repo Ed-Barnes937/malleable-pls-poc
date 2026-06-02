@@ -16,7 +16,8 @@ Provides the top-level layout that composes the sidebar, panel grid, and all sup
 | `ThemeToggle` | Light / dark mode switch |
 | `JobStatusIndicator` | Background workflow job status |
 | `WorkspaceSwitcher` | Switch between saved workspaces |
-| `WorkflowSettingsDialog` | Configure workflow triggers and jobs |
+| `WorkflowSettingsPanel` | Drawer overview of all workspace workflows (read-only) |
+| `LensAutomationsButton` | Per-panel button opening the lens's automation config |
 
 ## State
 

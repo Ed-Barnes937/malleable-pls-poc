@@ -3,14 +3,13 @@ import { Dialog, cn } from '@pls/shared-ui'
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import {
   getAvailableJobTypes,
-  getAvailableTriggerEvents,
+  getTriggerEventsForLens,
   type WorkflowWithJobs,
 } from '@pls/substrate'
-import { useManifests } from '@pls/lens-framework'
+import { useManifest } from '@pls/lens-framework'
 import { useCreateWorkflow, useUpdateWorkflow } from '@pls/substrate-client'
 
 const JOB_TYPES = getAvailableJobTypes()
-const TRIGGER_EVENTS = getAvailableTriggerEvents()
 const DAY_MS = 86400000
 
 interface JobDraft {
@@ -22,19 +21,19 @@ interface WorkflowEditorProps {
   open: boolean
   onClose: () => void
   workspaceId: string
+  /** Lens this workflow is attached to. Determines which trigger events are selectable. */
+  sourceLens: string
   /** Provided when editing an existing workflow; omitted when creating. */
   workflow?: WorkflowWithJobs
 }
 
-export function WorkflowEditor({ open, onClose, workspaceId, workflow }: WorkflowEditorProps) {
-  const manifests = useManifests()
+export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflow }: WorkflowEditorProps) {
+  const manifest = useManifest(sourceLens)
+  const triggerEvents = getTriggerEventsForLens(manifest?.emits ?? [])
   const isEditing = !!workflow
 
-  const [sourceLens, setSourceLens] = useState(
-    () => workflow?.source_lens ?? manifests[0]?.id ?? '',
-  )
   const [triggerEvent, setTriggerEvent] = useState(
-    () => workflow?.trigger_event ?? TRIGGER_EVENTS[0]?.event ?? '',
+    () => workflow?.trigger_event ?? triggerEvents[0]?.event ?? '',
   )
   const [conditionField, setConditionField] = useState(() => workflow?.condition_field ?? '')
   const [conditionValue, setConditionValue] = useState(() => workflow?.condition_value ?? '')
@@ -117,23 +116,10 @@ export function WorkflowEditor({ open, onClose, workspaceId, workflow }: Workflo
       className="w-full max-w-md"
     >
       <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
-        {!isEditing && (
-          <div>
-            <label className={labelClass}>Lens</label>
-            <select value={sourceLens} onChange={(e) => setSourceLens(e.target.value)} className={selectClass}>
-              {manifests.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
         <div>
           <label className={labelClass}>Trigger</label>
           <select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)} className={selectClass}>
-            {TRIGGER_EVENTS.map((t) => (
+            {triggerEvents.map((t) => (
               <option key={t.event} value={t.event}>
                 {t.label}
               </option>

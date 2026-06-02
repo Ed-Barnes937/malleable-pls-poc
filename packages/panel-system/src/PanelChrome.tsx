@@ -17,6 +17,8 @@ export interface PanelChromeProps {
   isFullscreen?: boolean
   /** Toggle fullscreen for this panel */
   onToggleFullscreen?: () => void
+  /** Extra header buttons rendered before the fullscreen/close actions. */
+  headerActions?: ReactNode
 }
 
 /* ── Component ── */
@@ -30,6 +32,7 @@ export function PanelChrome({
   onDragHandlePointerDown,
   isFullscreen,
   onToggleFullscreen,
+  headerActions,
 }: PanelChromeProps) {
   return (
     <div
@@ -62,6 +65,7 @@ export function PanelChrome({
         >
           {title ?? 'Untitled'}
         </span>
+        {headerActions}
         {onToggleFullscreen && (
           <button
             data-testid={panelId ? `panel-fullscreen-${panelId}` : 'panel-fullscreen'}

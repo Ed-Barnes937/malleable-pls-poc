@@ -26,6 +26,7 @@ import { getLensComponent, useLensRegistry } from './LensRegistry'
 import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
+import { LensAutomationsButton } from './LensAutomationsButton'
 import { ToastHost, useToastStore } from './toast'
 
 const JOB_LABELS: Record<string, string> = Object.fromEntries(
@@ -306,6 +307,22 @@ export function WorkspaceShell() {
     [manifests],
   )
 
+  // Per-panel header actions — currently just the Lens Automations button
+  const renderHeaderActions = useCallback(
+    (panelId: string) => {
+      const panel = panels?.find((p) => p.id === panelId)
+      if (!panel) return null
+      return (
+        <LensAutomationsButton
+          panelId={panel.id}
+          lensType={panel.lens_type}
+          workspaceId={activeWorkspaceId}
+        />
+      )
+    },
+    [panels, activeWorkspaceId],
+  )
+
   // Auto-organize panels into a tidy grid
   const handleOrganize = useCallback(() => {
     const el = canvasRef.current
@@ -341,6 +358,7 @@ export function WorkspaceShell() {
               renderPanel={renderPanel}
               getIcon={getIcon}
               getLabel={getLabel}
+              renderHeaderActions={renderHeaderActions}
             />
             {panels.length === 0 && (
               <div

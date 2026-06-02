@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from './utils'
 
@@ -22,8 +23,11 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
 
   if (!open) return null
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div
         data-testid="dialog-backdrop"
         className="absolute inset-0 bg-black/60"
@@ -63,6 +67,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
