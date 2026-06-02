@@ -390,9 +390,9 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
   const shadow = isGesturing
-    ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
+    ? 'var(--shadow-panel-focused), inset 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
     : isSelected
-      ? 'var(--shadow-panel-focused), 0 0 0 2px oklch(0.623 0.214 259.815 / 0.7)'
+      ? 'var(--shadow-panel-focused), inset 0 0 0 2px oklch(0.623 0.214 259.815 / 0.7)'
       : (isFocused || isHovered)
         ? 'var(--shadow-panel-focused)'
         : 'var(--shadow-panel)'
