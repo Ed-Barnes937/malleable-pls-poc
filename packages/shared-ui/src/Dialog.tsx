@@ -24,7 +24,10 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      onPointerDown={(e) => e.stopPropagation()}
+    >
       <div
         data-testid="dialog-backdrop"
         className="absolute inset-0 bg-black/60"
