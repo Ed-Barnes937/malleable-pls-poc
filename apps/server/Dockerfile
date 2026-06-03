@@ -6,6 +6,7 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/workflows/package.json packages/workflows/package.json
 RUN pnpm install --frozen-lockfile --filter @pls/server...
 
 FROM base AS runner
@@ -15,6 +16,7 @@ COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
 
 COPY apps/server/ apps/server/
 COPY packages/db/ packages/db/
+COPY packages/workflows/ packages/workflows/
 COPY package.json pnpm-workspace.yaml ./
 
 RUN addgroup -S app && adduser -S app -G app
