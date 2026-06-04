@@ -22,28 +22,24 @@ async function processJobs(): Promise<void> {
   `
 
   for (const { user_id } of users) {
-    await sql.begin(async (tx) => {
-      await tx`SELECT set_config('app.current_user_id', ${user_id}, true)`
-
-      const adapter = createPgAdapter({ sql: tx, userId: user_id })
-      // scopeId stays null to match the prior server cascade behaviour
-      // (cascades dispatched with workspaceId = null).
-      const engine = createWorkflowEngine({ adapter })
-      const runner = createJobRunner({
-        adapter,
-        executors: serverExecutors,
-        engine,
-        scopeId: null,
-        maxRetries: MAX_RETRIES,
-      })
-
-      const unsubscribe = runner.onEvent((event) => bridgeRunnerEvent(user_id, event))
-      try {
-        await runner.processOnce()
-      } finally {
-        unsubscribe()
-      }
+    // { sql } mode: each adapter call owns its own short tx + set_config.
+    // No outer sql.begin — executor I/O runs outside any transaction.
+    const adapter = createPgAdapter({ sql, userId: user_id })
+    const engine = createWorkflowEngine({ adapter })
+    const runner = createJobRunner({
+      adapter,
+      executors: serverExecutors,
+      engine,
+      scopeId: null,
+      maxRetries: MAX_RETRIES,
     })
+
+    const unsubscribe = runner.onEvent((event) => bridgeRunnerEvent(user_id, event))
+    try {
+      await runner.processOnce()
+    } finally {
+      unsubscribe()
+    }
   }
 }
 

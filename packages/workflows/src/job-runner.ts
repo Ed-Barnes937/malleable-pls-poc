@@ -30,8 +30,12 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
     try {
       const batch = await adapter.claimPendingJobRuns()
       for (const job of batch) {
-        await adapter.updateJobRunStatus(job.id, 'running')
-        await adapter.commit?.()
+        // Skip if the adapter claimed atomically and already set status='running'
+        // (pg runner path). sql.js adapter returns 'pending' so the update still runs.
+        if (job.status !== 'running') {
+          await adapter.updateJobRunStatus(job.id, 'running')
+          await adapter.commit?.()
+        }
         const runningJob = { ...job, status: 'running' as const }
         emit({ type: 'job:started', jobRun: runningJob })
 

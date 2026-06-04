@@ -1,4 +1,3 @@
-export { Panel, type PanelProps } from './Panel'
 export { CanvasEngine, type CanvasEngineProps } from './CanvasEngine'
 export { PanelChrome, type PanelChromeProps } from './PanelChrome'
 export { WorkspaceBackground } from './WorkspaceBackground'

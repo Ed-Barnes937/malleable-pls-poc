@@ -151,6 +151,13 @@ export interface EnqueueJobRunArgs {
  */
 export interface StorageAdapter {
   // --- dispatch side ---
+  /**
+   * Returns workflows matching `triggerEvent` for the given scope.
+   * Override resolution rule (both adapters must enforce this): when a
+   * workspace override (scopeId non-null) and a global default (scopeId null)
+   * exist for the same (source_lens, condition_field, condition_value) key,
+   * the override wins and only one workflow is returned for that key.
+   */
   getEffectiveWorkflows(
     triggerEvent: string,
     scopeId: string | null,
