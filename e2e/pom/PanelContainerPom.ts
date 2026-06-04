@@ -1,6 +1,11 @@
 import type { Locator } from '@playwright/test'
 import { expect } from '@playwright/test'
 
+/**
+ * Wraps a single panel's PanelChrome. The header doubles as the drag
+ * handle; the close button is labelled "Close <title>" and the lens
+ * automations button "Automations for <label>".
+ */
 export class PanelContainerPom {
   readonly header: Locator
   readonly label: Locator
@@ -9,11 +14,11 @@ export class PanelContainerPom {
   readonly dragHandle: Locator
 
   constructor(readonly root: Locator) {
-    this.header = root.locator('[class*="panel-drag-handle"]').first()
-    this.label = root.locator('h3, [class*="font-medium"]').first()
-    this.removeButton = root.getByTitle('Remove panel')
-    this.workflowButton = root.getByTitle('Workflow settings')
-    this.dragHandle = root.locator('.panel-drag-handle')
+    this.header = root.getByTestId('panel-header')
+    this.label = root.getByTestId('panel-title')
+    this.removeButton = root.getByRole('button', { name: /^Close / })
+    this.workflowButton = root.getByRole('button', { name: /^Automations for / })
+    this.dragHandle = this.header
   }
 
   async remove() {

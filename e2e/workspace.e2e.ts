@@ -9,18 +9,18 @@ test.describe('Workspace management', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    // Default workspace is Evening Review with 4 panels
-    await topBar.expectActiveWorkspace('Evening Review')
-    await grid.expectPanelCount(4)
-    await grid.expectHasPanel('Transcript')
-    await grid.expectHasPanel('Test Me')
-
-    // Switch to In Lecture — 2 panels
-    await topBar.switchToWorkspace('In Lecture')
+    // Default workspace is In Lecture with 2 panels
     await topBar.expectActiveWorkspace('In Lecture')
     await grid.expectPanelCount(2)
     await grid.expectHasPanel('Audio Capture')
     await grid.expectHasPanel('Transcript')
+
+    // Switch to Evening Review — 4 panels
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
+    await grid.expectPanelCount(4)
+    await grid.expectHasPanel('Transcript')
+    await grid.expectHasPanel('Test Me')
 
     // Switch to Exam Prep — 3 panels
     await topBar.switchToWorkspace('Exam Prep')
@@ -106,7 +106,8 @@ test.describe('Workspace management', () => {
 
     await expect(deleteDialog.root).toBeHidden()
     await expect(topBar.workspaceTabs).toHaveCount(countBefore)
-    await topBar.expectActiveWorkspace('Evening Review')
+    // Cancelling never changed the active workspace — still the default
+    await topBar.expectActiveWorkspace('In Lecture')
   })
 
   test('cancelling workspace creation does not create one', async ({ page }) => {

@@ -1,15 +1,20 @@
 import type { Locator, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
 
+/**
+ * Wraps the freeform canvas (CanvasEngine). Panels are absolutely-positioned
+ * divs tagged `data-panel-id`; each renders a PanelChrome header whose
+ * `panel-title` span holds the manifest label.
+ */
 export class PanelGridPom {
   readonly root: Locator
   readonly panels: Locator
-  readonly dropZone: Locator
+  readonly emptyState: Locator
 
   constructor(private page: Page) {
-    this.root = page.locator('main')
-    this.panels = this.root.locator('.react-grid-item')
-    this.dropZone = this.root.getByText('Drop lens here')
+    this.root = page.getByTestId('canvas-container')
+    this.panels = this.root.locator('[data-panel-id]')
+    this.emptyState = page.getByTestId('workspace-empty-state')
   }
 
   async expectPanelCount(count: number) {
@@ -17,11 +22,13 @@ export class PanelGridPom {
   }
 
   panelByLabel(label: string) {
-    return this.root.locator('.react-grid-item').filter({ hasText: label })
+    return this.panels.filter({
+      has: this.page.locator('[data-testid="panel-title"]', { hasText: label }),
+    })
   }
 
   async expectEmpty() {
-    await expect(this.dropZone).toBeVisible()
+    await expect(this.emptyState).toBeVisible()
   }
 
   async expectHasPanel(label: string) {

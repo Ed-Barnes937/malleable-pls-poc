@@ -11,7 +11,7 @@ test.describe('Journey: Exam prep drill', () => {
     await topBar.switchToWorkspace('Exam Prep')
     await topBar.expectActiveWorkspace('Exam Prep')
 
-    await grid.expectHasPanel('Gap Analysis')
+    await grid.expectHasPanel('All Courses')
     await grid.expectHasPanel('Weakest Topics')
     await grid.expectHasPanel('Test Me')
 
