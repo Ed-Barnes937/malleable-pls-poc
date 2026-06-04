@@ -7,21 +7,22 @@ test.describe('Panel management', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    await topBar.expectActiveWorkspace('Evening Review')
-    await grid.expectPanelCount(4)
+    // Default workspace is In Lecture (store initialises to ws-in-lecture)
+    await topBar.expectActiveWorkspace('In Lecture')
+    await grid.expectPanelCount(2)
+    await grid.expectHasPanel('Audio Capture')
     await grid.expectHasPanel('Transcript')
-    await grid.expectHasPanel('Test Me')
-    await grid.expectHasPanel('This Week')
-    await grid.expectHasPanel('Connections')
   })
 
-  test('removing a panel updates the grid', async ({ page }) => {
+  test('removing a panel updates the canvas', async ({ page }) => {
     await page.goto('/')
+    const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
+    await topBar.switchToWorkspace('Evening Review')
     await grid.expectPanelCount(4)
 
-    // Get the first panel and remove it
+    // Remove the Connections panel
     const targetPanel = grid.panelByLabel('Connections')
     const container = new PanelContainerPom(targetPanel)
     await container.remove()

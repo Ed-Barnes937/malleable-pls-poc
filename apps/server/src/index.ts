@@ -27,6 +27,10 @@ const RATE_WINDOW_MS = 60_000 // 1 minute
 const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload
 const GENERAL_RATE_LIMIT = 100 // requests per window for everything else
 
+// e2e runs hammer the API from one IP and trip the general limit mid-suite,
+// surfacing as silent 429s. The Playwright webServer sets this to opt out.
+const RATE_LIMIT_DISABLED = process.env.DISABLE_RATE_LIMIT === '1'
+
 interface RateBucket {
   timestamps: number[]
 }
@@ -50,6 +54,7 @@ function getClientIp(req: http.IncomingMessage): string {
 
 /** Returns true if the request is within limits, false if it should be rejected. */
 function checkRateLimit(ip: string, isUpload: boolean): boolean {
+  if (RATE_LIMIT_DISABLED) return true
   const limit = isUpload ? UPLOAD_RATE_LIMIT : GENERAL_RATE_LIMIT
   const key = isUpload ? `upload:${ip}` : `general:${ip}`
   const now = Date.now()

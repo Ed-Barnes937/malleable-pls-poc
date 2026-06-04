@@ -7,7 +7,8 @@ test.describe('Journey: Evening review with tagging', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    // Default workspace is "Evening Review"
+    // Switch to "Evening Review" (default is In Lecture)
+    await topBar.switchToWorkspace('Evening Review')
     await topBar.expectActiveWorkspace('Evening Review')
     await grid.expectHasPanel('Transcript')
     await grid.expectHasPanel('This Week')

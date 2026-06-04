@@ -7,7 +7,8 @@ test.describe('Journey: Cross-workspace data flow', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    // Start in Evening Review (default)
+    // Switch to Evening Review (default is In Lecture)
+    await topBar.switchToWorkspace('Evening Review')
     await topBar.expectActiveWorkspace('Evening Review')
 
     const transcriptPanel = grid.panelByLabel('Transcript')
@@ -34,8 +35,8 @@ test.describe('Journey: Cross-workspace data flow', () => {
     await topBar.switchToWorkspace('Exam Prep')
     await topBar.expectActiveWorkspace('Exam Prep')
 
-    // Gap Analysis should reflect the new confused tag
-    const gapPanel = grid.panelByLabel('Gap Analysis')
+    // Gap analysis ("All Courses" lens) should reflect the new confused tag
+    const gapPanel = grid.panelByLabel('All Courses')
     await expect(gapPanel.getByText('biology')).toBeVisible({ timeout: 10000 })
     await expect(gapPanel.getByText(/weak area/).first()).toBeVisible({ timeout: 10000 })
   })
@@ -45,7 +46,8 @@ test.describe('Journey: Cross-workspace data flow', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    // Start in Evening Review
+    // Switch to Evening Review (default is In Lecture)
+    await topBar.switchToWorkspace('Evening Review')
     await topBar.expectActiveWorkspace('Evening Review')
 
     const testMePanel = grid.panelByLabel('Test Me')

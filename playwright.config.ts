@@ -28,7 +28,7 @@ export default defineConfig({
     {
       // Postgres (docker) + migrations + API server — e2e runs from a cold
       // start with only docker available.
-      command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} pnpm run e2e:server`,
+      command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} DISABLE_RATE_LIMIT=1 pnpm run e2e:server`,
       url: `http://localhost:${apiPort}/health`,
       reuseExistingServer: true,
       timeout: 60_000,
