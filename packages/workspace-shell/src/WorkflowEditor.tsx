@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Dialog, cn } from '@pls/shared-ui'
+import { Dialog, Select, TextField, cn } from '@pls/shared-ui'
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import {
   getAvailableJobTypes,
@@ -104,8 +104,6 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
     }
   }
 
-  const selectClass =
-    'w-full rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-xs text-neutral-200 focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/20'
   const labelClass = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide text-neutral-500'
 
   return (
@@ -118,32 +116,30 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
       <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
         <div>
           <label className={labelClass}>Trigger</label>
-          <select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)} className={selectClass}>
+          <Select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)}>
             {triggerEvents.map((t) => (
               <option key={t.event} value={t.event}>
                 {t.label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
           <div>
             <label className={labelClass}>Condition field</label>
-            <input
+            <TextField
               value={conditionField}
               onChange={(e) => setConditionField(e.target.value)}
               placeholder="optional"
-              className={selectClass}
             />
           </div>
           <div>
             <label className={labelClass}>Equals</label>
-            <input
+            <TextField
               value={conditionValue}
               onChange={(e) => setConditionValue(e.target.value)}
               placeholder="optional"
-              className={selectClass}
             />
           </div>
         </div>

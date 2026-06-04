@@ -18,22 +18,47 @@ interface Call {
   values: unknown[]
 }
 
+// Mirrors postgres.js fragment composition: a lazy query embedded as a value
+// (e.g. `workflowJobsJson(tx)`) splices its text/values into the outer query
+// instead of being recorded as a separate call.
+function makeTagged(calls: Call[], result: unknown[]) {
+  return (strings: TemplateStringsArray, ...values: unknown[]) => {
+    let text = strings[0]
+    const flat: unknown[] = []
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i] as { __fragment?: Call }
+      if (v && typeof v === 'object' && v.__fragment) {
+        const frag = v.__fragment
+        const idx = calls.indexOf(frag)
+        if (idx >= 0) calls.splice(idx, 1)
+        text += frag.text
+        flat.push(...frag.values)
+      } else {
+        flat.push(values[i])
+        text += '?'
+      }
+      text += strings[i + 1]
+    }
+    const call: Call = { text, values: flat }
+    calls.push(call)
+    const p = Promise.resolve(result) as Promise<unknown[]> & { __fragment: Call }
+    p.__fragment = call
+    return p
+  }
+}
+
 function makeTxSql(result: unknown[] = []) {
   const calls: Call[] = []
-  const tx = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    calls.push({ text: strings.join('?'), values })
-    return Promise.resolve(result)
-  }
+  const tx = makeTagged(calls, result)
   return { tx: tx as unknown as TransactionSql, calls }
 }
 
 function makeRunnerSql(result: unknown[] = []) {
   const calls: Call[] = []
-  const tagged = (strings: TemplateStringsArray, ...values: unknown[]) => {
-    calls.push({ text: strings.join('?'), values })
-    return Promise.resolve(result)
+  const tagged = makeTagged(calls, result) as ReturnType<typeof makeTagged> & {
+    begin: (fn: (tx: unknown) => Promise<unknown>) => Promise<unknown>
   }
-  tagged.begin = async (fn: (tx: typeof tagged) => Promise<unknown>) => fn(tagged)
+  tagged.begin = async (fn) => fn(tagged)
   return { sql: tagged as unknown as Sql, calls }
 }
 

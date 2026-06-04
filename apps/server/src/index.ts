@@ -18,6 +18,10 @@ registerAllExecutors()
 
 // ---------------------------------------------------------------------------
 // Rate limiter (sliding window, per-IP)
+//
+// In-memory and therefore single-process only: each server instance keeps its
+// own buckets, so limits multiply by instance count behind a load balancer.
+// Swap for a shared store (e.g. Redis) before scaling horizontally.
 // ---------------------------------------------------------------------------
 const RATE_WINDOW_MS = 60_000 // 1 minute
 const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload
@@ -135,6 +139,13 @@ function checkBearerToken(req: http.IncomingMessage): boolean {
 const server = http.createServer((req, res) => {
   // Security headers on every response
   setSecurityHeaders(res)
+
+  // Unauthenticated readiness probe (used by the Playwright webServer config)
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ ok: true }))
+    return
+  }
 
   // Bearer token auth (before rate limiting so invalid requests don't consume quota)
   if (req.method === 'OPTIONS') {

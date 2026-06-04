@@ -20,6 +20,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       created_at: new Date().toISOString(),
       background_type: 'none',
       background_value: '',
+      sort_order: db.workspaces.length,
     }
     db.workspaces.push(ws)
     return ws
@@ -35,7 +36,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.addPanel', (input) => {
     const { workspaceId, lensType, slotName, config, pos_x, pos_y, width, height, z_index } = input as {
-      workspaceId: string; lensType: string; slotName: string; config?: string
+      workspaceId: string; lensType: string; slotName: string; config?: Record<string, unknown>
       pos_x?: number; pos_y?: number; width?: number; height?: number; z_index?: number
     }
     const panel = {
@@ -43,7 +44,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       workspace_id: workspaceId,
       lens_type: lensType,
       slot_name: slotName,
-      config: config ?? '{}',
+      config: config ?? {},
       pos_x: pos_x ?? 0,
       pos_y: pos_y ?? 0,
       width: width ?? 280,

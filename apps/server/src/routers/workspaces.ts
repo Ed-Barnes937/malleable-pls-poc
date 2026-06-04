@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
+import { withUser } from '@pls/db'
 
 export const workspacesRouter = router({
   list: publicProcedure
     .query(async ({ ctx }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY sort_order, created_at, id`
       })
     }),
@@ -12,7 +13,7 @@ export const workspacesRouter = router({
   panels: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           SELECT * FROM workspace_panels
           WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
@@ -24,7 +25,7 @@ export const workspacesRouter = router({
   create: publicProcedure
     .input(z.object({ name: z.string().max(500).min(1) }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [ws] = await tx`
           INSERT INTO workspaces (user_id, name, sort_order)
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
@@ -39,7 +40,7 @@ export const workspacesRouter = router({
       workspaceId: z.string().max(255),
       lensType: z.string().max(255),
       slotName: z.string().max(255),
-      config: z.string().max(5000).optional(),
+      config: z.record(z.string(), z.unknown()).optional(),
       pos_x: z.number().int().optional(),
       pos_y: z.number().int().optional(),
       width: z.number().int().optional(),
@@ -47,7 +48,7 @@ export const workspacesRouter = router({
       z_index: z.number().int().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [panel] = await tx`
           INSERT INTO workspace_panels (user_id, workspace_id, lens_type, slot_name, config, pos_x, pos_y, width, height, z_index)
           VALUES (
@@ -55,7 +56,7 @@ export const workspacesRouter = router({
             ${input.workspaceId},
             ${input.lensType},
             ${input.slotName},
-            ${input.config ?? '{}'},
+            ${JSON.stringify(input.config ?? {})},
             ${input.pos_x ?? 0},
             ${input.pos_y ?? 0},
             ${input.width ?? 280},
@@ -71,7 +72,7 @@ export const workspacesRouter = router({
   removePanel: publicProcedure
     .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         await tx`DELETE FROM workspace_panels WHERE id = ${input} AND user_id = ${ctx.userId}`
       })
     }),
@@ -79,7 +80,7 @@ export const workspacesRouter = router({
   delete: publicProcedure
     .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         await tx`DELETE FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId}`
       })
     }),
@@ -87,7 +88,7 @@ export const workspacesRouter = router({
   reorder: publicProcedure
     .input(z.array(z.string().max(255)))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const existing = await tx`SELECT id FROM workspaces WHERE user_id = ${ctx.userId}`
         const existingIds = new Set(existing.map((r) => r.id as string))
         const inputIds = new Set(input)
@@ -110,7 +111,7 @@ export const workspacesRouter = router({
       z_index: z.number().int(),
     })))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         for (const item of input) {
           await tx`
             UPDATE workspace_panels
@@ -129,15 +130,14 @@ export const workspacesRouter = router({
       configPatch: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [existing] = await tx`
           SELECT config FROM workspace_panels
           WHERE id = ${input.panelId} AND user_id = ${ctx.userId}
         `
         if (!existing) throw new Error('Panel not found')
-        const current = typeof existing.config === 'string'
-          ? JSON.parse(existing.config)
-          : (existing.config as Record<string, unknown>)
+        // config is jsonb — the driver always returns it as a parsed object
+        const current = existing.config as Record<string, unknown>
         const merged = { ...current, ...input.configPatch }
         await tx`
           UPDATE workspace_panels
@@ -154,7 +154,7 @@ export const workspacesRouter = router({
       backgroundValue: z.string().max(5000),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [ws] = await tx`
           UPDATE workspaces
           SET background_type = ${input.backgroundType},
@@ -169,7 +169,7 @@ export const workspacesRouter = router({
   scopes: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           SELECT * FROM workspace_scopes
           WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
@@ -184,7 +184,7 @@ export const workspacesRouter = router({
       scopeValue: z.string().max(1000).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         if (input.scopeValue === null) {
           await tx`
             DELETE FROM workspace_scopes

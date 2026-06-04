@@ -1,6 +1,9 @@
 import { router, publicProcedure } from '../trpc'
 import { EventEmitter, on } from 'events'
 
+// In-process event bus: events emitted on one server instance are only seen by
+// subscribers connected to that same instance. Replace with a shared pub/sub
+// (e.g. Redis) before scaling horizontally.
 export const eventBus = new EventEmitter()
 eventBus.setMaxListeners(100)
 

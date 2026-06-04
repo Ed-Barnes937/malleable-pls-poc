@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { SidebarPom } from './pom'
+import { SidebarPom, TopBarPom } from './pom'
 
 /**
  * After the workspace-scope rethink, the Scope section is driven by the
@@ -15,21 +15,12 @@ import { SidebarPom } from './pom'
  * target pickers replaced it.
  */
 
-async function openDrawer(page: import('@playwright/test').Page) {
-  await page.getByTestId('drawer-trigger').click()
-  await expect(page.getByTestId('drawer-sidebar')).toBeVisible()
-}
-
-async function switchWorkspace(page: import('@playwright/test').Page, name: string) {
-  // Workspaces live in the TopBar's WorkspaceSwitcher, not the drawer aside.
-  await page.getByTestId('top-bar').getByRole('button', { name, exact: true }).click()
-}
-
 test.describe('Scope filtering', () => {
   test('In Lecture workspace renders no Scope section', async ({ page }) => {
     await page.goto('/')
-    await switchWorkspace(page, 'In Lecture')
-    await openDrawer(page)
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.scopeSection).toHaveCount(0)
@@ -37,8 +28,9 @@ test.describe('Scope filtering', () => {
 
   test('Evening Review shows Course + Timeframe pickers but no Recording', async ({ page }) => {
     await page.goto('/')
-    await switchWorkspace(page, 'Evening Review')
-    await openDrawer(page)
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.scopeSection).toBeVisible()
@@ -51,8 +43,9 @@ test.describe('Scope filtering', () => {
 
   test('changing course persists', async ({ page }) => {
     await page.goto('/')
-    await switchWorkspace(page, 'Evening Review')
-    await openDrawer(page)
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.courseSelect).toHaveValue('biology', { timeout: 10000 })
@@ -70,8 +63,9 @@ test.describe('Scope filtering', () => {
 
   test('changing timeframe persists', async ({ page }) => {
     await page.goto('/')
-    await switchWorkspace(page, 'Evening Review')
-    await openDrawer(page)
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.timeframeSelect).toHaveValue('week', { timeout: 10000 })

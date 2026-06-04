@@ -8,7 +8,7 @@ export class CreateWorkspaceDialogPom extends DialogPom {
   readonly cancelButton: Locator
 
   constructor(page: Page) {
-    super(page, 'New Workspace')
+    super(page)
     this.nameInput = this.root.getByLabel('Name')
     this.createButton = this.root.getByRole('button', { name: 'Create' })
     this.cancelButton = this.root.getByRole('button', { name: 'Cancel' })

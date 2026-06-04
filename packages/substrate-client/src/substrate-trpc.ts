@@ -25,15 +25,15 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useTags(filter: QueryFilter) {
-    return adapt(trpc.tags.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
+    return adapt(trpc.tags.list.useQuery({ recordingId: filter.recordingId }))
   },
 
   useAnnotations(filter: QueryFilter) {
-    return adapt(trpc.annotations.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
+    return adapt(trpc.annotations.list.useQuery({ recordingId: filter.recordingId }))
   },
 
   useConfidence(filter: QueryFilter) {
-    return adapt(trpc.confidence.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
+    return adapt(trpc.confidence.list.useQuery({ recordingId: filter.recordingId }))
   },
 
   useConnections(conceptSegmentId: string) {
@@ -44,8 +44,8 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.links.byRecording.useQuery(recordingId ?? '', { enabled: !!recordingId }))
   },
 
-  useWeeklyOverview(filter: QueryFilter) {
-    return adapt(trpc.aggregates.weeklyOverview.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
+  useWeeklyOverview(_filter: QueryFilter) {
+    return adapt(trpc.aggregates.weeklyOverview.useQuery())
   },
 
   useGapAnalysis() {

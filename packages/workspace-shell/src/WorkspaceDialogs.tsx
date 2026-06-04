@@ -4,7 +4,7 @@ import {
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
-import { Dialog } from '@pls/shared-ui'
+import { Dialog, TextField } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -42,14 +42,13 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
           <label htmlFor="ws-name" className="mb-1 block text-xs text-neutral-400">
             Name
           </label>
-          <input
+          <TextField
             ref={inputRef}
             id="ws-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Morning Study"
-            className="w-full rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-xs text-neutral-200 placeholder:text-neutral-700 focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/20"
           />
         </div>
         <div className="flex justify-end gap-2">

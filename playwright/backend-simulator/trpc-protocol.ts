@@ -93,7 +93,8 @@ function deserializeInput(raw: unknown): unknown {
   if (typeof raw === 'object' && raw !== null && 'json' in raw) {
     const obj = raw as { json: unknown; meta?: { values: Record<string, string[]> } }
     if (obj.meta) {
-      return superjson.deserialize({ json: obj.json, meta: obj.meta as any })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return superjson.deserialize({ json: obj.json, meta: obj.meta } as any)
     }
     return obj.json
   }

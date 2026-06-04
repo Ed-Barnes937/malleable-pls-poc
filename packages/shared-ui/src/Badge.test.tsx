@@ -24,6 +24,18 @@ describe('Badge', () => {
     expect(el.className).toMatch(/emerald/)
   })
 
+  it('applies the warning variant classes', () => {
+    const { container } = render(<Badge variant="warning">W</Badge>)
+    const el = container.firstChild as HTMLElement
+    expect(el.className).toContain('text-tag-confused')
+  })
+
+  it('defaults to the neutral variant', () => {
+    const { container } = render(<Badge>N</Badge>)
+    const el = container.firstChild as HTMLElement
+    expect(el.className).toContain('text-neutral-500')
+  })
+
   it('renders icon when provided', () => {
     render(<Badge icon={TestIcon}>tag</Badge>)
     expect(screen.getByTestId('badge-icon')).toBeInTheDocument()

@@ -7,6 +7,7 @@ import type {
   StorageAdapter,
   WorkflowWithJobs,
 } from '@pls/workflows'
+import { workflowJobsJson } from './sql'
 
 /**
  * Per-operation StorageAdapter for the postgres server runtime.
@@ -60,14 +61,7 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
             ORDER BY source_lens, condition_field, condition_value, workspace_id NULLS LAST
           )
           SELECT w.id, w.source_lens, w.trigger_event, w.condition_field, w.condition_value, w.enabled,
-                 COALESCE(
-                   json_agg(
-                     json_build_object('id', wj.id, 'workflow_id', wj.workflow_id, 'job_type', wj.job_type,
-                       'params', wj.params, 'sort_order', wj.sort_order, 'delay_ms', wj.delay_ms)
-                     ORDER BY wj.sort_order
-                   ) FILTER (WHERE wj.id IS NOT NULL),
-                   '[]'
-                 ) AS jobs
+                 ${workflowJobsJson(tx)} AS jobs
           FROM deduped
           JOIN workflows w ON w.id = deduped.id
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id

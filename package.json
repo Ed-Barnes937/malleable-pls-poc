@@ -6,10 +6,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev:db": "docker compose up -d postgres && echo 'Postgres ready on :${PG_PORT:-5433}'",
+    "dev:db": "docker compose up -d --wait postgres && echo 'Postgres ready on :${PG_PORT:-5433}'",
     "dev:migrate": "DATABASE_URL=postgres://pls:pls@localhost:${PG_PORT:-5433}/malleable_pls pnpm --filter @pls/server run migrate",
     "dev:server": "DATABASE_URL=postgres://pls:pls@localhost:${PG_PORT:-5433}/malleable_pls pnpm --filter @pls/server run dev",
     "dev:web": "VITE_API_URL=http://localhost:3001 VITE_USER_ID=dev-user-1 pnpm --filter @pls/web run dev",
+    "e2e:server": "(pnpm run dev:db || echo 'dev:db failed — assuming postgres already up on :${PG_PORT:-5433}') && DATABASE_URL=postgres://pls:pls@localhost:${PG_PORT:-5433}/malleable_pls pnpm --filter @pls/server run migrate-and-start",
+    "typecheck": "tsc --noEmit -p apps/web && tsc --noEmit -p apps/server",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ct": "playwright test --config playwright-ct.config.ts",

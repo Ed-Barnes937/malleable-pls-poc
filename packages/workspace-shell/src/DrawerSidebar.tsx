@@ -5,8 +5,7 @@ import {
   useSetWorkspaceScope,
   decodeScope,
 } from '@pls/substrate-client'
-import { SectionLabel } from '@pls/shared-ui'
-import { ChevronDown } from 'lucide-react'
+import { SectionLabel, Select } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
@@ -54,50 +53,39 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
     [workspaceId, setScope],
   )
 
-  const selectClass =
-    'w-full rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-xs text-neutral-300 focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/20 appearance-none cursor-pointer'
-
   return (
     <div className="flex flex-col gap-2.5">
       {activeDims.has('courseTag') && (
         <div>
           <SectionLabel className="mb-1">Course</SectionLabel>
-          <div className="relative">
-            <select
-              aria-label="Course filter"
-              value={currentCourse}
-              onChange={(e) => handleChange('tag', e.target.value)}
-              className={selectClass}
-            >
-              {COURSES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
-          </div>
+          <Select
+            aria-label="Course filter"
+            value={currentCourse}
+            onChange={(e) => handleChange('tag', e.target.value)}
+          >
+            {COURSES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
         </div>
       )}
 
       {activeDims.has('timeframe') && (
         <div>
           <SectionLabel className="mb-1">Timeframe</SectionLabel>
-          <div className="relative">
-            <select
-              aria-label="Timeframe filter"
-              value={currentTimeframe}
-              onChange={(e) => handleChange('timeframe', e.target.value)}
-              className={selectClass}
-            >
-              {TIMEFRAMES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-neutral-600" />
-          </div>
+          <Select
+            aria-label="Timeframe filter"
+            value={currentTimeframe}
+            onChange={(e) => handleChange('timeframe', e.target.value)}
+          >
+            {TIMEFRAMES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </Select>
         </div>
       )}
     </div>

@@ -25,6 +25,12 @@ export class TopBarPom {
     await this.root.getByRole('button', { name, exact: true }).click()
   }
 
+  /** Opens the drawer aside and waits for it to be visible. */
+  async openDrawer() {
+    await this.drawerTrigger.click()
+    await expect(this.page.getByTestId('drawer-sidebar')).toBeVisible()
+  }
+
   async expectActiveWorkspace(name: string) {
     const btn = this.root.getByRole('button', { name, exact: true })
     await expect(btn).toHaveAttribute('aria-current', 'page')

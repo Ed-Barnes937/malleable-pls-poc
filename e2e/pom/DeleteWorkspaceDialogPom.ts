@@ -6,7 +6,7 @@ export class DeleteWorkspaceDialogPom extends DialogPom {
   readonly cancelButton: Locator
 
   constructor(page: Page) {
-    super(page, 'Delete Workspace')
+    super(page)
     this.deleteButton = this.root.getByRole('button', { name: 'Delete' })
     this.cancelButton = this.root.getByRole('button', { name: 'Cancel' })
   }

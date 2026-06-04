@@ -77,7 +77,8 @@ export interface WorkspacePanel {
   workspace_id: string
   lens_type: string
   slot_name: string
-  config: string
+  // jsonb — always a parsed object end-to-end (server, simulator, client)
+  config: Record<string, unknown>
   pos_x: number
   pos_y: number
   width: number

@@ -1,17 +1,11 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
-
-const scopeInput = z.object({
-  courseTag: z.string().max(500).optional(),
-  recordingId: z.string().max(255).optional(),
-  timeframe: z.enum(['week', 'all']).optional(),
-})
+import { withUser } from '@pls/db'
 
 export const aggregatesRouter = router({
   weeklyOverview: publicProcedure
-    .input(scopeInput)
     .query(async ({ ctx }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           WITH course_segments AS (
             SELECT t.label AS course, ts.id AS seg_id
@@ -53,7 +47,7 @@ export const aggregatesRouter = router({
 
   gapAnalysis: publicProcedure
     .query(async ({ ctx }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           WITH course_segments AS (
             SELECT t.label AS course, ts.id AS seg_id
@@ -87,7 +81,7 @@ export const aggregatesRouter = router({
   weakestTopics: publicProcedure
     .input(z.number().optional().default(10))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           WITH seg_confidence AS (
             SELECT cs.target_id AS seg_id, AVG(cs.score) AS avg_score
