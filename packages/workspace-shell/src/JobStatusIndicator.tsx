@@ -76,7 +76,7 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const { data: jobs } = useRecentJobs(20)
   const [now, setNow] = useState(() => Date.now())
 
-  const rows = (jobs ?? []) as unknown as JobRow[]
+  const rows = jobs ?? []
   const running = rows.filter((j) => j.status === 'running' || j.status === 'pending')
   const finished = rows.filter((j) => j.status === 'completed' || j.status === 'failed')
 

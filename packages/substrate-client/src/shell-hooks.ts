@@ -1,5 +1,7 @@
 import { trpc } from './trpc'
 import type { Scope } from '@pls/lens-framework'
+import type { UseQueryResult } from '@tanstack/react-query'
+import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
@@ -104,20 +106,20 @@ export function useRecordings() {
   return trpc.recordings.list.useQuery()
 }
 
-export function useRecentJobs(limit?: number) {
-  return trpc.jobs.recent.useQuery(limit)
+export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {
+  return trpc.jobs.recent.useQuery(limit) as unknown as UseQueryResult<JobRun[]>
 }
 
 export function useRunningJobCount() {
   return trpc.jobs.runningCount.useQuery(undefined, { refetchInterval: 3000 })
 }
 
-export function useWorkflowsForLens(lensType: string, workspaceId: string) {
-  return trpc.workflows.forLens.useQuery({ lensType, workspaceId })
+export function useWorkflowsForLens(lensType: string, workspaceId: string): UseQueryResult<WorkflowWithJobs[]> {
+  return trpc.workflows.forLens.useQuery({ lensType, workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
-export function useWorkflowsForWorkspace(workspaceId: string) {
-  return trpc.workflows.forWorkspace.useQuery({ workspaceId })
+export function useWorkflowsForWorkspace(workspaceId: string): UseQueryResult<WorkflowWithJobs[]> {
+  return trpc.workflows.forWorkspace.useQuery({ workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
 function invalidateWorkflows(utils: ReturnType<typeof trpc.useUtils>) {
