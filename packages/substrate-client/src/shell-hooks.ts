@@ -1,4 +1,17 @@
 import { trpc } from './trpc'
+import type { Scope } from '@pls/lens-framework'
+
+type ScopeRow = { scope_type: string; scope_value: string }
+
+/** Convert raw DB scope rows into the Scope domain object used by lens components. */
+export function decodeScope(rows: ScopeRow[]): Scope {
+  const scope: Scope = {}
+  for (const s of rows) {
+    if (s.scope_type === 'tag') scope.courseTag = s.scope_value
+    if (s.scope_type === 'timeframe') scope.timeframe = s.scope_value as 'week' | 'all'
+  }
+  return scope
+}
 
 export function useWorkspaces() {
   return trpc.workspaces.list.useQuery()

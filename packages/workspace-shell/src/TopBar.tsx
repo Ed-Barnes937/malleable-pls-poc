@@ -1,6 +1,6 @@
 import { Menu, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceScopes } from '@pls/substrate-client'
+import { useWorkspaceScopes, decodeScope } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
@@ -17,15 +17,11 @@ function useScopeSummary(workspaceId: string): string | null {
 
   return useMemo(() => {
     if (!scopes || scopes.length === 0) return null
+    const s = decodeScope(scopes as unknown as { scope_type: string; scope_value: string }[])
     const parts: string[] = []
-    for (const s of scopes as { scope_type: string; scope_value: string }[]) {
-      if (!s.scope_value) continue
-      if (s.scope_type === 'tag') parts.push(s.scope_value)
-      if (s.scope_type === 'timeframe') {
-        if (s.scope_value === 'week') parts.push('This week')
-        else if (s.scope_value === 'all') parts.push('All time')
-      }
-    }
+    if (s.courseTag) parts.push(s.courseTag)
+    if (s.timeframe === 'week') parts.push('This week')
+    else if (s.timeframe === 'all') parts.push('All time')
     return parts.length > 0 ? parts.join(' · ') : null
   }, [scopes])
 }
