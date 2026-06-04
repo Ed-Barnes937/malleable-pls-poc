@@ -1,5 +1,3 @@
-import type { ComponentType } from 'react'
-
 export interface Scope {
   courseTag?: string
   timeframe?: 'week' | 'all'
@@ -7,14 +5,7 @@ export interface Scope {
 
 export type ScopeDim = 'courseTag' | 'timeframe'
 
-export type LensCategory = 'tool' | 'view' | 'both'
-
-export interface LensMeta {
-  label: string
-  icon: ComponentType<{ className?: string }>
-  description: string
-  category: LensCategory
-}
+export type LensCategory = 'tool' | 'view'
 
 export interface LensProps {
   panelId: string

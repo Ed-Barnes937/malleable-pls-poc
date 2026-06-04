@@ -28,10 +28,6 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.tags.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
 
-  useTagsForTarget(targetType: string, targetId: string) {
-    return adapt(trpc.tags.forTarget.useQuery({ targetType, targetId }))
-  },
-
   useAnnotations(filter: QueryFilter) {
     return adapt(trpc.annotations.list.useQuery({ courseTag: filter.courseTag, recordingId: filter.recordingId, timeframe: filter.timeframe }))
   },
@@ -63,16 +59,6 @@ export const substrateTrpc: SubstrateWriter = {
   useCreateTag() {
     const utils = trpc.useUtils()
     return adaptMutation(trpc.tags.create.useMutation({
-      onSuccess: () => {
-        utils.tags.invalidate()
-        utils.aggregates.invalidate()
-      },
-    }))
-  },
-
-  useDeleteTag() {
-    const utils = trpc.useUtils()
-    return adaptMutation(trpc.tags.delete.useMutation({
       onSuccess: () => {
         utils.tags.invalidate()
         utils.aggregates.invalidate()

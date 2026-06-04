@@ -1,3 +1,9 @@
+// TODO: make playwright/backend-simulator/seed-data.ts the single source of
+// truth for seed fixtures. Currently 002_seed.sql / 008_seed_panels.sql are
+// maintained separately and have already drifted (panel pixel positions differ
+// between the two). Unifying requires mapping TS field names to SQL columns and
+// injecting user_id = 'dev-user-1' at insert time — low risk but non-trivial.
+
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 

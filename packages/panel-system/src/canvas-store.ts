@@ -90,7 +90,6 @@ interface CanvasState {
   focusModePanelId: string | null
   enterFocusMode: (id: string) => void
   exitFocusMode: () => void
-  toggleFocusMode: (id: string) => void
 
   /** Fullscreen — one panel fills the canvas area */
   fullscreenPanelId: string | null
@@ -201,14 +200,6 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }),
 
   exitFocusMode: () => set({ focusModePanelId: null }),
-
-  toggleFocusMode: (id) =>
-    set((state) => {
-      if (state.focusModePanelId === id) return { focusModePanelId: null }
-      const panel = state.panels.find((p) => p.id === id)
-      if (!panel) return state
-      return { focusModePanelId: id }
-    }),
 
   /* ── Fullscreen ── */
 

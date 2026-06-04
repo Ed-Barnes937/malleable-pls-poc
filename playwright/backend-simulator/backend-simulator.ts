@@ -1,6 +1,5 @@
 import type { Page, Route } from '@playwright/test'
 import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
-import { EndpointBehaviour, EndpointBehaviourManager } from './endpoint-behaviour'
 import { InMemoryDb, type SeedData } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
@@ -18,13 +17,10 @@ export const TRPC_URL = 'http://localhost:3999/trpc'
 
 export class BackendSimulator {
   readonly db: InMemoryDb
-  readonly behaviours: EndpointBehaviourManager
   private router: ProcedureRouter
-  private sseClients: Array<{ resolve: (value: string) => void }> = []
 
   constructor(seed?: SeedData) {
     this.db = new InMemoryDb(seed ?? createDefaultSeedData())
-    this.behaviours = new EndpointBehaviourManager()
     this.router = new ProcedureRouter()
     this.registerAllHandlers()
   }
@@ -61,23 +57,7 @@ export class BackendSimulator {
       postBody = request.postData() ?? undefined
     }
 
-    const result = await handleTrpcRequest(
-      url,
-      method,
-      postBody,
-      this.router,
-      this.behaviours,
-    )
-
-    if (result.abort) {
-      await route.abort('failed')
-      return
-    }
-
-    if (result.stall) {
-      // Never respond — simulates a hanging request
-      return
-    }
+    const result = await handleTrpcRequest(url, method, postBody, this.router)
 
     await route.fulfill({
       status: result.status,
@@ -101,18 +81,6 @@ export class BackendSimulator {
       },
       body: '',
     })
-  }
-
-  setBehaviour(procedurePath: string, behaviour: EndpointBehaviour): void {
-    this.behaviours.set(procedurePath, behaviour)
-  }
-
-  resetBehaviour(procedurePath?: string): void {
-    if (procedurePath) {
-      this.behaviours.reset(procedurePath)
-    } else {
-      this.behaviours.resetAll()
-    }
   }
 
   resetData(seed?: SeedData): void {

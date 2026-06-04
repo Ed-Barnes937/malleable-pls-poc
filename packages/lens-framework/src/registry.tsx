@@ -7,12 +7,11 @@ import React, {
   type LazyExoticComponent,
   type ReactNode,
 } from 'react'
-import type { LensMeta, LensProps } from './types'
+import type { LensProps } from './types'
 import type { PanelManifest } from './substrate-contract'
 
 export type LensLoader = () => Promise<{
   default: ComponentType<LensProps>
-  meta?: LensMeta
 }>
 
 export type LensRegistry = Record<string, LensLoader>

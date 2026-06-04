@@ -216,30 +216,6 @@ describe('canvas-store', () => {
       expect(useCanvasStore.getState().focusModePanelId).toBeNull()
     })
 
-    it('toggleFocusMode enters focus when not focused', () => {
-      useCanvasStore.getState().setPanels([makePanel({ id: 'f' })])
-      useCanvasStore.getState().toggleFocusMode('f')
-      expect(useCanvasStore.getState().focusModePanelId).toBe('f')
-    })
-
-    it('toggleFocusMode exits focus when already focused on same panel', () => {
-      useCanvasStore.getState().setPanels([makePanel({ id: 'f' })])
-      useCanvasStore.getState().enterFocusMode('f')
-      useCanvasStore.getState().toggleFocusMode('f')
-      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
-    })
-
-    it('toggleFocusMode switches to a different panel', () => {
-      useCanvasStore.getState().setPanels([makePanel({ id: 'a' }), makePanel({ id: 'b' })])
-      useCanvasStore.getState().enterFocusMode('a')
-      useCanvasStore.getState().toggleFocusMode('b')
-      expect(useCanvasStore.getState().focusModePanelId).toBe('b')
-    })
-
-    it('toggleFocusMode is a no-op for non-existent panel when none focused', () => {
-      useCanvasStore.getState().toggleFocusMode('ghost')
-      expect(useCanvasStore.getState().focusModePanelId).toBeNull()
-    })
   })
 
   /* ── Fullscreen ── */

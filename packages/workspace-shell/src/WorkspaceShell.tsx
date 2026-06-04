@@ -271,12 +271,7 @@ export function WorkspaceShell() {
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
 
       return (
-        <PanelContainer
-          panelId={`${activeWorkspaceId}-${panel.slot_name}`}
-          lensType={panel.lens_type}
-          dbPanelId={panel.id}
-          onRemove={() => handleRemovePanel(panel.id)}
-        >
+        <PanelContainer lensType={panel.lens_type}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
             scope={scope}
