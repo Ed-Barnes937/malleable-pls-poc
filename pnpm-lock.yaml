@@ -410,6 +410,9 @@ importers:
       '@pls/server':
         specifier: workspace:*
         version: link:../../apps/server
+      '@pls/workflows':
+        specifier: workspace:*
+        version: link:../workflows
       '@tanstack/react-query':
         specifier: ^5.64.0
         version: 5.99.0(react@19.2.5)
