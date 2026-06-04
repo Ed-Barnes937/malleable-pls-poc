@@ -22,7 +22,7 @@ export async function dispatchWorkflows(
   workspaceId: string | null,
   depth = 0,
 ): Promise<string[]> {
-  const adapter = createPgAdapter({ sql: tx, userId })
+  const adapter = createPgAdapter({ tx, userId })
   const engine = createWorkflowEngine({ adapter })
   const result = await engine.dispatch(
     { type: eventType, payload },
