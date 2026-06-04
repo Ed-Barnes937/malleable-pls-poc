@@ -6,15 +6,11 @@ export class DialogPom {
   readonly closeButton: Locator
   readonly backdrop: Locator
 
-  constructor(pageOrLocator: Page | Locator, titleText?: string) {
-    if ('getByRole' in pageOrLocator && 'goto' in pageOrLocator) {
-      this.root = pageOrLocator.getByRole('dialog')
-    } else {
-      this.root = (pageOrLocator as Locator).getByRole('dialog')
-    }
+  constructor(page: Page) {
+    this.root = page.getByRole('dialog')
     this.title = this.root.locator('h2')
     this.closeButton = this.root.getByLabel('Close')
-    this.backdrop = (pageOrLocator as Page).locator('[data-testid="dialog-backdrop"]')
+    this.backdrop = page.locator('[data-testid="dialog-backdrop"]')
   }
 
   async close() {

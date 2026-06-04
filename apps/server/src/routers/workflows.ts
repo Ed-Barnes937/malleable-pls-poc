@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
+import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { insertWorkflowJob, workflowJobsJson } from '../workflows/sql'
 
 const jobInputSchema = z.object({
   jobType: z.string().max(255),
@@ -13,16 +15,9 @@ export const workflowsRouter = router({
   forLens: publicProcedure
     .input(z.object({ lensType: z.string().max(255), workspaceId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const workflows = await tx`
-          SELECT w.*, COALESCE(
-            json_agg(
-              json_build_object('id', wj.id, 'workflow_id', wj.workflow_id, 'job_type', wj.job_type,
-                'params', wj.params, 'sort_order', wj.sort_order, 'delay_ms', wj.delay_ms)
-              ORDER BY wj.sort_order
-            ) FILTER (WHERE wj.id IS NOT NULL),
-            '[]'
-          ) AS jobs
+          SELECT w.*, ${workflowJobsJson(tx)} AS jobs
           FROM workflows w
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
           WHERE w.source_lens = ${input.lensType}
@@ -38,16 +33,9 @@ export const workflowsRouter = router({
   forWorkspace: publicProcedure
     .input(z.object({ workspaceId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const workflows = await tx`
-          SELECT w.*, COALESCE(
-            json_agg(
-              json_build_object('id', wj.id, 'workflow_id', wj.workflow_id, 'job_type', wj.job_type,
-                'params', wj.params, 'sort_order', wj.sort_order, 'delay_ms', wj.delay_ms)
-              ORDER BY wj.sort_order
-            ) FILTER (WHERE wj.id IS NOT NULL),
-            '[]'
-          ) AS jobs
+          SELECT w.*, ${workflowJobsJson(tx)} AS jobs
           FROM workflows w
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
           WHERE w.user_id = ${ctx.userId}
@@ -62,7 +50,7 @@ export const workflowsRouter = router({
   toggle: publicProcedure
     .input(z.object({ workflowId: z.string().max(255), enabled: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         await tx`
           UPDATE workflows SET enabled = ${input.enabled}
           WHERE id = ${input.workflowId} AND user_id = ${ctx.userId}
@@ -77,7 +65,7 @@ export const workflowsRouter = router({
       enabled: z.boolean(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [source] = await tx`
           SELECT * FROM workflows WHERE id = ${input.sourceWorkflowId} AND user_id = ${ctx.userId}
         `
@@ -90,10 +78,12 @@ export const workflowsRouter = router({
         `
         const jobs = await tx`SELECT * FROM workflow_jobs WHERE workflow_id = ${input.sourceWorkflowId}`
         for (const job of jobs) {
-          await tx`
-            INSERT INTO workflow_jobs (user_id, workflow_id, job_type, params, sort_order, delay_ms)
-            VALUES (${ctx.userId}, ${override.id}, ${job.job_type}, ${job.params}, ${job.sort_order}, ${job.delay_ms})
-          `
+          await insertWorkflowJob(tx, ctx.userId, override.id, {
+            jobType: job.job_type,
+            params: job.params,
+            sortOrder: job.sort_order,
+            delayMs: job.delay_ms,
+          })
         }
         return override
       })
@@ -110,7 +100,7 @@ export const workflowsRouter = router({
       jobs: z.array(jobInputSchema),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [workflow] = await tx`
           INSERT INTO workflows (user_id, source_lens, trigger_event, condition_field, condition_value, enabled, workspace_id)
           VALUES (${ctx.userId}, ${input.sourceLens}, ${input.triggerEvent},
@@ -118,11 +108,7 @@ export const workflowsRouter = router({
           RETURNING *
         `
         for (const job of input.jobs) {
-          await tx`
-            INSERT INTO workflow_jobs (user_id, workflow_id, job_type, params, sort_order, delay_ms)
-            VALUES (${ctx.userId}, ${workflow.id}, ${job.jobType}, ${JSON.stringify(job.params ?? {})},
-                    ${job.sortOrder}, ${job.delayMs ?? 0})
-          `
+          await insertWorkflowJob(tx, ctx.userId, workflow.id, job)
         }
         return workflow
       })
@@ -138,7 +124,7 @@ export const workflowsRouter = router({
       jobs: z.array(jobInputSchema),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [workflow] = await tx`
           UPDATE workflows SET
             trigger_event = ${input.triggerEvent},
@@ -151,11 +137,7 @@ export const workflowsRouter = router({
         if (!workflow) return null
         await tx`DELETE FROM workflow_jobs WHERE workflow_id = ${input.workflowId} AND user_id = ${ctx.userId}`
         for (const job of input.jobs) {
-          await tx`
-            INSERT INTO workflow_jobs (user_id, workflow_id, job_type, params, sort_order, delay_ms)
-            VALUES (${ctx.userId}, ${input.workflowId}, ${job.jobType}, ${JSON.stringify(job.params ?? {})},
-                    ${job.sortOrder}, ${job.delayMs ?? 0})
-          `
+          await insertWorkflowJob(tx, ctx.userId, input.workflowId, job)
         }
         return workflow
       })
@@ -164,7 +146,7 @@ export const workflowsRouter = router({
   delete: publicProcedure
     .input(z.object({ workflowId: z.string().max(255) }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         await tx`DELETE FROM workflows WHERE id = ${input.workflowId} AND user_id = ${ctx.userId}`
       })
     }),
@@ -176,7 +158,7 @@ export const workflowsRouter = router({
       workspaceId: z.string().max(255).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const ids = await dispatchWorkflows(tx, ctx.userId, input.eventType, input.payload, input.workspaceId)
         return { enqueuedJobIds: ids }
       })

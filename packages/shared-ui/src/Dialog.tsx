@@ -38,7 +38,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
         aria-modal="true"
         aria-label={title}
         className={cn(
-          'relative z-10 max-w-md rounded-lg bg-neutral-900 p-4 text-neutral-100 shadow-xl',
+          'relative z-10 max-w-md rounded-lg border border-border-subtle bg-surface-raised p-4 text-neutral-100 shadow-xl',
           className,
         )}
       >
@@ -49,7 +49,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+              className="rounded p-1 text-neutral-400 hover:bg-surface-overlay hover:text-neutral-100"
             >
               <X className="h-4 w-4" />
             </button>
@@ -60,7 +60,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-2 top-2 rounded p-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            className="absolute right-2 top-2 rounded p-1 text-neutral-400 hover:bg-surface-overlay hover:text-neutral-100"
           >
             <X className="h-4 w-4" />
           </button>

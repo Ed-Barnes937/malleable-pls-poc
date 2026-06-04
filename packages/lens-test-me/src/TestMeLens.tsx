@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { QUESTIONS, type Question } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState } from '@pls/shared-ui'
+import { cn, EmptyState, formatTime } from '@pls/shared-ui'
 import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
 
 export default function TestMeLens({ scope, config }: LensProps) {
@@ -111,7 +111,7 @@ export default function TestMeLens({ scope, config }: LensProps) {
             </div>
           </div>
           <span className={cn('font-mono text-xs tabular-nums', timeLeft < 30 ? 'text-tag-confused' : 'text-neutral-500')}>
-            {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+            {formatTime(timeLeft * 1000)}
           </span>
         </div>
       )}

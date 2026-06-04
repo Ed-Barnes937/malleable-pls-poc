@@ -8,7 +8,7 @@ import type {
   Workspace,
   WorkspacePanel,
   WorkspaceScope,
-} from '@pls/substrate/src/types'
+} from '@pls/substrate'
 
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {

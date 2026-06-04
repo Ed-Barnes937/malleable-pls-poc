@@ -1,15 +1,8 @@
 import { useState, useMemo } from 'react'
 import type { Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, RecordingPicker, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { cn, EmptyState, formatTime, Select, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
 
 export default function TranscriptLens({ scope, config, onConfigChange }: LensProps) {
   const substrate = useSubstrate()
@@ -70,11 +63,18 @@ export default function TranscriptLens({ scope, config, onConfigChange }: LensPr
   }
 
   const picker = onConfigChange && (
-    <RecordingPicker
-      value={recordingId || undefined}
-      recordings={recordings ?? undefined}
-      onChange={(id) => onConfigChange({ recordingId: id ?? '' })}
-    />
+    <Select
+      data-testid="recording-picker"
+      value={recordingId || ''}
+      onChange={(e) => onConfigChange({ recordingId: e.target.value })}
+    >
+      <option value="">(none)</option>
+      {recordings?.map((r) => (
+        <option key={r.id} value={r.id}>
+          {r.title}
+        </option>
+      ))}
+    </Select>
   )
 
   if (!recordingId) {

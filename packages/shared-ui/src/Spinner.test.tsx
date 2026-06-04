@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import { Spinner } from './Spinner'
 
@@ -6,6 +6,11 @@ describe('Spinner', () => {
   it('renders without crashing', () => {
     const { container } = render(<Spinner />)
     expect(container.firstChild).toBeTruthy()
+  })
+
+  it('exposes a status role with Loading label', () => {
+    render(<Spinner />)
+    expect(screen.getByRole('status', { name: 'Loading' })).toBeInTheDocument()
   })
 
   it('applies md size by default', () => {

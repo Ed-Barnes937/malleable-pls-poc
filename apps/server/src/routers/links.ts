@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
+import { withUser } from '@pls/db'
 
 export const linksRouter = router({
   connections: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           SELECT l.source_type AS "sourceType", l.source_id AS "sourceId",
                  ts.text AS "sourceTitle", r.created_at AS "sourceDate",
@@ -22,7 +23,7 @@ export const linksRouter = router({
   byRecording: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         return tx`
           SELECT l.source_type AS "sourceType", l.source_id AS "sourceId",
                  ts.text AS "sourceTitle", r.created_at AS "sourceDate",

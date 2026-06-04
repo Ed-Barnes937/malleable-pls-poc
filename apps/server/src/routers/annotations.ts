@@ -1,18 +1,14 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
+import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
-
-const scopeInput = z.object({
-  courseTag: z.string().max(500).optional(),
-  recordingId: z.string().max(255).optional(),
-  timeframe: z.enum(['week', 'all']).optional(),
-})
+import { recordingScope } from './_shared'
 
 export const annotationsRouter = router({
   list: publicProcedure
-    .input(scopeInput)
+    .input(recordingScope)
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         if (input.recordingId) {
           return tx`
             SELECT a.* FROM annotations a
@@ -34,7 +30,7 @@ export const annotationsRouter = router({
       body: z.string().max(10000),
     }))
     .mutation(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [ann] = await tx`
           INSERT INTO annotations (user_id, anchor_type, anchor_id, anchor_start_ms, anchor_end_ms, body)
           VALUES (${ctx.userId}, ${input.anchor_type}, ${input.anchor_id}, ${input.anchor_start_ms ?? null}, ${input.anchor_end_ms ?? null}, ${input.body})

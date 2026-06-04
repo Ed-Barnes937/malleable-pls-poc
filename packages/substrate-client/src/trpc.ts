@@ -5,7 +5,7 @@ import type { AppRouter } from '@pls/server'
 
 export const trpc = createTRPCReact<AppRouter>()
 
-const AUTH_TOKEN = (import.meta as any).env?.VITE_AUTH_TOKEN as string | undefined
+const AUTH_TOKEN = import.meta.env?.VITE_AUTH_TOKEN
 
 export function createTRPCClient(url: string, userId: string) {
   const authHeaders: Record<string, string> = AUTH_TOKEN

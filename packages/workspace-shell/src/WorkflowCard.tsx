@@ -19,7 +19,9 @@ const TRIGGER_LABELS = Object.fromEntries(
 const DAY_MS = 86400000
 
 interface WorkflowCardProps {
-  workflow: WorkflowWithJobs
+  // Server rows carry workspace_id (null = default workflow); the core
+  // WorkflowWithJobs type deliberately omits it.
+  workflow: WorkflowWithJobs & { workspace_id?: string | null }
   workspaceId: string
   /** When true, renders edit/delete buttons for non-default workflows. */
   showEditDelete?: boolean

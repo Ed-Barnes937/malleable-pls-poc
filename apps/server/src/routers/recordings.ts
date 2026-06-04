@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
+import { withUser } from '@pls/db'
 
 export const recordingsRouter = router({
   list: publicProcedure
@@ -8,7 +9,7 @@ export const recordingsRouter = router({
       recordingId: z.string().max(255).optional(),
     }).optional())
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         if (input?.recordingId) {
           return tx`
             SELECT * FROM recordings
@@ -30,7 +31,7 @@ export const recordingsRouter = router({
   byId: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
-      return ctx.withTenant(async (tx) => {
+      return withUser(ctx.userId, async (tx) => {
         const [row] = await tx`
           SELECT * FROM recordings WHERE id = ${input} AND user_id = ${ctx.userId}
         `

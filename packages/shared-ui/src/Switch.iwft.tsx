@@ -58,3 +58,10 @@ test('toggles via keyboard Space key', async ({ mount, page }) => {
   await page.getByRole('switch').press('Space')
   expect(newValue).toBe(true)
 })
+
+test('accepts className prop', async ({ mount, page }) => {
+  await mount(
+    <Switch checked={false} onCheckedChange={() => {}} className="extra-class" />,
+  )
+  await expect(page.getByRole('switch')).toHaveClass(/extra-class/)
+})

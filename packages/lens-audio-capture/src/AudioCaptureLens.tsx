@@ -1,18 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, RecordingPicker } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
-
-const API_URL = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3001'
-const USER_ID = (import.meta as any).env?.VITE_USER_ID ?? 'dev-user-1'
-const AUTH_TOKEN = (import.meta as any).env?.VITE_AUTH_TOKEN as string | undefined
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000)
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return `${minutes}:${seconds.toString().padStart(2, '0')}`
-}
+import { cn, formatTime, Select } from '@pls/shared-ui'
+import { Mic, Square, Play, Pause, RotateCcw, Loader2 } from 'lucide-react'
+import { API_URL } from './env'
+import { useAudioRecorder } from './useAudioRecorder'
+import { useAudioPlayback } from './useAudioPlayback'
 
 function Waveform({ active, progress }: { active: boolean; progress: number }) {
   const bars = 48
@@ -49,8 +40,6 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
   )
 }
 
-type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
-
 export default function AudioCaptureLens({ config, onConfigChange }: LensProps) {
   const substrate = useSubstrate()
 
@@ -58,175 +47,38 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
   const { data: recording } = substrate.useRecording(recordingId)
   const { data: recordings } = substrate.useRecordings()
 
-  const [state, setState] = useState<CaptureState>(recordingId ? 'complete' : 'idle')
-  const [elapsed, setElapsed] = useState(0)
-  const [playback, setPlayback] = useState(false)
-  const [playbackPos, setPlaybackPos] = useState(0)
-  const [error, setError] = useState<string | null>(null)
-  const [lastRecordingId, setLastRecordingId] = useState<string | null>(null)
-
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const chunksRef = useRef<Blob[]>([])
-  const audioRef = useRef<HTMLAudioElement | null>(null)
-
-  useEffect(() => {
-    if (state === 'recording' || state === 'uploading') return
-    setState(recordingId ? 'complete' : 'idle')
-  }, [recordingId])
+  const recorder = useAudioRecorder(recordingId)
+  const { state, elapsed, error } = recorder
 
   const duration = recording?.duration ?? elapsed
-  const activeRecordingId = lastRecordingId ?? recordingId
+  const activeRecordingId = recorder.recordingId ?? recordingId
 
-  const cleanup = useCallback(() => {
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current)
-      intervalRef.current = null
-    }
-  }, [])
-
-  useEffect(() => () => {
-    cleanup()
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-  }, [cleanup])
-
-  const startRecording = useCallback(async () => {
-    cleanup()
-    setError(null)
-    chunksRef.current = []
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      const recorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
-      })
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data)
-      }
-
-      mediaRecorderRef.current = recorder
-      recorder.start(1000)
-
-      setState('recording')
-      setElapsed(0)
-      setPlayback(false)
-      setPlaybackPos(0)
-      intervalRef.current = setInterval(() => {
-        setElapsed((e) => e + 1000)
-      }, 1000)
-    } catch (err) {
-      setError('Microphone access denied')
-      console.error('mic error:', err)
-    }
-  }, [cleanup])
-
-  const stopRecording = useCallback(async () => {
-    cleanup()
-    const recorder = mediaRecorderRef.current
-    if (!recorder || recorder.state === 'inactive') {
-      setState('idle')
-      return
-    }
-
-    setState('uploading')
-
-    await new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve()
-      recorder.stop()
-    })
-
-    streamRef.current?.getTracks().forEach((t) => t.stop())
-    streamRef.current = null
-    mediaRecorderRef.current = null
-
-    const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
-    chunksRef.current = []
-
-    if (blob.size === 0) {
-      setError('No audio captured')
-      setState('idle')
-      return
-    }
-
-    try {
-      const res = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'audio/webm',
-          'x-user-id': USER_ID,
-          'x-recording-title': `Recording ${new Date().toLocaleString()}`,
-          'x-recording-duration': String(elapsed),
-          ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
-        },
-        body: blob,
-      })
-
-      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
-
-      const data = await res.json()
-      setLastRecordingId(data.id)
-      setState('complete')
-    } catch (err) {
-      setError('Upload failed')
-      setState('idle')
-      console.error('upload error:', err)
-    }
-  }, [cleanup, elapsed])
-
-  const togglePlayback = useCallback(() => {
-    if (state !== 'complete') return
-
-    if (playback) {
-      audioRef.current?.pause()
-      cleanup()
-      setPlayback(false)
-    } else {
-      if (activeRecordingId && recording?.audio_url) {
-        const audio = new Audio(`${API_URL}${recording.audio_url}`)
-        audioRef.current = audio
-        audio.onended = () => {
-          cleanup()
-          setPlayback(false)
-          setPlaybackPos(0)
-        }
-        audio.play()
-      }
-
-      setPlayback(true)
-      setPlaybackPos(0)
-      intervalRef.current = setInterval(() => {
-        setPlaybackPos((p) => {
-          if (p >= duration) {
-            cleanup()
-            setPlayback(false)
-            return 0
-          }
-          return p + 1000
-        })
-      }, 1000)
-    }
-  }, [state, playback, duration, cleanup, activeRecordingId, recording])
+  const playbackUrl =
+    state === 'complete' && activeRecordingId && recording?.audio_url
+      ? `${API_URL}${recording.audio_url}`
+      : null
+  const playback = useAudioPlayback(playbackUrl)
 
   const progress = state === 'complete' && duration > 0
-    ? (playback ? playbackPos / duration : 1)
+    ? (playback.playing || playback.position > 0 ? Math.min(playback.position / duration, 1) : 1)
     : 0
 
   return (
     <div className="container-size flex h-full min-h-0 flex-col overflow-hidden">
       {onConfigChange && (
         <div className="shrink-0 px-3 pb-2 pt-1">
-          <RecordingPicker
-            value={recordingId || undefined}
-            recordings={recordings ?? undefined}
-            onChange={(id) => onConfigChange({ recordingId: id ?? '' })}
-            emptyLabel="Start new recording"
-          />
+          <Select
+            data-testid="recording-picker"
+            value={recordingId || ''}
+            onChange={(e) => onConfigChange({ recordingId: e.target.value })}
+          >
+            <option value="">Start new recording</option>
+            {recordings?.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
+              </option>
+            ))}
+          </Select>
         </div>
       )}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
@@ -269,8 +121,8 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
         <span className="font-mono text-sm font-semibold tabular-nums text-neutral-300 @tall:text-2xl">
           {state === 'recording'
             ? formatTime(elapsed)
-            : state === 'complete' && playback
-              ? formatTime(playbackPos)
+            : state === 'complete' && playback.playing
+              ? formatTime(playback.position)
               : state === 'complete'
                 ? formatTime(duration)
                 : '0:00'}
@@ -281,23 +133,23 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
             <>
               {state === 'complete' && (
                 <button
-                  onClick={togglePlayback}
+                  onClick={playback.toggle}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
                 >
-                  {playback
+                  {playback.playing
                     ? <Pause className="h-3 w-3 @tall:h-4 @tall:w-4" />
                     : <Play className="ml-px h-3 w-3 @tall:ml-0.5 @tall:h-4 @tall:w-4" />}
                 </button>
               )}
               <button
-                onClick={startRecording}
+                onClick={recorder.start}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
               >
                 <Mic className="h-3.5 w-3.5 @tall:h-5 @tall:w-5" />
               </button>
               {state === 'complete' && (
                 <button
-                  onClick={() => { setState('idle'); setPlayback(false); setLastRecordingId(null); cleanup() }}
+                  onClick={() => { recorder.reset(); playback.stop() }}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
                 >
                   <RotateCcw className="h-3 w-3 @tall:h-4 @tall:w-4" />
@@ -306,7 +158,7 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
             </>
           ) : state === 'recording' ? (
             <button
-              onClick={stopRecording}
+              onClick={recorder.stop}
               className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
             >
               <Square className="h-3 w-3 @tall:h-4 @tall:w-4" />
@@ -328,7 +180,7 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
             />
           </div>
           <div className="mt-1 flex justify-between font-mono text-[10px] text-neutral-600">
-            <span>{playback ? formatTime(playbackPos) : '0:00'}</span>
+            <span>{playback.playing || playback.position > 0 ? formatTime(playback.position) : '0:00'}</span>
             <span>{formatTime(duration)}</span>
           </div>
         </div>

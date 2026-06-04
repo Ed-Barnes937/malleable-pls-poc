@@ -1,11 +1,11 @@
 import { useState } from 'react'
-import { Zap, ZapOff, Plus, AlertTriangle } from 'lucide-react'
-import { Dialog, Spinner } from '@pls/shared-ui'
+import { Zap, Plus } from 'lucide-react'
+import { Dialog } from '@pls/shared-ui'
 import { useManifest } from '@pls/lens-framework'
 import { useWorkflowsForLens } from '@pls/substrate-client'
 import { type WorkflowWithJobs } from '@pls/substrate'
-import { WorkflowCard } from './WorkflowCard'
 import { WorkflowEditor } from './WorkflowEditor'
+import { WorkflowList } from './WorkflowList'
 
 interface LensAutomationsButtonProps {
   panelId: string
@@ -82,41 +82,26 @@ function AutomationsList({
   const { data: workflows, isLoading, isError, error } = useWorkflowsForLens(lensType, workspaceId)
 
   return (
-    <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto">
-      {isLoading ? (
-        <div className="flex items-center justify-center py-6">
-          <Spinner size="sm" />
-        </div>
-      ) : isError ? (
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 py-6 text-center">
-          <AlertTriangle className="h-5 w-5 text-red-400" />
-          <p className="text-[11px] text-red-300">Couldn’t load automations</p>
-          <p className="px-3 text-[10px] text-neutral-600">{error?.message ?? 'Request failed'}</p>
-        </div>
-      ) : workflows && workflows.length > 0 ? (
-        workflows.map((wf) => (
-          <WorkflowCard
-            key={wf.id}
-            workflow={wf}
-            workspaceId={workspaceId}
-            showEditDelete
-            onEdit={onEdit}
-          />
-        ))
-      ) : (
-        <div className="flex flex-col items-center gap-2 py-6 text-center">
-          <ZapOff className="h-5 w-5 text-neutral-700" />
-          <p className="text-[11px] text-neutral-600">No automations for this lens</p>
-        </div>
-      )}
-
-      <button
-        onClick={onCreate}
-        className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-neutral-600 transition-all hover:bg-surface-overlay/50 hover:text-neutral-400"
-      >
-        <Plus className="h-3.5 w-3.5 shrink-0" />
-        New automation
-      </button>
-    </div>
+    <WorkflowList
+      workflows={workflows}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      workspaceId={workspaceId}
+      showEditDelete
+      onEdit={onEdit}
+      errorLabel="Couldn’t load automations"
+      emptyLabel="No automations for this lens"
+      className="max-h-[70vh] overflow-y-auto"
+      footer={
+        <button
+          onClick={onCreate}
+          className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-neutral-600 transition-all hover:bg-surface-overlay/50 hover:text-neutral-400"
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0" />
+          New automation
+        </button>
+      }
+    />
   )
 }

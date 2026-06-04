@@ -83,9 +83,8 @@ export function WorkspaceShell() {
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
     const map = new Map<string, Record<string, unknown>>()
-    for (const p of panels as unknown as { id: string; config: Record<string, unknown> | string; lens_type: string }[]) {
-      const cfg = typeof p.config === 'string' ? JSON.parse(p.config) : p.config
-      map.set(p.id, { ...cfg, lensType: p.lens_type })
+    for (const p of panels as unknown as { id: string; config: Record<string, unknown>; lens_type: string }[]) {
+      map.set(p.id, { ...p.config, lensType: p.lens_type })
     }
     return map
   }, [panels])

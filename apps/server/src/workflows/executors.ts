@@ -37,22 +37,23 @@ export function registerAllExecutors() {
         console.log('ASSEMBLYAI_API_KEY not set — using mock transcription')
         await delay(1500 + Math.random() * 1000)
 
-        if (userId) {
-          await withUser(userId, async (tx) => {
-            const segments = [
-              { start: 0, end: 60000, text: 'Welcome to today\'s lecture. We\'ll be covering the fundamentals of distributed systems.' },
-              { start: 60000, end: 120000, text: 'The key challenge is maintaining consistency across multiple nodes while preserving availability.' },
-              { start: 120000, end: 180000, text: 'Let\'s look at the CAP theorem and what it means in practice for system design.' },
-            ]
-            for (const seg of segments) {
-              await tx`
-                INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
-                VALUES (${userId}, ${recordingId}, ${seg.start}, ${seg.end}, ${seg.text}, 'Lecturer')
-              `
-            }
-            await tx`UPDATE recordings SET status = 'transcribed' WHERE id = ${recordingId}`
-          })
+        if (!userId) {
+          throw new Error('ai:transcribe mock path requires input._userId — refusing to report success without writing segments')
         }
+        await withUser(userId, async (tx) => {
+          const segments = [
+            { start: 0, end: 60000, text: 'Welcome to today\'s lecture. We\'ll be covering the fundamentals of distributed systems.' },
+            { start: 60000, end: 120000, text: 'The key challenge is maintaining consistency across multiple nodes while preserving availability.' },
+            { start: 120000, end: 180000, text: 'Let\'s look at the CAP theorem and what it means in practice for system design.' },
+          ]
+          for (const seg of segments) {
+            await tx`
+              INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
+              VALUES (${userId}, ${recordingId}, ${seg.start}, ${seg.end}, ${seg.text}, 'Lecturer')
+            `
+          }
+          await tx`UPDATE recordings SET status = 'transcribed' WHERE id = ${recordingId}`
+        })
 
         return {
           output: { recording_id: recordingId, segment_count: 3, status: 'transcribed' },
