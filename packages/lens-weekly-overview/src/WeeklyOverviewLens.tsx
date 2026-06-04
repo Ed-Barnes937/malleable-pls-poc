@@ -1,5 +1,5 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
+import { EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, TrendingUp } from 'lucide-react'
 
 export default function WeeklyOverviewLens({ scope }: LensProps) {

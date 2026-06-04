@@ -8,10 +8,43 @@ import type {
   Workspace,
   WorkspacePanel,
   WorkspaceScope,
-  Workflow,
-  WorkflowJob,
-  JobRun,
 } from '@pls/substrate/src/types'
+
+// Simulator-internal types: enabled/params stored as raw DB primitives
+export interface Workflow {
+  id: string
+  source_lens: string
+  trigger_event: string
+  condition_field: string | null
+  condition_value: string | null
+  enabled: number
+  workspace_id: string | null
+  created_at: string
+}
+
+export interface WorkflowJob {
+  id: string
+  workflow_id: string
+  job_type: string
+  params: string
+  sort_order: number
+  delay_ms: number
+}
+
+export interface JobRun {
+  id: string
+  workflow_id: string
+  workflow_job_id: string
+  job_type: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  input: string | null
+  output: string | null
+  error: string | null
+  depth: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
 
 export interface SeedData {
   recordings: Recording[]

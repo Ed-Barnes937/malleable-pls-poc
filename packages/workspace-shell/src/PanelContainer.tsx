@@ -1,8 +1,7 @@
-import { Suspense, Component, useState, useEffect, useRef, type ReactNode, type ErrorInfo } from 'react'
+import { Suspense, Component, type ReactNode, type ErrorInfo } from 'react'
 import { SubstrateProvider, useManifest } from '@pls/lens-framework'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { substrateBridge } from './substrate-bridge'
-import { useRecentJobs } from '@pls/substrate-client'
 
 /* ── Error boundary ── */
 
@@ -48,50 +47,10 @@ function LoadingSkeleton() {
   )
 }
 
-/* ── Pulse animation hook (reacts to completed jobs) ── */
-
-export function usePanelPulse(lensType: string) {
-  const [pulsing, setPulsing] = useState(false)
-  const manifest = useManifest(lensType)
-  const { data: jobs } = useRecentJobs(5)
-  const prevCompletedRef = useRef(0)
-
-  useEffect(() => {
-    if (!jobs) return
-    const completed = jobs.filter((j) => j.status === 'completed').length
-    if (completed > prevCompletedRef.current && prevCompletedRef.current > 0) {
-      const relevantKeys = manifest?.reads ?? []
-      const hasRelevantJob = jobs.some((j) => {
-        if (j.status !== 'completed' || !j.output) return false
-        try {
-          const output = JSON.parse(j.output)
-          return relevantKeys.some((key) =>
-            j.job_type.includes(key) ||
-            Object.keys(output).some((k) => k.toLowerCase().includes(key.replace('_', '')))
-          )
-        } catch {
-          return true
-        }
-      })
-      if (hasRelevantJob) {
-        setPulsing(true)
-        const timer = setTimeout(() => setPulsing(false), 1500)
-        return () => clearTimeout(timer)
-      }
-    }
-    prevCompletedRef.current = completed
-  }, [jobs, lensType, manifest])
-
-  return pulsing
-}
-
 /* ── PanelContainer ── */
 
 interface PanelContainerProps {
-  panelId: string
   lensType: string
-  dbPanelId?: string
-  onRemove?: () => void
   children: ReactNode
 }
 
@@ -100,10 +59,7 @@ interface PanelContainerProps {
  * and Suspense. In the new canvas-based layout, the outer chrome (header, drag,
  * close, fullscreen) is handled by PanelChrome inside CanvasEngine.
  */
-export function PanelContainer({
-  lensType,
-  children,
-}: PanelContainerProps) {
+export function PanelContainer({ lensType, children }: PanelContainerProps) {
   const manifest = useManifest(lensType)
   const isWritable = manifest?.category === 'tool'
 

@@ -14,4 +14,3 @@ export const test = base.extend<SimulatorFixtures>({
 })
 
 export { expect }
-export { EndpointBehaviour } from './backend-simulator'

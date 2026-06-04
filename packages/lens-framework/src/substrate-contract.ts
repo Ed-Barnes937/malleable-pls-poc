@@ -64,7 +64,6 @@ export interface SubstrateReader {
   useRecording: (id: string) => QueryResult<Recording>
   useTranscript: (recordingId: string) => QueryResult<TranscriptSegment[]>
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
-  useTagsForTarget: (targetType: string, targetId: string) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
   useConnections: (conceptSegmentId: string) => QueryResult<ConnectionResult[]>
@@ -80,7 +79,6 @@ export interface SubstrateReader {
 
 export interface SubstrateWriter extends SubstrateReader {
   useCreateTag: () => MutationHandle<NewTag>
-  useDeleteTag: () => MutationHandle<string, void>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
 }
@@ -116,6 +114,4 @@ export interface PanelManifest {
   defaultWidth?: number
   defaultHeight?: number
 
-  /** @deprecated Use individual size fields instead */
-  defaultSize?: { w: number; h: number }
 }

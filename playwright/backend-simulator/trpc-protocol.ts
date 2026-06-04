@@ -1,5 +1,4 @@
 import superjson from 'superjson'
-import { EndpointBehaviour, type EndpointBehaviourManager } from './endpoint-behaviour'
 
 export interface TrpcProcedureCall {
   path: string
@@ -133,28 +132,12 @@ export async function handleTrpcRequest(
   method: string,
   postBody: string | undefined,
   router: ProcedureRouter,
-  behaviours: EndpointBehaviourManager,
 ): Promise<RouteHandlerResult> {
   const { calls, isBatch } = parseTrpcRequest(url, method, postBody)
 
-  for (const call of calls) {
-    const behaviour = behaviours.get(call.path)
-    if (behaviour === EndpointBehaviour.NETWORK_ERROR) {
-      return { status: 0, body: '', contentType: '', abort: true }
-    }
-    if (behaviour === EndpointBehaviour.STALL) {
-      return { status: 0, body: '', contentType: '', stall: true }
-    }
-  }
-
   const results: TrpcResult[] = []
   for (const call of calls) {
-    const behaviour = behaviours.get(call.path)
-    if (behaviour === EndpointBehaviour.ERROR) {
-      results.push({ error: { message: 'Simulated error', code: 'INTERNAL_SERVER_ERROR' } })
-    } else {
-      results.push(await router.resolve(call.path, call.input))
-    }
+    results.push(await router.resolve(call.path, call.input))
   }
 
   return {

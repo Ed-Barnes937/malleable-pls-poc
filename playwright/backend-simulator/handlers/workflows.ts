@@ -1,6 +1,7 @@
 import type { ProcedureRouter } from '../trpc-protocol'
-import type { InMemoryDb } from '../in-memory-db'
-import type { WorkflowWithJobs } from '@pls/substrate/src/types'
+import type { InMemoryDb, Workflow, WorkflowJob } from '../in-memory-db'
+
+type WorkflowWithJobs = Workflow & { jobs: WorkflowJob[] }
 
 export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workflows.forLens', (input) => {
