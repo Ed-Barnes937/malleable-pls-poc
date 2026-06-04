@@ -26,4 +26,5 @@ export {
   useServerEvents,
 } from './shell-hooks'
 export type { JobEvent, ServerEventHandlers } from './shell-hooks'
+export { decodeScope } from './shell-hooks'
 export type { AppRouter } from './trpc'

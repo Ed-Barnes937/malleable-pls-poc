@@ -2,7 +2,6 @@ import { useMemo } from 'react'
 import { ZapOff, AlertTriangle } from 'lucide-react'
 import { Spinner } from '@pls/shared-ui'
 import { useWorkflowsForWorkspace, useWorkspacePanels } from '@pls/substrate-client'
-import { type WorkflowWithJobs } from '@pls/substrate'
 import { useWorkspaceStore } from './store'
 import { WorkflowCard } from './WorkflowCard'
 
@@ -12,10 +11,9 @@ export function WorkflowSettingsPanel() {
   const { data: panels } = useWorkspacePanels(workspaceId)
 
   const workflows = useMemo(() => {
-    const all = rawWorkflows as unknown as WorkflowWithJobs[] | undefined
-    if (!all || !panels) return all
+    if (!rawWorkflows || !panels) return rawWorkflows
     const lensTypes = new Set(panels.map((p) => p.lens_type as string))
-    return all.filter((wf) => lensTypes.has(wf.source_lens))
+    return rawWorkflows.filter((wf) => lensTypes.has(wf.source_lens))
   }, [rawWorkflows, panels])
 
   return (

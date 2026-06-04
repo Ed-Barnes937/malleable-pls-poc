@@ -5,6 +5,7 @@ import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
+import { clampToCanvas, resizeDimensions, anchoredPosition } from './geometry'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -203,23 +204,9 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 
       const { startX, startY, panelX, panelY, panelW, panelH } = startRef.current
       const axes = HANDLE_AXES[direction]
-      const deltaX = e.clientX - startX
-      const deltaY = e.clientY - startY
+      const delta = { x: e.clientX - startX, y: e.clientY - startY }
 
-      let newW = panelW
-      let newH = panelH
-
-      if (axes.dx === 1) {
-        newW = panelW + deltaX
-      } else if (axes.dx === -1) {
-        newW = panelW - deltaX
-      }
-
-      if (axes.dy === 1) {
-        newH = panelH + deltaY
-      } else if (axes.dy === -1) {
-        newH = panelH - deltaY
-      }
+      let { w: newW, h: newH } = resizeDimensions({ w: panelW, h: panelH }, axes, delta)
 
       if (shiftRef.current) {
         newW = snapToGrid(newW)
@@ -228,9 +215,12 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 
       const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
       const clamped = clampDimensions(newW, newH, panel?.constraints)
-
-      const newX = axes.dx === -1 ? panelX + panelW - clamped.width : panelX
-      const newY = axes.dy === -1 ? panelY + panelH - clamped.height : panelY
+      const { x: newX, y: newY } = anchoredPosition(
+        { x: panelX, y: panelY, w: panelW, h: panelH },
+        axes,
+        clamped.width,
+        clamped.height,
+      )
 
       resizePanel(panelId, newX, newY, clamped.width, clamped.height)
     },
@@ -260,6 +250,96 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
   )
 }
 
+/* ── Drag hook ── */
+
+function usePanelDrag(
+  panel: PanelItem,
+  opts: { shiftRef: React.RefObject<boolean>; canvasRef: React.RefObject<HTMLDivElement | null>; isFullscreen: boolean },
+) {
+  const movePanel = useCanvasStore((s) => s.movePanel)
+  const dragControls = useDragControls()
+  const x = useMotionValue(0)
+  const y = useMotionValue(0)
+  const [isGesturing, setIsGesturing] = useState(false)
+  const { shiftRef, canvasRef, isFullscreen } = opts
+
+  const onGestureChange = useCallback((active: boolean) => setIsGesturing(active), [])
+
+  const onDragStart = useCallback(() => setIsGesturing(true), [])
+
+  const onDrag = useCallback(
+    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
+      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
+      if (!current) return
+
+      let offsetX = info.offset.x
+      let offsetY = info.offset.y
+
+      if (shiftRef.current) {
+        offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
+        offsetY = snapToGrid(current.pos_y + offsetY) - current.pos_y
+      }
+
+      const canvas = canvasRef.current
+      if (canvas) {
+        const clamped = clampToCanvas(
+          { x: current.pos_x + offsetX, y: current.pos_y + offsetY },
+          { width: current.width, height: current.height },
+          { width: canvas.clientWidth, height: canvas.clientHeight },
+        )
+        offsetX = clamped.x - current.pos_x
+        offsetY = clamped.y - current.pos_y
+      }
+
+      x.set(offsetX)
+      y.set(offsetY)
+    },
+    [panel.id, shiftRef, x, y, canvasRef],
+  )
+
+  const onDragEnd = useCallback(
+    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
+      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
+      if (!current) return
+
+      let newX = current.pos_x + info.offset.x
+      let newY = current.pos_y + info.offset.y
+
+      if (shiftRef.current) {
+        newX = snapToGrid(newX)
+        newY = snapToGrid(newY)
+      }
+
+      const canvas = canvasRef.current
+      if (canvas) {
+        const clamped = clampToCanvas(
+          { x: newX, y: newY },
+          { width: current.width, height: current.height },
+          { width: canvas.clientWidth, height: canvas.clientHeight },
+        )
+        newX = clamped.x
+        newY = clamped.y
+      }
+
+      x.jump(0)
+      y.jump(0)
+      movePanel(panel.id, newX, newY)
+      requestAnimationFrame(() => setIsGesturing(false))
+    },
+    [panel.id, movePanel, x, y, shiftRef, canvasRef],
+  )
+
+  const onDragHandlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (isFullscreen) return
+      dragControls.start(e)
+    },
+    [dragControls, isFullscreen],
+  )
+
+  return { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown }
+}
+
 /* ── Draggable panel ── */
 
 interface DraggablePanelProps {
@@ -278,108 +358,24 @@ interface DraggablePanelProps {
 }
 
 function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
-  const movePanel = useCanvasStore((s) => s.movePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
   const [isHovered, setIsHovered] = useState(false)
-  const [isGesturing, setIsGesturing] = useState(false)
 
-  const dragControls = useDragControls()
-  const x = useMotionValue(0)
-  const y = useMotionValue(0)
-
-  const handleResizeGestureChange = useCallback((active: boolean) => {
-    setIsGesturing(active)
-  }, [])
-
-  const handleDragStart = useCallback(() => {
-    setIsGesturing(true)
-  }, [])
-
-  const handleDragEnd = useCallback(
-    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
-      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-      if (!current) return
-
-      let newX = current.pos_x + info.offset.x
-      let newY = current.pos_y + info.offset.y
-
-      if (shiftRef.current) {
-        newX = snapToGrid(newX)
-        newY = snapToGrid(newY)
-      }
-
-      const canvas = canvasRef?.current
-      if (canvas) {
-        const visible = Math.min(100, current.width / 2, current.height / 2)
-        newX = Math.max(visible - current.width, Math.min(newX, canvas.clientWidth - visible))
-        newY = Math.max(0, Math.min(newY, canvas.clientHeight - visible))
-      }
-
-      x.jump(0)
-      y.jump(0)
-      movePanel(panel.id, newX, newY)
-      requestAnimationFrame(() => {
-        setIsGesturing(false)
-      })
-    },
-    [panel.id, movePanel, x, y, shiftRef, canvasRef],
-  )
+  const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
+    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
     useCanvasStore.getState().selectPanel(panel.id)
-    if (isDimmed) {
-      useCanvasStore.getState().enterFocusMode(panel.id)
-    }
+    if (isDimmed) useCanvasStore.getState().enterFocusMode(panel.id)
   }, [panel.id, bringToFront, isDimmed])
 
-  const handleDrag = useCallback(
-    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
-      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-      if (!current) return
-
-      let offsetX = info.offset.x
-      let offsetY = info.offset.y
-
-      if (shiftRef.current) {
-        offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
-        offsetY = snapToGrid(current.pos_y + offsetY) - current.pos_y
-      }
-
-      const canvas = canvasRef?.current
-      if (canvas) {
-        const visible = Math.min(100, current.width / 2, current.height / 2)
-        const minX = visible - current.width - current.pos_x
-        const maxX = canvas.clientWidth - visible - current.pos_x
-        const minY = -current.pos_y
-        const maxY = canvas.clientHeight - visible - current.pos_y
-        offsetX = Math.max(minX, Math.min(maxX, offsetX))
-        offsetY = Math.max(minY, Math.min(maxY, offsetY))
-      }
-
-      x.set(offsetX)
-      y.set(offsetY)
-    },
-    [panel.id, shiftRef, x, y, canvasRef],
-  )
-
   const handleClose = useCallback(() => {
-    if (onRemovePanel) {
-      onRemovePanel(panel.id)
-    } else {
-      removePanel(panel.id)
-    }
+    if (onRemovePanel) onRemovePanel(panel.id)
+    else removePanel(panel.id)
   }, [panel.id, removePanel, onRemovePanel])
-
-  const handleDragHandlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (isFullscreen) return
-      dragControls.start(e)
-    },
-    [dragControls, isFullscreen],
-  )
 
   const handleToggleFullscreen = useCallback(() => {
     const canvas = canvasRef?.current
@@ -401,7 +397,6 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
     ? undefined
     : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
 
-  // Resolve icon and label from the lens manifest
   const icon = panel.lensType ? getIcon?.(panel.lensType) : undefined
   const label = panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
 
@@ -427,9 +422,9 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
         x,
         y,
       }}
-      onDragStart={handleDragStart}
-      onDrag={handleDrag}
-      onDragEnd={handleDragEnd}
+      onDragStart={onDragStart}
+      onDrag={onDrag}
+      onDragEnd={onDragEnd}
       onPointerDown={handlePointerDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -438,7 +433,6 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
       animate={{ scale: isGesturing ? 1.015 : 1 }}
       transition={{ type: 'tween', duration: 0.2 }}
     >
-      {/* Resize handles */}
       <div
         style={{ pointerEvents: (isHovered && !isFullscreen) ? 'auto' : 'none' }}
         data-testid={`resize-handles-${panel.id}`}
@@ -449,7 +443,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
             direction={dir}
             panelId={panel.id}
             shiftRef={shiftRef}
-            onGestureChange={handleResizeGestureChange}
+            onGestureChange={onGestureChange}
           />
         ))}
       </div>
@@ -459,7 +453,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
         title={label}
         icon={icon}
         onClose={handleClose}
-        onDragHandlePointerDown={handleDragHandlePointerDown}
+        onDragHandlePointerDown={onDragHandlePointerDown}
         isFullscreen={isFullscreen}
         onToggleFullscreen={handleToggleFullscreen}
         headerActions={renderHeaderActions?.(panel.id)}

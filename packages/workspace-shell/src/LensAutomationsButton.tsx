@@ -79,8 +79,7 @@ function AutomationsList({
   onEdit: (workflow: WorkflowWithJobs) => void
   onCreate: () => void
 }) {
-  const { data: rawWorkflows, isLoading, isError, error } = useWorkflowsForLens(lensType, workspaceId)
-  const workflows = rawWorkflows as unknown as WorkflowWithJobs[] | undefined
+  const { data: workflows, isLoading, isError, error } = useWorkflowsForLens(lensType, workspaceId)
 
   return (
     <div className="flex max-h-[70vh] flex-col gap-2 overflow-y-auto">

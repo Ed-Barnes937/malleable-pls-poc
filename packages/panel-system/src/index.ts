@@ -13,3 +13,4 @@ export {
   type BackgroundType,
 } from './canvas-store'
 export { snapToGrid, GRID_SIZE } from './snap'
+export { clampToCanvas, resizeDimensions, anchoredPosition } from './geometry'

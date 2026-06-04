@@ -3,6 +3,7 @@ import {
   useWorkspacePanels,
   useWorkspaceScopes,
   useSetWorkspaceScope,
+  decodeScope,
 } from '@pls/substrate-client'
 import { SectionLabel } from '@pls/shared-ui'
 import { ChevronDown } from 'lucide-react'
@@ -42,8 +43,9 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   const { data: scopes } = useWorkspaceScopes(workspaceId)
   const setScope = useSetWorkspaceScope()
 
-  const currentCourse = scopes?.find((s) => s.scope_type === 'tag')?.scope_value ?? ''
-  const currentTimeframe = scopes?.find((s) => s.scope_type === 'timeframe')?.scope_value ?? ''
+  const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
+  const currentCourse = decodedScope.courseTag ?? ''
+  const currentTimeframe = decodedScope.timeframe ?? ''
 
   const handleChange = useCallback(
     (scopeType: string, value: string) => {
