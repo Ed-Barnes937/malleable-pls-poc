@@ -185,6 +185,13 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        if (input.scopeType === 'tag') {
+          await tx`
+            DELETE FROM workspace_scopes
+            WHERE workspace_id = ${input.workspaceId}
+              AND scope_type = 'recording' AND user_id = ${ctx.userId}
+          `
+        }
         if (input.scopeValue === null) {
           await tx`
             DELETE FROM workspace_scopes

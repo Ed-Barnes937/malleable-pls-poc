@@ -7,8 +7,8 @@ test('renders connections for a concept', async ({ mount, page, simulator }) => 
     <TestProviders>
       <ConnectionsLens
         panelId="test-panel"
-        scope={{}}
-        config={{ conceptLabel: 'mitochondrial DNA', recordingId: 'rec-bio-4' }}
+        scope={{ recordingId: 'rec-bio-4' }}
+        config={{ conceptLabel: 'mitochondrial DNA' }}
       />
     </TestProviders>,
   )

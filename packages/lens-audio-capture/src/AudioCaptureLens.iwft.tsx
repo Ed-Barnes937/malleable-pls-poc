@@ -63,11 +63,11 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('0:00')).toBeVisible()
   })
 
-  test('shows complete state when recording exists in config', async ({ mount, page, simulator }) => {
+  test('shows complete state when recording is in scope', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     await mount(
       <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{}} config={{ recordingId: 'rec-bio-4' }} />
+        <AudioCaptureLens panelId="test" scope={{ recordingId: 'rec-bio-4' }} config={{}} />
       </AudioCaptureHarness>,
     )
 

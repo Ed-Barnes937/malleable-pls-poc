@@ -1,9 +1,10 @@
 export interface Scope {
   courseTag?: string
   timeframe?: 'week' | 'all'
+  recordingId?: string
 }
 
-export type ScopeDim = 'courseTag' | 'timeframe'
+export type ScopeDim = 'courseTag' | 'timeframe' | 'recordingId'
 
 export type LensCategory = 'tool' | 'view'
 

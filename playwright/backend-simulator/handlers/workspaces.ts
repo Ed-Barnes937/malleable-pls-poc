@@ -99,6 +99,12 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, scopeType, scopeValue } = input as {
       workspaceId: string; scopeType: string; scopeValue: string | null
     }
+    // Mirror server invariant: changing the course clears any focused recording.
+    if (scopeType === 'tag') {
+      db.workspaceScopes = db.workspaceScopes.filter(
+        (s) => !(s.workspace_id === workspaceId && s.scope_type === 'recording'),
+      )
+    }
     const idx = db.workspaceScopes.findIndex(
       (s) => s.workspace_id === workspaceId && s.scope_type === scopeType,
     )

@@ -11,6 +11,7 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   for (const s of rows) {
     if (s.scope_type === 'tag') scope.courseTag = s.scope_value
     if (s.scope_type === 'timeframe') scope.timeframe = s.scope_value as 'week' | 'all'
+    if (s.scope_type === 'recording') scope.recordingId = s.scope_value
   }
   return scope
 }
@@ -102,8 +103,8 @@ export function useSetWorkspaceScope() {
   })
 }
 
-export function useRecordings() {
-  return trpc.recordings.list.useQuery()
+export function useRecordings(courseTag?: string) {
+  return trpc.recordings.list.useQuery(courseTag ? { courseTag } : undefined)
 }
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {

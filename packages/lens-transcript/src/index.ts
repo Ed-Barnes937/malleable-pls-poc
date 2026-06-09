@@ -9,6 +9,7 @@ export const manifest: PanelManifest = {
   icon: FileText,
   description: 'Segments & tags',
   category: 'tool',
+  filters: ['recordingId'] as const,
   reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],

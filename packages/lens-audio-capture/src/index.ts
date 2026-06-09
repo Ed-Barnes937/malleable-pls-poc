@@ -9,6 +9,7 @@ export const manifest: PanelManifest = {
   icon: Mic,
   description: 'Record & playback',
   category: 'tool',
+  filters: ['recordingId'] as const,
   reads: ['recordings'],
   writes: ['recordings'],
   emits: ['recording:completed'],

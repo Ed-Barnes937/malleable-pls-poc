@@ -1,5 +1,5 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, formatTime, Select } from '@pls/shared-ui'
+import { cn, formatTime } from '@pls/shared-ui'
 import { Mic, Square, Play, Pause, RotateCcw, Loader2 } from 'lucide-react'
 import { API_URL } from './env'
 import { useAudioRecorder } from './useAudioRecorder'
@@ -40,12 +40,11 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
   )
 }
 
-export default function AudioCaptureLens({ config, onConfigChange }: LensProps) {
+export default function AudioCaptureLens({ scope, config }: LensProps) {
   const substrate = useSubstrate()
 
-  const recordingId = (config.recordingId as string) ?? ''
+  const recordingId = scope.recordingId ?? ''
   const { data: recording } = substrate.useRecording(recordingId)
-  const { data: recordings } = substrate.useRecordings()
 
   const recorder = useAudioRecorder(recordingId)
   const { state, elapsed, error } = recorder
@@ -65,22 +64,6 @@ export default function AudioCaptureLens({ config, onConfigChange }: LensProps) 
 
   return (
     <div className="container-size flex h-full min-h-0 flex-col overflow-hidden">
-      {onConfigChange && (
-        <div className="shrink-0 px-3 pb-2 pt-1">
-          <Select
-            data-testid="recording-picker"
-            value={recordingId || ''}
-            onChange={(e) => onConfigChange({ recordingId: e.target.value })}
-          >
-            <option value="">Start new recording</option>
-            {recordings?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
         {state === 'recording' && (
           <div className="flex items-center gap-1.5">

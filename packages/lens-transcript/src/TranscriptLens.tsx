@@ -1,22 +1,21 @@
 import { useState, useMemo } from 'react'
 import type { Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, formatTime, Select, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { cn, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
 
-export default function TranscriptLens({ scope, config, onConfigChange }: LensProps) {
+export default function TranscriptLens({ scope, config }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
-  const recordingId = (config.recordingId as string) ?? ''
+  const recordingId = scope.recordingId ?? ''
   const mode = (config.mode as string) ?? 'review'
   const isCapture = mode === 'capture'
 
   const { data: recording } = substrate.useRecording(recordingId)
   const { data: segments } = substrate.useTranscript(recordingId)
-  const { data: recordings } = substrate.useRecordings()
-  const { data: tags } = substrate.useTags({ ...scope, recordingId })
-  const { data: annotations } = substrate.useAnnotations({ ...scope, recordingId })
+  const { data: tags } = substrate.useTags({ ...scope })
+  const { data: annotations } = substrate.useAnnotations({ ...scope })
   const createTag = mutations.useCreateTag()
   const createAnnotation = mutations.useCreateAnnotation()
 
@@ -62,25 +61,9 @@ export default function TranscriptLens({ scope, config, onConfigChange }: LensPr
     setAnnotationDraft('')
   }
 
-  const picker = onConfigChange && (
-    <Select
-      data-testid="recording-picker"
-      value={recordingId || ''}
-      onChange={(e) => onConfigChange({ recordingId: e.target.value })}
-    >
-      <option value="">(none)</option>
-      {recordings?.map((r) => (
-        <option key={r.id} value={r.id}>
-          {r.title}
-        </option>
-      ))}
-    </Select>
-  )
-
   if (!recordingId) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
-        {picker}
         <div className="flex flex-1 items-center justify-center">
           <EmptyState message="Select a recording to view transcript" />
         </div>
@@ -90,7 +73,6 @@ export default function TranscriptLens({ scope, config, onConfigChange }: LensPr
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      {picker}
       <div className="flex items-center gap-2">
         <span className="truncate text-[11px] font-medium text-neutral-400">
           {recording?.title ?? 'Loading...'}

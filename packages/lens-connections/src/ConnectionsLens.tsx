@@ -22,12 +22,12 @@ const CONCEPT_SEGMENTS: Record<string, string> = {
   'SN1 vs SN2': 'seg-chem1-04',
 }
 
-export default function ConnectionsLens({ config }: LensProps) {
+export default function ConnectionsLens({ scope, config }: LensProps) {
   const substrate = useSubstrate()
 
   const conceptLabel = config.conceptLabel as string | undefined
   const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
-  const recordingId = config.recordingId as string | undefined
+  const recordingId = scope.recordingId
 
   const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '')
   const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)

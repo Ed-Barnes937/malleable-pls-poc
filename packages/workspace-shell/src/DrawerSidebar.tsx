@@ -3,6 +3,7 @@ import {
   useWorkspacePanels,
   useWorkspaceScopes,
   useSetWorkspaceScope,
+  useRecordings,
   decodeScope,
 } from '@pls/substrate-client'
 import { SectionLabel, Select } from '@pls/shared-ui'
@@ -45,6 +46,8 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
   const currentCourse = decodedScope.courseTag ?? ''
   const currentTimeframe = decodedScope.timeframe ?? ''
+  const currentRecordingId = decodedScope.recordingId ?? ''
+  const { data: recordings } = useRecordings(decodedScope.courseTag)
 
   const handleChange = useCallback(
     (scopeType: string, value: string) => {
@@ -83,6 +86,24 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
             {TIMEFRAMES.map((t) => (
               <option key={t.value} value={t.value}>
                 {t.label}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
+
+      {activeDims.has('recordingId') && (
+        <div>
+          <SectionLabel className="mb-1">Recording</SectionLabel>
+          <Select
+            aria-label="Recording focus"
+            value={currentRecordingId}
+            onChange={(e) => handleChange('recording', e.target.value)}
+          >
+            <option value="">No recording selected</option>
+            {recordings?.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.title}
               </option>
             ))}
           </Select>

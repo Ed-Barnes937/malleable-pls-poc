@@ -9,6 +9,7 @@ export const manifest: PanelManifest = {
   icon: Link2,
   description: 'Cross-lecture links',
   category: 'view',
+  filters: ['recordingId'] as const,
   reads: ['links'],
   load: () => import('./ConnectionsLens'),
   minWidth: 280,

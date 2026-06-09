@@ -4,8 +4,8 @@ import TranscriptLens from './TranscriptLens'
 
 const defaultProps = {
   panelId: 'test-panel',
-  scope: {},
-  config: { recordingId: 'rec-bio-4', mode: 'review' },
+  scope: { recordingId: 'rec-bio-4' },
+  config: { mode: 'review' },
 }
 
 test('renders transcript segments for a recording', async ({ mount, page, simulator }) => {
