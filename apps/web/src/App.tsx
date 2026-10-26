@@ -7,6 +7,8 @@ import { manifest as weeklyOverview } from '@pls/lens-weekly-overview'
 import { manifest as connections } from '@pls/lens-connections'
 import { manifest as gapAnalysis } from '@pls/lens-gap-analysis'
 import { manifest as weakestTopics } from '@pls/lens-weakest-topics'
+import { manifest as todo } from '@pls/lens-todo'
+import { manifest as comingUp } from '@pls/lens-coming-up'
 
 const manifests: PanelManifest[] = [
   audioCapture,
@@ -16,6 +18,8 @@ const manifests: PanelManifest[] = [
   connections,
   gapAnalysis,
   weakestTopics,
+  todo,
+  comingUp,
 ]
 
 export function App() {
