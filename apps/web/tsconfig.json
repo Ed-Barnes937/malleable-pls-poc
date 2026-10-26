@@ -3,7 +3,6 @@
   "include": ["src", "../../packages/*/src"],
   "compilerOptions": {
     "types": ["vite/client", "@testing-library/jest-dom/vitest", "node"],
-    "baseUrl": ".",
     "paths": {
       "@pls/*": ["../../packages/*/src"]
     }
