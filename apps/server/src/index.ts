@@ -4,9 +4,10 @@ import path from 'path'
 import { createHTTPHandler } from '@trpc/server/adapters/standalone'
 import cors from 'cors'
 import { appRouter } from './router'
-import { createContext } from './context'
+import { createContextFactory } from './context'
+import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
-import { registerAllExecutors } from './workflows/executors'
+import { createServerExecutors } from './workflows/executors'
 import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
@@ -14,7 +15,10 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads
 const port = Number(process.env.PORT ?? 3001)
 const isProduction = process.env.NODE_ENV === 'production'
 
-registerAllExecutors()
+// The single place AI clients are constructed; everything else receives them.
+const ai = createAiDeps()
+console.log(describeAiDeps(ai))
+const executors = createServerExecutors(ai)
 
 // ---------------------------------------------------------------------------
 // Rate limiter (sliding window, per-IP)
@@ -105,7 +109,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 const trpcHandler = createHTTPHandler({
   router: appRouter,
-  createContext,
+  createContext: createContextFactory(ai),
   middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
 })
 
@@ -214,7 +218,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(port, '0.0.0.0')
-startJobRunner()
+startJobRunner(executors)
 console.log(`tRPC server listening on :${port}`)
 
 export type { AppRouter } from './router'

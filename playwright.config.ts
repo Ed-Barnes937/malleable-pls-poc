@@ -1,5 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Cost guardrail: test runs never reach a real AI provider. Forced here so
+// every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
+process.env.AI_MODE = 'mock'
+delete process.env.OPENROUTER_API_KEY
+
 // Override these when another checkout/worktree already occupies the defaults.
 const apiPort = process.env.API_PORT ?? '3001'
 const webPort = process.env.WEB_PORT ?? '5173'

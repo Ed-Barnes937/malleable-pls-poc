@@ -1,7 +1,6 @@
 import { sql } from '@pls/db'
-import { createJobRunner, createWorkflowEngine, type RunnerEvent } from '@pls/workflows'
+import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type RunnerEvent } from '@pls/workflows'
 import { createPgAdapter } from './pg-adapter'
-import { serverExecutors } from './executors'
 import { emitEvent } from '../routers/events'
 
 /** Automatic retries after a failed attempt; a run that exhausts them can be retried by hand. */
@@ -23,7 +22,7 @@ function bridgeRunnerEvent(userId: string, event: RunnerEvent) {
   })
 }
 
-async function processJobs(): Promise<void> {
+async function processJobs(executors: ExecutorRegistry): Promise<void> {
   const users = await sql<{ user_id: string }[]>`
     SELECT DISTINCT user_id FROM job_runs WHERE status = 'pending' LIMIT 20
   `
@@ -35,7 +34,7 @@ async function processJobs(): Promise<void> {
     const engine = createWorkflowEngine({ adapter })
     const runner = createJobRunner({
       adapter,
-      executors: serverExecutors,
+      executors,
       engine,
       scopeId: null,
       maxRetries: MAX_RETRIES,
@@ -52,11 +51,11 @@ async function processJobs(): Promise<void> {
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-export function startJobRunner() {
+export function startJobRunner(executors: ExecutorRegistry) {
   if (intervalHandle) return
   console.log(`job runner started (polling every ${POLL_INTERVAL_MS}ms)`)
   intervalHandle = setInterval(() => {
-    processJobs().catch((err) => console.error('job runner error:', err))
+    processJobs(executors).catch((err) => console.error('job runner error:', err))
   }, POLL_INTERVAL_MS)
 }
 
