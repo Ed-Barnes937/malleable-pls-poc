@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@pls/db": "workspace:*",
+    "@pls/substrate": "workspace:*",
     "@pls/workflows": "workspace:*",
     "@trpc/server": "^11.19.0",
     "assemblyai": "^4.41.7",

@@ -1,4 +1,5 @@
 import type { SubstrateWriter, QueryResult, MutationHandle, QueryFilter } from '@pls/lens-framework'
+import type { PlanItemQuery } from '@pls/substrate'
 import { trpc } from './trpc'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -67,6 +68,10 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.aggregates.weakestTopics.useQuery({ limit, courseTag: filter.courseTag }))
   },
 
+  usePlanItems(query?: PlanItemQuery) {
+    return adapt(trpc.planItems.list.useQuery(query))
+  },
+
   useCreateTag() {
     const utils = trpc.useUtils()
     return adaptMutation(trpc.tags.create.useMutation({
@@ -90,4 +95,39 @@ export const substrateTrpc: SubstrateWriter = {
       },
     }))
   },
+
+  useCreatePlanItem() {
+    return adaptMutation(usePlanItemMutation(trpc.planItems.create))
+  },
+
+  useUpdatePlanItem() {
+    return adaptMutation(usePlanItemMutation(trpc.planItems.update))
+  },
+
+  useCompletePlanItem() {
+    return adaptMutation(usePlanItemMutation(trpc.planItems.complete))
+  },
+
+  useDismissPlanItem() {
+    return adaptMutation(usePlanItemMutation(trpc.planItems.dismiss))
+  },
+
+  useDeletePlanItem() {
+    return adaptMutation(usePlanItemMutation(trpc.planItems.delete))
+  },
+}
+
+/**
+ * Plan item mutations refresh every plan item list (Calendar, To-do and
+ * Coming up all read the same data) plus tags, which carry the course.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function usePlanItemMutation(procedure: { useMutation: (opts: { onSuccess: () => void }) => any }) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: () => {
+      utils.planItems.invalidate()
+      utils.tags.invalidate()
+    },
+  })
 }
