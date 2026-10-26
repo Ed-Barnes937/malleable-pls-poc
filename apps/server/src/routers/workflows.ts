@@ -1,8 +1,12 @@
+import type { JSONValue } from 'postgres'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { parseReviewParams, REVIEW_TASK_JOB, reviewTaskParamsInput } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { insertWorkflowJob, workflowJobsJson } from '../workflows/sql'
+import { replaceAutomationReviews, type ReplaceResult } from '../planning/review-automation'
 
 const jobInputSchema = z.object({
   jobType: z.string().max(255),
@@ -139,7 +143,76 @@ export const workflowsRouter = router({
         for (const job of input.jobs) {
           await insertWorkflowJob(tx, ctx.userId, input.workflowId, job)
         }
+        // The reviews this automation made follow its (possibly new) params.
+        const review = input.jobs.find((j) => j.jobType === REVIEW_TASK_JOB)
+        if (review) {
+          await replaceAutomationReviews(tx, ctx.userId, {
+            workflowId: input.workflowId,
+            params: parseReviewParams(review.params),
+            now: Date.now(),
+          })
+        }
         return workflow
+      })
+    }),
+
+  /**
+   * Edits an automation in place (default or board-specific): its condition
+   * value and/or some jobs' params. Job rows keep their ids, unlike `update`.
+   * Editing the confusion automation's params re-places the reviews it made
+   * (see replaceAutomationReviews); the result says how many moved.
+   */
+  patch: publicProcedure
+    .input(z.object({
+      workflowId: z.string().max(255),
+      conditionValue: z.string().max(255).optional(),
+      jobParams: z.array(z.object({
+        workflowJobId: z.string().max(255),
+        params: z.record(z.string(), z.unknown()),
+      })).max(20).optional(),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const [workflow] = await tx`
+          SELECT id FROM workflows WHERE id = ${input.workflowId} AND user_id = ${ctx.userId}
+        `
+        if (!workflow) throw new TRPCError({ code: 'NOT_FOUND', message: 'Automation not found' })
+        if (input.conditionValue !== undefined) {
+          await tx`
+            UPDATE workflows SET condition_value = ${input.conditionValue}
+            WHERE id = ${input.workflowId} AND user_id = ${ctx.userId}
+          `
+        }
+        const reviews: ReplaceResult = { moved: 0, unscheduled: 0 }
+        for (const { workflowJobId, params } of input.jobParams ?? []) {
+          const [job] = await tx`
+            SELECT job_type FROM workflow_jobs
+            WHERE id = ${workflowJobId} AND workflow_id = ${input.workflowId} AND user_id = ${ctx.userId}
+          `
+          if (!job) throw new TRPCError({ code: 'NOT_FOUND', message: 'Automation step not found' })
+          let stored: Record<string, unknown> = params
+          if (job.job_type === REVIEW_TASK_JOB) {
+            const parsed = reviewTaskParamsInput.safeParse(params)
+            if (!parsed.success) {
+              throw new TRPCError({ code: 'BAD_REQUEST', message: parsed.error.issues.map((i) => i.message).join('; ') })
+            }
+            stored = parsed.data
+          }
+          await tx`
+            UPDATE workflow_jobs SET params = ${tx.json(stored as JSONValue)}
+            WHERE id = ${workflowJobId} AND user_id = ${ctx.userId}
+          `
+          if (job.job_type === REVIEW_TASK_JOB) {
+            const result = await replaceAutomationReviews(tx, ctx.userId, {
+              workflowId: input.workflowId,
+              params: parseReviewParams(stored),
+              now: Date.now(),
+            })
+            reviews.moved += result.moved
+            reviews.unscheduled += result.unscheduled
+          }
+        }
+        return { reviews }
       })
     }),
 

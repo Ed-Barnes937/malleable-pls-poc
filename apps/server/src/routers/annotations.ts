@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { LECTURE_SUMMARY_ANCHOR } from '@pls/substrate'
 import { boardScope, andInCourse } from './_shared'
 
 export const annotationsRouter = router({
@@ -9,15 +10,26 @@ export const annotationsRouter = router({
     .input(boardScope)
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        if (input.recordingId || input.courseTag) {
+        if (input.recordingId) {
+          // A targeted lecture wins over the course (see boardScope): notes on
+          // its moments, plus its lecture summary.
+          return tx`
+            SELECT a.* FROM annotations a
+            WHERE a.user_id = ${ctx.userId} AND (
+              (a.anchor_type = 'transcript_segment' AND a.anchor_id IN (
+                SELECT ts.id FROM transcript_segments ts WHERE ts.recording_id = ${input.recordingId}
+              ))
+              OR (a.anchor_type = ${LECTURE_SUMMARY_ANCHOR} AND a.anchor_id = ${input.recordingId})
+            )
+            ORDER BY a.created_at DESC
+          `
+        }
+        if (input.courseTag) {
           return tx`
             SELECT a.* FROM annotations a
             JOIN transcript_segments ts ON ts.id = a.anchor_id AND a.anchor_type = 'transcript_segment'
             WHERE a.user_id = ${ctx.userId}
-              ${input.recordingId
-                // A targeted lecture wins over the course (see boardScope).
-                ? tx`AND ts.recording_id = ${input.recordingId}`
-                : andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
+              ${andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
             ORDER BY a.created_at DESC
           `
         }

@@ -10,7 +10,7 @@ export const manifest: PanelManifest = {
   description: 'Segments & tags',
   // Course narrows the lecture picker (focus clears when it leaves the course).
   scope: { courseTag: 'filter', recordingId: 'target' },
-  reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
+  reads: ['transcript_segments', 'tags', 'annotations', 'recordings', 'plan_items'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],
   load: () => import('./TranscriptLens'),

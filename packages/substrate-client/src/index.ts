@@ -25,6 +25,7 @@ export {
   useCreateWorkflow,
   useUpdateWorkflow,
   useDeleteWorkflow,
+  usePatchWorkflow,
   useServerEvents,
 } from './shell-hooks'
 export type { JobEvent, ServerEventHandlers } from './shell-hooks'

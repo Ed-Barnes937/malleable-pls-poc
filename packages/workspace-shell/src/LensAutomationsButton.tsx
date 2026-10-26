@@ -91,7 +91,7 @@ function AutomationsList({
       showEditDelete
       onEdit={onEdit}
       errorLabel="Couldn’t load automations"
-      emptyLabel="No automations for this lens"
+      emptyLabel="No automations for this widget yet"
       className="max-h-[70vh] overflow-y-auto"
       footer={
         <button

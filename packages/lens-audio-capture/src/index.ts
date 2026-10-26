@@ -12,7 +12,8 @@ export const manifest: PanelManifest = {
   scope: { courseTag: 'filter', recordingId: 'target' },
   reads: ['recordings'],
   writes: ['recordings'],
-  emits: ['recording:completed'],
+  // recording:transcribed comes from the transcribe job this widget's upload starts.
+  emits: ['recording:completed', 'recording:transcribed'],
   load: () => import('./AudioCaptureLens'),
   minWidth: 280,
   minHeight: 200,

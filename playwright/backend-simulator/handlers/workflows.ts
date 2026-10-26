@@ -107,6 +107,25 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
     return workflow
   })
 
+  // In-place edit. Unlike the server it does not re-place reviews (no
+  // scheduler or plan item writes here), so it always reports none moved.
+  router.register('workflows.patch', (input) => {
+    const { workflowId, conditionValue, jobParams } = input as {
+      workflowId: string
+      conditionValue?: string
+      jobParams?: { workflowJobId: string; params: Record<string, unknown> }[]
+    }
+    const workflow = db.workflows.find((w) => w.id === workflowId)
+    if (!workflow) throw new Error('Automation not found')
+    if (conditionValue !== undefined) workflow.condition_value = conditionValue
+    for (const { workflowJobId, params } of jobParams ?? []) {
+      const job = db.workflowJobs.find((j) => j.id === workflowJobId && j.workflow_id === workflowId)
+      if (!job) throw new Error('Automation step not found')
+      job.params = JSON.stringify(params)
+    }
+    return { reviews: { moved: 0, unscheduled: 0 } }
+  })
+
   router.register('workflows.delete', (input) => {
     const { workflowId } = input as { workflowId: string }
     db.workflows = db.workflows.filter((w) => w.id !== workflowId)

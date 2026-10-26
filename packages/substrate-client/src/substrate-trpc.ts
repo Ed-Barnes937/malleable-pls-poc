@@ -80,7 +80,10 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreateAnnotation() {
-    return adaptMutation(trpc.annotations.create.useMutation())
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.annotations.create.useMutation({
+      onSuccess: () => utils.annotations.invalidate(),
+    }))
   },
 
   useRecordConfidence() {

@@ -83,6 +83,9 @@ importers:
       '@pls/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@pls/scheduler':
+        specifier: workspace:*
+        version: link:../../packages/scheduler
       '@pls/substrate':
         specifier: workspace:*
         version: link:../../packages/substrate

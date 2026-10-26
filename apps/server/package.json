@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@pls/db": "workspace:*",
+    "@pls/scheduler": "workspace:*",
     "@pls/substrate": "workspace:*",
     "@pls/workflows": "workspace:*",
     "@trpc/server": "^11.19.0",

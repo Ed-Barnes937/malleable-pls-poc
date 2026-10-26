@@ -32,12 +32,14 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 
-const JOB_LABELS: Record<string, string> = Object.fromEntries(
-  getAvailableJobTypes().map((j) => [j.type, j.label]),
-)
+const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
 function jobLabel(jobType?: string): string {
-  return (jobType && JOB_LABELS[jobType]) || 'Job'
+  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Job'
+}
+
+function jobDoneMessage(jobType?: string): string {
+  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `${jobLabel(jobType)} completed`
 }
 
 export function WorkspaceShell() {
@@ -46,7 +48,7 @@ export function WorkspaceShell() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
+    onJobCompleted: (event) => pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' }),
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
