@@ -14,17 +14,17 @@
   "dependencies": {
     "@pls/db": "workspace:*",
     "@pls/workflows": "workspace:*",
-    "@trpc/server": "^11.1.0",
-    "assemblyai": "^4.33.2",
-    "cors": "^2.8.5",
-    "postgres": "^3.4.5",
-    "superjson": "^2.2.2",
-    "zod": "^3.24.0"
+    "@trpc/server": "^11.19.0",
+    "assemblyai": "^4.41.7",
+    "cors": "^2.8.6",
+    "postgres": "^3.4.9",
+    "superjson": "^2.2.6",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
-    "@types/node": "^22.10.0",
-    "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "@types/cors": "^2.8.19",
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }
