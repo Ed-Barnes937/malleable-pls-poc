@@ -38,7 +38,12 @@ export function ToastHost() {
   if (toasts.length === 0) return null
 
   return createPortal(
-    <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="toast-host"
+      className="fixed bottom-4 left-4 right-4 z-[20000] flex flex-col items-end gap-2 sm:left-auto"
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
@@ -55,7 +60,10 @@ export function ToastHost() {
           )}
           <span className="text-xs text-neutral-200">{toast.message}</span>
           <button
+            type="button"
             onClick={() => dismiss(toast.id)}
+            aria-label="Dismiss"
+            title="Dismiss"
             className="ml-1 rounded p-0.5 text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
           >
             <X className="h-3 w-3" />

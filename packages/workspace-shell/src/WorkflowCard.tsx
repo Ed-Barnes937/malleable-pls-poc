@@ -124,7 +124,7 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
 
       {isDefault && (
         <p className="mt-2 text-[10px] text-neutral-700">
-          Default — toggling creates a workspace-specific override
+          Built-in automation. Turning it on or off only changes this board.
         </p>
       )}
     </div>

@@ -26,6 +26,7 @@ export type {
   SubstrateReader,
   SubstrateWriter,
   PanelManifest,
+  WidgetGroup,
 } from './substrate-contract'
 export {
   ManifestRegistryProvider,

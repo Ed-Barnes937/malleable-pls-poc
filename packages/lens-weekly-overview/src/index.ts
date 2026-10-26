@@ -8,6 +8,7 @@ export const manifest: PanelManifest = {
   label: 'This Week',
   icon: BarChart3,
   description: 'Progress by course',
+  group: 'review',
   scope: { courseTag: 'filter', recordingId: 'ignore' },
   reads: ['weekly_overview'],
   load: () => import('./WeeklyOverviewLens'),

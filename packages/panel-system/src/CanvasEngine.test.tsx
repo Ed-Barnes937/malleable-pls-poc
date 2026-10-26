@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
 
@@ -456,6 +456,66 @@ describe('CanvasEngine', () => {
       fireEvent.mouseEnter(panel)
       const handlesContainer = screen.getByTestId('resize-handles-fs-test')
       expect(handlesContainer.style.pointerEvents).toBe('none')
+    })
+
+    it('renders the fullscreen panel above every other, even one sharing its z_index', () => {
+      const { addPanel } = useCanvasStore.getState()
+      addPanel({ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 3 })
+      addPanel({ id: 'b', pos_x: 50, pos_y: 50, width: 200, height: 200, z_index: 3 })
+      render(<CanvasEngine />)
+
+      act(() => {
+        useCanvasStore.getState().enterFullscreen('a', 800, 600)
+      })
+
+      expect(Number(screen.getByTestId('panel-a').style.zIndex)).toBeGreaterThan(
+        Number(screen.getByTestId('panel-b').style.zIndex),
+      )
+    })
+
+    it('reports the pre-fullscreen layout to onLayoutChange, so fullscreen is never saved', () => {
+      useCanvasStore.getState().addPanel({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150, z_index: 1 })
+      const onLayoutChange = vi.fn()
+      render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+
+      act(() => {
+        useCanvasStore.getState().enterFullscreen('fs', 800, 600)
+      })
+
+      const saved = onLayoutChange.mock.calls.at(-1)![0]
+      expect(saved[0]).toMatchObject({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150 })
+    })
+  })
+
+  describe('narrow canvas', () => {
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientWidth')
+    function setWidth(width: number) {
+      Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => width })
+    }
+    afterEach(() => {
+      if (original) Object.defineProperty(HTMLElement.prototype, 'clientWidth', original)
+    })
+
+    it('stacks panels full width in reading order without changing their saved layout', () => {
+      setWidth(400)
+      seedPanels()
+      const before = useCanvasStore.getState().panels
+      render(<CanvasEngine />)
+
+      const container = screen.getByTestId('canvas-container')
+      expect(container).toHaveAttribute('data-layout', 'stack')
+      const ids = [...container.querySelectorAll('[data-panel-id]')].map((el) => el.getAttribute('data-panel-id'))
+      expect(ids).toEqual(['red', 'blue', 'green'])
+      expect(screen.getByTestId('panel-red').style.left).toBe('')
+      expect(screen.queryByTestId('panel-fullscreen-red')).toBeNull()
+      expect(useCanvasStore.getState().panels).toBe(before)
+    })
+
+    it('keeps the free layout on a wide canvas', () => {
+      setWidth(1200)
+      seedPanels()
+      render(<CanvasEngine />)
+      expect(screen.getByTestId('canvas-container')).toHaveAttribute('data-layout', 'free')
     })
   })
 
