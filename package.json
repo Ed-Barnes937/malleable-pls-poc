@@ -20,6 +20,7 @@
     "test:e2e": "playwright test --config playwright.config.ts"
   },
   "devDependencies": {
+    "@pls/substrate": "workspace:*",
     "@playwright/experimental-ct-react": "1.62.1",
     "@playwright/test": "^1.62.1",
     "@tailwindcss/vite": "^4.3.3",

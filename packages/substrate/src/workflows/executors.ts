@@ -14,6 +14,9 @@ export function getAvailableTriggerEvents(): { event: string; label: string }[] 
     { event: 'tag:created', label: 'When a tag is added' },
     { event: 'confidence:recorded', label: 'When confidence is recorded' },
     { event: 'annotation:created', label: 'When a note is added' },
+    { event: 'plan-item:created', label: 'When something is added to your plan' },
+    { event: 'plan-item:updated', label: 'When something in your plan changes' },
+    { event: 'plan-item:completed', label: 'When something in your plan is done' },
   ]
 }
 

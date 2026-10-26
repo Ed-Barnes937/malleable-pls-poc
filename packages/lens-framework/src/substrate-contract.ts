@@ -12,6 +12,11 @@ import type {
   NewTag,
   NewAnnotation,
   NewConfidenceSignal,
+  PlanItem,
+  PlanItemOccurrence,
+  PlanItemQuery,
+  NewPlanItem,
+  PlanItemUpdate,
 } from '@pls/substrate'
 import type { Scope, ScopeDim } from './types'
 
@@ -51,6 +56,7 @@ export type TableName =
   | 'weekly_overview'
   | 'gap_analysis'
   | 'weakest_topics'
+  | 'plan_items'
 
 // ---------------------------------------------------------------------------
 // SubstrateReader — read-only hooks for view lenses
@@ -68,6 +74,11 @@ export interface SubstrateReader {
   useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
   useGapAnalysis: () => QueryResult<CourseGap[]>
   useWeakestTopics: (limit?: number) => QueryResult<WeakTopic[]>
+  /**
+   * Plan items (commitments, deadlines, to-dos). Pass `from`/`to` to get one
+   * row per occurrence in that range, with weekly recurrences expanded.
+   */
+  usePlanItems: (query?: PlanItemQuery) => QueryResult<PlanItemOccurrence[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -78,6 +89,18 @@ export interface SubstrateWriter extends SubstrateReader {
   useCreateTag: () => MutationHandle<NewTag>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
+  useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
+  /**
+   * Patches the stored item - the whole series for a recurring one. Send only
+   * changed fields, never a list row's occurrence times; to move an occurrence,
+   * shift `series_starts_at` / `series_ends_at` by the delta (see PlanItemOccurrence).
+   */
+  useUpdatePlanItem: () => MutationHandle<PlanItemUpdate, PlanItem>
+  /** Marks done. Takes the plan item id. */
+  useCompletePlanItem: () => MutationHandle<string, PlanItem>
+  /** Marks dismissed ("not doing this"). Takes the plan item id. */
+  useDismissPlanItem: () => MutationHandle<string, PlanItem>
+  useDeletePlanItem: () => MutationHandle<string, void>
 }
 
 // ---------------------------------------------------------------------------

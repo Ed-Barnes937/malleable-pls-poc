@@ -2,6 +2,9 @@ export { getAvailableJobTypes, getAvailableTriggerEvents, getTriggerEventsForLen
 
 export { QUESTIONS } from './questions'
 
+export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
+export { newPlanItemInput, planItemUpdateInput, planItemListInput, planItemIdInput, parsePlanItemInput } from './plan-item-schemas'
+
 export type {
   Recording,
   TranscriptSegment,
@@ -22,6 +25,15 @@ export type {
   NewAnnotation,
   NewConfidenceSignal,
   Question,
+  PlanItemKind,
+  PlanItemStatus,
+  PlanItemRecurrence,
+  PlanItem,
+  PlanItemOccurrence,
+  PlanItemQuery,
+  NewPlanItem,
+  PlanItemPatch,
+  PlanItemUpdate,
 } from './types'
 
 export type { WorkflowWithJobs } from '@pls/workflows'

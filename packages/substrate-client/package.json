@@ -7,6 +7,7 @@
   "dependencies": {
     "@pls/lens-framework": "workspace:*",
     "@pls/server": "workspace:*",
+    "@pls/substrate": "workspace:*",
     "@pls/workflows": "workspace:*",
     "@tanstack/react-query": "^5.104.5",
     "@trpc/client": "^11.19.0",

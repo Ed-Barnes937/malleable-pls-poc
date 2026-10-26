@@ -210,5 +210,8 @@ export function createDefaultSeedData(): SeedData {
       { id: 'jr-3', workflow_id: 'wf-confused-search', workflow_job_id: 'wfj-confused-search', job_type: 'search:related-docs', status: 'running', input: '{"segmentId":"seg-bio4-08"}', output: null, error: null, depth: 0, created_at: '2026-04-16T10:25:05Z', started_at: '2026-04-16T10:25:06Z', completed_at: null },
       { id: 'jr-4', workflow_id: 'wf-low-confidence', workflow_job_id: 'wfj-low-confidence-qs', job_type: 'ai:generate-questions', status: 'pending', input: '{"segmentId":"seg-bio4-08"}', output: null, error: null, depth: 0, created_at: '2026-04-16T21:10:15Z', started_at: null, completed_at: null },
     ],
+
+    // Matches the SQL seed, which has no plan items yet.
+    planItems: [],
   }
 }
