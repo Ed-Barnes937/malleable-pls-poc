@@ -5,11 +5,11 @@ export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
 /**
  * MediaRecorder capture + upload. State machine: idle → recording → uploading
- * → complete. `configRecordingId` (the picker selection) drives idle/complete
- * whenever no capture is in flight.
+ * → complete. `focusedRecordingId` (the workspace recording focus) drives
+ * idle/complete whenever no capture is in flight.
  */
-export function useAudioRecorder(configRecordingId: string) {
-  const [state, setState] = useState<CaptureState>(configRecordingId ? 'complete' : 'idle')
+export function useAudioRecorder(focusedRecordingId: string) {
+  const [state, setState] = useState<CaptureState>(focusedRecordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [recordingId, setRecordingId] = useState<string | null>(null)
@@ -19,13 +19,13 @@ export function useAudioRecorder(configRecordingId: string) {
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
 
-  // Reflect picker changes in the state machine unless a capture is in flight.
+  // Reflect focus changes in the state machine unless a capture is in flight.
   // The functional update reads the current state without needing it in deps.
   useEffect(() => {
     setState((s) =>
-      s === 'recording' || s === 'uploading' ? s : configRecordingId ? 'complete' : 'idle',
+      s === 'recording' || s === 'uploading' ? s : focusedRecordingId ? 'complete' : 'idle',
     )
-  }, [configRecordingId])
+  }, [focusedRecordingId])
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {

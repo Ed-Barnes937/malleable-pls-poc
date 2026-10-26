@@ -16,13 +16,10 @@ import type {
 import type { Scope, ScopeDim } from './types'
 
 /**
- * Query input for substrate hooks. Extends the workspace-level `Scope` with
- * `recordingId`, which is a per-panel target rather than a workspace-level
- * filter — tools spread their workspace scope and add their recording.
+ * Query input for substrate hooks. Lenses pass their workspace `Scope`
+ * (course, timeframe and focused recording) straight through.
  */
-export interface QueryFilter extends Scope {
-  recordingId?: string
-}
+export type QueryFilter = Scope
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape

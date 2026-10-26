@@ -5,6 +5,7 @@
 // injecting user_id = 'dev-user-1' at insert time — low risk but non-trivial.
 
 import { readFileSync } from 'fs'
+import { createRequire } from 'module'
 import { resolve } from 'path'
 
 const pgPort = process.env.PG_PORT ?? '5433'
@@ -19,9 +20,9 @@ const TABLES = [
 ]
 
 export async function reseed() {
-  const pg = await import(
-    resolve(__dirname, '../node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/index.js')
-  )
+  // postgres is a dependency of @pls/db, not the root — resolve it from there.
+  const requireFromDb = createRequire(resolve(__dirname, '../packages/db/package.json'))
+  const pg = await import(requireFromDb.resolve('postgres'))
   const sql = pg.default(DATABASE_URL, { max: 1 })
 
   try {
@@ -30,8 +31,10 @@ export async function reseed() {
     }
 
     // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
-    // columns), since 006 replaced the grid columns 002 originally used.
-    for (const file of ['002_seed.sql', '008_seed_panels.sql']) {
+    // columns), since 006 replaced the grid columns 002 originally used;
+    // 010 moves the seeded recording focus from panel config to the
+    // workspace scope.
+    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql']) {
       const seedSql = readFileSync(
         resolve(__dirname, `../packages/db/src/migrations/${file}`),
         'utf-8',

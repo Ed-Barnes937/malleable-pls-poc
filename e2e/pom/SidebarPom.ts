@@ -10,6 +10,7 @@ export class SidebarPom {
   readonly scopeSection: Locator
   readonly courseSelect: Locator
   readonly timeframeSelect: Locator
+  readonly recordingSelect: Locator
   readonly lensItems: Locator
 
   constructor(private page: Page) {
@@ -17,6 +18,7 @@ export class SidebarPom {
     this.scopeSection = this.root.getByTestId('scope-section')
     this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course filter' })
     this.timeframeSelect = this.scopeSection.getByRole('combobox', { name: 'Timeframe filter' })
+    this.recordingSelect = this.scopeSection.getByRole('combobox', { name: 'Recording focus' })
     this.lensItems = this.root.locator('[draggable="true"]')
   }
 
@@ -26,6 +28,10 @@ export class SidebarPom {
 
   async selectTimeframe(label: string) {
     await this.timeframeSelect.selectOption({ label })
+  }
+
+  async selectRecording(label: string) {
+    await this.recordingSelect.selectOption({ label })
   }
 
   async dragLensToGrid(lensName: string, target: Locator) {

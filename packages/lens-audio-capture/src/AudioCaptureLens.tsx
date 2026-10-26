@@ -40,7 +40,7 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
   )
 }
 
-export default function AudioCaptureLens({ scope, config }: LensProps) {
+export default function AudioCaptureLens({ scope }: LensProps) {
   const substrate = useSubstrate()
 
   const recordingId = scope.recordingId ?? ''

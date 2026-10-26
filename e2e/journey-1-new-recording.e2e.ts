@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test'
-import { TopBarPom, PanelGridPom } from './pom'
+import { TopBarPom, PanelGridPom, SidebarPom } from './pom'
 
 test.describe('Journey: New lecture recording', () => {
-  test('selecting "Start new recording" in audio-capture picker resets to ready state', async ({ page }) => {
+  test('clearing the recording focus resets Audio Capture to ready state', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -15,21 +15,25 @@ test.describe('Journey: New lecture recording', () => {
     await grid.expectHasPanel('Audio Capture')
     await grid.expectHasPanel('Transcript')
 
-    // Audio Capture is seeded to a complete recording — its picker has the
-    // seeded recording selected and the timer shows the total duration.
-    // (The "Recording complete … total" summary block is gated behind a
-    // @tall container query and stays hidden at the seeded 240px height.)
+    // The workspace is seeded with focus on a complete recording — Audio
+    // Capture shows its total duration. (The "Recording complete … total"
+    // summary block is gated behind a @tall container query and stays hidden
+    // at the seeded 240px height.)
     const audioPanel = grid.panelByLabel('Audio Capture')
-    const audioPicker = audioPanel.getByTestId('recording-picker')
-    await expect(audioPicker).toHaveValue('rec-bio-4', { timeout: 10000 })
-    await expect(audioPanel.getByText('47:12', { exact: true }).first()).toBeVisible()
+    await expect(audioPanel.getByText('47:12', { exact: true }).first()).toBeVisible({ timeout: 10000 })
 
-    // Use the per-panel target picker to start a new recording.
-    // (The old workspace-level "New Recording" button was removed in the
-    // scope rethink — recording is now a per-panel target.)
-    await audioPicker.selectOption({ label: 'Start new recording' })
+    // Clear the workspace recording focus from the sidebar Scope section.
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await sidebar.selectRecording('No recording selected')
 
     // Audio Capture transitions to idle/ready state
     await expect(audioPanel.getByText('Ready to record')).toBeVisible({ timeout: 5000 })
+
+    // Restore so later tests see clean state.
+    await sidebar.selectRecording('Biology Lecture: Mitochondrial DNA')
+    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await expect(audioPanel.getByText('47:12', { exact: true }).first()).toBeVisible()
   })
 })
