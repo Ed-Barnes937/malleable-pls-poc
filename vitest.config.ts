@@ -13,5 +13,15 @@ export default defineConfig({
       'playwright/**/*.test.{ts,tsx}',
     ],
     css: false,
+    // Only collected with `pnpm test:coverage`.
+    coverage: {
+      provider: 'v8',
+      include: ['packages/*/src/**/*.{ts,tsx}', 'apps/*/src/**/*.{ts,tsx}'],
+      exclude: ['**/*.test.{ts,tsx}'],
+      thresholds: {
+        // Pure scheduling logic: keep it exhaustively tested.
+        'packages/scheduler/src/**': { branches: 95, functions: 100, lines: 100, statements: 100 },
+      },
+    },
   },
 })
