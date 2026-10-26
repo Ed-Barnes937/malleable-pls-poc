@@ -1,0 +1,45 @@
+{
+  "task": "transcribe",
+  "language": "english",
+  "duration": 14.2,
+  "text": " Today we're looking at mitochondrial DNA. Unlike nuclear DNA, it is inherited only from the mother.",
+  "segments": [
+    {
+      "id": 0,
+      "seek": 0,
+      "start": 0,
+      "end": 6.48,
+      "text": " Today we're looking at mitochondrial DNA.",
+      "tokens": [50365, 2692, 321, 434, 1237, 412],
+      "temperature": 0,
+      "avg_logprob": -0.21,
+      "compression_ratio": 1.12,
+      "no_speech_prob": 0.01
+    },
+    {
+      "id": 1,
+      "seek": 0,
+      "start": 6.48,
+      "end": 14.2,
+      "text": " Unlike nuclear DNA, it is inherited only from the mother.",
+      "tokens": [50689, 17048, 8179, 15322],
+      "temperature": 0,
+      "avg_logprob": -0.18,
+      "compression_ratio": 1.12,
+      "no_speech_prob": 0.02
+    },
+    {
+      "id": 2,
+      "seek": 1420,
+      "start": 14.2,
+      "end": 14.2,
+      "text": " ",
+      "tokens": [],
+      "temperature": 0,
+      "avg_logprob": -1.2,
+      "compression_ratio": 0,
+      "no_speech_prob": 0.9
+    }
+  ],
+  "usage": { "cost": 0.0001 }
+}

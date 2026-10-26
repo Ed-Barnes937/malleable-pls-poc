@@ -86,6 +86,13 @@ describe('executor registry', () => {
     expect(registry.has('missing')).toBe(false)
   })
 
+  it('getMeta() returns the registered meta, undefined for unknown types', () => {
+    const registry = createExecutorRegistry()
+    registry.register('ai', async () => ({ output: {} }), { label: 'AI', category: 'ai', maxRetries: 0 })
+    expect(registry.getMeta('ai')).toEqual({ label: 'AI', category: 'ai', maxRetries: 0 })
+    expect(registry.getMeta('missing')).toBeUndefined()
+  })
+
   it('throws when registering the same type twice', () => {
     const registry = createExecutorRegistry()
     registry.register('dup', async () => ({ output: {} }), { label: 'Dup', category: 'X' })

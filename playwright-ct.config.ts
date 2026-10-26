@@ -1,6 +1,11 @@
 import { defineConfig, devices } from '@playwright/experimental-ct-react'
 import path from 'path'
 
+// Cost guardrail: test runs never reach a real AI provider. Forced here so
+// every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
+process.env.AI_MODE = 'mock'
+delete process.env.OPENROUTER_API_KEY
+
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.iwft.{ts,tsx}',
@@ -8,7 +13,8 @@ export default defineConfig({
   timeout: 15_000,
   retries: 0,
   use: {
-    ctPort: 3100,
+    // Override per checkout so parallel CT runs don't collide (see e2e/README.md).
+    ctPort: Number(process.env.CT_PORT ?? 3100),
     ctViteConfig: {
       plugins: [
         require('@vitejs/plugin-react').default(),

@@ -180,6 +180,24 @@ describe('job runner', () => {
       )
     })
 
+    it('lets an executor opt out of retries via its meta', async () => {
+      const adapter = makeAdapter([makePendingJob({ retry_count: 0 })])
+      const executors = createExecutorRegistry()
+      executors.register(
+        'test:run',
+        async () => {
+          throw new Error('provider timeout')
+        },
+        { label: 'T', category: 'T', maxRetries: 0 },
+      )
+      const engine = createWorkflowEngine({ adapter })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null, maxRetries: 3 })
+
+      await runner.processOnce()
+
+      expect(adapter.enqueueJobRun).not.toHaveBeenCalled()
+    })
+
     it('does NOT retry when retry_count has reached maxRetries', async () => {
       const adapter = makeAdapter([makePendingJob({ retry_count: 2 })])
       const executors = createExecutorRegistry()

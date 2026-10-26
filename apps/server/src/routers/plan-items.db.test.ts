@@ -24,7 +24,12 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
     const { appRouter } = await import('../router')
-    caller = (userId) => appRouter.createCaller({ userId })
+    const { createAiDeps } = await import('../ai/deps')
+    const { createServerExecutors } = await import('../workflows/executors')
+    // Same ctx shape as index.ts; vitest.setup.ts forces mock AI.
+    const ai = createAiDeps()
+    const executors = createServerExecutors(ai)
+    caller = (userId) => appRouter.createCaller({ userId, ai, executors })
   })
 
   afterAll(async () => {

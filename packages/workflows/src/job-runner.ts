@@ -72,7 +72,8 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
 
           // Retry decision lives in the core; backoff scheduling lives in the
           // adapter (server sets run_after via retryCount).
-          if (job.retry_count < maxRetries) {
+          const retryLimit = executors.getMeta(job.job_type)?.maxRetries ?? maxRetries
+          if (job.retry_count < retryLimit) {
             await adapter.enqueueJobRun({
               workflowId: job.workflow_id,
               workflowJobId: job.workflow_job_id,
