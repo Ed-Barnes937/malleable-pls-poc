@@ -9,8 +9,10 @@ import { createRequire } from 'module'
 import { resolve } from 'path'
 
 const pgPort = process.env.PG_PORT ?? '5433'
+// PG_DB isolates parallel checkouts/agents (see e2e/README.md).
+const pgDb = process.env.PG_DB ?? 'malleable_pls'
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? `postgres://pls:pls@localhost:${pgPort}/malleable_pls`
+  process.env.DATABASE_URL ?? `postgres://pls:pls@localhost:${pgPort}/${pgDb}`
 
 const TABLES = [
   'job_runs', 'workflow_jobs', 'workflows',

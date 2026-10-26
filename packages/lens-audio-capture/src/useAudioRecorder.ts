@@ -3,6 +3,10 @@ import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
+// 24 kbps measurably hurt Whisper accuracy; 48 kbps opus keeps an hour of
+// lecture around 21 MB, under the 50 MB upload cap.
+const RECORDING_BITS_PER_SECOND = 48_000
+
 export interface AudioRecorderOptions {
   /** Course tag applied to new recordings (mic captures and file uploads). */
   course?: string | null
@@ -69,6 +73,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
           : 'audio/webm',
+        audioBitsPerSecond: RECORDING_BITS_PER_SECOND,
       })
 
       recorder.ondataavailable = (e) => {

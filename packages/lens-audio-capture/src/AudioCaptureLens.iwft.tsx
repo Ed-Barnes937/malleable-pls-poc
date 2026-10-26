@@ -4,7 +4,8 @@ import AudioCaptureLens from './AudioCaptureLens'
 
 const MEDIA_RECORDER_MOCK = `
   class MockMediaRecorder {
-    constructor() {
+    constructor(stream, options) {
+      window.__mediaRecorderOptions = options;
       this.state = 'inactive';
       this.ondataavailable = null;
       this.onstop = null;
@@ -85,6 +86,8 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Ready to record')).toBeVisible()
     await page.locator('button').filter({ has: page.locator('.lucide-mic') }).click()
     await expect(page.getByText('REC')).toBeVisible()
+    // 24 kbps measurably hurt Whisper accuracy.
+    expect(await page.evaluate(() => (window as unknown as { __mediaRecorderOptions?: MediaRecorderOptions }).__mediaRecorderOptions?.audioBitsPerSecond)).toBe(48_000)
   })
 
   test('stopping recording uploads and transitions to complete', async ({ mount, page, simulator }) => {
