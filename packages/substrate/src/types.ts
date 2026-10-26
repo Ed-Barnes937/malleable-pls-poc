@@ -100,6 +100,92 @@ export interface Scope {
   timeframe?: 'week' | 'all'
 }
 
+// ---------------------------------------------------------------------------
+// Plan items - one shared type behind Calendar, To-do and Coming up.
+// ---------------------------------------------------------------------------
+
+/** UI words: commitment = "class / commitment", deadline = "due", task = "to-do". */
+export type PlanItemKind = 'commitment' | 'deadline' | 'task'
+export type PlanItemStatus = 'open' | 'done' | 'dismissed'
+
+export interface PlanItemRecurrence {
+  freq: 'weekly'
+  /** ISO timestamp, inclusive: the last occurrence starts at or before this. */
+  until?: string
+  /**
+   * IANA zone whose wall clock the series follows ("every Monday 10:00
+   * Europe/London" stays at 10:00 across DST). Defaults to UTC.
+   */
+  timeZone?: string
+}
+
+/** A stored plan item. Timestamps are ISO strings end to end. */
+export interface PlanItem {
+  id: string
+  kind: PlanItemKind
+  title: string
+  starts_at: string | null
+  ends_at: string | null
+  due_at: string | null
+  duration_min: number | null
+  status: PlanItemStatus
+  recurrence: PlanItemRecurrence | null
+  subtype: string | null
+  source_type: string | null
+  source_id: string | null
+  source_offset_ms: number | null
+  /** Course tag label (e.g. 'biology'), stored as a 'plan_item' tag. */
+  course: string | null
+  created_at: string
+  updated_at: string
+}
+
+/**
+ * One row of a plan item list. For a recurring item listed with a date range,
+ * each weekly occurrence is its own row: `id` stays the stored item's id (so
+ * mutations apply to the series) and `starts_at` / `ends_at` / `due_at` are the
+ * occurrence's times. `occurrence_key` is unique per row (use it as a React key).
+ */
+export interface PlanItemOccurrence extends PlanItem {
+  occurrence_key: string
+}
+
+export interface PlanItemQuery {
+  /** Inclusive ISO start of the range. Give both `from` and `to` to expand recurrences. */
+  from?: string
+  /** Exclusive ISO end of the range. */
+  to?: string
+  kinds?: PlanItemKind[]
+  statuses?: PlanItemStatus[]
+  courseTag?: string
+  sourceType?: string
+  sourceId?: string
+}
+
+export interface NewPlanItem {
+  kind: PlanItemKind
+  title: string
+  starts_at?: string | null
+  ends_at?: string | null
+  due_at?: string | null
+  duration_min?: number | null
+  status?: PlanItemStatus
+  recurrence?: PlanItemRecurrence | null
+  subtype?: string | null
+  source_type?: string | null
+  source_id?: string | null
+  source_offset_ms?: number | null
+  course?: string | null
+}
+
+/** Fields to change; `null` clears a nullable field (`course: null` removes the course). */
+export type PlanItemPatch = Partial<NewPlanItem>
+
+export interface PlanItemUpdate {
+  id: string
+  patch: PlanItemPatch
+}
+
 export interface CourseOverview {
   course: string
   totalSegments: number

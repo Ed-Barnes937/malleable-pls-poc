@@ -31,7 +31,20 @@ links
 confidence_signals
   id, target_type, target_id, score, source_lens_id,
   created_at, decay_curve?
+
+plan_items
+  id, kind (commitment|deadline|task), title,
+  starts_at?, ends_at?,            -- commitments, scheduled tasks
+  due_at?, duration_min?,          -- deadlines (due_at required), task estimates
+  status (open|done|dismissed),
+  recurrence?,                     -- v1: { freq: 'weekly', until?, timeZone? }
+  subtype?,                        -- free-text label: class, shift, study...
+  source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
+  created_at, updated_at
+  -- course: a tag with target_type 'plan_item', like recordings carry theirs
 ```
+
+Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator).
 
 Note: this primitive list is audio-centric. A learning-first substrate may need additional primitives (see open-questions.md).
 
@@ -49,13 +62,16 @@ lens_data
 -- lens_type: "flashcard", target_type: "annotation", target_id: 42
 -- data: {"next_review": "2026-04-20", "interval": 3, "ease": 2.5}
 
--- Free-floating (planner task, no anchor):
--- lens_type: "planner", target_type: null, target_id: null
--- data: {"title": "Review mitochondria", "due": "2026-04-18"}
+-- Free-floating (pomodoro preferences, no anchor):
+-- lens_type: "pomodoro", target_type: null, target_id: null
+-- data: {"focus_min": 25, "break_min": 5}
 
--- Hybrid (planner task linked to a recording):
--- lens_type: "planner", target_type: "recording", target_id: 7
--- data: {"title": "Re-listen to intro section", "due": "2026-04-18"}
+-- Hybrid (pomodoro session log linked to a recording):
+-- lens_type: "pomodoro", target_type: "recording", target_id: 7
+-- data: {"sessions": 3, "last": "2026-04-18"}
+
+-- Planner tasks used to be the example here. They are now the core
+-- plan_items type, so every planning widget sees the same data.
 ```
 
 ### Workspace Config
@@ -117,10 +133,12 @@ Lenses exist on a spectrum from pure substrate views to mostly self-contained:
 ```
 Pure lens ◄─────────────────────────────► Pure micro-app
 
-Flashcards        Review        Planner        Pomodoro
-100% substrate    90/10         30/70          5/95
-0% local data                                  local data
+Flashcards   Calendar / To-do   Review        Pomodoro
+100% substrate   ~100%          90/10         5/95
+0% local data                                 local data
 ```
+
+Planning sat towards the micro-app end while tasks and events lived in lens-local data. With plan items as a core primitive, Calendar, To-do and Coming up are lenses over shared data: a to-do created by an automation shows up in all three.
 
 All use the same lens_data table and workspace_panels config. The platform doesn't distinguish — the ratio of substrate vs local data is an implementation detail of each lens.
 

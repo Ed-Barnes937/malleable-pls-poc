@@ -32,6 +32,7 @@ import { registerConfidenceHandlers } from './handlers/confidence'
 import { registerLinksHandlers } from './handlers/links'
 import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
+import { registerPlanItemsHandlers } from './handlers/plan-items'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -48,6 +49,7 @@ function makeRouter(): ProcedureRouter {
   registerLinksHandlers(router, db)
   registerAggregatesHandlers(router, db)
   registerWorkflowsHandlers(router, db)
+  registerPlanItemsHandlers(router, db)
   return router
 }
 
@@ -60,7 +62,8 @@ async function query(router: ProcedureRouter, path: string, input?: unknown): Pr
   const parsed = JSON.parse(result.body)
   const item = Array.isArray(parsed) ? parsed[0] : parsed
   if (item?.error) throw new Error(`${path}: ${item.error.message ?? JSON.stringify(item.error)}`)
-  return item?.result?.data?.json ?? item?.result?.data
+  const data = item?.result?.data
+  return data && typeof data === 'object' && 'json' in data ? data.json : data
 }
 
 describe('simulator parity — read procedures return data on default seed', () => {
@@ -173,6 +176,16 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
+  it('planItems.list', async () => {
+    const data = await query(router, 'planItems.list', {})
+    expect(Array.isArray(data)).toBe(true)
+  })
+
+  it('planItems.byId', async () => {
+    const data = await query(router, 'planItems.byId', 'missing')
+    expect(data).toBeNull()
+  })
+
   // --- Missing procedures (exist in server, not in simulator) ---
 
   it('workspaces.reorder — NOT_FOUND in simulator (missing procedure)', async () => {
@@ -181,5 +194,57 @@ describe('simulator parity — read procedures return data on default seed', () 
 
   it('workspaces.updatePanelConfig — NOT_FOUND in simulator (missing procedure)', async () => {
     await expect(query(router, 'workspaces.updatePanelConfig', { panelId: 'wp-1', configPatch: {} })).rejects.toThrow('No handler for procedure')
+  })
+})
+
+// Mutations are called straight on the router (the HTTP encoding is covered above).
+describe('simulator parity - plan items behave like the server router', () => {
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    router = makeRouter()
+  })
+
+  async function call(path: string, input: unknown) {
+    const result = await router.resolve(path, input)
+    if (result.error) throw new Error(result.error.message)
+    return result.data as Record<string, unknown>
+  }
+
+  it('creates a weekly class with a course and expands it by range', async () => {
+    const lecture = await call('planItems.create', {
+      kind: 'commitment',
+      title: 'Biology lecture',
+      starts_at: '2026-10-19T09:00:00.000Z',
+      ends_at: '2026-10-19T10:00:00.000Z',
+      recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+      course: 'biology',
+    })
+    expect(lecture).toMatchObject({ course: 'biology', status: 'open' })
+
+    const rows = await query(router, 'planItems.list', { from: '2026-10-19T00:00:00.000Z', to: '2026-11-02T00:00:00.000Z', courseTag: 'biology' }) as { starts_at: string }[]
+    expect(rows.map((r) => r.starts_at)).toEqual(['2026-10-19T09:00:00.000Z', '2026-10-26T10:00:00.000Z'])
+    expect(await query(router, 'planItems.list', { courseTag: 'chemistry' })).toEqual([])
+  })
+
+  it('updates, completes, dismisses and deletes, keeping course in tags', async () => {
+    const todo = await call('planItems.create', { kind: 'task', title: 'Review', duration_min: 20, course: 'biology' })
+    const id = todo.id as string
+
+    expect(await call('planItems.update', { id, patch: { course: 'chemistry', title: 'Review notes' } }))
+      .toMatchObject({ course: 'chemistry', title: 'Review notes', duration_min: 20 })
+    expect(await call('planItems.complete', id)).toMatchObject({ status: 'done' })
+    expect(await call('planItems.dismiss', id)).toMatchObject({ status: 'dismissed' })
+
+    await call('planItems.delete', id)
+    expect(await query(router, 'planItems.byId', id)).toBeNull()
+    const tags = await query(router, 'tags.forTarget', { targetType: 'plan_item', targetId: id })
+    expect(tags).toEqual([])
+  })
+
+  it('rejects the same invalid shapes as the server', async () => {
+    await expect(call('planItems.create', { kind: 'commitment', title: 'No time' })).rejects.toThrow(/commitment/)
+    await expect(call('planItems.create', { kind: 'deadline', title: 'No due' })).rejects.toThrow(/due_at/)
+    await expect(call('planItems.complete', 'missing')).rejects.toThrow(/not found/)
   })
 })

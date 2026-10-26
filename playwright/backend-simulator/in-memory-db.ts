@@ -8,7 +8,11 @@ import type {
   Workspace,
   WorkspacePanel,
   WorkspaceScope,
+  PlanItem,
 } from '@pls/substrate'
+
+/** A plan item as stored: course is derived from `tags`, as on the server. */
+export type StoredPlanItem = Omit<PlanItem, 'course'>
 
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {
@@ -59,6 +63,7 @@ export interface SeedData {
   workflows: Workflow[]
   workflowJobs: WorkflowJob[]
   jobRuns: JobRun[]
+  planItems: StoredPlanItem[]
 }
 
 const EMPTY_SEED: SeedData = {
@@ -74,6 +79,7 @@ const EMPTY_SEED: SeedData = {
   workflows: [],
   workflowJobs: [],
   jobRuns: [],
+  planItems: [],
 }
 
 export class InMemoryDb {
@@ -89,6 +95,7 @@ export class InMemoryDb {
   workflows: Workflow[] = []
   workflowJobs: WorkflowJob[] = []
   jobRuns: JobRun[] = []
+  planItems: StoredPlanItem[] = []
 
   constructor(seed?: SeedData) {
     if (seed) {
@@ -125,5 +132,6 @@ export class InMemoryDb {
     this.workflows = [...seed.workflows]
     this.workflowJobs = [...seed.workflowJobs]
     this.jobRuns = [...seed.jobRuns]
+    this.planItems = seed.planItems.map((p) => ({ ...p }))
   }
 }

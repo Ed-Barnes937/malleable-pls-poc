@@ -217,6 +217,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
         utils.links.invalidate()
         utils.confidence.invalidate()
         utils.aggregates.invalidate()
+        utils.planItems.invalidate()
         handlers?.onJobCompleted?.(event)
       } else if (event.type === 'job:failed') {
         utils.jobs.recent.invalidate()
