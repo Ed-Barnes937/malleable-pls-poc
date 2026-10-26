@@ -1,3 +1,8 @@
+# Pinned so every checkout and worktree shares one Postgres container instead
+# of each trying to start its own on the same port. Parallel work isolates by
+# database instead (PG_DB, see e2e/README.md).
+name: malleable-plc-poc
+
 services:
   postgres:
     image: postgres:16-alpine

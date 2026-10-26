@@ -1,5 +1,5 @@
 // `pnpm db:reseed` - restore the dev-user-1 seed data in the dev database
-// (the same reseed e2e global setup runs). Honours DATABASE_URL / PG_PORT.
+// (the same reseed e2e global setup runs). Honours DATABASE_URL / PG_PORT / PG_DB.
 import { reseed } from './reseed'
 
 reseed()

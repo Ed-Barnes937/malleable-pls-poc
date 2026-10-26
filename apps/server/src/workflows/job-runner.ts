@@ -1,11 +1,19 @@
 import { sql } from '@pls/db'
-import { createJobRunner, createWorkflowEngine, type RunnerEvent } from '@pls/workflows'
+import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type RunnerEvent } from '@pls/workflows'
 import { createPgAdapter } from './pg-adapter'
-import { serverExecutors } from './executors'
 import { emitEvent } from '../routers/events'
 
-/** Automatic retries after a failed attempt; a run that exhausts them can be retried by hand. */
+/**
+ * Automatic retries after a failed attempt; a run that exhausts them can be
+ * retried by hand. Executors that call a paid AI provider opt out via
+ * `ExecutorMeta.maxRetries: 0` (see executors.ts).
+ */
 export const MAX_RETRIES = 3
+
+/** Automatic retries allowed for a job type: its executor's own limit, else MAX_RETRIES. */
+export function retryLimitFor(executors: ExecutorRegistry, jobType: string): number {
+  return executors.getMeta(jobType)?.maxRetries ?? MAX_RETRIES
+}
 const POLL_INTERVAL_MS = 2000
 
 /**
@@ -14,16 +22,17 @@ const POLL_INTERVAL_MS = 2000
  * job:completed / job:failed in the workflow UI, so all three are forwarded.
  * Failures flag `willRetry` so the UI only alarms the student on the last one.
  */
-function bridgeRunnerEvent(userId: string, event: RunnerEvent) {
+function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: RunnerEvent) {
+  const retryLimit = retryLimitFor(executors, event.jobRun.job_type)
   emitEvent({
     type: event.type,
     jobType: event.jobRun.job_type,
     userId,
-    ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < MAX_RETRIES } : {}),
+    ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < retryLimit } : {}),
   })
 }
 
-async function processJobs(): Promise<void> {
+async function processJobs(executors: ExecutorRegistry): Promise<void> {
   const users = await sql<{ user_id: string }[]>`
     SELECT DISTINCT user_id FROM job_runs WHERE status = 'pending' LIMIT 20
   `
@@ -35,13 +44,13 @@ async function processJobs(): Promise<void> {
     const engine = createWorkflowEngine({ adapter })
     const runner = createJobRunner({
       adapter,
-      executors: serverExecutors,
+      executors,
       engine,
       scopeId: null,
       maxRetries: MAX_RETRIES,
     })
 
-    const unsubscribe = runner.onEvent((event) => bridgeRunnerEvent(user_id, event))
+    const unsubscribe = runner.onEvent((event) => bridgeRunnerEvent(executors, user_id, event))
     try {
       await runner.processOnce()
     } finally {
@@ -52,11 +61,11 @@ async function processJobs(): Promise<void> {
 
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-export function startJobRunner() {
+export function startJobRunner(executors: ExecutorRegistry) {
   if (intervalHandle) return
   console.log(`job runner started (polling every ${POLL_INTERVAL_MS}ms)`)
   intervalHandle = setInterval(() => {
-    processJobs().catch((err) => console.error('job runner error:', err))
+    processJobs(executors).catch((err) => console.error('job runner error:', err))
   }, POLL_INTERVAL_MS)
 }
 

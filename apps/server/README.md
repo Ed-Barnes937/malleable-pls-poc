@@ -1,0 +1,48 @@
+# @pls/server
+
+tRPC API, `/upload`, and the workflow job runner.
+
+## AI (`AI_MODE`)
+
+All AI goes through `AiDeps` (`src/ai/deps.ts`): a `Transcriber` and an
+`LlmClient`, created once in `src/index.ts` and passed to executors
+(`createServerExecutors`) and routers (`ctx.ai`). Nothing else constructs a
+provider client.
+
+| `AI_MODE` | `OPENROUTER_API_KEY` | Result |
+|---|---|---|
+| `live` | set | OpenRouter Whisper transcription + OpenRouter LLM (`OPENROUTER_LLM_MODEL`, default in `src/ai/openrouter.ts`) |
+| anything else, or unset (default `mock`) | any | Deterministic fakes: canned transcript, `fakeLlmFixtures` |
+| `live` | missing or empty | Fakes (a startup line says why) |
+
+The server logs which mode it is in at startup.
+
+- **Env files:** only `pnpm dev:server` loads `apps/server/.env` (via `tsx --env-file-if-exists`). `start`, `migrate-and-start` and `e2e:server` never do.
+- **Tests never hit a provider:** `vitest.setup.ts` and both Playwright configs force `AI_MODE=mock` and unset the key, `e2e:server` does the same, and `src/ai/deps.test.ts` asserts fakes are selected under test. Live clients are unit-tested with an injected `fetch`.
+- **Guardrail for reused servers:** `/health` reports `aiMode`. e2e global setup and `scripts/browse.mts` refuse to run unless it is `mock`, so a running live `dev:server` can never be driven by tests.
+- **Retries:** executors that call a paid provider register with `maxRetries: 0` (`ExecutorMeta`), so a timed-out call is never re-sent automatically; the student can retry by hand.
+- **Live transcription limits:** webm and wav only (the formats verified live), up to 25 MB. Uploads also accept mp3/m4a/ogg, which transcribe in mock mode only. Each live call logs `[transcribe] ... cost=` and `[llm] task=... cost=`.
+
+## Adding an LLM task
+
+Define the task once, next to the feature that uses it (e.g. `src/ai/tasks/review-task.ts`). Input, prompt, schema and fake are type-checked together:
+
+```ts
+import { z } from 'zod'
+import { defineLlmTask } from '../llm'
+
+export const reviewTask = defineLlmTask({
+  name: 'review-task',
+  system: 'You write short, friendly study task titles for a student.',
+  buildPrompt: (input: { moment: string }) => `Lecture moment the student found confusing:\n${input.moment}`,
+  schema: z.object({ title: z.string(), minutes: z.number().int() }),
+  // Deterministic and derived from the input, so mock-mode screenshots look real.
+  fake: (input) => ({ title: `Review: ${input.moment.split('.')[0]}`, minutes: 20 }),
+})
+```
+
+Then call it through the injected client: `const { title } = await ai.llm.run(reviewTask, { moment })`.
+
+- The schema must suit strict structured output: an object root, every field required (use `.nullable()`, not `.optional()`), and no `default`, length or format constraints. `defineLlmTask` throws at definition time otherwise, so a bad schema fails the first test that imports it instead of only failing live.
+- Live and fake replies both go through JSON parsing and `schema` validation.
+- In tests, `createFakeLlmClient()` records `.calls` (task, input, built prompt) for assertions.

@@ -1,7 +1,7 @@
 import path from 'path'
 import { withUser } from '@pls/db'
 import { createExecutorRegistry, type ExecutorRegistry } from '@pls/workflows'
-import { createTranscriber } from './transcriber'
+import type { AiDeps } from '../ai/deps'
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -14,19 +14,17 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads
 const TRANSCRIBED_STATUS = 'ready'
 
 /**
- * The shared executor registry for the server runtime. Executor bodies remain
- * server-specific (transcription provider / direct postgres writes); only the registry
+ * Builds the executor registry for the server runtime. Executor bodies remain
+ * server-specific (AI providers / direct postgres writes); only the registry
  * and the `(input, ctx) => Promise<JobResult>` signature are adopted from
- * `@pls/workflows`. The owning user is carried in `input._userId` (injected at
- * dispatch time) so executors can open their own RLS-scoped tx via `withUser`.
+ * `@pls/workflows`. AI capabilities arrive through `ai` (never constructed
+ * here), so tests and mock runs cannot reach a real provider. The owning user
+ * is carried in `input._userId` (injected at dispatch time) so executors can
+ * open their own RLS-scoped tx via `withUser`.
  */
-export const serverExecutors: ExecutorRegistry = createExecutorRegistry()
-
-export function registerAllExecutors() {
-  const transcriber = createTranscriber()
-  if (transcriber.name === 'mock') {
-    console.log('ASSEMBLYAI_API_KEY not set - ai:transcribe uses mock transcription')
-  }
+export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
+  const { transcriber } = ai
+  const serverExecutors = createExecutorRegistry()
 
   serverExecutors.register(
     'ai:transcribe',
@@ -60,7 +58,9 @@ export function registerAllExecutors() {
         events: [],
       }
     },
-    { label: 'Transcribe', category: 'ai' },
+    // Never auto-retry: a provider call that timed out may still be billed.
+    // A failed run can be retried by hand.
+    { label: 'Transcribe', category: 'ai', maxRetries: 0 },
   )
 
   serverExecutors.register(
@@ -106,4 +106,6 @@ export function registerAllExecutors() {
     },
     { label: 'Find Connections', category: 'ai' },
   )
+
+  return serverExecutors
 }
