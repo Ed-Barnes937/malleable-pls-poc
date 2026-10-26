@@ -104,28 +104,41 @@ tool/view category, each lens manifest declares per dimension how it responds
 
 | Dimension | Modes |
 |---|---|
-| `courseTag` | `filter` (only in-course data, says "+N in other courses"; new items inherit the course), `highlight` (everything, course emphasised, rest dimmed never hidden), `label` (uses the course only for what it creates), `ignore` |
+| `courseTag` | `filter` (readers narrow to the course, the widget says "+N in other courses"; new items inherit the course), `highlight` (everything, course emphasised, rest dimmed never hidden), `ignore` |
 | `recordingId` | `target` (works on the focused lecture, prompts when none), `highlight` (everything, items linked to the lecture emphasised), `ignore` |
 
-The shell enforces the declarations: a widget receives only the dimensions it
-uses (`narrowScope`), the drawer offers a picker for each dimension some widget
-on the board uses, and the TopBar chip summarises only those dimensions.
-Writer access is granted to lenses that declare `writes`, not by category.
+The shell enforces the declarations with `splitScope`. A widget receives
+`LensProps.scope` with only its `filter` / `target` dimensions, which is safe
+to pass straight to readers, and `LensProps.highlight` with its `highlight`
+dimensions, which is for styling only and never reaches readers. So a calendar
+written the obvious way (`usePlanItems(scope)`) cannot hide another course's
+commitments. Ignored dimensions reach neither. The drawer offers a picker for
+each dimension some widget on the board uses, and the TopBar chip summarises
+only those dimensions. Writer access is granted to lenses that declare
+`writes`, not by category.
+
+**A targeted lecture wins over the course.** When a reader gets a
+`recordingId` (tags, annotations, confidence, links of the focused lecture), it
+returns that lecture's data and does not apply `courseTag`. Focus and course
+may disagree (e.g. a Chemistry lecture uploaded on a Biology board); the
+student's own tags and notes on it never silently disappear, and the picker and
+chip still show the focused lecture's title.
 
 Course filtering happens server-side through one helper, `andInCourse` /
 `inCourse` in `apps/server/src/routers/_shared.ts`: a course is a `tags` row on
-a recording (or a `plan_item`), and segments, tags, confidence and links inherit
-the course of their recording.
+a recording or a plan item (`target_type = 'plan_item'`, used by
+`planItems.list`), and segments, tags, confidence and links inherit the course
+of their recording.
 
 Time windows are not a board dimension. Widgets that show time own their
 navigation and look-ahead (a calendar shows the week being viewed, Coming up
 looks 14 days ahead) and pass a `DateRange` to readers in `QueryFilter`. The
 earlier `timeframe` board scope was never applied by any reader and was removed
-(migration 011).
+(migration 012).
 
 | Widget | Course | Focused recording | Unset scope |
 |---|---|---|---|
-| Audio capture | `label` (tags new lecture) | `target` | ready to record |
+| Audio capture | `filter` (tags new lecture) | `target` | ready to record |
 | Transcript | `filter` (narrows picker) | `target` | "pick a lecture" |
 | Connections | `filter` | `target` | prompt to focus a lecture |
 | Test me | `filter` | `ignore` | all material |

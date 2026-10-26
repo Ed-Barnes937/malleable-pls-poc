@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { apiUrl } from './ports'
 
 /**
  * The Scope section offers a picker for every dimension some widget on the
@@ -133,5 +134,33 @@ test.describe('Course scope filters every widget', () => {
     await page.keyboard.press('Escape')
     await expect(thisWeek.getByText('chemistry')).toBeVisible({ timeout: 10000 })
     await expect(thisWeek.getByText('+1 in other courses')).toHaveCount(0)
+  })
+
+  test('a lecture focused outside the board course wins: its title shows and tagging it works', async ({ page, request }) => {
+    // Biology board, Chemistry lecture focused (e.g. uploaded and filed under
+    // Chemistry while on the board). Set the focus directly, as the upload does.
+    const res = await request.post(`${apiUrl}/workspaces.setScope`, {
+      headers: { 'x-user-id': 'dev-user-1' },
+      data: { json: { workspaceId: 'ws-evening-review', scopeType: 'recording', scopeValue: 'rec-chem-1' } },
+    })
+    expect(res.ok()).toBe(true)
+
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await expect(topBar.scopeChip).toHaveText('Biology · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+
+    const transcript = grid.panelByLabel('Transcript')
+    await expect(transcript.getByText('SN1 vs SN2 still confusing')).toBeVisible({ timeout: 10000 })
+    await transcript.getByText(/Good afternoon. Today we begin organic reactions/).click()
+    const confusedButton = transcript.getByRole('button', { name: 'confused', exact: true })
+    await expect(confusedButton).toBeVisible()
+    const before = await transcript.locator('text=confused').count()
+    await confusedButton.click()
+    await expect(transcript.locator('text=confused')).toHaveCount(before + 1, { timeout: 10000 })
+
+    await topBar.openDrawer()
+    await expect(new SidebarPom(page).recordingSelect).toHaveValue('rec-chem-1')
   })
 })

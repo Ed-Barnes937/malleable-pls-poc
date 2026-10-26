@@ -1,4 +1,4 @@
--- Migration 011: Drop the 'timeframe' workspace scope
+-- Migration 012: Drop the 'timeframe' workspace scope
 -- No reader ever applied the board timeframe, so the picker and chip claimed
 -- a filter nothing honoured. Widgets that show a window of time now own their
 -- own date range (see `DateRange` in packages/lens-framework), so the

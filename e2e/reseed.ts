@@ -36,8 +36,8 @@ export async function reseed() {
     // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
     // columns), since 006 replaced the grid columns 002 originally used;
     // 010 moves the seeded recording focus from panel config to the
-    // workspace scope; 011 drops the timeframe scope rows 002 still inserts.
-    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '011_drop_timeframe_scope.sql']) {
+    // workspace scope; 012 drops the timeframe scope rows 002 still inserts.
+    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql']) {
       const seedSql = readFileSync(
         resolve(__dirname, `../packages/db/src/migrations/${file}`),
         'utf-8',

@@ -51,3 +51,25 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
 
   await expect(page.getByText('Select a recording to view transcript')).toBeVisible()
 })
+
+test('a lecture focused outside the board course keeps its tags, and new tags appear', async ({ mount, page, simulator }) => {
+  // Biology board, Chemistry lecture focused: the targeted lecture wins.
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} scope={{ recordingId: 'rec-chem-1', courseTag: 'biology' }} />
+    </TestProviders>,
+  )
+
+  // seg-chem1-04 is seeded as confused, seg-chem1-09 as key-point.
+  await expect(page.locator('text=key-point').first()).toBeVisible()
+  await expect(page.getByText('SN1 vs SN2 still confusing')).toBeVisible()
+
+  await page.getByText(/Good afternoon. Today we begin organic reactions/).click()
+  const confusedButton = page.getByRole('button', { name: 'confused', exact: true })
+  await expect(confusedButton).toBeVisible()
+  const before = await page.locator('text=confused').count()
+  await confusedButton.click()
+  await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-chem1-01' && t.label === 'confused').length).toBe(1)
+  // The new pill appears even though the lecture is outside the course.
+  await expect(page.locator('text=confused')).toHaveCount(before + 1)
+})

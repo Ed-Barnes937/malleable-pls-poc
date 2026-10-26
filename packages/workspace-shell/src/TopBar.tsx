@@ -1,6 +1,6 @@
 import { Menu, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceScopes, useRecordings, decodeScope } from '@pls/substrate-client'
+import { useWorkspaceScopes, useFocusedRecording, decodeScope } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
@@ -25,7 +25,7 @@ function useScopeSummary(workspaceId: string): string | null {
     () => decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[]),
     [scopes],
   )
-  const { data: recordings } = useRecordings(s.courseTag)
+  const { data: focused } = useFocusedRecording(s.recordingId)
 
   return useMemo(() => {
     const parts: string[] = []
@@ -33,11 +33,11 @@ function useScopeSummary(workspaceId: string): string | null {
       parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
     }
     if (s.recordingId && dims.has('recordingId')) {
-      const title = recordings?.find((r) => r.id === s.recordingId)?.title as string | undefined
+      const title = focused?.id === s.recordingId ? (focused?.title as string | undefined) : undefined
       if (title) parts.push(title)
     }
     return parts.length > 0 ? parts.join(' · ') : null
-  }, [s, dims, recordings])
+  }, [s, dims, focused])
 }
 
 export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {

@@ -3,6 +3,7 @@ import {
   useWorkspaceScopes,
   useSetWorkspaceScope,
   useRecordings,
+  useFocusedRecording,
   decodeScope,
 } from '@pls/substrate-client'
 import { COURSES, SectionLabel, Select } from '@pls/shared-ui'
@@ -35,7 +36,13 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
   const currentCourse = decodedScope.courseTag ?? ''
   const currentRecordingId = decodedScope.recordingId ?? ''
-  const { data: recordings } = useRecordings(decodedScope.courseTag)
+  const { data: courseRecordings } = useRecordings(decodedScope.courseTag)
+  // A focused lecture outside the course still appears, so the picker never
+  // pretends nothing is focused.
+  const { data: focused } = useFocusedRecording(decodedScope.recordingId)
+  const recordings = focused && !courseRecordings?.some((r) => r.id === focused.id)
+    ? [focused, ...(courseRecordings ?? [])]
+    : courseRecordings
 
   const handleChange = useCallback(
     (scopeType: 'tag' | 'recording', value: string) => {

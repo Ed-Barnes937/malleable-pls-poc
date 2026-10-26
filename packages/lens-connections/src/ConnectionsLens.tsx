@@ -1,5 +1,5 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, EmptyState } from '@pls/shared-ui'
+import { cn, EmptyState, HiddenElsewhere } from '@pls/shared-ui'
 import { FileText, Mic, ArrowRight, Link2 } from 'lucide-react'
 
 const SOURCE_ICONS: Record<string, typeof FileText> = {
@@ -30,7 +30,10 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
   const recordingId = scope.recordingId
 
   const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '', scope)
-  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId, scope)
+  // Unfiltered concept links, only to say what the course filter leaves out.
+  const { data: allConceptConnections } = substrate.useConnections(conceptSegmentId ?? '', {})
+  // The targeted lecture's links are never course-filtered.
+  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)
 
   const allConnections = [
     ...(conceptConnections ?? []),
@@ -44,6 +47,9 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
     seen.add(key)
     return true
   })
+  const allConceptKeys = new Set((allConceptConnections ?? []).map((c) => `${c.sourceId}-${c.relationship}`))
+  const shownConceptKeys = [...allConceptKeys].filter((key) => seen.has(key)).length
+  const hidden = <HiddenElsewhere scopedCount={shownConceptKeys} unscopedCount={allConceptKeys.size} />
 
   // Nothing to connect from: neither a focused lecture nor a configured concept.
   if (!recordingId && !conceptSegmentId) {
@@ -64,11 +70,12 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
               {connections.length}
             </span>
           )}
+          {connections.length > 0 && hidden}
         </div>
       </div>
 
       {!connections.length ? (
-        <EmptyState message="No connections found" />
+        <EmptyState message="No connections found" action={hidden} />
       ) : (
         <div className="min-h-0 flex-1 -mx-3 overflow-y-auto px-3 space-y-1">
           {connections.map((conn, i) => {

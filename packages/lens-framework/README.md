@@ -14,7 +14,7 @@ Defines the contract that every lens must satisfy and provides the registry infr
 | `PanelManifest` | Per-lens metadata: label, icon, `reads`/`writes` (declaring `writes` grants writer access), `scope` declaration, sizes |
 | `Scope` | Board scope shared by every widget (`courseTag`, `recordingId`) |
 | `ScopeDeclaration` | How a widget responds to each scope dimension (see `docs/technical-guidance.md`, Scope declarations) |
-| `narrowScope()` / `activeScopeDims()` / `canWrite()` | Shell helpers applying the declarations |
+| `splitScope()` / `activeScopeDims()` / `canWrite()` | Shell helpers applying the declarations (`LensProps.scope` for readers, `LensProps.highlight` for styling only) |
 | `DateRange`, `weekRange()`, `lookAheadRange()` | Widget-owned time windows passed to readers |
 | `LensRegistry` / `LensRegistryProvider` | React context for the active set of lenses |
 | `getLensComponent()` | Lazy-loads and caches a lens component by key |

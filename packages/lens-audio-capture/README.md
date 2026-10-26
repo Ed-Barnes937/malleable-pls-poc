@@ -17,7 +17,7 @@ Lens for recording and playing back audio during learning sessions.
 
 ## Scope
 
-`recordingId: 'target'` - binds audio to the focused recording. `courseTag: 'label'` - files a new lecture under the board course.
+`recordingId: 'target'` - binds audio to the focused recording. `courseTag: 'filter'` - files a new lecture under the board course.
 
 ## Internal Dependencies
 
