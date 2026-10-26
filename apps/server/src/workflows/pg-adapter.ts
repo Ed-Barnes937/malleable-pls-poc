@@ -1,4 +1,4 @@
-import type { TransactionSql } from 'postgres'
+import type { JSONValue, TransactionSql } from 'postgres'
 import type { Sql } from '@pls/db'
 import type {
   EnqueueJobRunArgs,
@@ -75,14 +75,19 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
       return withDb(async (tx) => {
         const retryCount = args.retryCount ?? 0
         // Backoff lives here (the core owns only the retry DECISION via maxRetries):
-        // run_after = now() + (2 ^ retryCount) * 1000ms, capped at 60s.
-        const backoffMs = retryCount > 0 ? Math.min(2 ** retryCount * 1000, 60000) : 0
+        // run_after = now() + (2 ^ retryCount) * 1000ms, capped at 60s. The first
+        // attempt waits for the workflow job's configured delay instead.
+        const runAfterMs = retryCount > 0
+          ? Math.min(2 ** retryCount * 1000, 60000)
+          : Math.max(args.delayMs ?? 0, 0)
         // Persist the owning user in the input so executors (which open their own
         // RLS-scoped tx via withUser) can recover it when the job is claimed.
         const input = { ...args.input, _userId: userId }
+        // tx.json, not JSON.stringify: a pre-stringified value lands in the jsonb
+        // column as a jsonb *string*, so executors would receive a string.
         const [row] = await tx`
           INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, input, depth, retry_count, run_after)
-          VALUES (${userId}, ${args.workflowId}, ${args.workflowJobId}, ${args.jobType}, ${JSON.stringify(input)}, ${args.depth}, ${retryCount}, now() + ${backoffMs + 'ms'}::interval)
+          VALUES (${userId}, ${args.workflowId}, ${args.workflowJobId}, ${args.jobType}, ${tx.json(input as JSONValue)}, ${args.depth}, ${retryCount}, now() + ${runAfterMs + 'ms'}::interval)
           RETURNING id
         `
         return (row as { id: string }).id
@@ -123,7 +128,7 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
         if (status === 'running') {
           await tx`UPDATE job_runs SET status = 'running', started_at = now() WHERE id = ${id}`
         } else if (status === 'completed') {
-          await tx`UPDATE job_runs SET status = 'completed', output = ${output ? JSON.stringify(output) : null}, completed_at = now() WHERE id = ${id}`
+          await tx`UPDATE job_runs SET status = 'completed', output = ${output ? tx.json(output as JSONValue) : null}, completed_at = now() WHERE id = ${id}`
         } else if (status === 'failed') {
           await tx`UPDATE job_runs SET status = 'failed', error = ${error ?? null}, completed_at = now() WHERE id = ${id}`
         }

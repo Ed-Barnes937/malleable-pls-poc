@@ -4,16 +4,23 @@ import { createPgAdapter } from './pg-adapter'
 import { serverExecutors } from './executors'
 import { emitEvent } from '../routers/events'
 
-const MAX_RETRIES = 3
+/** Automatic retries after a failed attempt; a run that exhausts them can be retried by hand. */
+export const MAX_RETRIES = 3
 const POLL_INTERVAL_MS = 2000
 
 /**
  * Translate a core RunnerEvent into the server's ServerEvent shape (adding
  * userId) and push it onto the EventBus. The server surfaces job:started /
  * job:completed / job:failed in the workflow UI, so all three are forwarded.
+ * Failures flag `willRetry` so the UI only alarms the student on the last one.
  */
 function bridgeRunnerEvent(userId: string, event: RunnerEvent) {
-  emitEvent({ type: event.type, jobType: event.jobRun.job_type, userId })
+  emitEvent({
+    type: event.type,
+    jobType: event.jobRun.job_type,
+    userId,
+    ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < MAX_RETRIES } : {}),
+  })
 }
 
 async function processJobs(): Promise<void> {

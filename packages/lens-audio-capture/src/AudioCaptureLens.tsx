@@ -1,9 +1,12 @@
+import { useRef, useState, type ChangeEvent } from 'react'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, formatTime } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw, Loader2 } from 'lucide-react'
+import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
 import { API_URL } from './env'
 import { useAudioRecorder } from './useAudioRecorder'
 import { useAudioPlayback } from './useAudioPlayback'
+import { ACCEPTED_AUDIO, audioContentType, readAudioDuration } from './uploadRecording'
+import { UploadRecordingForm, type UploadRecordingDetails } from './UploadRecordingForm'
 
 function Waveform({ active, progress }: { active: boolean; progress: number }) {
   const bars = 48
@@ -40,14 +43,50 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
   )
 }
 
-export default function AudioCaptureLens({ scope }: LensProps) {
+export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
 
   const recordingId = scope.recordingId ?? ''
   const { data: recording } = substrate.useRecording(recordingId)
 
-  const recorder = useAudioRecorder(recordingId)
+  // New recordings become the workspace focus so every lens (e.g. Transcript)
+  // follows the lecture that was just captured or uploaded.
+  const recorder = useAudioRecorder(recordingId, {
+    course: scope.courseTag,
+    onRecordingCreated: (id) => onScopeChange?.({ recordingId: id }),
+  })
   const { state, elapsed, error } = recorder
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [pendingFile, setPendingFile] = useState<File | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null)
+
+  const handleFilePicked = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // Reset so picking the same file again still fires onChange.
+    e.target.value = ''
+    if (!file) return
+    if (!audioContentType(file)) {
+      setFileError('Pick a webm, mp3, m4a, wav or ogg audio file')
+      return
+    }
+    setFileError(null)
+    setPendingFile(file)
+  }
+
+  const handleUpload = async ({ title, course }: UploadRecordingDetails) => {
+    const file = pendingFile
+    if (!file) return
+    setPendingFile(null)
+    playback.stop()
+    await recorder.uploadFile({
+      audio: file,
+      contentType: audioContentType(file) as string,
+      title,
+      course,
+      durationMs: await readAudioDuration(file),
+    })
+  }
 
   const duration = recording?.duration ?? elapsed
   const activeRecordingId = recorder.recordingId ?? recordingId
@@ -62,8 +101,29 @@ export default function AudioCaptureLens({ scope }: LensProps) {
     ? (playback.playing || playback.position > 0 ? Math.min(playback.position / duration, 1) : 1)
     : 0
 
+  if (pendingFile) {
+    return (
+      <div className="container-size flex h-full min-h-0 flex-col items-center justify-center overflow-hidden px-3">
+        <UploadRecordingForm
+          file={pendingFile}
+          defaultCourse={scope.courseTag}
+          onSubmit={handleUpload}
+          onCancel={() => setPendingFile(null)}
+        />
+      </div>
+    )
+  }
+
   return (
     <div className="container-size flex h-full min-h-0 flex-col overflow-hidden">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept={ACCEPTED_AUDIO}
+        aria-label="Audio file"
+        className="hidden"
+        onChange={handleFilePicked}
+      />
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
         {state === 'recording' && (
           <div className="flex items-center gap-1.5">
@@ -95,8 +155,8 @@ export default function AudioCaptureLens({ scope }: LensProps) {
           <p className="text-[10px] text-neutral-500 @tall:text-sm">Ready to record</p>
         )}
 
-        {error && (
-          <p className="text-[10px] text-tag-confused">{error}</p>
+        {(fileError ?? error) && (
+          <p role="alert" className="text-center text-[10px] text-tag-confused">{fileError ?? error}</p>
         )}
 
         <Waveform active={state === 'recording'} progress={progress} />
@@ -129,6 +189,14 @@ export default function AudioCaptureLens({ scope }: LensProps) {
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
               >
                 <Mic className="h-3.5 w-3.5 @tall:h-5 @tall:w-5" />
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Upload a recording"
+                title="Upload a recording"
+                className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
+              >
+                <Upload className="h-3 w-3 @tall:h-4 @tall:w-4" />
               </button>
               {state === 'complete' && (
                 <button

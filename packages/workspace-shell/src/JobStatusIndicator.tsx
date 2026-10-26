@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom'
-import { useRunningJobCount, useRecentJobs } from '@pls/substrate-client'
+import { useRunningJobCount, useRecentJobs, useRetryJob } from '@pls/substrate-client'
 import { getAvailableJobTypes } from '@pls/substrate'
-import { Zap, X } from 'lucide-react'
+import { Zap, X, RotateCcw } from 'lucide-react'
 import { cn, StatusDot, SectionLabel } from '@pls/shared-ui'
 import { useState, useCallback, useEffect } from 'react'
 
@@ -35,6 +35,9 @@ interface JobRow {
   started_at?: string | null
   completed_at?: string | null
   created_at?: string | null
+  error?: string | null
+  /** Failed with automatic retries exhausted - the student can retry by hand. */
+  retryable?: boolean
 }
 
 function statusDotStatus(status: string) {
@@ -58,15 +61,59 @@ function JobItem({ job, now }: { job: JobRow; now: number }) {
         : null
 
   return (
-    <div className="flex items-center gap-2 border-b border-border-subtle/50 px-3 py-2 last:border-0">
-      <StatusDot status={statusDotStatus(job.status)} />
-      <span className="flex-1 truncate text-[11px] text-neutral-300">{jobLabel(job.job_type)}</span>
-      {elapsed !== null ? (
-        <span className={cn('text-[10px] tabular-nums', isRunning ? 'text-accent' : 'text-neutral-600')}>
-          {elapsed}
-        </span>
-      ) : (
-        <span className="text-[10px] text-neutral-600">{job.status}</span>
+    <div
+      data-testid="job-item"
+      className="border-b border-border-subtle/50 px-3 py-2 last:border-0"
+    >
+      <div className="flex items-center gap-2">
+        <StatusDot status={statusDotStatus(job.status)} />
+        <span className="flex-1 truncate text-[11px] text-neutral-300">{jobLabel(job.job_type)}</span>
+        {elapsed !== null ? (
+          <span className={cn('text-[10px] tabular-nums', isRunning ? 'text-accent' : 'text-neutral-600')}>
+            {elapsed}
+          </span>
+        ) : (
+          <span className="text-[10px] text-neutral-600">{job.status}</span>
+        )}
+      </div>
+      {job.status === 'failed' && <FailedJobDetails job={job} />}
+    </div>
+  )
+}
+
+/**
+ * Plain-language outcome for a failed run, with the raw error tucked behind
+ * "Details" (it is written for developers) and a retry once automatic
+ * retries are used up.
+ */
+function FailedJobDetails({ job }: { job: JobRow }) {
+  const retry = useRetryJob()
+
+  return (
+    <div className="mt-1 pl-4">
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-[10px] text-neutral-500">
+          {job.retryable
+            ? 'This didn\'t finish. Give it another go.'
+            : 'This attempt didn\'t finish, so it was retried automatically.'}
+        </p>
+        {job.retryable && (
+          <button
+            type="button"
+            onClick={() => retry.mutate(job.id)}
+            disabled={retry.isPending}
+            className="flex shrink-0 items-center gap-1 rounded-md bg-surface-overlay px-2 py-0.5 text-[10px] text-neutral-300 transition-colors hover:text-neutral-100 disabled:opacity-40"
+          >
+            <RotateCcw className="h-2.5 w-2.5" />
+            Retry
+          </button>
+        )}
+      </div>
+      {job.error && (
+        <details className="mt-0.5 text-[10px] text-neutral-600">
+          <summary className="cursor-pointer select-none hover:text-neutral-400">Details</summary>
+          <p className="mt-0.5 break-words font-mono">{job.error}</p>
+        </details>
       )}
     </div>
   )

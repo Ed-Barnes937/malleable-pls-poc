@@ -21,8 +21,12 @@ interface Call {
 // Mirrors postgres.js fragment composition: a lazy query embedded as a value
 // (e.g. `workflowJobsJson(tx)`) splices its text/values into the outer query
 // instead of being recorded as a separate call.
+//
+// `json(value)` mirrors postgres.js's typed jsonb parameter. It is recorded as
+// a `{ json }` marker so tests can assert that objects reach jsonb columns as
+// objects - a pre-stringified value is stored as a jsonb *string* instead.
 function makeTagged(calls: Call[], result: unknown[]) {
-  return (strings: TemplateStringsArray, ...values: unknown[]) => {
+  const tagged = (strings: TemplateStringsArray, ...values: unknown[]) => {
     let text = strings[0]
     const flat: unknown[] = []
     for (let i = 0; i < values.length; i++) {
@@ -45,6 +49,8 @@ function makeTagged(calls: Call[], result: unknown[]) {
     p.__fragment = call
     return p
   }
+  tagged.json = (value: unknown) => ({ json: value })
+  return tagged
 }
 
 function makeTxSql(result: unknown[] = []) {
@@ -82,10 +88,58 @@ describe('createPgAdapter — enqueueJobRun', () => {
     expect(workflowId).toBe('w1')
     expect(workflowJobId).toBe('j1')
     expect(jobType).toBe('ai:transcribe')
-    expect(JSON.parse(inputJson as string)).toEqual({ target_id: 'rec-1', _userId: 'user-1' })
+    expect(inputJson).toEqual({ json: { target_id: 'rec-1', _userId: 'user-1' } })
     expect(depth).toBe(1)
     expect(retryCount).toBe(0)
     expect(backoff).toBe('0ms')
+  })
+
+  it('persists input as a jsonb object, not a pre-stringified jsonb string', async () => {
+    const { tx, calls } = makeTxSql([{ id: 'r' }])
+    const adapter = createPgAdapter({ tx, userId: 'user-1' })
+
+    await adapter.enqueueJobRun({
+      workflowId: 'w1',
+      workflowJobId: 'j1',
+      jobType: 'ai:transcribe',
+      input: { recording_id: 'rec-1' },
+      depth: 1,
+    })
+
+    expect(typeof calls[0].values[4]).not.toBe('string')
+  })
+
+  it('schedules the first attempt after the job delay', async () => {
+    const { tx, calls } = makeTxSql([{ id: 'r' }])
+    const adapter = createPgAdapter({ tx, userId: 'user-1' })
+
+    await adapter.enqueueJobRun({
+      workflowId: 'w1',
+      workflowJobId: 'j1',
+      jobType: 'ai:transcribe',
+      input: {},
+      depth: 1,
+      delayMs: 5000,
+    })
+
+    expect(calls[0].values[7]).toBe('5000ms')
+  })
+
+  it('uses retry backoff rather than the job delay for retries', async () => {
+    const { tx, calls } = makeTxSql([{ id: 'r' }])
+    const adapter = createPgAdapter({ tx, userId: 'user-1' })
+
+    await adapter.enqueueJobRun({
+      workflowId: 'w1',
+      workflowJobId: 'j1',
+      jobType: 'ai:transcribe',
+      input: {},
+      depth: 1,
+      delayMs: 5000,
+      retryCount: 1,
+    })
+
+    expect(calls[0].values[7]).toBe('2000ms')
   })
 
   it('applies exponential backoff for retries, capped at 60s', async () => {
@@ -162,13 +216,13 @@ describe('createPgAdapter — updateJobRunStatus', () => {
     expect(calls[0].values).toEqual(['r1'])
   })
 
-  it('serializes output for completed and null when absent', async () => {
+  it('persists output for completed as a jsonb object and null when absent', async () => {
     {
       const { tx, calls } = makeTxSql()
       const adapter = createPgAdapter({ tx, userId: 'user-1' })
       await adapter.updateJobRunStatus('r1', 'completed', { segments: 3 })
       expect(calls[0].text).toContain("status = 'completed'")
-      expect(calls[0].values).toEqual(['{"segments":3}', 'r1'])
+      expect(calls[0].values).toEqual([{ json: { segments: 3 } }, 'r1'])
     }
     {
       const { tx, calls } = makeTxSql()

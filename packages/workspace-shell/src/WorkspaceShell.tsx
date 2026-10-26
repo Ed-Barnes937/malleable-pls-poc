@@ -9,10 +9,12 @@ import {
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
   useUpdatePanelConfig,
+  useSetWorkspaceScope,
   useServerEvents,
   decodeScope,
+  SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests } from '@pls/lens-framework'
+import { useManifests, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -45,7 +47,11 @@ export function WorkspaceShell() {
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
     onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
-    onJobFailed: (event) => pushToast({ message: `${jobLabel(event.jobType)} failed`, tone: 'error' }),
+    // Intermediate attempts retry on their own; only the final failure needs the student.
+    onJobFailed: (event) => {
+      if (event.willRetry) return
+      pushToast({ message: `${jobLabel(event.jobType)} didn't finish - you can retry it from Activity`, tone: 'error' })
+    },
   })
 
   const { data: workspaces } = useWorkspaces()
@@ -56,6 +62,7 @@ export function WorkspaceShell() {
   const removePanel = useRemoveWorkspacePanel()
   const updateLayouts = useUpdatePanelLayouts()
   const updatePanelConfig = useUpdatePanelConfig()
+  const setWorkspaceScope = useSetWorkspaceScope()
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -78,6 +85,19 @@ export function WorkspaceShell() {
   const scope = useMemo(
     () => decodeScope((dbScopes ?? []) as { scope_type: string; scope_value: string }[]),
     [dbScopes],
+  )
+
+  const handleScopeChange = useCallback(
+    (patch: Partial<Scope>) => {
+      for (const [dim, value] of Object.entries(patch) as [ScopeDim, string | undefined][]) {
+        setWorkspaceScope.mutate({
+          workspaceId: activeWorkspaceId,
+          scopeType: SCOPE_TYPE_BY_DIM[dim],
+          scopeValue: value ?? null,
+        })
+      }
+    },
+    [activeWorkspaceId, setWorkspaceScope.mutate],
   )
 
   const panelConfigs = useMemo(() => {
@@ -176,11 +196,12 @@ export function WorkspaceShell() {
             scope={scope}
             config={config}
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
+            onScopeChange={handleScopeChange}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig],
+    [panels, panelConfigs, lensRegistry, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange],
   )
 
   // Icon resolver: look up icon from the manifest registry

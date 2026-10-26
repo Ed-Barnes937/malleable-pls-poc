@@ -6,19 +6,51 @@ import { dispatchWorkflows } from './workflows/dispatch'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
-const ALLOWED_AUDIO_TYPES = new Set([
-  'audio/webm',
-  'audio/ogg',
-  'audio/mp4',
-  'audio/mpeg',
-  'audio/wav',
-])
+// Accepted audio MIME types (including common browser aliases) -> stored file
+// extension. The extension lets /uploads serve the right Content-Type back.
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  'audio/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'audio/mp4': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/wave': 'wav',
+}
 
-function isAllowedContentType(contentType: string | undefined): boolean {
-  if (!contentType) return false
+export const AUDIO_CONTENT_TYPES: Record<string, string> = {
+  webm: 'audio/webm',
+  ogg: 'audio/ogg',
+  m4a: 'audio/mp4',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+}
+
+function audioExtension(contentType: string | undefined): string | null {
+  if (!contentType) return null
   // Strip parameters like charset, codecs etc.
   const mimeType = contentType.split(';')[0].trim().toLowerCase()
-  return ALLOWED_AUDIO_TYPES.has(mimeType)
+  return AUDIO_EXTENSIONS[mimeType] ?? null
+}
+
+const MAX_TITLE_LENGTH = 200
+const MAX_COURSE_LENGTH = 100
+
+/**
+ * Title / course headers are URI-encoded by the client because header values
+ * must be ISO-8859-1 and filenames often aren't. Falls back to the raw value
+ * for clients that send plain ASCII.
+ */
+function decodeHeader(value: string | string[] | undefined, maxLength: number): string | null {
+  if (typeof value !== 'string') return null
+  let decoded = value
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {}
+  const trimmed = decoded.trim().slice(0, maxLength)
+  return trimmed || null
 }
 
 function isAudioMagicBytes(buffer: Buffer): boolean {
@@ -96,11 +128,14 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
 
   try {
     const userId = (req.headers['x-user-id'] as string) ?? 'anonymous'
-    const title = (req.headers['x-recording-title'] as string) ?? 'Untitled Recording'
-    const durationMs = Number(req.headers['x-recording-duration'] ?? '0')
+    const title = decodeHeader(req.headers['x-recording-title'], MAX_TITLE_LENGTH) ?? 'Untitled Recording'
+    const course = decodeHeader(req.headers['x-recording-course'], MAX_COURSE_LENGTH)
+    const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
+    const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
     // Validate Content-Type header against audio allowlist
-    if (!isAllowedContentType(req.headers['content-type'])) {
+    const extension = audioExtension(req.headers['content-type'])
+    if (!extension) {
       res.writeHead(415, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Unsupported media type. Accepted: audio/webm, audio/ogg, audio/mp4, audio/mpeg, audio/wav' }))
       return
@@ -130,7 +165,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     await ensureUploadsDir()
 
     const recordingId = crypto.randomUUID()
-    const filename = `${recordingId}.webm`
+    const filename = `${recordingId}.${extension}`
     const filePath = path.join(UPLOADS_DIR, filename)
     await writeFile(filePath, body)
 
@@ -141,6 +176,13 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         INSERT INTO recordings (id, user_id, title, duration, audio_url, status)
         VALUES (${recordingId}, ${userId}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
       `
+      // Courses are modelled as a 'recording' tag (see recordings.list courseTag filter).
+      if (course) {
+        await tx`
+          INSERT INTO tags (user_id, target_type, target_id, label)
+          VALUES (${userId}, 'recording', ${recordingId}, ${course})
+        `
+      }
       await dispatchWorkflows(tx, userId, 'recording:completed', {
         recording_id: recordingId,
       }, null)

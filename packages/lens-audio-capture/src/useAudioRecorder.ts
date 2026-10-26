@@ -1,14 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { API_URL, USER_ID, AUTH_TOKEN } from './env'
+import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
+export interface AudioRecorderOptions {
+  /** Course tag applied to new recordings (mic captures and file uploads). */
+  course?: string | null
+  /** Called with the new recording's id once it is uploaded, e.g. to focus it. */
+  onRecordingCreated?: (recordingId: string) => void
+}
+
 /**
- * MediaRecorder capture + upload. State machine: idle → recording → uploading
- * → complete. `focusedRecordingId` (the workspace recording focus) drives
- * idle/complete whenever no capture is in flight.
+ * MediaRecorder capture + file upload. State machine: idle → recording →
+ * uploading → complete (a file upload skips `recording`). `focusedRecordingId`
+ * (the workspace recording focus) drives idle/complete whenever no capture is
+ * in flight.
  */
-export function useAudioRecorder(focusedRecordingId: string) {
+export function useAudioRecorder(focusedRecordingId: string, options: AudioRecorderOptions = {}) {
+  const { course, onRecordingCreated } = options
   const [state, setState] = useState<CaptureState>(focusedRecordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -18,6 +27,11 @@ export function useAudioRecorder(focusedRecordingId: string) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  // Latest values without re-creating the upload callbacks on every render.
+  const onRecordingCreatedRef = useRef(onRecordingCreated)
+  onRecordingCreatedRef.current = onRecordingCreated
+  const focusedRecordingIdRef = useRef(focusedRecordingId)
+  focusedRecordingIdRef.current = focusedRecordingId
 
   // Reflect focus changes in the state machine unless a capture is in flight.
   // The functional update reads the current state without needing it in deps.
@@ -75,6 +89,22 @@ export function useAudioRecorder(focusedRecordingId: string) {
     }
   }, [stopTimer])
 
+  // Shared by mic captures and picked files. On failure, fall back to whatever
+  // the workspace focus says (the effect above only re-runs on focus change).
+  const upload = useCallback(async (args: UploadRecordingArgs) => {
+    setState('uploading')
+    try {
+      const id = await uploadRecording(args)
+      setRecordingId(id)
+      setState('complete')
+      onRecordingCreatedRef.current?.(id)
+    } catch (err) {
+      setError(err instanceof Error && err.message.startsWith('Upload failed') ? err.message : 'Upload failed')
+      setState(focusedRecordingIdRef.current ? 'complete' : 'idle')
+      console.error('upload error:', err)
+    }
+  }, [])
+
   const stop = useCallback(async () => {
     stopTimer()
     const recorder = mediaRecorderRef.current
@@ -103,30 +133,24 @@ export function useAudioRecorder(focusedRecordingId: string) {
       return
     }
 
-    try {
-      const res = await fetch(`${API_URL}/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'audio/webm',
-          'x-user-id': USER_ID,
-          'x-recording-title': `Recording ${new Date().toLocaleString()}`,
-          'x-recording-duration': String(elapsed),
-          ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
-        },
-        body: blob,
-      })
+    await upload({
+      audio: blob,
+      contentType: 'audio/webm',
+      title: `Recording ${new Date().toLocaleString()}`,
+      durationMs: elapsed,
+      course,
+    })
+  }, [stopTimer, upload, elapsed, course])
 
-      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
-
-      const data = await res.json()
-      setRecordingId(data.id)
-      setState('complete')
-    } catch (err) {
-      setError('Upload failed')
-      setState('idle')
-      console.error('upload error:', err)
-    }
-  }, [stopTimer, elapsed])
+  /** Upload a picked audio file as a new recording. */
+  const uploadFile = useCallback(
+    async (args: UploadRecordingArgs) => {
+      stopTimer()
+      setError(null)
+      await upload(args)
+    },
+    [stopTimer, upload],
+  )
 
   const reset = useCallback(() => {
     stopTimer()
@@ -134,5 +158,5 @@ export function useAudioRecorder(focusedRecordingId: string) {
     setRecordingId(null)
   }, [stopTimer])
 
-  return { state, elapsed, error, start, stop, reset, recordingId }
+  return { state, elapsed, error, start, stop, uploadFile, reset, recordingId }
 }

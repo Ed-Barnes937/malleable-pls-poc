@@ -1,4 +1,4 @@
-import type { TransactionSql } from 'postgres'
+import type { JSONValue, TransactionSql } from 'postgres'
 
 export interface WorkflowJobInput {
   jobType: string
@@ -31,7 +31,7 @@ export async function insertWorkflowJob(
 ): Promise<void> {
   await tx`
     INSERT INTO workflow_jobs (user_id, workflow_id, job_type, params, sort_order, delay_ms)
-    VALUES (${userId}, ${workflowId}, ${job.jobType}, ${JSON.stringify(job.params ?? {})},
+    VALUES (${userId}, ${workflowId}, ${job.jobType}, ${tx.json((job.params ?? {}) as JSONValue)},
             ${job.sortOrder}, ${job.delayMs ?? 0})
   `
 }

@@ -1,3 +1,10 @@
+/** Courses a student can file recordings under (stored as a 'recording' tag label). */
+export const COURSES = [
+  { value: 'biology', label: 'Biology' },
+  { value: 'chemistry', label: 'Chemistry' },
+  { value: 'physics', label: 'Physics' },
+] as const
+
 export const COURSE_COLORS: Record<string, string> = {
   biology: 'bg-emerald-500',
   chemistry: 'bg-accent',
