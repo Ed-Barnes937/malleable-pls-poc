@@ -8,7 +8,7 @@ export const manifest: PanelManifest = {
   label: 'Weakest Topics',
   icon: AlertTriangle,
   description: 'Lowest confidence',
-  category: 'view',
+  scope: { courseTag: 'filter', recordingId: 'ignore' },
   reads: ['weakest_topics'],
   load: () => import('./WeakestTopicsLens'),
   minWidth: 200,

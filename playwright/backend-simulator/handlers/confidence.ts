@@ -1,22 +1,21 @@
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
+import { inCourse, segmentRecordingId } from './course-scope'
 
 export function registerConfidenceHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('confidence.list', (input) => {
-    const opts = input as { courseTag?: string; recordingId?: string; timeframe?: string } | undefined
+    const opts = input as { courseTag?: string; recordingId?: string } | undefined
+    const scoped = Boolean(opts?.recordingId || opts?.courseTag)
 
-    if (opts?.recordingId) {
-      const segmentIds = new Set(
-        db.transcriptSegments
-          .filter((s) => s.recording_id === opts.recordingId)
-          .map((s) => s.id),
-      )
-      return db.confidenceSignals
-        .filter((cs) => cs.target_type === 'transcript_segment' && segmentIds.has(cs.target_id))
-        .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    }
-
-    return [...db.confidenceSignals].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    return db.confidenceSignals
+      .filter((cs) => {
+        if (!scoped) return true
+        if (cs.target_type !== 'transcript_segment') return false
+        const recordingId = segmentRecordingId(db, cs.target_id)
+        if (opts?.recordingId && recordingId !== opts.recordingId) return false
+        return !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingId)
+      })
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
   })
 
   router.register('confidence.record', (input) => {

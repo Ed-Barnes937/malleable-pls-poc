@@ -8,7 +8,6 @@ type ScopeRow = { scope_type: string; scope_value: string }
 /** `workspace_scopes.scope_type` for each Scope dimension. */
 export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, string> = {
   courseTag: 'tag',
-  timeframe: 'timeframe',
   recordingId: 'recording',
 }
 
@@ -17,7 +16,6 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
     if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
-    if (s.scope_type === SCOPE_TYPE_BY_DIM.timeframe) scope.timeframe = s.scope_value as 'week' | 'all'
     if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
   }
   return scope

@@ -13,13 +13,14 @@ import type {
   NewAnnotation,
   NewConfidenceSignal,
 } from '@pls/substrate'
-import type { Scope, ScopeDim } from './types'
+import type { DateRange, Scope, ScopeDeclaration } from './types'
 
 /**
- * Query input for substrate hooks. Lenses pass their workspace `Scope`
- * (course, timeframe and focused recording) straight through.
+ * Query input for substrate hooks. Lenses pass their (already narrowed) board
+ * `Scope` straight through, plus a `dateRange` when the widget shows a window
+ * of time it navigates itself.
  */
-export type QueryFilter = Scope
+export type QueryFilter = Scope & { dateRange?: DateRange }
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -63,11 +64,11 @@ export interface SubstrateReader {
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
-  useConnections: (conceptSegmentId: string) => QueryResult<ConnectionResult[]>
-  useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
+  useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
+  useRecordingConnections: (recordingId: string | undefined, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
   useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
   useGapAnalysis: () => QueryResult<CourseGap[]>
-  useWeakestTopics: (limit?: number) => QueryResult<WeakTopic[]>
+  useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
 }
 
 // ---------------------------------------------------------------------------
@@ -89,18 +90,18 @@ export interface PanelManifest {
   label: string
   icon: ComponentType<{ className?: string }>
   description: string
-  category: 'tool' | 'view'
   reads: TableName[]
+  /** Tables this widget writes. Declaring any grants it writer access. */
   writes?: TableName[]
   /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
   emits?: string[]
   /**
-   * Workspace-level filter dimensions this lens consumes. The shell unions
-   * these across all panels in a workspace to decide which scope controls
-   * to surface. Omit (or leave empty) for lenses that don't consume any
-   * workspace-level filter — they'll receive an empty scope.
+   * How this widget responds to each board scope dimension. The shell hands
+   * the widget only the dimensions it uses, and unions them across the board
+   * to decide which scope pickers and chip parts to show. Omit for a widget
+   * that ignores board scope entirely.
    */
-  filters?: ScopeDim[]
+  scope?: ScopeDeclaration
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

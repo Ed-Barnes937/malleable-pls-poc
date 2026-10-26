@@ -35,3 +35,23 @@ test('shows empty state when no connections exist', async ({ mount, page, simula
 
   await expect(page.getByText('No connections found')).toBeVisible()
 })
+
+test('prompts to focus a lecture when nothing is in scope', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <ConnectionsLens panelId="test-panel" scope={{}} config={{}} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Focus a lecture to see its connections')).toBeVisible()
+})
+
+test('a course outside the focused lecture shows no connections', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <ConnectionsLens panelId="test-panel" scope={{ recordingId: 'rec-bio-4', courseTag: 'chemistry' }} config={{}} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('No connections found')).toBeVisible()
+})

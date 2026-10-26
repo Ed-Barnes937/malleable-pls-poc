@@ -1,5 +1,6 @@
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
+import { inCourse } from './course-scope'
 
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
@@ -99,10 +100,15 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, scopeType, scopeValue } = input as {
       workspaceId: string; scopeType: string; scopeValue: string | null
     }
-    // Mirror server invariant: changing the course clears any focused recording.
-    if (scopeType === 'tag') {
+    // Mirror server invariant: a new course clears a focused recording that
+    // is not in it; "All courses" (null) keeps the focus.
+    if (scopeType === 'tag' && scopeValue !== null) {
       db.workspaceScopes = db.workspaceScopes.filter(
-        (s) => !(s.workspace_id === workspaceId && s.scope_type === 'recording'),
+        (s) => !(
+          s.workspace_id === workspaceId &&
+          s.scope_type === 'recording' &&
+          !inCourse(db, scopeValue, 'recording', s.scope_value)
+        ),
       )
     }
     const idx = db.workspaceScopes.findIndex(

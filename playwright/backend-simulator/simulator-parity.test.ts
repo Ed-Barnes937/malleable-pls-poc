@@ -63,6 +63,14 @@ async function query(router: ProcedureRouter, path: string, input?: unknown): Pr
   return item?.result?.data?.json ?? item?.result?.data
 }
 
+async function mutate(router: ProcedureRouter, path: string, input: unknown): Promise<void> {
+  const body = JSON.stringify({ '0': { json: input } })
+  const result = await handleTrpcRequest(`${BASE_URL}/${path}?batch=1`, 'POST', body, router)
+  const parsed = JSON.parse(result.body)
+  const item = Array.isArray(parsed) ? parsed[0] : parsed
+  if (item?.error) throw new Error(`${path}: ${item.error.message ?? JSON.stringify(item.error)}`)
+}
+
 describe('simulator parity — read procedures return data on default seed', () => {
   let router: ProcedureRouter
 
@@ -108,12 +116,12 @@ describe('simulator parity — read procedures return data on default seed', () 
   })
 
   it('links.connections', async () => {
-    const data = await query(router, 'links.connections', 'seg-bio4-04')
+    const data = await query(router, 'links.connections', { segmentId: 'seg-bio4-04' })
     expect(Array.isArray(data)).toBe(true)
   })
 
   it('links.byRecording', async () => {
-    const data = await query(router, 'links.byRecording', 'rec-bio-1')
+    const data = await query(router, 'links.byRecording', { recordingId: 'rec-bio-1' })
     expect(Array.isArray(data)).toBe(true)
   })
 
@@ -171,6 +179,41 @@ describe('simulator parity — read procedures return data on default seed', () 
   it('jobs.forWorkflow', async () => {
     const data = await query(router, 'jobs.forWorkflow', 'wf-audio-transcribe')
     expect(Array.isArray(data)).toBe(true)
+  })
+
+  // --- Board course scope (mirrors andInCourse on the server) ---
+
+  it('aggregates filter by course', async () => {
+    const overview = await query(router, 'aggregates.weeklyOverview', { courseTag: 'chemistry' }) as { course: string }[]
+    expect(overview.map((c) => c.course)).toEqual(['chemistry'])
+    const topics = await query(router, 'aggregates.weakestTopics', { courseTag: 'chemistry', limit: 3 }) as { course: string; rank: number }[]
+    expect(topics.length).toBeGreaterThan(0)
+    expect(topics.every((t) => t.course === 'chemistry')).toBe(true)
+    expect(topics[0].rank).toBe(1)
+  })
+
+  it('tags, confidence and annotations filter by their lecture course', async () => {
+    const tags = await query(router, 'tags.list', { courseTag: 'chemistry' }) as { target_id: string }[]
+    expect(tags.map((t) => t.target_id).sort()).toEqual(['rec-chem-1', 'seg-chem1-04', 'seg-chem1-09'])
+    const confidence = await query(router, 'confidence.list', { courseTag: 'chemistry' }) as { target_id: string }[]
+    expect(confidence.every((c) => c.target_id.startsWith('seg-chem1-'))).toBe(true)
+    const annotations = await query(router, 'annotations.list', { courseTag: 'chemistry' }) as { anchor_id: string }[]
+    expect(annotations.map((a) => a.anchor_id)).toEqual(['seg-chem1-04'])
+  })
+
+  it('links filter by course', async () => {
+    expect(await query(router, 'links.byRecording', { recordingId: 'rec-bio-4', courseTag: 'chemistry' })).toEqual([])
+    const bio = await query(router, 'links.byRecording', { recordingId: 'rec-bio-4', courseTag: 'biology' }) as unknown[]
+    expect(bio.length).toBeGreaterThan(0)
+  })
+
+  it('setScope keeps an in-course focus and clears an orphaned one', async () => {
+    const scopes = async () =>
+      (await query(router, 'workspaces.scopes', 'ws-evening-review') as { scope_type: string }[]).map((s) => s.scope_type).sort()
+    await mutate(router, 'workspaces.setScope', { workspaceId: 'ws-evening-review', scopeType: 'tag', scopeValue: 'biology' })
+    expect(await scopes()).toEqual(['recording', 'tag'])
+    await mutate(router, 'workspaces.setScope', { workspaceId: 'ws-evening-review', scopeType: 'tag', scopeValue: 'chemistry' })
+    expect(await scopes()).toEqual(['tag'])
   })
 
   // --- Missing procedures (exist in server, not in simulator) ---

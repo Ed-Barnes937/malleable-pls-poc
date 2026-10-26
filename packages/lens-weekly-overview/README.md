@@ -7,12 +7,11 @@ Lens providing a weekly learning progress summary.
 - Per-course breakdown with progress bars
 - Confident vs total segment counts
 - Gap count indicators
-- Weekly timeframe scoping
 - Trending indicator
 
 ## Scope
 
-Uses `timeframe` from scope (week / all) to filter the summary period.
+`courseTag: 'filter'` - shows only the board course, with "+N in other courses" when others have data.
 
 ## Internal Dependencies
 

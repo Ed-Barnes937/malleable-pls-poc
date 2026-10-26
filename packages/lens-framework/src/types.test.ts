@@ -1,5 +1,5 @@
 import { describe, it, expectTypeOf } from 'vitest'
-import type { Scope, LensCategory, LensProps } from './types'
+import type { Scope, ScopeDeclaration, LensProps } from './types'
 
 describe('Scope', () => {
   it('can be empty', () => {
@@ -10,26 +10,27 @@ describe('Scope', () => {
   it('can have all fields populated', () => {
     const scope: Scope = {
       courseTag: 'cs101',
-      timeframe: 'week',
+      recordingId: 'rec-1',
     }
     expectTypeOf(scope).toMatchTypeOf<Scope>()
   })
-
-  it('timeframe accepts "week" or "all"', () => {
-    expectTypeOf<Scope['timeframe']>().toEqualTypeOf<'week' | 'all' | undefined>()
-  })
 })
 
-describe('LensCategory', () => {
-  it('accepts "tool" and "view"', () => {
-    const tool: LensCategory = 'tool'
-    const view: LensCategory = 'view'
-    expectTypeOf<typeof tool>().toMatchTypeOf<LensCategory>()
-    expectTypeOf<typeof view>().toMatchTypeOf<LensCategory>()
+describe('ScopeDeclaration', () => {
+  it('expresses the planning widgets of the scope target table', () => {
+    // Calendar, To-do and Coming up do not exist yet; their declarations
+    // must already be expressible (plan T2 target table).
+    const calendar: ScopeDeclaration = { courseTag: 'highlight', recordingId: 'highlight' }
+    const todo: ScopeDeclaration = { courseTag: 'filter', recordingId: 'highlight' }
+    const comingUp: ScopeDeclaration = { courseTag: 'filter', recordingId: 'highlight' }
+    expectTypeOf(calendar).toMatchTypeOf<ScopeDeclaration>()
+    expectTypeOf(todo).toMatchTypeOf<ScopeDeclaration>()
+    expectTypeOf(comingUp).toMatchTypeOf<ScopeDeclaration>()
   })
 
-  it('is the union "tool" | "view"', () => {
-    expectTypeOf<LensCategory>().toEqualTypeOf<'tool' | 'view'>()
+  it('keeps course and recording modes distinct', () => {
+    expectTypeOf<ScopeDeclaration['courseTag']>().toEqualTypeOf<'filter' | 'highlight' | 'label' | 'ignore' | undefined>()
+    expectTypeOf<ScopeDeclaration['recordingId']>().toEqualTypeOf<'target' | 'highlight' | 'ignore' | undefined>()
   })
 })
 

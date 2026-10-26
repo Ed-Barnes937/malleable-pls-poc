@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
+import { inCourse } from './_shared'
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -186,11 +187,14 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        if (input.scopeType === 'tag') {
+        if (input.scopeType === 'tag' && input.scopeValue !== null) {
+          // A focused lecture outside the new course would be an orphan: clear
+          // it in the same transaction. "All courses" (null) keeps any focus.
           await tx`
-            DELETE FROM workspace_scopes
-            WHERE workspace_id = ${input.workspaceId}
-              AND scope_type = 'recording' AND user_id = ${ctx.userId}
+            DELETE FROM workspace_scopes ws
+            WHERE ws.workspace_id = ${input.workspaceId}
+              AND ws.scope_type = 'recording' AND ws.user_id = ${ctx.userId}
+              AND NOT ${inCourse(tx, ctx.userId, input.scopeValue, 'recording', tx`ws.scope_value`)}
           `
         }
         if (input.scopeValue === null) {

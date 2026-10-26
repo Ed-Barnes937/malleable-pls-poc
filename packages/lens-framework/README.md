@@ -11,8 +11,11 @@ Defines the contract that every lens must satisfy and provides the registry infr
 | Export | Description |
 |--------|-------------|
 | `LensProps` | Interface every lens component receives (`panelId`, `scope`, `config`) |
-| `LensMeta` | Metadata for a lens (`label`, `icon`, `description`, `category`) |
-| `Scope` | Shared filtering context (`courseTag`, `recordingId`, `timeframe`) |
+| `PanelManifest` | Per-lens metadata: label, icon, `reads`/`writes` (declaring `writes` grants writer access), `scope` declaration, sizes |
+| `Scope` | Board scope shared by every widget (`courseTag`, `recordingId`) |
+| `ScopeDeclaration` | How a widget responds to each scope dimension (see `docs/technical-guidance.md`, Scope declarations) |
+| `narrowScope()` / `activeScopeDims()` / `canWrite()` | Shell helpers applying the declarations |
+| `DateRange`, `weekRange()`, `lookAheadRange()` | Widget-owned time windows passed to readers |
 | `LensRegistry` / `LensRegistryProvider` | React context for the active set of lenses |
 | `getLensComponent()` | Lazy-loads and caches a lens component by key |
 | `PlaceholderLens` | Fallback rendered while a lens is loading |
@@ -22,11 +25,14 @@ Defines the contract that every lens must satisfy and provides the registry infr
 ```tsx
 import { LensRegistryProvider, getLensComponent } from "@pls/lens-framework";
 
-const registry = {
-  "weekly-overview": {
-    meta: { label: "Weekly Overview", icon: CalendarIcon, category: "view" },
-    load: () => import("@pls/lens-weekly-overview"),
-  },
+const manifest: PanelManifest = {
+  id: "weekly-overview",
+  label: "This Week",
+  icon: CalendarIcon,
+  description: "Progress by course",
+  scope: { courseTag: "filter", recordingId: "ignore" },
+  reads: ["weekly_overview"],
+  load: () => import("@pls/lens-weekly-overview"),
 };
 
 <LensRegistryProvider registry={registry}>

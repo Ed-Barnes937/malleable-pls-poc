@@ -8,7 +8,7 @@ export const manifest: PanelManifest = {
   label: 'All Courses',
   icon: PieChart,
   description: 'Coverage overview',
-  category: 'view',
+  scope: { courseTag: 'highlight', recordingId: 'ignore' },
   reads: ['gap_analysis'],
   load: () => import('./GapAnalysisLens'),
   minWidth: 350,

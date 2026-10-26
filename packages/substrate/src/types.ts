@@ -97,7 +97,6 @@ export interface WorkspaceScope {
 export interface Scope {
   courseTag?: string
   recordingId?: string
-  timeframe?: 'week' | 'all'
 }
 
 export interface CourseOverview {
@@ -155,6 +154,8 @@ export interface Question {
   id: string
   conceptLabel: string
   segmentId: string
+  /** Course of the lecture the question's segment comes from. */
+  course: string
   question: string
   answer: string
   difficulty: 'easy' | 'medium' | 'hard'

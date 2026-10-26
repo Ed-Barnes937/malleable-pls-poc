@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { QUESTIONS, type Question } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, formatTime } from '@pls/shared-ui'
+import { cn, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
 import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
 
 export default function TestMeLens({ scope, config }: LensProps) {
@@ -44,8 +44,14 @@ export default function TestMeLens({ scope, config }: LensProps) {
     return map
   }, [confidence])
 
+  const courseQuestions = useMemo(
+    () => (scope.courseTag ? QUESTIONS.filter((q) => q.course === scope.courseTag) : QUESTIONS),
+    [scope.courseTag],
+  )
+  const hidden = <HiddenElsewhere scopedCount={courseQuestions.length} unscopedCount={QUESTIONS.length} />
+
   const sortedQuestions = useMemo(() => {
-    const scored = QUESTIONS.map((q) => {
+    const scored = courseQuestions.map((q) => {
       const isConfused = confusedSegmentIds.has(q.segmentId)
       const conf = confidenceBySegment.get(q.segmentId) ?? 50
       const priority = (isConfused ? 0 : 1000) + conf
@@ -53,9 +59,11 @@ export default function TestMeLens({ scope, config }: LensProps) {
     })
     scored.sort((a, b) => a.priority - b.priority)
     return scored
-  }, [confusedSegmentIds, confidenceBySegment])
+  }, [courseQuestions, confusedSegmentIds, confidenceBySegment])
 
-  const currentQuestion: (Question & { conf: number }) | undefined = sortedQuestions[currentIndex]
+  // The course can change under us; never index past the filtered list.
+  const currentQuestion: (Question & { conf: number }) | undefined =
+    sortedQuestions[sortedQuestions.length > 0 ? currentIndex % sortedQuestions.length : 0]
 
   useEffect(() => {
     if (!isExam) return
@@ -91,7 +99,7 @@ export default function TestMeLens({ scope, config }: LensProps) {
   }, [currentQuestion, recordConfidence, sortedQuestions.length])
 
   if (!currentQuestion) {
-    return <EmptyState message="No questions available" />
+    return <EmptyState message="No questions available" action={hidden} />
   }
 
   const confidencePercent = currentQuestion.conf ?? 50
@@ -120,8 +128,11 @@ export default function TestMeLens({ scope, config }: LensProps) {
         <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
           {isExam ? 'Exam Mode' : 'Review'}
         </span>
-        <span className="font-mono text-[10px] text-neutral-600">
-          {currentIndex + 1}/{sortedQuestions.length}
+        <span className="flex items-center gap-2">
+          {hidden}
+          <span className="font-mono text-[10px] text-neutral-600">
+            {(currentIndex % sortedQuestions.length) + 1}/{sortedQuestions.length}
+          </span>
         </span>
       </div>
 

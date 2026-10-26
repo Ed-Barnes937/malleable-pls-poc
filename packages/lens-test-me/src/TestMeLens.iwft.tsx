@@ -47,3 +47,15 @@ test('shows timer in exam mode', async ({ mount, page, simulator }) => {
   await expect(page.getByText('Exam Mode')).toBeVisible()
   await expect(page.getByText('2:00')).toBeVisible()
 })
+
+test('a course-filtered board only asks questions from that course', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <TestMeLens {...reviewProps} scope={{ courseTag: 'chemistry' }} />
+    </TestProviders>,
+  )
+
+  // Two of the fixture questions come from the chemistry lecture.
+  await expect(page.getByText('1/2')).toBeVisible()
+  await expect(page.getByText('+13 in other courses')).toBeVisible()
+})

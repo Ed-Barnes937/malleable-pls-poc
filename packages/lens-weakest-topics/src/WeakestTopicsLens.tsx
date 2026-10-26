@@ -1,19 +1,29 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, EmptyState, COURSE_PILL_COLORS } from '@pls/shared-ui'
+import { cn, EmptyState, HiddenElsewhere, COURSE_PILL_COLORS } from '@pls/shared-ui'
 
-export default function WeakestTopicsLens({}: LensProps) {
+const LIMIT = 8
+
+export default function WeakestTopicsLens({ scope }: LensProps) {
   const substrate = useSubstrate()
-  const { data: topics } = substrate.useWeakestTopics(8)
+  const { data: topics } = substrate.useWeakestTopics(scope, LIMIT)
+  // Of the weakest topics across every course, how many the filter leaves out.
+  const { data: allTopics } = substrate.useWeakestTopics({}, LIMIT)
+  const overall = allTopics ?? []
+  const overallInCourse = scope.courseTag ? overall.filter((t) => t.course === scope.courseTag).length : overall.length
+  const hidden = <HiddenElsewhere scopedCount={overallInCourse} unscopedCount={overall.length} />
 
   if (!topics?.length) {
-    return <EmptyState message="No weak topics found" />
+    return <EmptyState message="No weak topics found" action={hidden} />
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
-        Weakest Topics
-      </span>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
+          Weakest Topics
+        </span>
+        {hidden}
+      </div>
 
       <div className="-mx-3 min-h-0 flex-1 overflow-y-auto px-3 space-y-1">
         {topics.map((topic) => {

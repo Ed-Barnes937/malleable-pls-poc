@@ -1,4 +1,21 @@
-export type { Scope, ScopeDim, LensCategory, LensProps } from './types'
+export type {
+  Scope,
+  ScopeDim,
+  ScopeDeclaration,
+  CourseScopeMode,
+  RecordingScopeMode,
+  DateRange,
+  LensProps,
+} from './types'
+export {
+  usesScopeDim,
+  narrowScope,
+  activeScopeDims,
+  canWrite,
+  weekRange,
+  lookAheadRange,
+  inDateRange,
+} from './scope'
 export type { LensLoader, LensRegistry } from './registry'
 export type {
   QueryResult,

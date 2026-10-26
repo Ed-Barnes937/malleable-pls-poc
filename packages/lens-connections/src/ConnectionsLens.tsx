@@ -29,8 +29,8 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
   const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
   const recordingId = scope.recordingId
 
-  const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '')
-  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)
+  const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '', scope)
+  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId, scope)
 
   const allConnections = [
     ...(conceptConnections ?? []),
@@ -44,6 +44,11 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
     seen.add(key)
     return true
   })
+
+  // Nothing to connect from: neither a focused lecture nor a configured concept.
+  if (!recordingId && !conceptSegmentId) {
+    return <EmptyState icon={Link2} message="Focus a lecture to see its connections" />
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">

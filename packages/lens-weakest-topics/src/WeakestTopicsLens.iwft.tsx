@@ -31,3 +31,15 @@ test('shows course badges', async ({ mount, page, simulator }) => {
   // Should show biology and/or chemistry course badges
   await expect(page.getByText('biology').first()).toBeVisible()
 })
+
+test('a course-filtered board ranks only that course', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <WeakestTopicsLens {...defaultProps} scope={{ courseTag: 'chemistry' }} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('chemistry').first()).toBeVisible()
+  await expect(page.getByText('biology')).toHaveCount(0)
+  await expect(page.getByText(/\+\d+ in other courses/)).toBeVisible()
+})

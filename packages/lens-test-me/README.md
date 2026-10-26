@@ -13,7 +13,7 @@ Self-testing lens with spaced repetition and confidence tracking.
 
 ## Scope
 
-Uses tagged segments to prioritise which questions to surface.
+`courseTag: 'filter'` - asks only questions from the board course ("+N in other courses" for the rest); ignores the focused recording. Uses tagged segments to prioritise which questions to surface.
 
 ## Internal Dependencies
 

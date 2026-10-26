@@ -1,13 +1,18 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
+import { EmptyState, HiddenElsewhere, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, TrendingUp } from 'lucide-react'
 
 export default function WeeklyOverviewLens({ scope }: LensProps) {
   const substrate = useSubstrate()
   const { data: overview } = substrate.useWeeklyOverview(scope)
+  // Unfiltered counterpart, only to say what the course filter leaves out.
+  const { data: allCourses } = substrate.useWeeklyOverview({})
+  const hidden = (
+    <HiddenElsewhere scopedCount={overview?.length ?? 0} unscopedCount={allCourses?.length ?? 0} />
+  )
 
   if (!overview?.length) {
-    return <EmptyState message="No data for this period" />
+    return <EmptyState message="No data for this period" action={hidden} />
   }
 
   const totalGaps = overview.reduce((sum, c) => sum + c.gapCount, 0)
@@ -16,6 +21,7 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-center justify-between">
         <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">This Week</span>
+        {hidden}
         {totalGaps > 0 && (
           <span className="flex items-center gap-1 rounded-full bg-tag-confused/10 px-2 py-0.5 text-[10px] font-medium text-tag-confused ring-1 ring-tag-confused/20">
             <AlertTriangle className="h-2.5 w-2.5" />

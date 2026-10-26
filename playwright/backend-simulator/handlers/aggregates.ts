@@ -4,8 +4,10 @@ import type { InMemoryDb } from '../in-memory-db'
 const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 
 export function registerAggregatesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
-  router.register('aggregates.weeklyOverview', () => {
+  router.register('aggregates.weeklyOverview', (input) => {
+    const courseTag = (input as { courseTag?: string } | undefined)?.courseTag
     const courseSegments = buildCourseSegmentMap(db)
+    if (courseTag) for (const course of [...courseSegments.keys()]) if (course !== courseTag) courseSegments.delete(course)
     const segConfidence = buildSegConfidenceMap(db)
     const confusedSegIds = new Set(
       db.tags
@@ -48,7 +50,8 @@ export function registerAggregatesHandlers(router: ProcedureRouter, db: InMemory
   })
 
   router.register('aggregates.weakestTopics', (input) => {
-    const limit = (input as number | undefined) ?? 10
+    const opts = input as { limit?: number; courseTag?: string } | undefined
+    const limit = opts?.limit ?? 10
     const segConfidence = buildSegAvgConfidenceMap(db)
 
     const ranked = db.transcriptSegments
@@ -68,6 +71,7 @@ export function registerAggregatesHandlers(router: ProcedureRouter, db: InMemory
         }
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
+      .filter((x) => !opts?.courseTag || x.course === opts.courseTag)
       .sort((a, b) => a.avgConfidence - b.avgConfidence)
       .slice(0, limit)
       .map((item, i) => ({ rank: i + 1, ...item }))
