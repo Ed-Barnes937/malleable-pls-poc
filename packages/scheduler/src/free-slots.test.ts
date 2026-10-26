@@ -66,6 +66,12 @@ describe('dayWindows', () => {
     expect(dayWindows(range, { dayStart: '00:00', dayEnd: '00:00' })).toEqual([range])
   })
 
+  it('rejects a non-finite range instead of looping forever', () => {
+    const start = at('2026-10-26T00:00:00Z')
+    expect(() => dayWindows({ start, end: Infinity })).toThrow(RangeError)
+    expect(() => dayWindows({ start: NaN, end: start })).toThrow(RangeError)
+  })
+
   it('rejects malformed times of day', () => {
     expect(() => dayWindows(iv('2026-10-26T00:00:00Z', '2026-10-27T00:00:00Z'), { dayStart: '8am' })).toThrow(
       RangeError,

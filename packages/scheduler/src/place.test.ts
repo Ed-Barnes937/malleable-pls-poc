@@ -157,6 +157,76 @@ describe('place', () => {
     expect(slots).toEqual(free)
   })
 
+  describe('anchor "latest"', () => {
+    it('puts a task as late as its window allows, on an aligned start', () => {
+      const task = { id: 'a', durationMin: 20, latest: at('2026-10-28T17:42:00Z') }
+      expect(place([task], free, { now: mondayMorning, anchor: 'latest' }).placements).toEqual([
+        block('a', '2026-10-28T17:15:00Z', '2026-10-28T17:35:00Z'),
+      ])
+    })
+
+    it('falls back to earlier gaps when the latest ones are too short or busy', () => {
+      const task = { id: 'a', durationMin: 90, latest: at('2026-10-26T12:00:00Z') }
+      const r = place([task], free, {
+        now: mondayMorning,
+        anchor: 'latest',
+        existingPlacements: [iv('2026-10-26T11:00:00Z', '2026-10-26T11:15:00Z')],
+      })
+      // 11:15-12:00 is too short and 08:00-09:00 too; nothing fits.
+      expect(r.unplaced).toEqual([{ taskId: 'a', reason: 'no-free-slot' }])
+      const shorter = place([{ ...task, durationMin: 45 }], free, { now: mondayMorning, anchor: 'latest' })
+      expect(shorter.placements).toEqual([block('a', '2026-10-26T11:15:00Z', '2026-10-26T12:00:00Z')])
+    })
+
+    it('respects earliest and now', () => {
+      const task = { id: 'a', durationMin: 60, earliest: at('2026-10-26T11:30:00Z'), latest: at('2026-10-26T12:40:00Z') }
+      expect(place([task], free, { now: mondayMorning, anchor: 'latest' }).placements).toEqual([
+        block('a', '2026-10-26T11:30:00Z', '2026-10-26T12:30:00Z'),
+      ])
+      const tight = { ...task, earliest: at('2026-10-26T11:35:00Z') }
+      expect(place([tight], free, { now: mondayMorning, anchor: 'latest' }).unplaced).toEqual([
+        { taskId: 'a', reason: 'no-free-slot' },
+      ])
+    })
+
+    it('uses the end of the supplied free time when a task has no deadline', () => {
+      expect(place([{ id: 'a', durationMin: 60 }], free, { now: mondayMorning, anchor: 'latest' }).placements).toEqual([
+        block('a', '2026-11-01T21:00:00Z', '2026-11-01T22:00:00Z'),
+      ])
+      // An unbounded free slot has no latest start.
+      const open = [{ start: mondayMorning, end: Infinity }]
+      expect(place([{ id: 'a', durationMin: 60 }], open, { now: mondayMorning, anchor: 'latest' }).unplaced).toEqual([
+        { taskId: 'a', reason: 'no-free-slot' },
+      ])
+    })
+
+    it('is idempotent when its own result is fed back in', () => {
+      const tasks = [
+        { id: 'a', durationMin: 50, latest: at('2026-10-29T00:00:00Z') },
+        { id: 'b', durationMin: 120, latest: at('2026-10-28T00:00:00Z') },
+      ]
+      const first = place(tasks, free, { now: mondayMorning, anchor: 'latest' })
+      expect(place(tasks, free, { now: mondayMorning, anchor: 'latest', existingPlacements: first.placements })).toEqual(first)
+    })
+  })
+
+  it('reports later tasks that repeat an id as duplicate-id', () => {
+    const r = place(
+      [
+        { id: 'x', durationMin: 30 },
+        { id: 'y', durationMin: 30 },
+        { id: 'x', durationMin: 60 },
+      ],
+      free,
+      { now: mondayMorning },
+    )
+    expect(r.placements).toEqual([
+      block('x', '2026-10-26T08:00:00Z', '2026-10-26T08:30:00Z'),
+      block('y', '2026-10-26T08:30:00Z', '2026-10-26T09:00:00Z'),
+    ])
+    expect(r.unplaced).toEqual([{ taskId: 'x', reason: 'duplicate-id' }])
+  })
+
   it.each([
     [{ now: NaN }],
     [{ now: 0, alignMin: 0 }],
@@ -209,6 +279,18 @@ describe('suggestSlots', () => {
     expect(s.map((p) => p.start)).toEqual([at('2026-10-26T11:00:00Z'), at('2026-10-28T08:00:00Z')])
   })
 
+  it('with anchor "latest", offers the latest fit per gap, latest first', () => {
+    const s = suggestSlots({ id: 't', durationMin: 60, latest: at('2026-10-28T10:00:00Z') }, slots, 3, {
+      now: mondayMorning,
+      anchor: 'latest',
+    })
+    expect(s).toEqual([
+      block('t', '2026-10-28T09:00:00Z', '2026-10-28T10:00:00Z'),
+      block('t', '2026-10-26T21:00:00Z', '2026-10-26T22:00:00Z'),
+      block('t', '2026-10-26T12:00:00Z', '2026-10-26T13:00:00Z'),
+    ])
+  })
+
   it('returns nothing for n <= 0 or an unplaceable task', () => {
     expect(suggestSlots({ id: 't', durationMin: 60 }, slots, 0, { now: mondayMorning })).toEqual([])
     expect(suggestSlots({ id: 't', durationMin: 0 }, slots, 3, { now: mondayMorning })).toEqual([])
@@ -234,14 +316,38 @@ describe('refit', () => {
         block('soon', '2026-10-28T12:00:00Z', '2026-10-28T13:00:00Z'), // still running
       ],
       slots,
-      { now, existingPlacements: [block('soon', '2026-10-28T12:00:00Z', '2026-10-28T13:00:00Z')] },
+      { now },
     )
+    // 'soon' is in progress: it stays put and nothing is re-fit on top of it.
     expect(r.notMissed).toEqual(['soon'])
     expect(r.placements).toEqual([
       block('mon', '2026-10-28T13:00:00Z', '2026-10-28T14:00:00Z'),
       block('tue', '2026-10-28T14:00:00Z', '2026-10-28T14:30:00Z'),
     ])
     expect(r.unplaced).toEqual([])
+  })
+
+  it('treats upcoming blocks as busy, even ones sharing a task id with a missed block', () => {
+    const r = refit(
+      [
+        block('a', '2026-10-28T09:00:00Z', '2026-10-28T10:00:00Z'),
+        block('a', '2026-10-28T12:15:00Z', '2026-10-28T13:15:00Z'), // a second, upcoming block
+        block('b', '2026-10-28T13:15:00Z', '2026-10-28T14:00:00Z'),
+      ],
+      slots,
+      { now, existingPlacements: [block('x', '2026-10-28T14:00:00Z', '2026-10-28T14:30:00Z')] },
+    )
+    expect(r.notMissed).toEqual(['a', 'b'])
+    expect(r.placements).toEqual([block('a', '2026-10-28T14:30:00Z', '2026-10-28T15:30:00Z')])
+  })
+
+  it('honours anchor "latest"', () => {
+    const r = refit(
+      [{ ...block('a', '2026-10-27T09:00:00Z', '2026-10-27T10:00:00Z'), latest: at('2026-10-29T12:00:00Z') }],
+      slots,
+      { now, anchor: 'latest' },
+    )
+    expect(r.placements).toEqual([block('a', '2026-10-29T11:00:00Z', '2026-10-29T12:00:00Z')])
   })
 
   it('uses durationMin when given and carries the deadline over', () => {

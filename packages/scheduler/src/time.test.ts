@@ -48,11 +48,30 @@ describe('zonedTimeToUtc', () => {
     expect(zonedTimeToUtc(2026, 10, 25, 8 * 60, 'Europe/London')).toBe(at('2026-10-25T08:00:00Z'))
   })
 
-  it('resolves a non-existent time forward and an ambiguous time to the later reading', () => {
+  it('moves a non-existent time later by the gap and picks the earlier of an ambiguous time, east or west of UTC', () => {
     // 01:30 does not exist on 2026-03-29 in London: lands on 02:30 BST.
     expect(zonedTimeToUtc(2026, 3, 29, 90, 'Europe/London')).toBe(at('2026-03-29T01:30:00Z'))
-    // 01:30 happens twice on 2026-10-25: the later (GMT) reading wins.
-    expect(zonedTimeToUtc(2026, 10, 25, 90, 'Europe/London')).toBe(at('2026-10-25T01:30:00Z'))
+    // 01:30 happens twice on 2026-10-25: the first (BST) reading wins.
+    expect(zonedTimeToUtc(2026, 10, 25, 90, 'Europe/London')).toBe(at('2026-10-25T00:30:00Z'))
+    // New York: 02:30 on 2026-03-08 does not exist, lands on 03:30 EDT.
+    expect(zonedTimeToUtc(2026, 3, 8, 150, 'America/New_York')).toBe(at('2026-03-08T07:30:00Z'))
+    // 01:30 on 2026-11-01 happens twice: the first (EDT) reading wins.
+    expect(zonedTimeToUtc(2026, 11, 1, 90, 'America/New_York')).toBe(at('2026-11-01T05:30:00Z'))
+    // Just after each change, ordinary times are exact.
+    expect(zonedTimeToUtc(2026, 3, 8, 180, 'America/New_York')).toBe(at('2026-03-08T07:00:00Z'))
+    expect(zonedTimeToUtc(2026, 11, 1, 120, 'America/New_York')).toBe(at('2026-11-01T07:00:00Z'))
+  })
+
+  it('round-trips every hour of a year in several zones', () => {
+    for (const tz of ['Europe/London', 'America/New_York', 'Australia/Sydney', 'Asia/Kathmandu']) {
+      for (let t = at('2026-01-01T00:00:00Z'); t < at('2027-01-01T00:00:00Z'); t += HOUR) {
+        const w = wallClock(t, tz)
+        const back = zonedTimeToUtc(w.year, w.month, w.day, w.hour * 60 + w.minute, tz)
+        // Ambiguous readings resolve to the earlier instant, so `back` is t or an hour before it.
+        expect(back === t || back === t - HOUR).toBe(true)
+        expect(wallClock(back, tz)).toEqual(w)
+      }
+    }
   })
 
   it('rolls over overflowing days and minutes', () => {

@@ -57,14 +57,19 @@ export function offsetMs(instant: number, timeZone: string): number {
   return asUtc - Math.floor(instant / 1000) * 1000
 }
 
+const DAY_MS = 24 * 60 * 60_000
+
 /**
  * The instant at which the wall clock in `timeZone` reads `minutesOfDay`
  * minutes past midnight on the given local date. `day` and `minutesOfDay` may
  * overflow (e.g. day 32, or 1440 minutes) and roll over like `Date.UTC`.
  *
- * A wall time that does not exist (inside a spring-forward gap) resolves to
- * the instant one gap-length later; an ambiguous one (fall-back) resolves to
- * the later of the two readings. Both are deterministic.
+ * DST, in every zone (the same rule as JS `Date` and Temporal's
+ * `'compatible'`): a wall time that does not exist (inside a spring-forward
+ * gap) moves later by the length of the gap, e.g. 02:30 becomes 03:30; an
+ * ambiguous one (a fall-back hour that happens twice) resolves to the
+ * earlier of the two instants. Assumes a zone changes offset at most once
+ * within a day either side, which holds for all real zones.
  */
 export function zonedTimeToUtc(
   year: number,
@@ -74,8 +79,15 @@ export function zonedTimeToUtc(
   timeZone: string,
 ): number {
   const naive = Date.UTC(year, month - 1, day, 0, minutesOfDay)
-  const first = naive - offsetMs(naive, timeZone)
-  return naive - offsetMs(first, timeZone)
+  // Candidates using the offset in force a day before and a day after. In a
+  // fall-back overlap both are valid and `before` is the earlier instant; in
+  // a spring-forward gap neither is, and `before` lands after the gap.
+  const before = naive - offsetMs(naive - DAY_MS, timeZone)
+  const after = naive - offsetMs(naive + DAY_MS, timeZone)
+  const reads = (t: number) => t + offsetMs(t, timeZone) === naive
+  if (reads(before)) return before
+  if (reads(after)) return after
+  return before
 }
 
 /**

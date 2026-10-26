@@ -59,7 +59,10 @@ function scenario(seed: number) {
   })
   const now = at()
   const policy = r() < 0.5 ? ('priority' as const) : ('deadline' as const)
-  return { range, commitments, prefs, free, existing, tasks, now, policy, alignMin: [1, 5, 15, 30][int(0, 3)] }
+  const anchor = r() < 0.5 ? ('earliest' as const) : ('latest' as const)
+  // Occasionally repeat an id to exercise duplicate handling.
+  if (tasks.length > 1 && r() < 0.15) tasks.push({ ...tasks[0], durationMin: 30 })
+  return { range, commitments, prefs, free, existing, tasks, now, policy, anchor, alignMin: [1, 5, 15, 30][int(0, 3)] }
 }
 
 const SEEDS = Array.from({ length: 400 }, (_, i) => i + 1)
@@ -83,12 +86,14 @@ describe('scheduler properties', () => {
 
   it('placements stay in free time and windows, never overlap, and every task is accounted for', () => {
     for (const seed of SEEDS) {
-      const { free, existing, tasks, now, policy, alignMin } = scenario(seed)
-      const { placements, unplaced } = place(tasks, free, { now, existingPlacements: existing, policy, alignMin })
+      const { free, existing, tasks, now, policy, anchor, alignMin } = scenario(seed)
+      const { placements, unplaced } = place(tasks, free, { now, existingPlacements: existing, policy, anchor, alignMin })
 
       expect([...placements.map((p) => p.taskId), ...unplaced.map((u) => u.taskId)].sort()).toEqual(
         tasks.map((t) => t.id).sort(),
       )
+      // Each id is placed at most once.
+      expect(new Set(placements.map((p) => p.taskId)).size).toBe(placements.length)
       for (const p of placements) {
         const t = tasks.find((x) => x.id === p.taskId)!
         expect(inside(p, free)).toBe(true)
@@ -104,8 +109,8 @@ describe('scheduler properties', () => {
 
   it('an unplaced no-free-slot task really had no room left (earliest-fit is complete)', () => {
     for (const seed of SEEDS) {
-      const { free, existing, tasks, now, alignMin } = scenario(seed)
-      const { placements, unplaced } = place(tasks, free, { now, existingPlacements: existing, alignMin })
+      const { free, existing, tasks, now, anchor, alignMin } = scenario(seed)
+      const { placements, unplaced } = place(tasks, free, { now, existingPlacements: existing, anchor, alignMin })
       for (const u of unplaced.filter((x) => x.reason === 'no-free-slot')) {
         const t = tasks.find((x) => x.id === u.taskId)!
         const others = [...existing, ...placements]
@@ -116,27 +121,28 @@ describe('scheduler properties', () => {
 
   it('is deterministic and idempotent', () => {
     for (const seed of SEEDS) {
-      const { free, existing, tasks, now, policy } = scenario(seed)
-      const opts = { now, existingPlacements: existing, policy }
+      const { free, existing, tasks, now, policy, anchor } = scenario(seed)
+      const opts = { now, existingPlacements: existing, policy, anchor }
       const first = place(tasks, free, opts)
       expect(place(tasks, free, opts)).toEqual(first)
       expect(place(tasks, free, { ...opts, existingPlacements: [...existing, ...first.placements] })).toEqual(first)
     }
   })
 
-  it('suggestions are valid placements in increasing time, at most one per free gap', () => {
+  it('suggestions are valid placements in the anchor order, at most one per free gap', () => {
     for (const seed of SEEDS) {
-      const { free, existing, tasks, now } = scenario(seed)
+      const { free, existing, tasks, now, anchor } = scenario(seed)
       for (const t of tasks) {
-        const s = suggestSlots(t, free, 5, { now, existingPlacements: existing })
+        const s = suggestSlots(t, free, 5, { now, existingPlacements: existing, anchor })
         expect(s.length).toBeLessThanOrEqual(5)
         for (let i = 0; i < s.length; i++) {
           expect(inside(s[i], free)).toBe(true)
           for (const e of existing) expect(overlaps(s[i], e)).toBe(false)
-          if (i > 0) expect(s[i].start).toBeGreaterThanOrEqual(s[i - 1].end)
+          if (i > 0 && anchor === 'earliest') expect(s[i].start).toBeGreaterThanOrEqual(s[i - 1].end)
+          if (i > 0 && anchor === 'latest') expect(s[i].end).toBeLessThanOrEqual(s[i - 1].start)
         }
         // The first suggestion is exactly where place() would put it alone.
-        const alone = place([t], free, { now, existingPlacements: existing }).placements
+        const alone = place([t], free, { now, existingPlacements: existing, anchor }).placements
         expect(s.slice(0, 1)).toEqual(alone)
       }
     }
@@ -145,21 +151,25 @@ describe('scheduler properties', () => {
   it('capacity matches the free and needed minutes', () => {
     for (const seed of SEEDS) {
       const { free, tasks } = scenario(seed)
-      const c = capacity(free, tasks)
+      const c = capacity(free, tasks, { now: 0 })
       expect(c.freeMin - c.neededMin).toBe(c.spareMin - c.shortfallMin)
       expect(c.fits).toBe(c.shortfallMin === 0)
       // If place() fit everything, capacity must agree there was room.
-      const res = place(tasks.filter((t) => t.durationMin > 0), free, { now: 0, alignMin: 1 })
+      const res = place(tasks.filter((t, i) => t.durationMin > 0 && tasks.findIndex((x) => x.id === t.id) === i), free, { now: 0, alignMin: 1 })
       if (res.unplaced.length === 0) expect(c.fits).toBe(true)
     }
   })
 
   it('refit never schedules into the past', () => {
     for (const seed of SEEDS) {
-      const { free, existing, now } = scenario(seed)
+      const { free, existing, now, anchor } = scenario(seed)
       const blocks = existing.map((e) => ({ ...e, taskId: `m-${e.taskId}` }))
-      const r = refit(blocks, free, { now })
-      for (const p of r.placements) expect(p.start).toBeGreaterThanOrEqual(now)
+      const r = refit(blocks, free, { now, anchor })
+      const upcoming = blocks.filter((b) => b.end > now)
+      for (const p of r.placements) {
+        expect(p.start).toBeGreaterThanOrEqual(now)
+        for (const u of upcoming) expect(overlaps(p, u)).toBe(false)
+      }
       expect(r.placements.length + r.unplaced.length + r.notMissed.length).toBe(blocks.length)
     }
   })

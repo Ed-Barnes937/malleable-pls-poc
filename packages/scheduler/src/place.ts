@@ -31,6 +31,8 @@ export type UnplacedReason =
   | 'window-closed'
   /** The window is open, but no free gap inside it is long enough. */
   | 'no-free-slot'
+  /** Another task with the same `id` was considered first and placed or reported. */
+  | 'duplicate-id'
 
 export interface Unplaced {
   taskId: string
@@ -50,6 +52,14 @@ export interface PlaceOptions {
    *   array order.
    */
   policy?: 'priority' | 'deadline'
+  /**
+   * Where in its window each task goes:
+   * - `'earliest'` (default): the earliest aligned start that fits.
+   * - `'latest'`: the latest aligned start that still ends by `latest`, e.g.
+   *   a spaced review that lets a lecture settle before revisiting it. A task
+   *   with no `latest` then goes at the end of the supplied free time.
+   */
+  anchor?: 'earliest' | 'latest'
   /**
    * Block starts are rounded up to a multiple of this many minutes since the
    * epoch. Every real time zone offset is a multiple of 15 minutes, so the
@@ -100,10 +110,23 @@ function available(
   return subtract(free, fixed)
 }
 
-/** Earliest aligned start in `slot` that fits the window, or undefined. */
-function fitIn(slot: Interval, w: Window, alignMs: number): number | undefined {
-  const start = Math.ceil(Math.max(slot.start, w.lo) / alignMs) * alignMs
-  return start + w.durMs <= Math.min(slot.end, w.hi) ? start : undefined
+type Anchor = NonNullable<PlaceOptions['anchor']>
+
+/** Earliest (or latest) aligned start in `slot` that fits the window, or undefined. */
+function fitIn(slot: Interval, w: Window, alignMs: number, anchor: Anchor): number | undefined {
+  const lo = Math.max(slot.start, w.lo)
+  const hi = Math.min(slot.end, w.hi)
+  const start =
+    anchor === 'latest'
+      ? Math.floor((hi - w.durMs) / alignMs) * alignMs
+      : Math.ceil(lo / alignMs) * alignMs
+  // An unbounded free slot with no deadline has no latest start.
+  return Number.isFinite(start) && start >= lo && start + w.durMs <= hi ? start : undefined
+}
+
+/** Free gaps in the order the anchor prefers them. */
+function byAnchor(slots: Interval[], anchor: Anchor): Interval[] {
+  return anchor === 'latest' ? [...slots].reverse() : slots
 }
 
 function ordered(tasks: ReadonlyArray<SchedulerTask>, policy: PlaceOptions['policy']) {
@@ -116,7 +139,8 @@ function ordered(tasks: ReadonlyArray<SchedulerTask>, policy: PlaceOptions['poli
 }
 
 /**
- * Fit tasks into free time, earliest-fit, one contiguous block each.
+ * Fit tasks into free time, one contiguous block each, earliest-fit by
+ * default (latest-fit with `anchor: 'latest'`).
  *
  * Guarantees: every placement lies inside `freeSlots` (so never overlaps a
  * commitment), never overlaps a fixed existing placement or another new
@@ -124,8 +148,13 @@ function ordered(tasks: ReadonlyArray<SchedulerTask>, policy: PlaceOptions['poli
  * Pure and deterministic. Feeding the result back as `existingPlacements`
  * with the same inputs returns the same placements (idempotent).
  *
- * Tie-breaks: tasks in `policy` order; within a task, the earliest aligned
- * start wins.
+ * Tie-breaks: tasks in `policy` order; within a task, the earliest (or
+ * latest, per `anchor`) aligned start wins. If two tasks share an `id`, the
+ * first one considered is handled and the rest are `'duplicate-id'`.
+ *
+ * Every task in `tasks` is movable: its own existing placement is ignored.
+ * Never pass a task whose block the student accepted or dragged unless you
+ * mean to move it; leave it out and pass its block in `existingPlacements`.
  */
 export function place(
   tasks: ReadonlyArray<SchedulerTask>,
@@ -135,18 +164,25 @@ export function place(
   const alignMs = checkOptions(opts)
   const moving = new Set(tasks.map((t) => t.id))
   let avail = available(freeSlots, opts.existingPlacements ?? [], moving)
+  const anchor = opts.anchor ?? 'earliest'
   const placements: Placement[] = []
   const unplaced: Unplaced[] = []
+  const seen = new Set<string>()
 
   for (const task of ordered(tasks, opts.policy)) {
+    if (seen.has(task.id)) {
+      unplaced.push({ taskId: task.id, reason: 'duplicate-id' })
+      continue
+    }
+    seen.add(task.id)
     const w = resolveWindow(task, opts.now)
     if (typeof w === 'string') {
       unplaced.push({ taskId: task.id, reason: w })
       continue
     }
     let start: number | undefined
-    for (const slot of avail) {
-      start = fitIn(slot, w, alignMs)
+    for (const slot of byAnchor(avail, anchor)) {
+      start = fitIn(slot, w, alignMs, anchor)
       if (start !== undefined) break
     }
     if (start === undefined) {
@@ -161,8 +197,10 @@ export function place(
 }
 
 /**
- * Up to `n` candidate blocks for one task, for "pick a slot" UIs: the
- * earliest fit within each separate free gap, in time order. Because each
+ * Up to `n` candidate blocks for one task, for "pick a slot" UIs: one fit
+ * per separate free gap, in the anchor's preference order (earliest first
+ * by default, latest first with `anchor: 'latest'`), so the first
+ * suggestion is where `place` would put the task on its own. Because each
  * gap offers at most one candidate, suggestions spread across the week
  * rather than stacking up in one long afternoon. Empty when the task cannot
  * be placed at all (use `place` to learn why).
@@ -177,9 +215,11 @@ export function suggestSlots(
   const w = resolveWindow(task, opts.now)
   const out: Placement[] = []
   if (typeof w === 'string') return out
-  for (const slot of available(freeSlots, opts.existingPlacements ?? [], new Set([task.id]))) {
+  const anchor = opts.anchor ?? 'earliest'
+  const avail = available(freeSlots, opts.existingPlacements ?? [], new Set([task.id]))
+  for (const slot of byAnchor(avail, anchor)) {
     if (out.length >= n) break
-    const start = fitIn(slot, w, alignMs)
+    const start = fitIn(slot, w, alignMs, anchor)
     if (start !== undefined) out.push({ taskId: task.id, start, end: start + w.durMs })
   }
   return out
@@ -194,16 +234,20 @@ export interface MissedBlock extends Placement {
 }
 
 export interface RefitResult extends PlaceResult {
-  /** Blocks that have not ended yet at `now`, left where they are. */
+  /**
+   * Blocks that have not ended yet at `now` (upcoming or in progress): left
+   * where they are and treated as busy, so nothing is re-fit on top of them.
+   */
   notMissed: string[]
 }
 
 /**
  * Re-place blocks whose time passed (`end <= now`) without completion. The
  * caller decides which blocks were not completed; this only moves those that
- * are actually in the past, to the earliest free time from `now` that fits
- * their duration and deadline. With the default `'priority'` policy the
- * oldest missed block gets first pick.
+ * are actually in the past, to free time from `now` that fits their duration
+ * and deadline (earliest-fit unless `anchor` says otherwise). Blocks that
+ * have not ended stay put and are busy. With the default `'priority'` policy
+ * the oldest missed block gets first pick.
  */
 export function refit(
   blocks: ReadonlyArray<MissedBlock>,
@@ -211,7 +255,9 @@ export function refit(
   opts: PlaceOptions,
 ): RefitResult {
   const missed = blocks.filter((b) => b.end <= opts.now)
-  const notMissed = blocks.filter((b) => b.end > opts.now).map((b) => b.taskId)
+  const upcoming = blocks.filter((b) => b.end > opts.now)
+  // Passed without a taskId so they stay fixed even if a missed block shares it.
+  const busy = upcoming.map((b) => ({ start: b.start, end: b.end }))
   const tasks: SchedulerTask[] = [...missed]
     .sort((a, b) => a.start - b.start)
     .map((b) => ({
@@ -219,5 +265,9 @@ export function refit(
       durationMin: b.durationMin ?? (b.end - b.start) / MINUTE_MS,
       latest: b.latest,
     }))
-  return { ...place(tasks, freeSlots, opts), notMissed }
+  const existingPlacements = [...(opts.existingPlacements ?? []), ...busy]
+  return {
+    ...place(tasks, freeSlots, { ...opts, existingPlacements }),
+    notMissed: upcoming.map((b) => b.taskId),
+  }
 }

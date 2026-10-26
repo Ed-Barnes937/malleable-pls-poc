@@ -23,6 +23,7 @@ const priyasWeek = [
 
 describe('demo week', () => {
   it('T7: a confused moment becomes a 20-min review within 3 days, around commitments and accepted blocks', () => {
+    // Earliest-fit: the review goes as soon as there is room.
     const now = at('2026-10-28T17:42:00Z') // Wednesday evening, just tagged "confused"
     const accepted = [{ taskId: 'lab-1', start: at('2026-10-28T18:00:00Z'), end: at('2026-10-28T19:00:00Z') }]
     const free = freeSlots(priyasWeek, { start: now, end: week.end }, prefs)
@@ -43,6 +44,29 @@ describe('demo week', () => {
     expect(moved).toEqual([{ taskId: 'review', start: p.start, end: p.start + 30 * 60_000 }])
   })
 
+  it('T7: with anchor "latest" the review lands late in its window and visibly moves when the automation changes', () => {
+    const now = at('2026-10-28T17:42:00Z') // Wednesday evening
+    const accepted = [{ taskId: 'lab-1', start: at('2026-10-28T18:00:00Z'), end: at('2026-10-28T19:00:00Z') }]
+    const free = freeSlots(priyasWeek, { start: now, end: week.end }, prefs)
+
+    // "20-min review within 3 days": as late as possible, ending by Saturday 17:42.
+    const first = place([{ id: 'review', durationMin: 20, latest: now + 3 * 24 * 3_600_000 }], free, {
+      now,
+      existingPlacements: accepted,
+      anchor: 'latest',
+    }).placements
+    expect(first).toEqual([{ taskId: 'review', start: at('2026-10-31T17:15:00Z'), end: at('2026-10-31T17:35:00Z') }])
+
+    // Edited to "30 min by tomorrow": moves to Thursday, before the 17:00 shift and its 10-min buffer.
+    const moved = place([{ id: 'review', durationMin: 30, latest: startOfLocalDay(now, TZ, 2) }], free, {
+      now,
+      existingPlacements: [...accepted, ...first],
+      anchor: 'latest',
+    }).placements
+    expect(moved).toEqual([{ taskId: 'review', start: at('2026-10-29T16:15:00Z'), end: at('2026-10-29T16:45:00Z') }])
+    expect(wallClock(moved[0].start, TZ)).toMatchObject({ day: 29, hour: 16, minute: 15 })
+  })
+
   it('T9: honest capacity note, suggestions, and auto-fill in AI priority order', () => {
     const now = at('2026-10-29T08:00:00Z') // Thursday morning, planning the rest of today
     const free = freeSlots(priyasWeek, { start: now, end: at('2026-10-30T00:00:00Z') }, {
@@ -54,7 +78,7 @@ describe('demo week', () => {
       { id: 'quiz-prep', durationMin: 2 * 60, latest: at('2026-10-29T17:00:00Z') },
       { id: 'flashcards', durationMin: 2 * 60 },
     ]
-    const c = capacity(free, todos)
+    const c = capacity(free, todos, { now })
     expect(c.neededMin).toBe(12 * 60)
     expect(c.fits).toBe(false)
     // "About 9 free hours. This needs 12."

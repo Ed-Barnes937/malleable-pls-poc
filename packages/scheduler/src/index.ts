@@ -15,4 +15,4 @@ export {
   type Unplaced,
   type UnplacedReason,
 } from './place'
-export { capacity, type Capacity } from './capacity'
+export { capacity, type Capacity, type CapacityOptions } from './capacity'

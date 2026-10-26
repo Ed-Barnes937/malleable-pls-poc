@@ -43,6 +43,9 @@ export function dayWindows(range: Interval, prefs: FreeSlotPrefs = {}): Interval
   const startMin = parseTimeOfDay(p.dayStart)
   const endMin = parseTimeOfDay(p.dayEnd)
   const overnight = endMin <= startMin ? 1 : 0
+  if (!Number.isFinite(range.start) || !Number.isFinite(range.end)) {
+    throw new RangeError('range start and end must be finite UTC ms values')
+  }
   const out: Interval[] = []
   if (!(range.end > range.start)) return out
   const first = wallClock(range.start, p.timeZone)
