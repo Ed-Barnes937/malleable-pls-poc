@@ -38,7 +38,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   const { data: recordings } = useRecordings(decodedScope.courseTag)
 
   const handleChange = useCallback(
-    (scopeType: string, value: string) => {
+    (scopeType: 'tag' | 'recording', value: string) => {
       setScope.mutate({ workspaceId, scopeType, scopeValue: value || null })
     },
     [workspaceId, setScope],

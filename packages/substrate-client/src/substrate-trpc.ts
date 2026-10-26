@@ -49,11 +49,8 @@ export const substrateTrpc: SubstrateWriter = {
     ))
   },
 
-  useRecordingConnections(recordingId: string | undefined, filter?: QueryFilter) {
-    return adapt(trpc.links.byRecording.useQuery(
-      { recordingId: recordingId ?? '', courseTag: filter?.courseTag },
-      { enabled: !!recordingId },
-    ))
+  useRecordingConnections(recordingId: string | undefined) {
+    return adapt(trpc.links.byRecording.useQuery({ recordingId: recordingId ?? '' }, { enabled: !!recordingId }))
   },
 
   useWeeklyOverview(filter: QueryFilter) {

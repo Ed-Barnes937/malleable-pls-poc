@@ -1,5 +1,6 @@
 import { describe, it, expectTypeOf } from 'vitest'
 import type { Scope, ScopeDeclaration, LensProps } from './types'
+import type { SplitScope } from './scope'
 
 describe('Scope', () => {
   it('can be empty', () => {
@@ -29,7 +30,7 @@ describe('ScopeDeclaration', () => {
   })
 
   it('keeps course and recording modes distinct', () => {
-    expectTypeOf<ScopeDeclaration['courseTag']>().toEqualTypeOf<'filter' | 'highlight' | 'label' | 'ignore' | undefined>()
+    expectTypeOf<ScopeDeclaration['courseTag']>().toEqualTypeOf<'filter' | 'highlight' | 'ignore' | undefined>()
     expectTypeOf<ScopeDeclaration['recordingId']>().toEqualTypeOf<'target' | 'highlight' | 'ignore' | undefined>()
   })
 })
@@ -45,5 +46,11 @@ describe('LensProps', () => {
     expectTypeOf<LensProps['panelId']>().toEqualTypeOf<string>()
     expectTypeOf<LensProps['scope']>().toEqualTypeOf<Scope>()
     expectTypeOf<LensProps['config']>().toEqualTypeOf<Record<string, unknown>>()
+  })
+
+  it('carries reader scope and highlight-only scope as separate props', () => {
+    // `scope` is what readers may filter by; `highlight` is styling only.
+    expectTypeOf<LensProps['highlight']>().toEqualTypeOf<Scope | undefined>()
+    expectTypeOf<SplitScope>().toEqualTypeOf<{ scope: Scope; highlight: Scope }>()
   })
 })

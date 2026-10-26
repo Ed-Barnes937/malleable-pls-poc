@@ -14,8 +14,10 @@ export const annotationsRouter = router({
             SELECT a.* FROM annotations a
             JOIN transcript_segments ts ON ts.id = a.anchor_id AND a.anchor_type = 'transcript_segment'
             WHERE a.user_id = ${ctx.userId}
-              ${input.recordingId ? tx`AND ts.recording_id = ${input.recordingId}` : tx``}
-              ${andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
+              ${input.recordingId
+                // A targeted lecture wins over the course (see boardScope).
+                ? tx`AND ts.recording_id = ${input.recordingId}`
+                : andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
             ORDER BY a.created_at DESC
           `
         }

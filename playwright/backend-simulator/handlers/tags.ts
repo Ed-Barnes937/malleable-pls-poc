@@ -12,7 +12,8 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
 
     return db.tags
       .filter((t) => !opts?.recordingId || (t.target_type === 'transcript_segment' && recordingOf(t) === opts.recordingId))
-      .filter((t) => !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingOf(t)))
+      // A targeted lecture wins over the course.
+      .filter((t) => !!opts?.recordingId || !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingOf(t)))
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
   })
 

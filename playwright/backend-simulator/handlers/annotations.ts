@@ -12,7 +12,8 @@ export function registerAnnotationsHandlers(router: ProcedureRouter, db: InMemor
         if (!scoped) return true
         if (a.anchor_type !== 'transcript_segment') return false
         const recordingId = segmentRecordingId(db, a.anchor_id)
-        if (opts?.recordingId && recordingId !== opts.recordingId) return false
+        // A targeted lecture wins over the course.
+        if (opts?.recordingId) return recordingId === opts.recordingId
         return !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingId)
       })
       .sort((a, b) => b.created_at.localeCompare(a.created_at))

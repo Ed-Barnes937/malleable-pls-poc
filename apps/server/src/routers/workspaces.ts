@@ -182,7 +182,9 @@ export const workspacesRouter = router({
   setScope: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
-      scopeType: z.string().max(255),
+      // Only live board dimensions ('tag' = course, 'recording' = focus);
+      // the removed 'timeframe' is rejected so stale clients can't write it.
+      scopeType: z.enum(['tag', 'recording']),
       scopeValue: z.string().max(1000).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {

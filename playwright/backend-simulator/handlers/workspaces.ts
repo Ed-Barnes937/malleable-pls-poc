@@ -100,6 +100,8 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, scopeType, scopeValue } = input as {
       workspaceId: string; scopeType: string; scopeValue: string | null
     }
+    // Mirror the server's z.enum: only live board dimensions.
+    if (scopeType !== 'tag' && scopeType !== 'recording') throw new Error(`Unknown scope type: ${scopeType}`)
     // Mirror server invariant: a new course clears a focused recording that
     // is not in it; "All courses" (null) keeps the focus.
     if (scopeType === 'tag' && scopeValue !== null) {

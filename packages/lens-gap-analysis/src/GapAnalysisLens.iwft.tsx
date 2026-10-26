@@ -33,7 +33,7 @@ test('shows weak area counts', async ({ mount, page, simulator }) => {
 test('highlights the board course without hiding the others', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
-      <GapAnalysisLens {...defaultProps} scope={{ courseTag: 'biology' }} />
+      <GapAnalysisLens {...defaultProps} highlight={{ courseTag: 'biology' }} />
     </TestProviders>,
   )
 

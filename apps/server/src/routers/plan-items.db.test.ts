@@ -68,6 +68,12 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
 
     const bio = await api.planItems.list({ courseTag: 'biology' })
     expect(bio.map((r) => r.title)).toEqual(['Biology lecture'])
+    // Board course goes through the shared helper, which only trusts the
+    // caller's own course tags: bob tagging alice's to-do changes nothing.
+    const untagged = all.find((r) => r.title === 'Read chapter 5')!
+    await db.sql`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${bob}, 'plan_item', ${untagged.id}, 'biology')`
+    expect((await api.planItems.list({ courseTag: 'biology' })).map((r) => r.title)).toEqual(['Biology lecture'])
+    await db.sql`DELETE FROM tags WHERE user_id = ${bob}`
 
     const tasks = await api.planItems.list({ kinds: ['task'] })
     expect(tasks.map((r) => r.title)).toEqual(['Read chapter 5'])

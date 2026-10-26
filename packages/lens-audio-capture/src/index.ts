@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: Mic,
   description: 'Record & playback',
   // Course: files a new lecture under it. Recording: works on the focused lecture.
-  scope: { courseTag: 'label', recordingId: 'target' },
+  scope: { courseTag: 'filter', recordingId: 'target' },
   reads: ['recordings'],
   writes: ['recordings'],
   emits: ['recording:completed'],

@@ -26,20 +26,15 @@ export function registerLinksHandlers(router: ProcedureRouter, db: InMemoryDb): 
   })
 
   router.register('links.byRecording', (input) => {
-    const { recordingId, courseTag } = input as { recordingId: string; courseTag?: string }
+    // Not course-filtered: a targeted lecture wins over the course.
+    const { recordingId } = input as { recordingId: string }
     const segmentIds = new Set(
       db.transcriptSegments
         .filter((s) => s.recording_id === recordingId)
         .map((s) => s.id),
     )
-    const otherEndRecording = (l: { target_type: string; target_id: string }) =>
-      l.target_type === 'transcript_segment'
-        ? segmentRecordingId(db, l.target_id)
-        : l.target_type === 'recording' ? l.target_id : undefined
-
     return db.links
       .filter((l) => l.source_type === 'transcript_segment' && segmentIds.has(l.source_id))
-      .filter((l) => !courseTag || inCourse(db, courseTag, 'recording', otherEndRecording(l)))
       .map((l) => {
         const seg = db.transcriptSegments.find((s) => s.id === l.source_id)
         const rec = seg ? db.recordings.find((r) => r.id === seg.recording_id) : undefined

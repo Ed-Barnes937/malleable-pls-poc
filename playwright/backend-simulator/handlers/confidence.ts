@@ -12,7 +12,8 @@ export function registerConfidenceHandlers(router: ProcedureRouter, db: InMemory
         if (!scoped) return true
         if (cs.target_type !== 'transcript_segment') return false
         const recordingId = segmentRecordingId(db, cs.target_id)
-        if (opts?.recordingId && recordingId !== opts.recordingId) return false
+        // A targeted lecture wins over the course.
+        if (opts?.recordingId) return recordingId === opts.recordingId
         return !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingId)
       })
       .sort((a, b) => b.created_at.localeCompare(a.created_at))

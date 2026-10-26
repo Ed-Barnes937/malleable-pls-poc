@@ -1,22 +1,34 @@
 import { describe, it, expect } from 'vitest'
-import { activeScopeDims, canWrite, inDateRange, lookAheadRange, narrowScope, usesScopeDim, weekRange } from './scope'
+import { activeScopeDims, canWrite, inDateRange, lookAheadRange, splitScope, usesScopeDim, weekRange } from './scope'
 
-describe('narrowScope', () => {
-  const scope = { courseTag: 'biology', recordingId: 'rec-bio-4' }
+describe('splitScope', () => {
+  const board = { courseTag: 'biology', recordingId: 'rec-bio-4' }
 
   it('drops dimensions the widget ignores', () => {
-    expect(narrowScope(scope, { courseTag: 'filter', recordingId: 'ignore' })).toEqual({ courseTag: 'biology' })
-    expect(narrowScope(scope, { recordingId: 'target' })).toEqual({ recordingId: 'rec-bio-4' })
-    expect(narrowScope(scope, undefined)).toEqual({})
+    expect(splitScope(board, { courseTag: 'filter', recordingId: 'ignore' })).toEqual({ scope: { courseTag: 'biology' }, highlight: {} })
+    expect(splitScope(board, { recordingId: 'target' })).toEqual({ scope: { recordingId: 'rec-bio-4' }, highlight: {} })
+    expect(splitScope(board, undefined)).toEqual({ scope: {}, highlight: {} })
   })
 
-  it('passes through every mode other than ignore', () => {
-    expect(narrowScope(scope, { courseTag: 'highlight', recordingId: 'highlight' })).toEqual(scope)
-    expect(narrowScope(scope, { courseTag: 'label' })).toEqual({ courseTag: 'biology' })
+  it('passes filter and target dimensions to readers', () => {
+    expect(splitScope(board, { courseTag: 'filter', recordingId: 'target' })).toEqual({ scope: board, highlight: {} })
+  })
+
+  it('keeps highlighted dimensions out of what readers see', () => {
+    // A calendar passing `scope` straight to its reader must not hide other
+    // courses' commitments or items unrelated to the focused lecture.
+    const calendar = splitScope(board, { courseTag: 'highlight', recordingId: 'highlight' })
+    expect(calendar.scope).toEqual({})
+    expect(calendar.highlight).toEqual(board)
+
+    // To-do / Coming up filter by course but only highlight the lecture.
+    const todo = splitScope(board, { courseTag: 'filter', recordingId: 'highlight' })
+    expect(todo.scope).toEqual({ courseTag: 'biology' })
+    expect(todo.highlight).toEqual({ recordingId: 'rec-bio-4' })
   })
 
   it('omits unset dimensions', () => {
-    expect(narrowScope({}, { courseTag: 'filter', recordingId: 'target' })).toEqual({})
+    expect(splitScope({}, { courseTag: 'filter', recordingId: 'highlight' })).toEqual({ scope: {}, highlight: {} })
   })
 })
 
@@ -38,7 +50,7 @@ describe('activeScopeDims', () => {
 describe('usesScopeDim', () => {
   it('treats an omitted dimension as ignore', () => {
     expect(usesScopeDim({}, 'courseTag')).toBe(false)
-    expect(usesScopeDim({ courseTag: 'label' }, 'courseTag')).toBe(true)
+    expect(usesScopeDim({ courseTag: 'highlight' }, 'courseTag')).toBe(true)
   })
 })
 

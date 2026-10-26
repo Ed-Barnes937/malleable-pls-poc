@@ -6,7 +6,7 @@ import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 type ScopeRow = { scope_type: string; scope_value: string }
 
 /** `workspace_scopes.scope_type` for each Scope dimension. */
-export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, string> = {
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'recording'> = {
   courseTag: 'tag',
   recordingId: 'recording',
 }

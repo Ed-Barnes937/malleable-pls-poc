@@ -9,16 +9,29 @@ export function usesScopeDim(declaration: ScopeDeclaration | undefined, dim: Sco
   return mode !== undefined && mode !== 'ignore'
 }
 
+/** A board scope split by what a widget may do with each dimension. */
+export interface SplitScope {
+  /** `filter` / `target` dimensions: what readers may narrow by. */
+  scope: Scope
+  /** `highlight` dimensions: for styling only, never for readers. */
+  highlight: Scope
+}
+
 /**
- * The board scope a widget is allowed to see: dimensions it ignores are
- * dropped, so `ignore` is enforced by the shell rather than by convention.
+ * Splits the board scope per a widget's declaration. Ignored dimensions are
+ * dropped, and highlighted ones are kept apart from what reaches readers, so
+ * both rules are enforced by the shell rather than by convention.
  */
-export function narrowScope(scope: Scope, declaration: ScopeDeclaration | undefined): Scope {
-  const narrowed: Scope = {}
+export function splitScope(board: Scope, declaration: ScopeDeclaration | undefined): SplitScope {
+  const split: SplitScope = { scope: {}, highlight: {} }
   for (const dim of SCOPE_DIMS) {
-    if (usesScopeDim(declaration, dim) && scope[dim] !== undefined) narrowed[dim] = scope[dim]
+    const mode = declaration?.[dim]
+    const value = board[dim]
+    if (value === undefined || mode === undefined || mode === 'ignore') continue
+    if (mode === 'highlight') split.highlight[dim] = value
+    else split.scope[dim] = value
   }
-  return narrowed
+  return split
 }
 
 /**

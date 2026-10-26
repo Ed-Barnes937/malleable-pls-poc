@@ -14,7 +14,7 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, narrowScope, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -188,14 +188,16 @@ export function WorkspaceShell() {
       if (!panel) return null
       const LensComponent = getLensComponent(panel.lens_type, lensRegistry)
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
-      // Each widget sees only the scope dimensions its manifest declares.
-      const panelScope = narrowScope(scope, manifests.find((m) => m.id === panel.lens_type)?.scope)
+      // Each widget sees only the dimensions it declares, with highlighted
+      // ones kept apart from what its readers may filter by.
+      const panelScope = splitScope(scope, manifests.find((m) => m.id === panel.lens_type)?.scope)
 
       return (
         <PanelContainer lensType={panel.lens_type}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
-            scope={panelScope}
+            scope={panelScope.scope}
+            highlight={panelScope.highlight}
             config={config}
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}

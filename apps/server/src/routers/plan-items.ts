@@ -12,13 +12,14 @@ import {
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery, NewPlanItem } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { andInCourse } from './_shared'
 
 // ---------------------------------------------------------------------------
 // Course (stored as a 'plan_item' tag, like recordings carry theirs)
 //
-// Every course read and write for plan items goes through these helpers, so a
-// shared courseTag helper can replace them in one place. In v1 a plan item's
-// tags are its course: setting a course replaces them.
+// Board course filtering uses the shared `andInCourse` helper (see
+// ./_shared.ts). In v1 a plan item's tags are its course: setting a course
+// replaces them.
 // ---------------------------------------------------------------------------
 
 function courseColumn(tx: TransactionSql) {
@@ -27,14 +28,6 @@ function courseColumn(tx: TransactionSql) {
     WHERE t.target_type = 'plan_item' AND t.target_id = p.id
     ORDER BY t.created_at, t.id LIMIT 1
   ) AS course`
-}
-
-function courseFilter(tx: TransactionSql, courseTag: string | undefined) {
-  if (!courseTag) return tx``
-  return tx`AND EXISTS (
-    SELECT 1 FROM tags t
-    WHERE t.target_type = 'plan_item' AND t.target_id = p.id AND t.label = ${courseTag}
-  )`
 }
 
 async function setCourse(tx: TransactionSql, userId: string, planItemId: string, course: string | null) {
@@ -180,7 +173,7 @@ export const planItemsRouter = router({
             ${query.scheduled === true ? tx`AND p.starts_at IS NOT NULL` : query.scheduled === false ? tx`AND p.starts_at IS NULL` : tx``}
             ${query.sourceType ? tx`AND p.source_type = ${query.sourceType}` : tx``}
             ${query.sourceId ? tx`AND p.source_id = ${query.sourceId}` : tx``}
-            ${courseFilter(tx, query.courseTag)}
+            ${andInCourse(tx, ctx.userId, query.courseTag, 'plan_item', tx`p.id`)}
             ${rangeFilter}
         `
         return expandPlanItems(rows.map(toPlanItem), query)

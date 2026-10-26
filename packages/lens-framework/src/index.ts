@@ -1,3 +1,4 @@
+export type { SplitScope } from './scope'
 export type {
   Scope,
   ScopeDim,
@@ -9,7 +10,7 @@ export type {
 } from './types'
 export {
   usesScopeDim,
-  narrowScope,
+  splitScope,
   activeScopeDims,
   canWrite,
   weekRange,

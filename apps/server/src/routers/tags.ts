@@ -9,12 +9,12 @@ export const tagsRouter = router({
     .input(boardScope)
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // A targeted lecture wins over the course (see boardScope).
         if (input.recordingId) {
           return tx`
             SELECT t.* FROM tags t
             JOIN transcript_segments ts ON ts.id = t.target_id AND t.target_type = 'transcript_segment'
             WHERE ts.recording_id = ${input.recordingId} AND t.user_id = ${ctx.userId}
-              ${andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
             ORDER BY t.created_at DESC
           `
         }

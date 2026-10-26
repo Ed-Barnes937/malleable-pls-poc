@@ -1,7 +1,7 @@
 /**
  * Workspace-level ("board") scope shared by every widget on a board. Each
  * widget declares per dimension how it responds (see `ScopeDeclaration`); the
- * shell only hands a widget the dimensions it declares.
+ * shell splits the board scope accordingly (see `LensProps`).
  */
 export interface Scope {
   courseTag?: string
@@ -12,20 +12,22 @@ export type ScopeDim = keyof Scope
 
 /**
  * How a widget responds to the board's course.
- * - `filter`: shows only in-course data and says what it leaves out
- *   ("+N in other courses"). Anything the widget creates inherits the course.
+ * - `filter`: readers narrow to the course; the widget says what it leaves
+ *   out ("+N in other courses"). Anything the widget creates inherits the
+ *   course (e.g. audio capture files a new lecture under it).
  * - `highlight`: shows everything and emphasises the course (dims the rest,
- *   never hides it).
- * - `label`: shows nothing differently, but uses the course for what it
- *   creates (e.g. audio capture files a new lecture under it).
+ *   never hides it). The course never reaches the widget's readers.
  * - `ignore`: never sees the course.
  */
-export type CourseScopeMode = 'filter' | 'highlight' | 'label' | 'ignore'
+export type CourseScopeMode = 'filter' | 'highlight' | 'ignore'
 
 /**
  * How a widget responds to the board's focused recording ("lecture").
  * - `target`: works on that one recording (and prompts when none is focused).
- * - `highlight`: shows everything and emphasises items linked to it.
+ *   A targeted lecture wins over the course: its own data is never hidden by
+ *   a course filter, even when the two disagree.
+ * - `highlight`: shows everything and emphasises items linked to it. The
+ *   focus never reaches the widget's readers.
  * - `ignore`: never sees the focus.
  */
 export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
@@ -56,8 +58,19 @@ export interface DateRange {
 
 export interface LensProps {
   panelId: string
-  /** The board scope, narrowed to the dimensions this widget declares. */
+  /**
+   * The board dimensions this widget declares `filter` or `target`. Safe to
+   * pass straight to substrate readers: it never contains a dimension the
+   * widget only highlights.
+   */
   scope: Scope
+  /**
+   * The board dimensions this widget declares `highlight`. For styling only
+   * (emphasise in-scope items, dim the rest); never pass it to readers, or
+   * the widget would hide what it is meant to show. Optional because hosts
+   * such as component tests may not supply it.
+   */
+  highlight?: Scope
   config: Record<string, unknown>
   /**
    * Patch the panel's persisted config. Shallow-merged with current config.

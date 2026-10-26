@@ -24,10 +24,10 @@ export const linksRouter = router({
       })
     }),
 
-  // Links out of one lecture's moments. Course scope keeps links whose other
-  // end (a moment or a whole lecture) is in the course.
+  // Links out of the targeted lecture's moments. Not course-filtered: a
+  // targeted lecture wins over the course (see boardScope in ./_shared).
   byRecording: publicProcedure
-    .input(z.object({ recordingId: z.string().max(255), courseTag }))
+    .input(z.object({ recordingId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`
@@ -37,12 +37,8 @@ export const linksRouter = router({
           FROM links l
           JOIN transcript_segments ts ON ts.id = l.source_id
           JOIN recordings r ON r.id = ts.recording_id
-          LEFT JOIN transcript_segments target_ts
-            ON l.target_type = 'transcript_segment' AND target_ts.id = l.target_id
           WHERE ts.recording_id = ${input.recordingId}
             AND l.user_id = ${ctx.userId}
-            ${andInCourse(tx, ctx.userId, input.courseTag, 'recording',
-              tx`COALESCE(target_ts.recording_id, CASE WHEN l.target_type = 'recording' THEN l.target_id END)`)}
         `
       })
     }),

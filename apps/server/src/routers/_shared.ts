@@ -9,7 +9,13 @@ export const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 
 export const courseTag = z.string().max(500).optional()
 
-/** Board scope accepted by list endpoints: a focused recording and/or a course. */
+/**
+ * Board scope accepted by list endpoints: a focused recording and/or a course.
+ * A targeted recording wins over the course: when `recordingId` is set the
+ * endpoint returns that lecture's data and does not apply `courseTag`, so a
+ * lecture focused outside the board course never silently loses the
+ * student's own tags and notes.
+ */
 export const boardScope = z.object({
   recordingId: z.string().max(255).optional(),
   courseTag,

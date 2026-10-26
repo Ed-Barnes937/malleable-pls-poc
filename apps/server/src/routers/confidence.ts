@@ -14,8 +14,10 @@ export const confidenceRouter = router({
             SELECT cs.* FROM confidence_signals cs
             JOIN transcript_segments ts ON ts.id = cs.target_id AND cs.target_type = 'transcript_segment'
             WHERE cs.user_id = ${ctx.userId}
-              ${input.recordingId ? tx`AND ts.recording_id = ${input.recordingId}` : tx``}
-              ${andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
+              ${input.recordingId
+                // A targeted lecture wins over the course (see boardScope).
+                ? tx`AND ts.recording_id = ${input.recordingId}`
+                : andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
             ORDER BY cs.created_at DESC
           `
         }

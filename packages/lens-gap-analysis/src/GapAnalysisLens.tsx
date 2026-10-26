@@ -2,7 +2,7 @@ import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, BarChart3 } from 'lucide-react'
 
-export default function GapAnalysisLens({ scope }: LensProps) {
+export default function GapAnalysisLens({ highlight }: LensProps) {
   const substrate = useSubstrate()
   const { data: gaps } = substrate.useGapAnalysis()
 
@@ -24,8 +24,8 @@ export default function GapAnalysisLens({ scope }: LensProps) {
           const barColor = COURSE_COLORS[course.course] ?? 'bg-neutral-500'
           const isWeak = course.percentage < 60
           // Highlight, never hide: the board course stands out, the rest dim.
-          const highlighted = scope.courseTag === course.course
-          const dimmed = Boolean(scope.courseTag) && !highlighted
+          const highlighted = highlight?.courseTag === course.course
+          const dimmed = Boolean(highlight?.courseTag) && !highlighted
           return (
             <div
               key={course.course}
