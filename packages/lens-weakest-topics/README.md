@@ -11,7 +11,7 @@ Lens showing a ranked list of the lowest-confidence topics.
 
 ## Scope
 
-Global view across all topics — not filtered by scope.
+`courseTag: 'filter'` - ranks only the board course's topics (ranked within the course) and shows "+N in other courses" for weak topics it leaves out.
 
 ## Internal Dependencies
 

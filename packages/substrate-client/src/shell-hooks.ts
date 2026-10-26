@@ -6,9 +6,8 @@ import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 type ScopeRow = { scope_type: string; scope_value: string }
 
 /** `workspace_scopes.scope_type` for each Scope dimension. */
-export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, string> = {
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'recording'> = {
   courseTag: 'tag',
-  timeframe: 'timeframe',
   recordingId: 'recording',
 }
 
@@ -17,7 +16,6 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
     if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
-    if (s.scope_type === SCOPE_TYPE_BY_DIM.timeframe) scope.timeframe = s.scope_value as 'week' | 'all'
     if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
   }
   return scope
@@ -117,6 +115,15 @@ export function useSetWorkspaceScope() {
 
 export function useRecordings(courseTag?: string) {
   return trpc.recordings.list.useQuery(courseTag ? { courseTag } : undefined)
+}
+
+/**
+ * The board's focused recording, looked up by id rather than through the
+ * course-narrowed list: focus and course may disagree, and the picker and
+ * chip must still name the focused lecture.
+ */
+export function useFocusedRecording(recordingId: string | undefined) {
+  return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
 }
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {

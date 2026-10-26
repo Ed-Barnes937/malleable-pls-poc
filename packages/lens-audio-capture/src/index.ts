@@ -8,8 +8,8 @@ export const manifest: PanelManifest = {
   label: 'Audio Capture',
   icon: Mic,
   description: 'Record & playback',
-  category: 'tool',
-  filters: ['recordingId'] as const,
+  // Course: files a new lecture under it. Recording: works on the focused lecture.
+  scope: { courseTag: 'filter', recordingId: 'target' },
   reads: ['recordings'],
   writes: ['recordings'],
   emits: ['recording:completed'],

@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
+import { COURSE_LABELS, andInCourse, courseTag } from './_shared'
 
 export const aggregatesRouter = router({
   weeklyOverview: publicProcedure
-    .query(async ({ ctx }) => {
+    .input(z.object({ courseTag }).optional())
+    .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`
           WITH course_segments AS (
@@ -13,7 +15,8 @@ export const aggregatesRouter = router({
             JOIN recordings r ON r.id = t.target_id AND t.target_type = 'recording'
             JOIN transcript_segments ts ON ts.recording_id = r.id
             WHERE t.user_id = ${ctx.userId}
-              AND t.label IN ('biology', 'chemistry', 'physics')
+              AND t.label IN ${tx(COURSE_LABELS)}
+              ${andInCourse(tx, ctx.userId, input?.courseTag, 'recording', tx`r.id`)}
           ),
           seg_confidence AS (
             SELECT cs.target_id AS seg_id,
@@ -45,6 +48,8 @@ export const aggregatesRouter = router({
       })
     }),
 
+  // Unfiltered by design: the All courses widget highlights the board course
+  // rather than hiding the others.
   gapAnalysis: publicProcedure
     .query(async ({ ctx }) => {
       return withUser(ctx.userId, async (tx) => {
@@ -55,7 +60,7 @@ export const aggregatesRouter = router({
             JOIN recordings r ON r.id = t.target_id AND t.target_type = 'recording'
             JOIN transcript_segments ts ON ts.recording_id = r.id
             WHERE t.user_id = ${ctx.userId}
-              AND t.label IN ('biology', 'chemistry', 'physics')
+              AND t.label IN ${tx(COURSE_LABELS)}
           ),
           seg_confidence AS (
             SELECT cs.target_id AS seg_id, MAX(cs.score) AS max_score
@@ -79,9 +84,15 @@ export const aggregatesRouter = router({
     }),
 
   weakestTopics: publicProcedure
-    .input(z.number().optional().default(10))
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).default(10),
+      courseTag,
+    }).optional())
     .query(async ({ ctx, input }) => {
+      const limit = input?.limit ?? 10
       return withUser(ctx.userId, async (tx) => {
+        // The course filter applies before ranking, so a filtered list is
+        // ranked 1..N within the course.
         return tx`
           WITH seg_confidence AS (
             SELECT cs.target_id AS seg_id, AVG(cs.score) AS avg_score
@@ -99,13 +110,14 @@ export const aggregatesRouter = router({
             FROM transcript_segments ts
             JOIN recordings r ON r.id = ts.recording_id
             JOIN tags t ON t.target_type = 'recording' AND t.target_id = r.id
-              AND t.label IN ('biology', 'chemistry', 'physics')
+              AND t.label IN ${tx(COURSE_LABELS)}
             LEFT JOIN seg_confidence sc ON sc.seg_id = ts.id
             WHERE ts.user_id = ${ctx.userId}
+              ${andInCourse(tx, ctx.userId, input?.courseTag, 'recording', tx`r.id`)}
           )
           SELECT rank::int, "conceptLabel", course, week, "avgConfidence"
           FROM ranked
-          WHERE rank <= ${input}
+          WHERE rank <= ${limit}
           ORDER BY rank
         `
       })

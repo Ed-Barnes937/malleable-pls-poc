@@ -11,7 +11,7 @@ Lens for reviewing and annotating learning material transcripts.
 
 ## Scope
 
-Filters segments by `recordingId` from scope.
+`recordingId: 'target'` - shows the focused lecture, with all its tags and notes even when it is outside the board course. `courseTag: 'filter'` - the course narrows the lecture picker, and the focus clears when the course changes to one it is not in.
 
 ## Internal Dependencies
 

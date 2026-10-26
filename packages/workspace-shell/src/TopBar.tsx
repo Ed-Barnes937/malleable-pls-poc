@@ -1,36 +1,43 @@
 import { Menu, LayoutGrid, Settings, RotateCcw } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceScopes, useRecordings, decodeScope } from '@pls/substrate-client'
+import { useWorkspaceScopes, useFocusedRecording, decodeScope } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
+import { useBoardScopeDims } from './useBoardScopeDims'
 import { BackgroundPicker } from '@pls/panel-system'
+import { COURSES } from '@pls/shared-ui'
 
 export interface TopBarProps {
   onMenuClick: () => void
   onOrganize?: () => void
 }
 
+/**
+ * Summarises the board scope, limited to the dimensions some widget on the
+ * board actually uses, so the chip never claims a filter nothing applies.
+ */
 function useScopeSummary(workspaceId: string): string | null {
+  const dims = useBoardScopeDims(workspaceId)
   const { data: scopes } = useWorkspaceScopes(workspaceId)
   const s = useMemo(
     () => decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[]),
     [scopes],
   )
-  const { data: recordings } = useRecordings(s.courseTag)
+  const { data: focused } = useFocusedRecording(s.recordingId)
 
   return useMemo(() => {
     const parts: string[] = []
-    if (s.courseTag) parts.push(s.courseTag)
-    if (s.timeframe === 'week') parts.push('This week')
-    else if (s.timeframe === 'all') parts.push('All time')
-    if (s.recordingId) {
-      const title = recordings?.find((r) => r.id === s.recordingId)?.title as string | undefined
+    if (s.courseTag && dims.has('courseTag')) {
+      parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
+    }
+    if (s.recordingId && dims.has('recordingId')) {
+      const title = focused?.id === s.recordingId ? (focused?.title as string | undefined) : undefined
       if (title) parts.push(title)
     }
     return parts.length > 0 ? parts.join(' · ') : null
-  }, [s, recordings])
+  }, [s, dims, focused])
 }
 
 export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {

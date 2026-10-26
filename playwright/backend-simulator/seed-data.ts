@@ -180,8 +180,6 @@ export function createDefaultSeedData(): SeedData {
     workspaceScopes: [
       { id: 'ws-scope-1', workspace_id: 'ws-in-lecture', scope_type: 'recording', scope_value: 'rec-bio-4' },
       { id: 'ws-scope-2', workspace_id: 'ws-evening-review', scope_type: 'tag', scope_value: 'biology' },
-      { id: 'ws-scope-3', workspace_id: 'ws-evening-review', scope_type: 'timeframe', scope_value: 'week' },
-      { id: 'ws-scope-4', workspace_id: 'ws-exam-prep', scope_type: 'timeframe', scope_value: 'all' },
       { id: 'ws-scope-5', workspace_id: 'ws-evening-review', scope_type: 'recording', scope_value: 'rec-bio-4' },
     ],
 

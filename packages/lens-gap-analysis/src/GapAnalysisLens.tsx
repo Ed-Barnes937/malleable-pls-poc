@@ -2,7 +2,7 @@ import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
 import { AlertTriangle, BarChart3 } from 'lucide-react'
 
-export default function GapAnalysisLens({}: LensProps) {
+export default function GapAnalysisLens({ highlight }: LensProps) {
   const substrate = useSubstrate()
   const { data: gaps } = substrate.useGapAnalysis()
 
@@ -23,8 +23,22 @@ export default function GapAnalysisLens({}: LensProps) {
         {sorted.map((course) => {
           const barColor = COURSE_COLORS[course.course] ?? 'bg-neutral-500'
           const isWeak = course.percentage < 60
+          // Highlight, never hide: the board course stands out, the rest dim.
+          const highlighted = highlight?.courseTag === course.course
+          const dimmed = Boolean(highlight?.courseTag) && !highlighted
           return (
-            <div key={course.course} className="flex items-center gap-4">
+            <div
+              key={course.course}
+              data-testid="gap-course-row"
+              data-course={course.course}
+              data-highlighted={highlighted || undefined}
+              aria-current={highlighted || undefined}
+              className={cn(
+                'flex items-center gap-4 rounded-lg transition-opacity',
+                highlighted && 'bg-surface-overlay/50 ring-1 ring-accent/30',
+                dimmed && 'opacity-40',
+              )}
+            >
               <span className="w-20 shrink-0 text-right text-sm font-medium capitalize text-neutral-300">
                 {course.course}
               </span>

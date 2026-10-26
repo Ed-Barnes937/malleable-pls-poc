@@ -19,8 +19,9 @@ test.describe('Journey: Evening review with tagging', () => {
     // Wait for transcript segments to load
     await expect(transcriptPanel.getByText('14 segments')).toBeVisible({ timeout: 10000 })
 
-    // Verify initial gap count in WeeklyOverview (3 biology + 1 chemistry = 4 total)
-    await expect(weeklyPanel.getByText('4 gaps to review')).toBeVisible({ timeout: 10000 })
+    // Verify initial gap count in WeeklyOverview. Evening Review is a Biology
+    // board, so only the 3 biology gaps count (chemistry's 1 is left out).
+    await expect(weeklyPanel.getByText('3 gaps to review')).toBeVisible({ timeout: 10000 })
 
     // Find an untagged segment and click it to select
     // seg-bio4-01: "Today we're continuing our discussion of mitochondria..."
@@ -35,7 +36,7 @@ test.describe('Journey: Evening review with tagging', () => {
     // Verify the confused tag pill appears on the segment
     await expect(transcriptPanel.locator('text=confused').first()).toBeVisible()
 
-    // WeeklyOverview should update to show 5 gaps (one more biology gap)
-    await expect(weeklyPanel.getByText('5 gaps to review')).toBeVisible({ timeout: 10000 })
+    // WeeklyOverview should update to show 4 gaps (one more biology gap)
+    await expect(weeklyPanel.getByText('4 gaps to review')).toBeVisible({ timeout: 10000 })
   })
 })

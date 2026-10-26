@@ -14,6 +14,7 @@ export {
   useUpdateWorkspaceBackground,
   useSetWorkspaceScope,
   useRecordings,
+  useFocusedRecording,
   useRecentJobs,
   useRunningJobCount,
   useRetryJob,

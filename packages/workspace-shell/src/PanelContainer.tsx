@@ -1,5 +1,5 @@
 import { Suspense, Component, type ReactNode, type ErrorInfo } from 'react'
-import { SubstrateProvider, useManifest } from '@pls/lens-framework'
+import { SubstrateProvider, useManifest, canWrite } from '@pls/lens-framework'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { substrateBridge } from './substrate-bridge'
 
@@ -61,7 +61,8 @@ interface PanelContainerProps {
  */
 export function PanelContainer({ lensType, children }: PanelContainerProps) {
   const manifest = useManifest(lensType)
-  const isWritable = manifest?.category === 'tool'
+  // Writer access follows the manifest's `writes` declaration.
+  const isWritable = canWrite(manifest)
 
   return (
     <LensErrorBoundary label={manifest?.label ?? lensType}>

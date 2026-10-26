@@ -8,8 +8,8 @@ export const manifest: PanelManifest = {
   label: 'Transcript',
   icon: FileText,
   description: 'Segments & tags',
-  category: 'tool',
-  filters: ['recordingId'] as const,
+  // Course narrows the lecture picker (focus clears when it leaves the course).
+  scope: { courseTag: 'filter', recordingId: 'target' },
   reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],

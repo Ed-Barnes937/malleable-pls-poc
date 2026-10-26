@@ -18,13 +18,20 @@ import type {
   NewPlanItem,
   PlanItemUpdate,
 } from '@pls/substrate'
-import type { Scope, ScopeDim } from './types'
+import type { DateRange, Scope, ScopeDeclaration } from './types'
 
 /**
- * Query input for substrate hooks. Lenses pass their workspace `Scope`
- * (course, timeframe and focused recording) straight through.
+ * Query input for substrate hooks. Lenses pass `LensProps.scope` straight
+ * through (it holds only their `filter` / `target` dimensions), plus a
+ * `dateRange` when the widget shows a window of time it navigates itself.
+ * Never put `LensProps.highlight` here: readers treat every dimension as a
+ * hard filter, so a highlight-only widget (e.g. a calendar) would hide the
+ * other courses' commitments.
+ *
+ * When `recordingId` is set, readers return that lecture's data regardless of
+ * `courseTag`: a targeted lecture wins over the course.
  */
-export type QueryFilter = Scope
+export type QueryFilter = Scope & { dateRange?: DateRange }
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -69,11 +76,12 @@ export interface SubstrateReader {
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
-  useConnections: (conceptSegmentId: string) => QueryResult<ConnectionResult[]>
+  useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
+  /** Links out of a targeted lecture; never course-filtered (the target wins). */
   useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
   useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
   useGapAnalysis: () => QueryResult<CourseGap[]>
-  useWeakestTopics: (limit?: number) => QueryResult<WeakTopic[]>
+  useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
   /**
    * Plan items (commitments, deadlines, to-dos). Pass `from`/`to` to get one
    * row per occurrence in that range, with weekly recurrences expanded.
@@ -112,18 +120,19 @@ export interface PanelManifest {
   label: string
   icon: ComponentType<{ className?: string }>
   description: string
-  category: 'tool' | 'view'
   reads: TableName[]
+  /** Tables this widget writes. Declaring any grants it writer access. */
   writes?: TableName[]
   /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
   emits?: string[]
   /**
-   * Workspace-level filter dimensions this lens consumes. The shell unions
-   * these across all panels in a workspace to decide which scope controls
-   * to surface. Omit (or leave empty) for lenses that don't consume any
-   * workspace-level filter — they'll receive an empty scope.
+   * How this widget responds to each board scope dimension. The shell splits
+   * the board scope into `LensProps.scope` (filter / target, for readers) and
+   * `LensProps.highlight` (styling only), and unions the used dimensions
+   * across the board to decide which scope pickers and chip parts to show.
+   * Omit for a widget that ignores board scope entirely.
    */
-  filters?: ScopeDim[]
+  scope?: ScopeDeclaration
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

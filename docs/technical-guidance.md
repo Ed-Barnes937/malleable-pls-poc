@@ -90,11 +90,64 @@ workspace_panels
 
 workspace_scopes
   id, workspace_id, scope_type, scope_value
-  -- scope_type: "tag" | "timeframe" | "recording" | "exclude"
-  -- scope_value: "biology" | "2026-semester-1" | "rec_123" | "tag:practice-only"
+  -- scope_type: "tag" (course) | "recording" (focused lecture)
+  -- scope_value: "biology" | "rec_123"
   -- Scope is the user's primary dial. Changing scope is frequent and low-friction.
   -- A workspace with no scope rows sees all data (widest aperture).
 ```
+
+### Scope Declarations
+
+Scope controls what a widget shows, never what is true. Instead of a binary
+tool/view category, each lens manifest declares per dimension how it responds
+(`ScopeDeclaration` in `packages/lens-framework/src/types.ts`):
+
+| Dimension | Modes |
+|---|---|
+| `courseTag` | `filter` (readers narrow to the course, the widget says "+N in other courses"; new items inherit the course), `highlight` (everything, course emphasised, rest dimmed never hidden), `ignore` |
+| `recordingId` | `target` (works on the focused lecture, prompts when none), `highlight` (everything, items linked to the lecture emphasised), `ignore` |
+
+The shell enforces the declarations with `splitScope`. A widget receives
+`LensProps.scope` with only its `filter` / `target` dimensions, which is safe
+to pass straight to readers, and `LensProps.highlight` with its `highlight`
+dimensions, which is for styling only and never reaches readers. So a calendar
+written the obvious way (`usePlanItems(scope)`) cannot hide another course's
+commitments. Ignored dimensions reach neither. The drawer offers a picker for
+each dimension some widget on the board uses, and the TopBar chip summarises
+only those dimensions. Writer access is granted to lenses that declare
+`writes`, not by category.
+
+**A targeted lecture wins over the course.** When a reader gets a
+`recordingId` (tags, annotations, confidence, links of the focused lecture), it
+returns that lecture's data and does not apply `courseTag`. Focus and course
+may disagree (e.g. a Chemistry lecture uploaded on a Biology board); the
+student's own tags and notes on it never silently disappear, and the picker and
+chip still show the focused lecture's title.
+
+Course filtering happens server-side through one helper, `andInCourse` /
+`inCourse` in `apps/server/src/routers/_shared.ts`: a course is a `tags` row on
+a recording or a plan item (`target_type = 'plan_item'`, used by
+`planItems.list`), and segments, tags, confidence and links inherit the course
+of their recording.
+
+Time windows are not a board dimension. Widgets that show time own their
+navigation and look-ahead (a calendar shows the week being viewed, Coming up
+looks 14 days ahead) and pass a `DateRange` to readers in `QueryFilter`. The
+earlier `timeframe` board scope was never applied by any reader and was removed
+(migration 012).
+
+| Widget | Course | Focused recording | Unset scope |
+|---|---|---|---|
+| Audio capture | `filter` (tags new lecture) | `target` | ready to record |
+| Transcript | `filter` (narrows picker) | `target` | "pick a lecture" |
+| Connections | `filter` | `target` | prompt to focus a lecture |
+| Test me | `filter` | `ignore` | all material |
+| This week | `filter` | `ignore` | all courses |
+| All courses (gap analysis) | `highlight` | `ignore` | all courses |
+| Weakest topics | `filter` | `ignore` | all |
+| Coming up (planned) | `filter` + "+N elsewhere"; overdue always shown | `highlight` | all, next 14 days |
+| To-do (planned) | `filter`; new to-dos inherit course | `highlight` | all open |
+| Calendar (planned) | `highlight` (dim other courses, never hide commitments) | `highlight` | current week, everything |
 
 ---
 
@@ -106,7 +159,7 @@ Lenses never communicate directly — all interaction is emergent through the sh
 
 ```
 ┌─ Workspace ──────────────────────────────────────────┐
-│  scope: [tag=biology, time=last_7d]                  │
+│  scope: [tag=biology, recording=rec_123]             │
 │                                                       │
 │  ┌─ Panel ──────────┐    ┌─ Panel ──────────┐        │
 │  │ lens: transcript  │    │ lens: flashcard   │        │

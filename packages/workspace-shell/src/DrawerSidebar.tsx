@@ -1,25 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import {
-  useWorkspacePanels,
   useWorkspaceScopes,
   useSetWorkspaceScope,
   useRecordings,
+  useFocusedRecording,
   decodeScope,
 } from '@pls/substrate-client'
 import { COURSES, SectionLabel, Select } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
-import { useManifests, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, canWrite, type ScopeDim } from '@pls/lens-framework'
+import { useBoardScopeDims } from './useBoardScopeDims'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 
 /* ── Constants ── */
 
 const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
-
-const TIMEFRAMES = [
-  { value: '', label: 'No filter' },
-  { value: 'week', label: 'This week' },
-  { value: 'all', label: 'All time' },
-]
 
 const CATEGORY_ORDER = ['tool', 'view'] as const
 const CATEGORY_LABELS: Record<string, string> = {
@@ -30,9 +25,9 @@ const CATEGORY_LABELS: Record<string, string> = {
 /* ── Scope Editor ── */
 
 /**
- * Renders only the scope pickers whose dimensions are declared by at least
- * one lens in the active workspace's manifests. Returns null when no panel
- * declares any filter dimension — the section is hidden entirely.
+ * Renders only the scope pickers whose dimensions are used by at least one
+ * widget on the board (see `ScopeDeclaration`). The section is hidden
+ * entirely when every widget ignores scope.
  */
 function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeDims: Set<ScopeDim> }) {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
@@ -40,12 +35,17 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
 
   const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
   const currentCourse = decodedScope.courseTag ?? ''
-  const currentTimeframe = decodedScope.timeframe ?? ''
   const currentRecordingId = decodedScope.recordingId ?? ''
-  const { data: recordings } = useRecordings(decodedScope.courseTag)
+  const { data: courseRecordings } = useRecordings(decodedScope.courseTag)
+  // A focused lecture outside the course still appears, so the picker never
+  // pretends nothing is focused.
+  const { data: focused } = useFocusedRecording(decodedScope.recordingId)
+  const recordings = focused && !courseRecordings?.some((r) => r.id === focused.id)
+    ? [focused, ...(courseRecordings ?? [])]
+    : courseRecordings
 
   const handleChange = useCallback(
-    (scopeType: string, value: string) => {
+    (scopeType: 'tag' | 'recording', value: string) => {
       setScope.mutate({ workspaceId, scopeType, scopeValue: value || null })
     },
     [workspaceId, setScope],
@@ -64,23 +64,6 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
             {COURSE_FILTERS.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-
-      {activeDims.has('timeframe') && (
-        <div>
-          <SectionLabel className="mb-1">Timeframe</SectionLabel>
-          <Select
-            aria-label="Timeframe filter"
-            value={currentTimeframe}
-            onChange={(e) => handleChange('timeframe', e.target.value)}
-          >
-            {TIMEFRAMES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.label}
               </option>
             ))}
           </Select>
@@ -108,24 +91,6 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   )
 }
 
-/**
- * Returns the union of `manifest.filters` across all lenses currently in
- * the workspace. Drives both whether to render the Scope section and which
- * pickers to show inside it.
- */
-function useActiveScopeDims(workspaceId: string): Set<ScopeDim> {
-  const { data: panels } = useWorkspacePanels(workspaceId)
-  const manifests = useManifests()
-  return useMemo(() => {
-    const dims = new Set<ScopeDim>()
-    for (const p of panels ?? []) {
-      const m = manifests.find((man) => man.id === p.lens_type)
-      for (const d of m?.filters ?? []) dims.add(d)
-    }
-    return dims
-  }, [panels, manifests])
-}
-
 /* ── Lens Palette ── */
 
 function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
@@ -140,10 +105,11 @@ function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
     [onDragStart],
   )
 
+  // Widgets that write data are grouped as tools, read-only ones as views.
   const grouped = CATEGORY_ORDER.map((cat) => ({
     category: cat,
     label: CATEGORY_LABELS[cat],
-    lenses: manifests.filter((m) => m.category === cat),
+    lenses: manifests.filter((m) => (canWrite(m) ? 'tool' : 'view') === cat),
   })).filter((g) => g.lenses.length > 0)
 
   return (
@@ -190,7 +156,7 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
   const asideRef = useRef<HTMLElement>(null)
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const activeScopeDims = useActiveScopeDims(activeWorkspaceId)
+  const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
 
   useEffect(() => {
     if (!open) return
@@ -258,7 +224,7 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       >
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-5 px-3 py-4">
-            {/* Scope — hidden when no lens in this workspace declares a filter dim */}
+            {/* Scope - hidden when every widget on the board ignores scope */}
             {activeScopeDims.size > 0 && (
               <section data-testid="scope-section">
                 <SectionLabel className="mb-2 px-1">Scope</SectionLabel>

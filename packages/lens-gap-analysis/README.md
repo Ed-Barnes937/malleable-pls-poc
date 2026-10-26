@@ -11,7 +11,7 @@ Lens for identifying learning gaps across courses.
 
 ## Scope
 
-Shows all courses — not filtered by scope.
+`courseTag: 'highlight'` - always shows every course; the board's course (from `LensProps.highlight`) is highlighted and the others dimmed, never hidden.
 
 ## Internal Dependencies
 

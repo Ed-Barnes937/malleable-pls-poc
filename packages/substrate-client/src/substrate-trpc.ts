@@ -12,6 +12,11 @@ function adaptMutation<TInput, TOutput = TInput>(mutation: any): MutationHandle<
   return { mutate: mutation.mutate, mutateAsync: mutation.mutateAsync, isPending: mutation.isPending }
 }
 
+/** The board-scope part of a filter, as the list endpoints accept it. */
+function boardScope(filter: QueryFilter) {
+  return { recordingId: filter.recordingId, courseTag: filter.courseTag }
+}
+
 export const substrateTrpc: SubstrateWriter = {
   useRecordings(filter?: QueryFilter) {
     return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, recordingId: filter.recordingId } : undefined))
@@ -26,35 +31,38 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useTags(filter: QueryFilter) {
-    return adapt(trpc.tags.list.useQuery({ recordingId: filter.recordingId }))
+    return adapt(trpc.tags.list.useQuery(boardScope(filter)))
   },
 
   useAnnotations(filter: QueryFilter) {
-    return adapt(trpc.annotations.list.useQuery({ recordingId: filter.recordingId }))
+    return adapt(trpc.annotations.list.useQuery(boardScope(filter)))
   },
 
   useConfidence(filter: QueryFilter) {
-    return adapt(trpc.confidence.list.useQuery({ recordingId: filter.recordingId }))
+    return adapt(trpc.confidence.list.useQuery(boardScope(filter)))
   },
 
-  useConnections(conceptSegmentId: string) {
-    return adapt(trpc.links.connections.useQuery(conceptSegmentId, { enabled: !!conceptSegmentId }))
+  useConnections(conceptSegmentId: string, filter?: QueryFilter) {
+    return adapt(trpc.links.connections.useQuery(
+      { segmentId: conceptSegmentId, courseTag: filter?.courseTag },
+      { enabled: !!conceptSegmentId },
+    ))
   },
 
   useRecordingConnections(recordingId: string | undefined) {
-    return adapt(trpc.links.byRecording.useQuery(recordingId ?? '', { enabled: !!recordingId }))
+    return adapt(trpc.links.byRecording.useQuery({ recordingId: recordingId ?? '' }, { enabled: !!recordingId }))
   },
 
-  useWeeklyOverview(_filter: QueryFilter) {
-    return adapt(trpc.aggregates.weeklyOverview.useQuery())
+  useWeeklyOverview(filter: QueryFilter) {
+    return adapt(trpc.aggregates.weeklyOverview.useQuery({ courseTag: filter.courseTag }))
   },
 
   useGapAnalysis() {
     return adapt(trpc.aggregates.gapAnalysis.useQuery())
   },
 
-  useWeakestTopics(limit?: number) {
-    return adapt(trpc.aggregates.weakestTopics.useQuery(limit))
+  useWeakestTopics(filter: QueryFilter, limit?: number) {
+    return adapt(trpc.aggregates.weakestTopics.useQuery({ limit, courseTag: filter.courseTag }))
   },
 
   usePlanItems(query?: PlanItemQuery) {
