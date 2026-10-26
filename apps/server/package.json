@@ -19,7 +19,7 @@
     "cors": "^2.8.6",
     "postgres": "^3.4.9",
     "superjson": "^2.2.6",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",

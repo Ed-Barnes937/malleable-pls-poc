@@ -6,7 +6,7 @@ import { insertWorkflowJob, workflowJobsJson } from '../workflows/sql'
 
 const jobInputSchema = z.object({
   jobType: z.string().max(255),
-  params: z.record(z.unknown()).optional(),
+  params: z.record(z.string(), z.unknown()).optional(),
   sortOrder: z.number().int(),
   delayMs: z.number().int().min(0).optional(),
 })
@@ -154,7 +154,7 @@ export const workflowsRouter = router({
   dispatch: publicProcedure
     .input(z.object({
       eventType: z.string().max(255),
-      payload: z.record(z.unknown()), // TODO: validate payload shape per event type
+      payload: z.record(z.string(), z.unknown()), // TODO: validate payload shape per event type
       workspaceId: z.string().max(255).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
