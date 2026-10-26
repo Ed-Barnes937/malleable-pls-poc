@@ -15,6 +15,7 @@ const DATABASE_URL =
   process.env.DATABASE_URL ?? `postgres://pls:pls@localhost:${pgPort}/${pgDb}`
 
 const TABLES = [
+  'plan_items',
   'job_runs', 'workflow_jobs', 'workflows',
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',

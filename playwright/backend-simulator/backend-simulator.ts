@@ -12,6 +12,7 @@ import { registerConfidenceHandlers } from './handlers/confidence'
 import { registerLinksHandlers } from './handlers/links'
 import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
+import { registerPlanItemsHandlers } from './handlers/plan-items'
 
 export const TRPC_URL = 'http://localhost:3999/trpc'
 
@@ -36,6 +37,7 @@ export class BackendSimulator {
     registerLinksHandlers(this.router, this.db)
     registerAggregatesHandlers(this.router, this.db)
     registerWorkflowsHandlers(this.router, this.db)
+    registerPlanItemsHandlers(this.router, this.db)
   }
 
   async handleNetworking(page: Page): Promise<void> {
