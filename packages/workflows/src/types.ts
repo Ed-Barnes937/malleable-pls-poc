@@ -109,6 +109,11 @@ export type Executor = (
 export interface ExecutorMeta {
   label: string
   category: string
+  /**
+   * Overrides the runner's `maxRetries` for this job type, e.g. 0 for jobs
+   * that call a paid provider, where a retry after a timeout can bill twice.
+   */
+  maxRetries?: number
 }
 
 export interface ExecutorRegistry {
@@ -121,6 +126,8 @@ export interface ExecutorRegistry {
     ctx: ExecutorContext,
   ): Promise<JobResult>
   has(jobType: string): boolean
+  /** Undefined for unknown job types. */
+  getMeta(jobType: string): ExecutorMeta | undefined
   getAvailableTypes(): Array<{ type: string } & ExecutorMeta>
 }
 
@@ -260,7 +267,8 @@ export interface JobRunnerConfig {
   /**
    * Maximum retry attempts on executor failure. Defaults to 0, which is the
    * safest default for substrate (which has no backoff column and would
-   * otherwise loop). The server passes a higher value.
+   * otherwise loop). The server passes a higher value. An executor's own
+   * `ExecutorMeta.maxRetries` takes precedence.
    */
   maxRetries?: number
 }

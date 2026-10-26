@@ -58,7 +58,9 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
         events: [],
       }
     },
-    { label: 'Transcribe', category: 'ai' },
+    // Never auto-retry: a provider call that timed out may still be billed.
+    // A failed run can be retried by hand.
+    { label: 'Transcribe', category: 'ai', maxRetries: 0 },
   )
 
   serverExecutors.register(

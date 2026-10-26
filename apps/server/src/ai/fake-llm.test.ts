@@ -1,49 +1,38 @@
 import { describe, it, expect } from 'vitest'
 import { z } from 'zod'
 import { createFakeLlmClient } from './fake-llm'
-import { fakeLlmFixtures } from './fake-llm-fixtures'
+import { defineLlmTask } from './llm'
 
-const reviewSchema = z.object({ title: z.string() })
+const reviewTask = defineLlmTask({
+  name: 'review-task',
+  system: 'Write a short review task title.',
+  buildPrompt: (input: { topic: string }) => `Topic: ${input.topic}`,
+  schema: z.object({ title: z.string() }),
+  fake: (input) => ({ title: `Review: ${input.topic}` }),
+})
 
 describe('createFakeLlmClient', () => {
-  const llm = createFakeLlmClient({
-    ...fakeLlmFixtures,
-    'review-task': (req) => ({ title: `Review: ${String(req.input?.topic)}` }),
-    'lecture-summary': () => 'Line one.\nLine two.\nLine three.',
-    'bad-shape': () => ({ heading: 'no title field' }),
-  })
-
-  it('returns a validated, content-aware JSON fixture for schema tasks', async () => {
-    const reply = await llm.complete({
-      task: 'review-task',
-      system: 's',
-      prompt: 'p',
-      input: { topic: 'maternal inheritance' },
-      schema: reviewSchema,
-    })
+  it('replies with the task fake, derived from the input', async () => {
+    const llm = createFakeLlmClient()
+    const reply = await llm.run(reviewTask, { topic: 'maternal inheritance' })
     expect(reply).toEqual({ title: 'Review: maternal inheritance' })
   })
 
-  it('returns text for tasks without a schema', async () => {
-    const reply = await llm.complete({ task: 'lecture-summary', system: 's', prompt: 'p' })
-    expect(reply).toBe('Line one.\nLine two.\nLine three.')
+  it('records every call with its built prompt', async () => {
+    const llm = createFakeLlmClient()
+    await llm.run(reviewTask, { topic: 'CAP theorem' })
+    expect(llm.calls).toEqual([{ task: 'review-task', input: { topic: 'CAP theorem' }, prompt: 'Topic: CAP theorem' }])
   })
 
-  it('records every call', async () => {
-    const fresh = createFakeLlmClient({ t: () => 'ok' })
-    await fresh.complete({ task: 't', system: 'sys', prompt: 'hello' })
-    expect(fresh.calls).toEqual([{ task: 't', system: 'sys', prompt: 'hello' }])
-  })
-
-  it('fails loudly when a task has no fixture', async () => {
-    await expect(llm.complete({ task: 'unknown', system: 's', prompt: 'p' }))
-      .rejects.toThrow('No fake LLM fixture for task "unknown"')
-    await expect(llm.complete({ task: 'toString', system: 's', prompt: 'p' }))
-      .rejects.toThrow('No fake LLM fixture')
-  })
-
-  it('validates fixtures against the schema like a live reply', async () => {
-    await expect(llm.complete({ task: 'bad-shape', system: 's', prompt: 'p', schema: reviewSchema }))
-      .rejects.toThrow('did not match its schema')
+  it('validates the fake against the schema like a live reply', async () => {
+    const drifted = defineLlmTask({
+      name: 'drifted',
+      system: 's',
+      buildPrompt: () => 'p',
+      schema: z.object({ minutes: z.number() }),
+      // A fake that type-checks but violates a runtime refinement still fails.
+      fake: () => ({ minutes: Number.NaN }),
+    })
+    await expect(createFakeLlmClient().run(drifted, undefined)).rejects.toThrow('did not match its schema')
   })
 })

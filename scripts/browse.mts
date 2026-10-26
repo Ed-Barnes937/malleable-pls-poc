@@ -9,22 +9,34 @@
 //
 // Runs with plain `node` (Node 24 strips the types), so keep the syntax erasable.
 import { chromium, type Browser, type Page } from '@playwright/test'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { parseArgs } from 'node:util'
 
 export const apiUrl = `http://localhost:${process.env.API_PORT ?? '3001'}`
 export const webUrl = `http://localhost:${process.env.WEB_PORT ?? '5173'}`
 
-/** Throws unless both the API (/health) and the web app answer. */
-export async function bootCheck(): Promise<void> {
-  for (const url of [`${apiUrl}/health`, webUrl]) {
-    let res: Response
-    try {
-      res = await fetch(url, { signal: AbortSignal.timeout(5000) })
-    } catch (err) {
-      throw new Error(`${url} is not reachable - is the stack running? (${(err as Error).message})`)
-    }
-    if (!res.ok) throw new Error(`${url} answered ${res.status}`)
+async function get(url: string): Promise<Response> {
+  let res: Response
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(5000) })
+  } catch (err) {
+    throw new Error(`${url} is not reachable - is the stack running? (${(err as Error).message})`)
   }
+  if (!res.ok) throw new Error(`${url} answered ${res.status}`)
+  return res
+}
+
+/**
+ * Throws unless the API and the web app answer, and the API runs mock AI
+ * (cost guardrail: never drive a live-AI server from a script).
+ */
+export async function bootCheck(): Promise<void> {
+  const health = (await (await get(`${apiUrl}/health`)).json()) as { aiMode?: string }
+  if (health.aiMode !== 'mock') {
+    throw new Error(`Refusing to browse: the API at ${apiUrl} reports aiMode=${String(health.aiMode)}, not "mock"`)
+  }
+  await get(webUrl)
 }
 
 /**
@@ -65,7 +77,8 @@ async function main() {
   const { values } = parseArgs({
     options: {
       board: { type: 'string' },
-      out: { type: 'string', default: 'browse.png' },
+      // Default outside the repo: screenshots never belong in it.
+      out: { type: 'string', default: path.join(tmpdir(), 'browse.png') },
     },
   })
   await bootCheck()

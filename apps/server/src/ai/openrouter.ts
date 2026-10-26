@@ -1,4 +1,4 @@
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import path from 'path'
 import { z } from 'zod'
 import { createLlmClient, type LlmClient } from './llm'
@@ -67,32 +67,30 @@ export function createOpenRouterLlmClient({
   model = DEFAULT_LLM_MODEL,
   fetch: fetchImpl = globalThis.fetch,
 }: OpenRouterOptions & { model?: string }): LlmClient {
-  return createLlmClient(`openrouter:${model}`, async (req) => {
-    const body: Record<string, unknown> = {
+  return createLlmClient(`openrouter:${model}`, async ({ task, prompt }) => {
+    const body = {
       model,
       messages: [
-        { role: 'system', content: req.system },
-        { role: 'user', content: req.prompt },
+        { role: 'system', content: task.system },
+        { role: 'user', content: prompt },
       ],
-      max_tokens: Math.min(req.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_TOKENS_CAP),
+      max_tokens: Math.min(task.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_TOKENS_CAP),
+      response_format: {
+        type: 'json_schema',
+        json_schema: { name: schemaName(task.name), strict: true, schema: task.jsonSchema },
+      },
+      // Only route to providers that honour structured output.
+      provider: { require_parameters: true },
       usage: { include: true },
     }
-    if (req.schema) {
-      const { $schema: _ignored, ...schema } = z.toJSONSchema(req.schema) as Record<string, unknown>
-      body.response_format = {
-        type: 'json_schema',
-        json_schema: { name: schemaName(req.task), strict: true, schema },
-      }
-      // Only route to providers that honour structured output.
-      body.provider = { require_parameters: true }
-    }
 
+    const started = Date.now()
     const reply = chatCompletionSchema.parse(
       await postJson(fetchImpl, apiKey, '/chat/completions', body, LLM_TIMEOUT_MS),
     )
-    console.log(`[llm] task=${req.task} model=${model} cost=${reply.usage?.cost ?? 'n/a'}`)
+    console.log(`[llm] task=${task.name} model=${model} ms=${Date.now() - started} cost=${reply.usage?.cost ?? 'n/a'}`)
     const content = reply.choices[0].message.content
-    if (content == null) throw new Error(`OpenRouter returned no content for task "${req.task}"`)
+    if (content == null) throw new Error(`OpenRouter returned no content for task "${task.name}"`)
     return content
   })
 }
@@ -103,6 +101,7 @@ export function createOpenRouterLlmClient({
 
 /** Whisper `verbose_json` reply; times are in seconds. */
 const whisperResponseSchema = z.object({
+  usage: z.object({ cost: z.number().optional() }).passthrough().optional(),
   text: z.string().optional(),
   duration: z.number().optional(),
   segments: z.array(z.object({ start: z.number(), end: z.number(), text: z.string() })).optional(),
@@ -134,14 +133,19 @@ export function mapWhisperSegments(response: WhisperResponse): TranscribedSegmen
   return segments
 }
 
-/** Upload file extension -> OpenRouter `input_audio.format`. */
+/**
+ * Upload file extension -> OpenRouter `input_audio.format`. Only the formats
+ * Ed verified live (2026-10-26): browser captures (webm) and the demo lecture
+ * (wav). Uploads also accept mp3/m4a/ogg, which work in mock mode only until
+ * verified.
+ */
 const AUDIO_FORMATS: Record<string, string> = {
   webm: 'webm',
   wav: 'wav',
-  mp3: 'mp3',
-  ogg: 'ogg',
-  m4a: 'm4a',
 }
+
+/** Whisper hosts commonly cap requests around 25 MB; fail before the upload. */
+export const MAX_TRANSCRIBE_BYTES = 25 * 1024 * 1024
 
 export function createOpenRouterWhisperTranscriber({
   apiKey,
@@ -152,7 +156,15 @@ export function createOpenRouterWhisperTranscriber({
     async transcribe(audioFilePath) {
       const extension = path.extname(audioFilePath).slice(1).toLowerCase()
       const format = AUDIO_FORMATS[extension]
-      if (!format) throw new Error(`Unsupported audio format for transcription: "${extension}"`)
+      if (!format) {
+        throw new Error(`Live transcription supports ${Object.keys(AUDIO_FORMATS).join(' and ')} audio, not "${extension}"`)
+      }
+      const { size } = await stat(audioFilePath)
+      if (size > MAX_TRANSCRIBE_BYTES) {
+        throw new Error(
+          `Recording is ${(size / 1024 / 1024).toFixed(1)} MB; live transcription accepts up to ${MAX_TRANSCRIBE_BYTES / 1024 / 1024} MB`,
+        )
+      }
 
       const audio = await readFile(audioFilePath)
       const body = {
@@ -164,8 +176,13 @@ export function createOpenRouterWhisperTranscriber({
         // Groq is the fast Whisper host; fail rather than silently use a slower one.
         provider: { order: ['groq'], allow_fallbacks: false },
       }
+      const started = Date.now()
       const response = whisperResponseSchema.parse(
         await postJson(fetchImpl, apiKey, '/audio/transcriptions', body, TRANSCRIBE_TIMEOUT_MS),
+      )
+      console.log(
+        `[transcribe] model=${WHISPER_MODEL} bytes=${size} audio_s=${response.duration ?? 'n/a'} ` +
+          `ms=${Date.now() - started} cost=${response.usage?.cost ?? 'n/a'}`,
       )
       return mapWhisperSegments(response)
     },

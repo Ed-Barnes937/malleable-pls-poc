@@ -1,13 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
+import { apiPort, apiUrl, webPort } from './e2e/ports'
 
 // Cost guardrail: test runs never reach a real AI provider. Forced here so
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
 process.env.AI_MODE = 'mock'
 delete process.env.OPENROUTER_API_KEY
 
-// Override these when another checkout/worktree already occupies the defaults.
-const apiPort = process.env.API_PORT ?? '3001'
-const webPort = process.env.WEB_PORT ?? '5173'
 const baseURL = `http://localhost:${webPort}`
 
 export default defineConfig({
@@ -34,7 +32,7 @@ export default defineConfig({
       // Postgres (docker) + migrations + API server — e2e runs from a cold
       // start with only docker available.
       command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} DISABLE_RATE_LIMIT=1 pnpm run e2e:server`,
-      url: `http://localhost:${apiPort}/health`,
+      url: `${apiUrl}/health`,
       reuseExistingServer: true,
       timeout: 60_000,
     },

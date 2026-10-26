@@ -45,5 +45,9 @@ export function createExecutorRegistry(): ExecutorRegistry {
     has(jobType) {
       return entries.has(jobType)
     },
+
+    getMeta(jobType) {
+      return entries.get(jobType)?.meta
+    },
   }
 }

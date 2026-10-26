@@ -3,11 +3,13 @@ import { mkdtemp, writeFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
 import { z } from 'zod'
+import { defineLlmTask } from './llm'
 import {
   createOpenRouterLlmClient,
   createOpenRouterWhisperTranscriber,
   mapWhisperSegments,
   MAX_TOKENS_CAP,
+  MAX_TRANSCRIBE_BYTES,
   WHISPER_MODEL,
 } from './openrouter'
 import whisperFixture from './__fixtures__/whisper-verbose.json'
@@ -47,7 +49,9 @@ describe('createOpenRouterWhisperTranscriber', () => {
   beforeAll(async () => {
     dir = await mkdtemp(path.join(tmpdir(), 'whisper-test-'))
     await writeFile(path.join(dir, 'lecture.webm'), Buffer.from('fake-audio'))
-    await writeFile(path.join(dir, 'lecture.flac'), Buffer.from('fake-audio'))
+    await writeFile(path.join(dir, 'lecture.wav'), Buffer.from('fake-audio'))
+    await writeFile(path.join(dir, 'lecture.mp3'), Buffer.from('fake-audio'))
+    await writeFile(path.join(dir, 'huge.webm'), Buffer.alloc(MAX_TRANSCRIBE_BYTES + 1))
   })
   afterAll(() => rm(dir, { recursive: true, force: true }))
 
@@ -73,10 +77,23 @@ describe('createOpenRouterWhisperTranscriber', () => {
     expect(segments).toHaveLength(2)
   })
 
-  it('rejects unsupported formats without calling the provider', async () => {
+  it('sends wav as wav', async () => {
+    const fetchMock = fakeFetch(whisperFixture)
+    await createOpenRouterWhisperTranscriber({ apiKey: 'k', fetch: fetchMock }).transcribe(path.join(dir, 'lecture.wav'))
+    expect(sentBody(fetchMock).body.input_audio.format).toBe('wav')
+  })
+
+  it('rejects formats not verified live, without calling the provider', async () => {
     const fetchMock = fakeFetch(whisperFixture)
     const transcriber = createOpenRouterWhisperTranscriber({ apiKey: 'k', fetch: fetchMock })
-    await expect(transcriber.transcribe(path.join(dir, 'lecture.flac'))).rejects.toThrow('Unsupported audio format')
+    await expect(transcriber.transcribe(path.join(dir, 'lecture.mp3'))).rejects.toThrow('supports webm and wav audio, not "mp3"')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects files over the provider size cap, without calling the provider', async () => {
+    const fetchMock = fakeFetch(whisperFixture)
+    const transcriber = createOpenRouterWhisperTranscriber({ apiKey: 'k', fetch: fetchMock })
+    await expect(transcriber.transcribe(path.join(dir, 'huge.webm'))).rejects.toThrow('accepts up to 25 MB')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -91,35 +108,32 @@ describe('createOpenRouterWhisperTranscriber', () => {
 
 describe('createOpenRouterLlmClient', () => {
   const completion = (content: string | null) => ({ choices: [{ message: { content } }], usage: { cost: 0.0002 } })
+  const reviewTask = defineLlmTask({
+    name: 'review task',
+    system: 'sys',
+    buildPrompt: (input: { topic: string }) => `Topic: ${input.topic}`,
+    schema: z.object({ title: z.string() }),
+    fake: (input) => ({ title: input.topic }),
+    maxTokens: 100_000,
+  })
 
-  it('sends a capped chat completion and returns text', async () => {
-    const fetchMock = fakeFetch(completion('A summary.'))
+  it('sends a capped, strict structured-output chat completion and validates the reply', async () => {
+    const fetchMock = fakeFetch(completion('{"title":"Review: maternal inheritance"}'))
     const llm = createOpenRouterLlmClient({ apiKey: 'test-key', model: 'some/model', fetch: fetchMock })
 
-    const reply = await llm.complete({ task: 'lecture-summary', system: 'sys', prompt: 'p', maxTokens: 100_000 })
+    const reply = await llm.run(reviewTask, { topic: 'maternal inheritance' })
 
-    expect(reply).toBe('A summary.')
+    expect(reply).toEqual({ title: 'Review: maternal inheritance' })
     const { url, init, body } = sentBody(fetchMock)
     expect(url).toBe('https://openrouter.ai/api/v1/chat/completions')
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer test-key')
     expect(init.signal).toBeInstanceOf(AbortSignal)
     expect(body.model).toBe('some/model')
     expect(body.messages).toEqual([
       { role: 'system', content: 'sys' },
-      { role: 'user', content: 'p' },
+      { role: 'user', content: 'Topic: maternal inheritance' },
     ])
     expect(body.max_tokens).toBe(MAX_TOKENS_CAP)
-    expect(body.response_format).toBeUndefined()
-  })
-
-  it('requests strict structured output and validates the reply', async () => {
-    const fetchMock = fakeFetch(completion('{"title":"Review: maternal inheritance"}'))
-    const llm = createOpenRouterLlmClient({ apiKey: 'k', fetch: fetchMock })
-    const schema = z.object({ title: z.string() })
-
-    const reply = await llm.complete({ task: 'review task', system: 's', prompt: 'p', schema })
-
-    expect(reply).toEqual({ title: 'Review: maternal inheritance' })
-    const { body } = sentBody(fetchMock)
     expect(body.response_format).toEqual({
       type: 'json_schema',
       json_schema: {
@@ -137,19 +151,18 @@ describe('createOpenRouterLlmClient', () => {
   })
 
   it('rejects replies that are not valid JSON or do not match the schema', async () => {
-    const schema = z.object({ title: z.string() })
     const notJson = createOpenRouterLlmClient({ apiKey: 'k', fetch: fakeFetch(completion('sure! here you go')) })
-    await expect(notJson.complete({ task: 't', system: 's', prompt: 'p', schema })).rejects.toThrow('invalid JSON')
+    await expect(notJson.run(reviewTask, { topic: 'x' })).rejects.toThrow('invalid JSON')
 
     const wrongShape = createOpenRouterLlmClient({ apiKey: 'k', fetch: fakeFetch(completion('{"name":"x"}')) })
-    await expect(wrongShape.complete({ task: 't', system: 's', prompt: 'p', schema })).rejects.toThrow('did not match')
+    await expect(wrongShape.run(reviewTask, { topic: 'x' })).rejects.toThrow('did not match')
   })
 
   it('surfaces HTTP errors and empty content', async () => {
     const failing = createOpenRouterLlmClient({ apiKey: 'k', fetch: fakeFetch({ error: 'rate limited' }, 429) })
-    await expect(failing.complete({ task: 't', system: 's', prompt: 'p' })).rejects.toThrow('429')
+    await expect(failing.run(reviewTask, { topic: 'x' })).rejects.toThrow('429')
 
     const empty = createOpenRouterLlmClient({ apiKey: 'k', fetch: fakeFetch(completion(null)) })
-    await expect(empty.complete({ task: 't', system: 's', prompt: 'p' })).rejects.toThrow('no content')
+    await expect(empty.run(reviewTask, { topic: 'x' })).rejects.toThrow('no content')
   })
 })

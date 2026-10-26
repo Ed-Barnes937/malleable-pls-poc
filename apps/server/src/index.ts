@@ -109,7 +109,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 const trpcHandler = createHTTPHandler({
   router: appRouter,
-  createContext: createContextFactory(ai),
+  createContext: createContextFactory({ ai, executors }),
   middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
 })
 
@@ -149,10 +149,11 @@ const server = http.createServer((req, res) => {
   // Security headers on every response
   setSecurityHeaders(res)
 
-  // Unauthenticated readiness probe (used by the Playwright webServer config)
+  // Unauthenticated readiness probe (used by the Playwright webServer config).
+  // `aiMode` lets test tooling refuse to run against a live-AI server.
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true }))
+    res.end(JSON.stringify({ ok: true, aiMode: ai.mode }))
     return
   }
 
