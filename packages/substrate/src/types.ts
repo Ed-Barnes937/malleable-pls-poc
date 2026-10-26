@@ -108,6 +108,7 @@ export interface Scope {
 export type PlanItemKind = 'commitment' | 'deadline' | 'task'
 export type PlanItemStatus = 'open' | 'done' | 'dismissed'
 
+/** v1: only commitments (classes, shifts) can repeat. */
 export interface PlanItemRecurrence {
   freq: 'weekly'
   /** ISO timestamp, inclusive: the last occurrence starts at or before this. */
@@ -142,12 +143,25 @@ export interface PlanItem {
 
 /**
  * One row of a plan item list. For a recurring item listed with a date range,
- * each weekly occurrence is its own row: `id` stays the stored item's id (so
- * mutations apply to the series) and `starts_at` / `ends_at` / `due_at` are the
- * occurrence's times. `occurrence_key` is unique per row (use it as a React key).
+ * each weekly occurrence is its own row: `starts_at` / `ends_at` / `due_at` are
+ * that occurrence's times (render with these), while `series_*` hold the
+ * stored series values. For every other row the two sets are equal.
+ *
+ * `id` is always the stored item, so **every mutation applies to the whole
+ * series**. When editing from a row:
+ * - send only the fields that changed (never echo the row back: occurrence
+ *   times in a patch re-anchor the series to that week);
+ * - to move or resize a recurring occurrence, shift the series by the same
+ *   delta: `starts_at = series_starts_at + (newStart - starts_at)`, likewise
+ *   `ends_at` from `series_ends_at`.
+ *
+ * `occurrence_key` is unique per row (use it as a React key).
  */
 export interface PlanItemOccurrence extends PlanItem {
   occurrence_key: string
+  series_starts_at: string | null
+  series_ends_at: string | null
+  series_due_at: string | null
 }
 
 export interface PlanItemQuery {
@@ -157,6 +171,8 @@ export interface PlanItemQuery {
   to?: string
   kinds?: PlanItemKind[]
   statuses?: PlanItemStatus[]
+  /** true: only items with a time block (starts_at set); false: only items without one. */
+  scheduled?: boolean
   courseTag?: string
   sourceType?: string
   sourceId?: string
@@ -178,7 +194,11 @@ export interface NewPlanItem {
   course?: string | null
 }
 
-/** Fields to change; `null` clears a nullable field (`course: null` removes the course). */
+/**
+ * Fields to change; `null` clears a nullable field (`course: null` removes the
+ * course). Applies to the stored item, i.e. the whole series for a recurring
+ * one: send only changed fields (see PlanItemOccurrence).
+ */
 export type PlanItemPatch = Partial<NewPlanItem>
 
 export interface PlanItemUpdate {

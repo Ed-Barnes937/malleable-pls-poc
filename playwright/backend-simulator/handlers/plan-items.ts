@@ -1,11 +1,21 @@
-import { expandPlanItems, matchesPlanItemFilters, validatePlanItem } from '@pls/substrate'
-import type { NewPlanItem, PlanItem, PlanItemQuery, PlanItemUpdate } from '@pls/substrate'
+import {
+  expandPlanItems,
+  matchesPlanItemFilters,
+  validatePlanItem,
+  newPlanItemInput,
+  planItemUpdateInput,
+  planItemListInput,
+  planItemIdInput,
+  parsePlanItemInput as parse,
+} from '@pls/substrate'
+import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
 
 /**
- * Mirrors apps/server/src/routers/plan-items.ts: same validation and the same
- * recurrence expansion (both from @pls/substrate); course lives in `db.tags`
+ * Mirrors apps/server/src/routers/plan-items.ts: the same input schemas (which
+ * normalise timestamps to Z and strip unknown keys), validation and recurrence
+ * expansion, all from @pls/substrate; course lives in `db.tags`
  * as a 'plan_item' tag, as on the server. Workflow events are not dispatched
  * (the simulator has no workflow engine).
  */
@@ -38,18 +48,18 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   }
 
   router.register('planItems.list', (input) => {
-    const query = (input ?? {}) as PlanItemQuery
+    const query: PlanItemQuery = parse(planItemListInput, input) ?? {}
     const items = db.planItems.map(withCourse).filter((p) => matchesPlanItemFilters(p, query))
     return expandPlanItems(items, query)
   })
 
   router.register('planItems.byId', (input) => {
-    const row = db.planItems.find((p) => p.id === input)
+    const row = db.planItems.find((p) => p.id === parse(planItemIdInput, input))
     return row ? withCourse(row) : null
   })
 
   router.register('planItems.create', (input) => {
-    const { course, ...fields } = input as NewPlanItem
+    const { course, ...fields } = parse(newPlanItemInput, input)
     assertValid(fields)
     const now = new Date().toISOString()
     const row: StoredPlanItem = {
@@ -75,12 +85,12 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   })
 
   router.register('planItems.update', (input) => {
-    const { id, patch } = input as PlanItemUpdate
+    const { id, patch } = parse(planItemUpdateInput, input)
     const row = find(id)
     const { course, ...fields } = patch
     const merged = { ...row, ...fields }
     assertValid(merged)
-    Object.assign(row, merged, { updated_at: new Date().toISOString() })
+    Object.assign(row, fields, { updated_at: new Date().toISOString() })
     if (course !== undefined) setCourse(id, course)
     return withCourse(row)
   })
@@ -91,12 +101,12 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     return withCourse(row)
   }
 
-  router.register('planItems.complete', (input) => setStatus(input as string, 'done'))
-  router.register('planItems.dismiss', (input) => setStatus(input as string, 'dismissed'))
+  router.register('planItems.complete', (input) => setStatus(parse(planItemIdInput, input), 'done'))
+  router.register('planItems.dismiss', (input) => setStatus(parse(planItemIdInput, input), 'dismissed'))
 
   router.register('planItems.delete', (input) => {
-    const id = input as string
+    const id = parse(planItemIdInput, input)
+    if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
-    db.remove(db.planItems, id)
   })
 }

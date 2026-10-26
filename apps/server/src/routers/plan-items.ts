@@ -1,57 +1,17 @@
-import { z } from 'zod'
 import type { JSONValue, TransactionSql } from 'postgres'
 import { TRPCError } from '@trpc/server'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import { expandPlanItems, validatePlanItem } from '@pls/substrate'
+import {
+  expandPlanItems,
+  validatePlanItem,
+  newPlanItemInput,
+  planItemUpdateInput,
+  planItemListInput,
+  planItemIdInput as id,
+} from '@pls/substrate'
 import type { PlanItem, PlanItemQuery, NewPlanItem } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
-
-// ---------------------------------------------------------------------------
-// Input schemas
-// ---------------------------------------------------------------------------
-
-const isoDateTime = z.iso.datetime({ offset: true })
-const kind = z.enum(['commitment', 'deadline', 'task'])
-const status = z.enum(['open', 'done', 'dismissed'])
-const id = z.string().max(255)
-
-const recurrence = z.object({
-  freq: z.literal('weekly'),
-  until: isoDateTime.optional(),
-  timeZone: z.string().max(100).optional(),
-})
-
-const fields = {
-  title: z.string().min(1).max(500),
-  starts_at: isoDateTime.nullable().optional(),
-  ends_at: isoDateTime.nullable().optional(),
-  due_at: isoDateTime.nullable().optional(),
-  duration_min: z.number().int().positive().max(24 * 60 * 7).nullable().optional(),
-  status: status.optional(),
-  recurrence: recurrence.nullable().optional(),
-  subtype: z.string().max(100).nullable().optional(),
-  source_type: z.string().max(255).nullable().optional(),
-  source_id: z.string().max(255).nullable().optional(),
-  source_offset_ms: z.number().int().nonnegative().nullable().optional(),
-  course: z.string().max(500).nullable().optional(),
-}
-
-const newPlanItem = z.object({ kind, ...fields })
-
-const planItemPatch = z.object({ kind: kind.optional(), ...fields, title: fields.title.optional() })
-
-const listInput = z.object({
-  from: isoDateTime.optional(),
-  to: isoDateTime.optional(),
-  kinds: z.array(kind).max(3).optional(),
-  statuses: z.array(status).max(3).optional(),
-  courseTag: z.string().max(500).optional(),
-  sourceType: z.string().max(255).optional(),
-  sourceId: z.string().max(255).optional(),
-}).refine((q) => (q.from == null) === (q.to == null), { message: 'from and to must be given together' })
-  .refine((q) => q.from == null || Date.parse(q.from) < Date.parse(q.to!), { message: 'from must be before to' })
-  .optional()
 
 // ---------------------------------------------------------------------------
 // Course (stored as a 'plan_item' tag, like recordings carry theirs)
@@ -165,15 +125,27 @@ function columns(tx: TransactionSql, item: Stored) {
   }
 }
 
-/** Sets the status; returns the item and whether the status actually changed. */
+/** Sets the status; returns the item before and after (unchanged if already at `next`). */
 async function setStatus(tx: TransactionSql, userId: string, planItemId: string, next: PlanItem['status']) {
   const before = await fetchOne(tx, userId, planItemId)
-  if (before.status === next) return { item: before, changed: false }
+  if (before.status === next) return { before, item: before }
   await tx`
     UPDATE plan_items SET status = ${next}, updated_at = now()
     WHERE id = ${planItemId} AND user_id = ${userId}
   `
-  return { item: await fetchOne(tx, userId, planItemId), changed: true }
+  return { before, item: await fetchOne(tx, userId, planItemId) }
+}
+
+/**
+ * The one event rule, whichever procedure made the change: every change fires
+ * plan-item:updated, and a transition into 'done' also fires
+ * plan-item:completed (exactly once per transition).
+ */
+async function dispatchChange(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem) {
+  await dispatchWorkflows(tx, userId, 'plan-item:updated', eventPayload(after), null)
+  if (before.status !== 'done' && after.status === 'done') {
+    await dispatchWorkflows(tx, userId, 'plan-item:completed', eventPayload(after), null)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,9 +157,10 @@ export const planItemsRouter = router({
    * Plan items matching the filters. With `from`/`to`, weekly recurrences are
    * expanded into one row per occurrence in [from, to) and undated items are
    * left out; without a range every matching item is returned once, as stored.
+   * `scheduled` narrows to items with (true) or without (false) a time block.
    */
   list: publicProcedure
-    .input(listInput)
+    .input(planItemListInput)
     .query(async ({ ctx, input }) => {
       const query: PlanItemQuery = input ?? {}
       return withUser(ctx.userId, async (tx) => {
@@ -204,6 +177,7 @@ export const planItemsRouter = router({
           WHERE p.user_id = ${ctx.userId}
             ${query.kinds?.length ? tx`AND p.kind IN ${tx(query.kinds)}` : tx``}
             ${query.statuses?.length ? tx`AND p.status IN ${tx(query.statuses)}` : tx``}
+            ${query.scheduled === true ? tx`AND p.starts_at IS NOT NULL` : query.scheduled === false ? tx`AND p.starts_at IS NULL` : tx``}
             ${query.sourceType ? tx`AND p.source_type = ${query.sourceType}` : tx``}
             ${query.sourceId ? tx`AND p.source_id = ${query.sourceId}` : tx``}
             ${courseFilter(tx, query.courseTag)}
@@ -226,7 +200,7 @@ export const planItemsRouter = router({
     }),
 
   create: publicProcedure
-    .input(newPlanItem)
+    .input(newPlanItemInput)
     .mutation(async ({ ctx, input }) => {
       assertValid(input)
       return withUser(ctx.userId, async (tx) => {
@@ -241,9 +215,13 @@ export const planItemsRouter = router({
       })
     }),
 
-  /** Patch fields; `null` clears one. Completing via `status: 'done'` also fires plan-item:completed. */
+  /**
+   * Patch the stored item (for a recurring item: the whole series). Send only
+   * the fields that change; `null` clears one. See PlanItemOccurrence for
+   * editing from a list row.
+   */
   update: publicProcedure
-    .input(z.object({ id, patch: planItemPatch }))
+    .input(planItemUpdateInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const current = await fetchOne(tx, ctx.userId, input.id)
@@ -256,10 +234,7 @@ export const planItemsRouter = router({
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
         const item = await fetchOne(tx, ctx.userId, input.id)
-        await dispatchWorkflows(tx, ctx.userId, 'plan-item:updated', eventPayload(item), null)
-        if (current.status !== 'done' && item.status === 'done') {
-          await dispatchWorkflows(tx, ctx.userId, 'plan-item:completed', eventPayload(item), null)
-        }
+        await dispatchChange(tx, ctx.userId, current, item)
         return item
       })
     }),
@@ -268,8 +243,8 @@ export const planItemsRouter = router({
     .input(id)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const { item, changed } = await setStatus(tx, ctx.userId, input, 'done')
-        if (changed) await dispatchWorkflows(tx, ctx.userId, 'plan-item:completed', eventPayload(item), null)
+        const { before, item } = await setStatus(tx, ctx.userId, input, 'done')
+        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item)
         return item
       })
     }),
@@ -278,18 +253,20 @@ export const planItemsRouter = router({
     .input(id)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const { item, changed } = await setStatus(tx, ctx.userId, input, 'dismissed')
-        if (changed) await dispatchWorkflows(tx, ctx.userId, 'plan-item:updated', eventPayload(item), null)
+        const { before, item } = await setStatus(tx, ctx.userId, input, 'dismissed')
+        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item)
         return item
       })
     }),
 
+  /** Hard delete (no workflow event). NOT_FOUND for a missing or another user's id. */
   delete: publicProcedure
     .input(id)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`DELETE FROM plan_items WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id`
+        if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
         await setCourse(tx, ctx.userId, input, null)
-        await tx`DELETE FROM plan_items WHERE id = ${input} AND user_id = ${ctx.userId}`
       })
     }),
 })

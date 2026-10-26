@@ -45,6 +45,14 @@ describe('expandPlanItems - weekly recurrence', () => {
     expect(new Set(rows.map((r) => r.occurrence_key)).size).toBe(3)
   })
 
+  it('keeps the stored series times on every occurrence row', () => {
+    const rows = expandPlanItems([weekly], { from: '2026-10-12T00:00:00Z', to: '2026-10-26T00:00:00Z' })
+    expect(rows.map((r) => [r.starts_at, r.series_starts_at, r.series_ends_at])).toEqual([
+      ['2026-10-12T10:00:00.000Z', '2026-10-05T10:00:00.000Z', '2026-10-05T11:00:00.000Z'],
+      ['2026-10-19T10:00:00.000Z', '2026-10-05T10:00:00.000Z', '2026-10-05T11:00:00.000Z'],
+    ])
+  })
+
   it('treats the range as [from, to): an occurrence starting exactly at `to` is excluded, one ending exactly at `from` too', () => {
     const rows = expandPlanItems([weekly], { from: '2026-10-12T11:00:00Z', to: '2026-10-19T10:00:00Z' })
     expect(rows).toEqual([])
@@ -89,7 +97,7 @@ describe('expandPlanItems - weekly recurrence', () => {
 
   it('shifts a recurring due_at along with the occurrence', () => {
     const problemSet = item({
-      kind: 'deadline',
+      kind: 'commitment',
       starts_at: '2026-10-05T09:00:00.000Z',
       ends_at: '2026-10-05T10:00:00.000Z',
       due_at: '2026-10-09T17:00:00.000Z',
@@ -97,6 +105,7 @@ describe('expandPlanItems - weekly recurrence', () => {
     })
     const rows = expandPlanItems([problemSet], { from: '2026-10-12T00:00:00Z', to: '2026-10-19T00:00:00Z' })
     expect(rows.map((r) => r.due_at)).toEqual(['2026-10-16T17:00:00.000Z'])
+    expect(rows[0].series_due_at).toBe('2026-10-09T17:00:00.000Z')
   })
 })
 
@@ -176,6 +185,7 @@ describe('expandPlanItems - one-off items', () => {
   it('returns everything unexpanded without a range, sorted by time', () => {
     const rows = expandPlanItems([quiz, undated, block])
     expect(rows.map((r) => r.occurrence_key)).toEqual(['undated', 'task', 'quiz'])
+    expect(rows[1]).toMatchObject({ series_starts_at: block.starts_at, series_ends_at: block.ends_at })
   })
 
   it('matches scheduled spans and due dates in range, and drops undated items', () => {
@@ -201,6 +211,10 @@ describe('matchesPlanItemFilters', () => {
     expect(matchesPlanItemFilters(bio, { courseTag: 'chemistry' })).toBe(false)
     expect(matchesPlanItemFilters(bio, { sourceType: 'recording', sourceId: 'rec-1' })).toBe(true)
     expect(matchesPlanItemFilters(bio, { sourceId: 'rec-2' })).toBe(false)
+    expect(matchesPlanItemFilters(bio, { scheduled: false })).toBe(true)
+    expect(matchesPlanItemFilters(bio, { scheduled: true })).toBe(false)
+    const placed = { ...bio, starts_at: '2026-10-21T18:00:00Z', ends_at: '2026-10-21T18:20:00Z' }
+    expect(matchesPlanItemFilters(placed, { scheduled: true })).toBe(true)
   })
 })
 
@@ -217,7 +231,15 @@ describe('validatePlanItem', () => {
     expect(validatePlanItem({ kind: 'task', starts_at: '2026-10-19T09:00:00Z' })).toMatch(/together/)
     expect(validatePlanItem({ kind: 'task', starts_at: '2026-10-19T10:00:00Z', ends_at: '2026-10-19T09:00:00Z' })).toMatch(/after/)
     expect(validatePlanItem({ kind: 'task', duration_min: 0 })).toMatch(/positive/)
-    expect(validatePlanItem({ kind: 'task', recurrence: { freq: 'weekly' } })).toMatch(/recurring/)
+    expect(validatePlanItem({ kind: 'task', recurrence: { freq: 'weekly' } })).toMatch(/only commitments/)
+    expect(validatePlanItem({
+      kind: 'task', starts_at: '2026-10-19T09:00:00Z', ends_at: '2026-10-19T10:00:00Z', recurrence: { freq: 'weekly' },
+    })).toMatch(/only commitments/)
+    expect(validatePlanItem({ kind: 'commitment', recurrence: { freq: 'weekly' } })).toMatch(/commitment needs/)
+    expect(validatePlanItem({
+      kind: 'commitment', starts_at: '2026-10-19T09:00:00Z', ends_at: '2026-10-19T10:00:00Z',
+      recurrence: { freq: 'weekly', until: '2026-10-12T09:00:00Z' },
+    })).toMatch(/until/)
     expect(validatePlanItem({
       kind: 'commitment', starts_at: '2026-10-19T09:00:00Z', ends_at: '2026-10-19T10:00:00Z',
       recurrence: { freq: 'weekly', timeZone: 'Mars/Olympus' },

@@ -18,6 +18,7 @@ CREATE TABLE plan_items (
   duration_min     INTEGER,
   status           TEXT NOT NULL DEFAULT 'open',
   -- NULL, or { "freq": "weekly", "until"?: ISO timestamp, "timeZone"?: IANA zone }.
+  -- v1: only commitments repeat (status is per series, not per occurrence).
   recurrence       JSONB,
   -- Free-text label, e.g. class / shift / study.
   subtype          TEXT,
@@ -40,11 +41,10 @@ CREATE TABLE plan_items (
   CONSTRAINT chk_plan_items_duration CHECK (duration_min IS NULL OR duration_min > 0),
   CONSTRAINT chk_plan_items_recurrence CHECK (
     recurrence IS NULL
-    OR (recurrence->>'freq' = 'weekly' AND starts_at IS NOT NULL)
+    OR (recurrence->>'freq' = 'weekly' AND kind = 'commitment' AND starts_at IS NOT NULL)
   )
 );
 
-CREATE INDEX idx_plan_items_user ON plan_items(user_id);
 CREATE INDEX idx_plan_items_user_starts ON plan_items(user_id, starts_at);
 CREATE INDEX idx_plan_items_user_due ON plan_items(user_id, due_at);
 CREATE INDEX idx_plan_items_source ON plan_items(source_type, source_id);

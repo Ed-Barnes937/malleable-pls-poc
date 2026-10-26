@@ -29,7 +29,11 @@ export function validatePlanItem(item: ShapeFields): string | null {
   if (item.duration_min != null && item.duration_min <= 0) return 'duration_min must be positive'
   if (item.recurrence != null) {
     if (item.recurrence.freq !== 'weekly') return 'only weekly recurrence is supported'
+    if (item.kind !== 'commitment') return 'only commitments can repeat'
     if (!hasStart) return 'a recurring item needs starts_at and ends_at'
+    if (item.recurrence.until != null && Date.parse(item.recurrence.until) < Date.parse(item.starts_at!)) {
+      return 'recurrence until must not be before starts_at'
+    }
     if (item.recurrence.timeZone && !isValidTimeZone(item.recurrence.timeZone)) {
       return `unknown time zone: ${item.recurrence.timeZone}`
     }
@@ -41,6 +45,7 @@ export function validatePlanItem(item: ShapeFields): string | null {
 export function matchesPlanItemFilters(item: PlanItem, query: PlanItemQuery): boolean {
   if (query.kinds?.length && !query.kinds.includes(item.kind)) return false
   if (query.statuses?.length && !query.statuses.includes(item.status)) return false
+  if (query.scheduled != null && (item.starts_at != null) !== query.scheduled) return false
   if (query.courseTag && item.course !== query.courseTag) return false
   if (query.sourceType && item.source_type !== query.sourceType) return false
   if (query.sourceId && item.source_id !== query.sourceId) return false
@@ -58,7 +63,7 @@ export function matchesPlanItemFilters(item: PlanItem, query: PlanItemQuery): bo
 export function expandPlanItems(items: PlanItem[], range: Pick<PlanItemQuery, 'from' | 'to'> = {}): PlanItemOccurrence[] {
   const rows: PlanItemOccurrence[] = []
   if (!range.from || !range.to) {
-    for (const item of items) rows.push({ ...item, occurrence_key: item.id })
+    for (const item of items) rows.push(asRow(item))
     return rows.sort(compareRows)
   }
 
@@ -68,10 +73,20 @@ export function expandPlanItems(items: PlanItem[], range: Pick<PlanItemQuery, 'f
     if (item.recurrence) {
       rows.push(...weeklyOccurrences(item, from, to))
     } else if (inRange(item, from, to)) {
-      rows.push({ ...item, occurrence_key: item.id })
+      rows.push(asRow(item))
     }
   }
   return rows.sort(compareRows)
+}
+
+function asRow(item: PlanItem): PlanItemOccurrence {
+  return {
+    ...item,
+    occurrence_key: item.id,
+    series_starts_at: item.starts_at,
+    series_ends_at: item.ends_at,
+    series_due_at: item.due_at,
+  }
 }
 
 function inRange(item: Pick<PlanItem, 'starts_at' | 'ends_at' | 'due_at'>, from: number, to: number): boolean {
@@ -89,6 +104,11 @@ function inRange(item: Pick<PlanItem, 'starts_at' | 'ends_at' | 'due_at'>, from:
  * Weekly occurrences of `item` that fall in [from, to). Each occurrence keeps
  * the series' local wall-clock time in its time zone, so a 10:00 class is at
  * 10:00 on both sides of a DST change. Duration is kept in elapsed time.
+ *
+ * Edge cases accepted in v1: the loop stops at the first occurrence starting
+ * at or after `to`, so a due_at set *before* its occurrence's start can miss a
+ * range that ends between the two; and the server's SQL prefilter assumes an
+ * occurrence lasts under 7 days.
  */
 function weeklyOccurrences(item: PlanItem, from: number, to: number): PlanItemOccurrence[] {
   const recurrence = item.recurrence!
@@ -113,7 +133,7 @@ function weeklyOccurrences(item: PlanItem, from: number, to: number): PlanItemOc
       due_at: dueOffset == null ? null : new Date(occStart + dueOffset).toISOString(),
     }
     if (inRange(occ, from, to)) {
-      rows.push({ ...item, ...occ, occurrence_key: `${item.id}@${occ.starts_at}` })
+      rows.push({ ...asRow(item), ...occ, occurrence_key: `${item.id}@${occ.starts_at}` })
     }
   }
   return rows

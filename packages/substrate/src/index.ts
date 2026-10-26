@@ -3,6 +3,7 @@ export { getAvailableJobTypes, getAvailableTriggerEvents, getTriggerEventsForLen
 export { QUESTIONS } from './questions'
 
 export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
+export { newPlanItemInput, planItemUpdateInput, planItemListInput, planItemIdInput, parsePlanItemInput } from './plan-item-schemas'
 
 export type {
   Recording,

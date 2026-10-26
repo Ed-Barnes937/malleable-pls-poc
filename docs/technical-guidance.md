@@ -37,14 +37,14 @@ plan_items
   starts_at?, ends_at?,            -- commitments, scheduled tasks
   due_at?, duration_min?,          -- deadlines (due_at required), task estimates
   status (open|done|dismissed),
-  recurrence?,                     -- v1: { freq: 'weekly', until?, timeZone? }
+  recurrence?,                     -- v1, commitments only: { freq: 'weekly', until?, timeZone? }
   subtype?,                        -- free-text label: class, shift, study...
   source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
   created_at, updated_at
   -- course: a tag with target_type 'plan_item', like recordings carry theirs
 ```
 
-Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator).
+Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator, as are the input schemas). Occurrence rows keep the stored times in `series_starts_at` / `series_ends_at`; mutations always apply to the whole series.
 
 Note: this primitive list is audio-centric. A learning-first substrate may need additional primitives (see open-questions.md).
 

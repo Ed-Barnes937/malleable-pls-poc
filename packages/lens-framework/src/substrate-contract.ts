@@ -90,6 +90,11 @@ export interface SubstrateWriter extends SubstrateReader {
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
+  /**
+   * Patches the stored item - the whole series for a recurring one. Send only
+   * changed fields, never a list row's occurrence times; to move an occurrence,
+   * shift `series_starts_at` / `series_ends_at` by the delta (see PlanItemOccurrence).
+   */
   useUpdatePlanItem: () => MutationHandle<PlanItemUpdate, PlanItem>
   /** Marks done. Takes the plan item id. */
   useCompletePlanItem: () => MutationHandle<string, PlanItem>
