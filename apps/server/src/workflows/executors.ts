@@ -1,24 +1,21 @@
-import { readFile } from 'fs/promises'
 import path from 'path'
-import { AssemblyAI } from 'assemblyai'
-import { sql, withUser } from '@pls/db'
+import { withUser } from '@pls/db'
 import { createExecutorRegistry, type ExecutorRegistry } from '@pls/workflows'
+import { createTranscriber } from './transcriber'
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-const UPLOADS_DIR = path.join(process.cwd(), 'uploads')
+const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
-function getAssemblyClient(): AssemblyAI | null {
-  const apiKey = process.env.ASSEMBLYAI_API_KEY
-  if (!apiKey) return null
-  return new AssemblyAI({ apiKey })
-}
+// Recording status once its transcript is written. Matches the seeded,
+// already-transcribed recordings (see chk_recordings_status for the allowed set).
+const TRANSCRIBED_STATUS = 'ready'
 
 /**
  * The shared executor registry for the server runtime. Executor bodies remain
- * server-specific (real AssemblyAI / direct postgres writes); only the registry
+ * server-specific (transcription provider / direct postgres writes); only the registry
  * and the `(input, ctx) => Promise<JobResult>` signature are adopted from
  * `@pls/workflows`. The owning user is carried in `input._userId` (injected at
  * dispatch time) so executors can open their own RLS-scoped tx via `withUser`.
@@ -26,84 +23,40 @@ function getAssemblyClient(): AssemblyAI | null {
 export const serverExecutors: ExecutorRegistry = createExecutorRegistry()
 
 export function registerAllExecutors() {
+  const transcriber = createTranscriber()
+  if (transcriber.name === 'mock') {
+    console.log('ASSEMBLYAI_API_KEY not set - ai:transcribe uses mock transcription')
+  }
+
   serverExecutors.register(
     'ai:transcribe',
     async (input) => {
       const recordingId = (input.recording_id ?? input.target_id) as string
       const userId = input._userId as string | undefined
-
-      const client = getAssemblyClient()
-      if (!client) {
-        console.log('ASSEMBLYAI_API_KEY not set — using mock transcription')
-        await delay(1500 + Math.random() * 1000)
-
-        if (!userId) {
-          throw new Error('ai:transcribe mock path requires input._userId — refusing to report success without writing segments')
-        }
-        await withUser(userId, async (tx) => {
-          const segments = [
-            { start: 0, end: 60000, text: 'Welcome to today\'s lecture. We\'ll be covering the fundamentals of distributed systems.' },
-            { start: 60000, end: 120000, text: 'The key challenge is maintaining consistency across multiple nodes while preserving availability.' },
-            { start: 120000, end: 180000, text: 'Let\'s look at the CAP theorem and what it means in practice for system design.' },
-          ]
-          for (const seg of segments) {
-            await tx`
-              INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
-              VALUES (${userId}, ${recordingId}, ${seg.start}, ${seg.end}, ${seg.text}, 'Lecturer')
-            `
-          }
-          await tx`UPDATE recordings SET status = 'transcribed' WHERE id = ${recordingId}`
-        })
-
-        return {
-          output: { recording_id: recordingId, segment_count: 3, status: 'transcribed' },
-          events: [],
-        }
+      if (!userId) {
+        throw new Error('ai:transcribe requires input._userId - refusing to report success without writing segments')
       }
 
-      const [recording] = await sql`SELECT * FROM recordings WHERE id = ${recordingId}`
+      const [recording] = await withUser(userId, (tx) => tx`
+        SELECT audio_url FROM recordings WHERE id = ${recordingId}
+      `)
       if (!recording) throw new Error(`Recording ${recordingId} not found`)
 
-      const audioUrl = recording.audio_url as string
-      const filePath = path.join(UPLOADS_DIR, path.basename(audioUrl))
-      const audioData = await readFile(filePath)
-      const uploadUrl = await client.files.upload(audioData)
+      const audioUrl = (recording.audio_url as string | null) ?? ''
+      const segments = await transcriber.transcribe(path.join(UPLOADS_DIR, path.basename(audioUrl)))
 
-      const transcript = await client.transcripts.transcribe({
-        audio_url: uploadUrl,
-        speaker_labels: true,
-      })
-
-      if (transcript.status === 'error') {
-        throw new Error(`AssemblyAI transcription failed: ${transcript.error}`)
-      }
-
-      const ownerUserId = userId ?? (recording.user_id as string)
-      const utterances = transcript.utterances ?? []
-      let segmentCount = 0
-
-      await withUser(ownerUserId, async (tx) => {
-        for (const utterance of utterances) {
+      await withUser(userId, async (tx) => {
+        for (const seg of segments) {
           await tx`
             INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
-            VALUES (${ownerUserId}, ${recordingId}, ${utterance.start}, ${utterance.end}, ${utterance.text}, ${utterance.speaker ?? 'Speaker'})
+            VALUES (${userId}, ${recordingId}, ${seg.startMs}, ${seg.endMs}, ${seg.text}, ${seg.speaker})
           `
-          segmentCount++
         }
-
-        if (segmentCount === 0 && transcript.text) {
-          await tx`
-            INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
-            VALUES (${ownerUserId}, ${recordingId}, 0, ${transcript.audio_duration ? transcript.audio_duration * 1000 : 0}, ${transcript.text}, 'Speaker')
-          `
-          segmentCount = 1
-        }
-
-        await tx`UPDATE recordings SET status = 'transcribed' WHERE id = ${recordingId}`
+        await tx`UPDATE recordings SET status = ${TRANSCRIBED_STATUS} WHERE id = ${recordingId}`
       })
 
       return {
-        output: { recording_id: recordingId, segment_count: segmentCount, status: 'transcribed' },
+        output: { recording_id: recordingId, segment_count: segments.length, status: 'transcribed' },
         events: [],
       }
     },

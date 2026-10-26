@@ -7,7 +7,7 @@ import { appRouter } from './router'
 import { createContext } from './context'
 import { startJobRunner } from './workflows/job-runner'
 import { registerAllExecutors } from './workflows/executors'
-import { handleUpload } from './upload'
+import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -115,7 +115,7 @@ function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course')
 }
 
 // ---------------------------------------------------------------------------
@@ -199,7 +199,7 @@ const server = http.createServer((req, res) => {
       try {
         const stat = statSync(filePath)
         res.writeHead(200, {
-          'Content-Type': 'audio/webm',
+          'Content-Type': AUDIO_CONTENT_TYPES[path.extname(filename).slice(1)] ?? 'application/octet-stream',
           'Content-Length': stat.size,
         })
         createReadStream(filePath).pipe(res)

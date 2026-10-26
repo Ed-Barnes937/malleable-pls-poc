@@ -1,17 +1,24 @@
 import { trpc } from './trpc'
-import type { Scope } from '@pls/lens-framework'
+import type { Scope, ScopeDim } from '@pls/lens-framework'
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
+/** `workspace_scopes.scope_type` for each Scope dimension. */
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, string> = {
+  courseTag: 'tag',
+  timeframe: 'timeframe',
+  recordingId: 'recording',
+}
+
 /** Convert raw DB scope rows into the Scope domain object used by lens components. */
 export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
-    if (s.scope_type === 'tag') scope.courseTag = s.scope_value
-    if (s.scope_type === 'timeframe') scope.timeframe = s.scope_value as 'week' | 'all'
-    if (s.scope_type === 'recording') scope.recordingId = s.scope_value
+    if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
+    if (s.scope_type === SCOPE_TYPE_BY_DIM.timeframe) scope.timeframe = s.scope_value as 'week' | 'all'
+    if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
   }
   return scope
 }
@@ -99,7 +106,12 @@ export function useUpdateWorkspaceBackground() {
 export function useSetWorkspaceScope() {
   const utils = trpc.useUtils()
   return trpc.workspaces.setScope.useMutation({
-    onSuccess: () => utils.workspaces.scopes.invalidate(),
+    onSuccess: (_data, input) => {
+      utils.workspaces.scopes.invalidate()
+      // A freshly captured/uploaded recording becomes the focus before any
+      // job event has refreshed the recordings list the focus picker reads.
+      if (input.scopeType === SCOPE_TYPE_BY_DIM.recordingId) utils.recordings.invalidate()
+    },
   })
 }
 
@@ -109,6 +121,17 @@ export function useRecordings(courseTag?: string) {
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {
   return trpc.jobs.recent.useQuery(limit) as unknown as UseQueryResult<JobRun[]>
+}
+
+/** Re-queue a failed job run (see jobs.recent `retryable`). */
+export function useRetryJob() {
+  const utils = trpc.useUtils()
+  return trpc.jobs.retry.useMutation({
+    onSuccess: () => {
+      utils.jobs.recent.invalidate()
+      utils.jobs.runningCount.invalidate()
+    },
+  })
 }
 
 export function useRunningJobCount() {
@@ -166,6 +189,8 @@ export function useDeleteWorkflow() {
 export interface JobEvent {
   type: 'job:started' | 'job:completed' | 'job:failed' | 'data:changed'
   jobType?: string
+  /** job:failed only - true when the server will retry automatically. */
+  willRetry?: boolean
 }
 
 export interface ServerEventHandlers {

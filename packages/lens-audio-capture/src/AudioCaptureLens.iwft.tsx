@@ -138,4 +138,64 @@ test.describe('AudioCaptureLens', () => {
     await page.locator('button').filter({ has: page.locator('.lucide-square') }).click()
     await expect(page.getByText('Upload failed')).toBeVisible({ timeout: 5000 })
   })
+
+  test('uploading a file asks for a title and course, then focuses the new recording', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    let uploadHeaders: Record<string, string> = {}
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ id: 'rec-uploaded-1' }),
+      })
+    })
+    const focused: Array<string | undefined> = []
+
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens
+          panelId="test"
+          scope={{ courseTag: 'biology' }}
+          config={{}}
+          onScopeChange={(patch) => focused.push(patch.recordingId)}
+        />
+      </AudioCaptureHarness>,
+    )
+
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Upload a recording' }).click()
+    await (await chooser).setFiles({
+      name: 'week-3_enzymes.mp3',
+      mimeType: 'audio/mpeg',
+      buffer: Buffer.from('ID3-fake-mp3-bytes'),
+    })
+
+    const form = page.getByRole('form', { name: 'Upload a recording' })
+    await expect(form.getByRole('textbox', { name: 'Recording title' })).toHaveValue('week-3 enzymes')
+    await expect(form.getByRole('combobox', { name: 'Recording course' })).toHaveValue('biology')
+    await form.getByRole('textbox', { name: 'Recording title' }).fill('Enzymes – week 3')
+    await form.getByRole('button', { name: 'Upload' }).click()
+
+    await expect.poll(() => focused).toEqual(['rec-uploaded-1'])
+    expect(uploadHeaders['content-type']).toBe('audio/mpeg')
+    expect(decodeURIComponent(uploadHeaders['x-recording-title'])).toBe('Enzymes – week 3')
+    expect(uploadHeaders['x-recording-course']).toBe('biology')
+  })
+
+  test('rejects files that are not supported audio', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{}} config={{}} />
+      </AudioCaptureHarness>,
+    )
+
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Upload a recording' }).click()
+    await (await chooser).setFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') })
+
+    await expect(page.getByRole('alert')).toHaveText('Pick a webm, mp3, m4a, wav or ogg audio file')
+    await expect(page.getByRole('form', { name: 'Upload a recording' })).toHaveCount(0)
+  })
 })

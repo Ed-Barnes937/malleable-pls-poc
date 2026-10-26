@@ -136,6 +136,12 @@ export interface EnqueueJobRunArgs {
   depth: number
   /** Server uses for backoff scheduling; substrate ignores. */
   retryCount?: number
+  /**
+   * The workflow job's configured delay before its first attempt. Server
+   * schedules `run_after` from it; substrate ignores. Retries omit it and use
+   * the adapter's backoff instead.
+   */
+  delayMs?: number
 }
 
 /**

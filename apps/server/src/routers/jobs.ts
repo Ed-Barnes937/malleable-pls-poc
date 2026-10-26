@@ -1,18 +1,40 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
+import { MAX_RETRIES } from '../workflows/job-runner'
 
 export const jobsRouter = router({
   recent: publicProcedure
     .input(z.number().optional().default(5))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // `retryable`: failed with automatic retries exhausted, so the student
+        // can retry it by hand. Earlier failed attempts were already retried.
         return tx`
-          SELECT * FROM job_runs
+          SELECT *, (status = 'failed' AND retry_count >= ${MAX_RETRIES}) AS retryable
+          FROM job_runs
           WHERE user_id = ${ctx.userId}
           ORDER BY created_at DESC
           LIMIT ${input}
         `
+      })
+    }),
+
+  /** Re-queue a failed run in place as a fresh attempt (automatic retries reset). */
+  retry: publicProcedure
+    .input(z.string().max(255))
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const [row] = await tx`
+          UPDATE job_runs
+          SET status = 'pending', error = NULL, output = NULL, retry_count = 0,
+              run_after = now(), started_at = NULL, completed_at = NULL
+          WHERE id = ${input} AND user_id = ${ctx.userId} AND status = 'failed'
+          RETURNING id
+        `
+        if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'No failed job to retry' })
+        return { id: row.id as string }
       })
     }),
 

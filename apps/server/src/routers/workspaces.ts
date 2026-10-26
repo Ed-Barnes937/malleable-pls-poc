@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 
@@ -56,7 +57,7 @@ export const workspacesRouter = router({
             ${input.workspaceId},
             ${input.lensType},
             ${input.slotName},
-            ${JSON.stringify(input.config ?? {})},
+            ${tx.json((input.config ?? {}) as JSONValue)},
             ${input.pos_x ?? 0},
             ${input.pos_y ?? 0},
             ${input.width ?? 280},
@@ -141,7 +142,7 @@ export const workspacesRouter = router({
         const merged = { ...current, ...input.configPatch }
         await tx`
           UPDATE workspace_panels
-          SET config = ${JSON.stringify(merged)}
+          SET config = ${tx.json(merged as JSONValue)}
           WHERE id = ${input.panelId} AND user_id = ${ctx.userId}
         `
       })

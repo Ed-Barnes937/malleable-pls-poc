@@ -28,3 +28,31 @@ test('shows no count when all jobs completed', async ({ mount, page, simulator }
 
   await expect(page.getByText('running')).not.toBeVisible()
 })
+
+test('failed job explains itself and can be retried from Activity', async ({ mount, page, simulator }) => {
+  simulator.db.jobRuns.push({
+    ...simulator.db.jobRuns[0],
+    id: 'jr-failed',
+    job_type: 'ai:transcribe',
+    status: 'failed',
+    output: null,
+    error: 'Recording rec-x not found',
+    created_at: '2026-04-17T09:00:00Z',
+  })
+
+  await mount(
+    <ShellProviders>
+      <JobStatusIndicator />
+    </ShellProviders>,
+  )
+
+  await page.getByTitle('2 jobs running').click()
+  const failed = page.getByTestId('job-item').filter({ hasText: 'failed' })
+  await expect(failed.getByText("This didn't finish. Give it another go.")).toBeVisible()
+  await failed.getByText('Details').click()
+  await expect(failed.getByText('Recording rec-x not found')).toBeVisible()
+
+  await failed.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByText('3 running')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+})

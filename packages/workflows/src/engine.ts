@@ -39,7 +39,7 @@ export function createWorkflowEngine(config: WorkflowEngineConfig): WorkflowEngi
 
       // jobs are pre-sorted by sort_order by the adapter.
       for (const job of workflow.jobs) {
-        const input = { ...event.payload, _delayMs: job.delay_ms }
+        const input = { ...event.payload }
 
         // Substrate-only opt-in dedup.
         if (adapter.isDuplicate && (await adapter.isDuplicate(job.job_type, input))) {
@@ -53,6 +53,7 @@ export function createWorkflowEngine(config: WorkflowEngineConfig): WorkflowEngi
           input,
           // The engine adds +1 on enqueue; callers cascade at job.depth.
           depth: depth + 1,
+          delayMs: job.delay_ms,
         })
         enqueuedJobIds.push(runId)
       }

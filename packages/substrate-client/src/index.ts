@@ -16,6 +16,7 @@ export {
   useRecordings,
   useRecentJobs,
   useRunningJobCount,
+  useRetryJob,
   useWorkflowsForLens,
   useWorkflowsForWorkspace,
   useToggleWorkflow,
@@ -26,5 +27,5 @@ export {
   useServerEvents,
 } from './shell-hooks'
 export type { JobEvent, ServerEventHandlers } from './shell-hooks'
-export { decodeScope } from './shell-hooks'
+export { decodeScope, SCOPE_TYPE_BY_DIM } from './shell-hooks'
 export type { AppRouter } from './trpc'

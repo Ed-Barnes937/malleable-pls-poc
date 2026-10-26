@@ -6,19 +6,14 @@ import {
   useRecordings,
   decodeScope,
 } from '@pls/substrate-client'
-import { SectionLabel, Select } from '@pls/shared-ui'
+import { COURSES, SectionLabel, Select } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 
 /* ── Constants ── */
 
-const COURSES = [
-  { value: '', label: 'All courses' },
-  { value: 'biology', label: 'Biology' },
-  { value: 'chemistry', label: 'Chemistry' },
-  { value: 'physics', label: 'Physics' },
-]
+const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
 
 const TIMEFRAMES = [
   { value: '', label: 'No filter' },
@@ -66,7 +61,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
             value={currentCourse}
             onChange={(e) => handleChange('tag', e.target.value)}
           >
-            {COURSES.map((c) => (
+            {COURSE_FILTERS.map((c) => (
               <option key={c.value} value={c.value}>
                 {c.label}
               </option>

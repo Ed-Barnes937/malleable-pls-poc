@@ -122,10 +122,7 @@ describe('workflow engine', () => {
         { type: 'evt:test', payload: {} },
         { scopeId: null },
       )
-      expect(adapter.isDuplicate).toHaveBeenCalledWith(
-        'test:run',
-        expect.objectContaining({ _delayMs: 0 }),
-      )
+      expect(adapter.isDuplicate).toHaveBeenCalledWith('test:run', {})
       expect(result.enqueuedJobIds).toEqual([])
     })
 
@@ -139,16 +136,20 @@ describe('workflow engine', () => {
       expect(commit).toHaveBeenCalledTimes(1)
     })
 
-    it('injects _delayMs into job input', async () => {
+    it('passes the job delay to the adapter as delayMs, not via the input', async () => {
       const wf = makeWorkflow({
         jobs: [
           { id: 'wj-1', workflow_id: 'wf-1', job_type: 't', params: {}, sort_order: 0, delay_ms: 500 },
         ],
       })
-      const adapter = createMemoryAdapter({ workflows: [wf] })
+      const base = createMemoryAdapter({ workflows: [wf] })
+      const enqueueJobRun = vi.fn(base.enqueueJobRun)
+      const adapter: StorageAdapter = { ...base, enqueueJobRun }
       const engine = createWorkflowEngine({ adapter })
-      await engine.dispatch({ type: 'evt:test', payload: {} }, { scopeId: null })
-      expect(adapter.jobRuns[0].input).toMatchObject({ _delayMs: 500 })
+      await engine.dispatch({ type: 'evt:test', payload: { target_id: 'x' } }, { scopeId: null })
+      expect(enqueueJobRun).toHaveBeenCalledWith(
+        expect.objectContaining({ input: { target_id: 'x' }, delayMs: 500 }),
+      )
     })
   })
 })

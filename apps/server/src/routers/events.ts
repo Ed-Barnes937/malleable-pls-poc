@@ -11,6 +11,8 @@ export interface ServerEvent {
   type: 'job:started' | 'job:completed' | 'job:failed' | 'data:changed'
   table?: string
   jobType?: string
+  /** job:failed only - true when the runner will retry automatically. */
+  willRetry?: boolean
   userId: string
 }
 

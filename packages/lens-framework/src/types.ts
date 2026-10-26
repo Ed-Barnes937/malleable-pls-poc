@@ -17,4 +17,10 @@ export interface LensProps {
    * Optional because not all hosts (e.g. component tests) wire it up.
    */
   onConfigChange?: (patch: Record<string, unknown>) => void
+  /**
+   * Patch the workspace-level scope shared by every panel, e.g. to focus a
+   * recording the lens just created. `undefined` clears a dimension. Optional
+   * for the same reason as `onConfigChange`.
+   */
+  onScopeChange?: (patch: Partial<Scope>) => void
 }
