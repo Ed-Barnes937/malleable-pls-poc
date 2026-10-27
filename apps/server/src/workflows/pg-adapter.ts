@@ -85,7 +85,10 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
           : Math.max(args.delayMs ?? 0, 0)
         // Persist the owning user in the input so executors (which open their own
         // RLS-scoped tx via withUser) can recover it when the job is claimed.
-        const input = { ...args.input, _userId: userId }
+        // The board it was dispatched on goes with it too, so events the job
+        // raises cascade on that board (see job-runner.ts scopeForJob). A
+        // retry re-enqueues the stored input, which already carries it.
+        const input = { ...args.input, _userId: userId, ...(args.scopeId ? { _workspaceId: args.scopeId } : {}) }
         // tx.json, not JSON.stringify: a pre-stringified value lands in the jsonb
         // column as a jsonb *string*, so executors would receive a string.
         const [row] = await tx`

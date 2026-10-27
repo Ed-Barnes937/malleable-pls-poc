@@ -1,5 +1,5 @@
 import { sql } from '@pls/db'
-import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type RunnerEvent } from '@pls/workflows'
+import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type JobRun, type RunnerEvent } from '@pls/workflows'
 import { createPgAdapter } from './pg-adapter'
 import { emitEvent } from '../routers/events'
 
@@ -34,6 +34,12 @@ function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: R
   })
 }
 
+/** The board a job was dispatched on (stored as `input._workspaceId` by the pg adapter), or null. */
+export function jobBoard(job: JobRun): string | null {
+  const board = job.input?._workspaceId
+  return typeof board === 'string' && board ? board : null
+}
+
 async function processJobs(executors: ExecutorRegistry): Promise<void> {
   const users = await sql<{ user_id: string }[]>`
     SELECT DISTINCT user_id FROM job_runs WHERE status = 'pending' LIMIT 20
@@ -49,6 +55,7 @@ async function processJobs(executors: ExecutorRegistry): Promise<void> {
       executors,
       engine,
       scopeId: null,
+      scopeForJob: jobBoard,
       maxRetries: MAX_RETRIES,
     })
 

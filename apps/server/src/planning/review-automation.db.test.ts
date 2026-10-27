@@ -234,7 +234,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const runsFor = async () => {
       const [{ n }] = await db.withUser(alice, (tx) => tx`
         SELECT count(*)::int AS n FROM job_runs
-        WHERE job_type = ${REVIEW_TASK_JOB} AND status = 'pending' AND input->>'target_id' = ${seg(0)}
+        WHERE user_id = ${alice} AND job_type = ${REVIEW_TASK_JOB} AND status = 'pending' AND input->>'target_id' = ${seg(0)}
       `)
       return n as number
     }
@@ -247,6 +247,57 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     expect(await runsFor()).toBe(1)
     await mark(null)
     expect(await runsFor()).toBe(2)
+  })
+
+  it('cascades job-raised events on the board the job came from (summary off on one board)', async () => {
+    const api = caller(alice)
+    const { createJobRunner, createWorkflowEngine } = await import('@pls/workflows')
+    const { createPgAdapter } = await import('../workflows/pg-adapter')
+    const { jobBoard } = await import('../workflows/job-runner')
+
+    const [boardA, boardB] = await db.withUser(alice, async (tx) => {
+      const rows = await tx`INSERT INTO workspaces (user_id, name) VALUES (${alice}, 'Lecture A'), (${alice}, 'Lecture B') RETURNING id`
+      return rows.map((r) => r.id as string)
+    })
+    const transcribeWf = await api.workflows.create({
+      workspaceId: null, sourceLens: 'audio-capture', triggerEvent: 'recording:completed',
+      jobs: [{ jobType: 'ai:transcribe', sortOrder: 0 }],
+    })
+    const summaryWf = await api.workflows.create({
+      workspaceId: null, sourceLens: 'audio-capture', triggerEvent: 'recording:transcribed',
+      jobs: [{ jobType: 'ai:summarize-lecture', sortOrder: 0 }],
+    })
+    // The summary automation is switched off on board A only.
+    await api.workflows.createOverride({ sourceWorkflowId: summaryWf.id, workspaceId: boardA, enabled: false })
+
+    const adapter = createPgAdapter({ sql: db.sql, userId: alice })
+    const runner = createJobRunner({
+      adapter, executors, engine: createWorkflowEngine({ adapter }), scopeId: null, scopeForJob: jobBoard,
+    })
+    const summaryRuns = async (recordingId: string) => db.withUser(alice, (tx) => tx`
+      SELECT input FROM job_runs
+      WHERE user_id = ${alice} AND job_type = 'ai:summarize-lecture' AND input->>'recording_id' = ${recordingId}
+    `)
+
+    for (const [board, expected] of [[boardA, 0], [boardB, 1]] as const) {
+      // Filter by user explicitly: tests may connect as a role that bypasses RLS.
+      await db.withUser(alice, (tx) => tx`DELETE FROM job_runs WHERE user_id = ${alice} AND status = 'pending'`)
+      const recordingId = `rec-${randomUUID().slice(0, 8)}`
+      await db.withUser(alice, (tx) => tx`
+        INSERT INTO recordings (id, user_id, title, audio_url, status) VALUES (${recordingId}, ${alice}, 'Upload', '/uploads/x.wav', 'uploaded')
+      `)
+      // As /upload does from a board.
+      await api.workflows.dispatch({ eventType: 'recording:completed', payload: { recording_id: recordingId }, workspaceId: board })
+      const [transcribeRun] = await db.withUser(alice, (tx) => tx`
+        SELECT input FROM job_runs WHERE workflow_id = ${transcribeWf.id} AND input->>'recording_id' = ${recordingId}
+      `)
+      expect(transcribeRun.input._workspaceId).toBe(board)
+
+      await runner.processOnce() // runs the transcription, which raises recording:transcribed
+      const runs = await summaryRuns(recordingId)
+      expect(runs).toHaveLength(expected)
+      if (expected) expect(runs[0].input._workspaceId).toBe(board)
+    }
   })
 
   it('writes a 3-line summary from the transcript after transcription, replacing any earlier one', async () => {
