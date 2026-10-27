@@ -48,6 +48,12 @@ export function clockTime(t: number | string | Date): string {
   return clock.format(new Date(typeof t === 'string' ? Date.parse(t) : t))
 }
 
+/** "27 Oct, 00:20": a date and time with no relative wording, e.g. for a new lecture's title. */
+export function dayMonthAndTime(t: number | string | Date): string {
+  const d = new Date(typeof t === 'string' ? Date.parse(t) : t)
+  return `${dayMonth.format(d)}, ${clock.format(d)}`
+}
+
 /** "Today 14:00", "Tomorrow 09:30", "Thu 29 Oct 16:00". */
 export function dayAndTime(t: number | string | Date, now: number | Date = Date.now()): string {
   return `${dayLabel(t, now)} ${clockTime(t)}`

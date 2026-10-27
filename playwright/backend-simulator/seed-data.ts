@@ -206,7 +206,9 @@ export function createDefaultSeedData(): SeedData {
       { id: 'jr-4', workflow_id: 'wf-confused-review', workflow_job_id: 'wfj-confused-review', job_type: 'plan:review-task', status: 'pending', input: '{"target_id":"seg-bio4-10"}', output: null, error: null, depth: 0, created_at: '2026-04-16T21:10:15Z', started_at: null, completed_at: null },
     ],
 
-    // Matches the SQL seed, which has no plan items yet.
+    // Deliberately empty, unlike `pnpm db:reseed` (which adds Priya's week,
+    // e2e/seed-week.ts, built around the real clock): component tests arrange
+    // the plan items they assert on with ../plan-items.ts `seedPlanItem`.
     planItems: [],
   }
 }
