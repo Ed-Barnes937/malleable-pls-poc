@@ -5,7 +5,7 @@ import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
-import { clampToCanvas, resizeDimensions, anchoredPosition } from './geometry'
+import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP } from './geometry'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -50,6 +50,11 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     }
   }, [panels, onLayoutChange])
 
+  // A fullscreen panel fills the canvas from its top-left, so show the top.
+  useEffect(() => {
+    if (fullscreenPanelId && canvasRef.current) canvasRef.current.scrollTop = 0
+  }, [fullscreenPanelId])
+
   const narrow = useNarrowCanvas(canvasRef)
   const stackOrder = new Map([...panels].sort(byPosition).map((p, i) => [p.id, i]))
 
@@ -72,7 +77,12 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       className={
         narrow
           ? 'relative z-[1] flex h-full w-full flex-col gap-3 overflow-y-auto p-3'
-          : 'relative z-[1] h-full w-full overflow-hidden'
+          // Free layout scrolls down when widgets sit below the fold (a full
+          // board grows downward rather than stacking widgets on top of each
+          // other), except while a widget fills the view.
+          : fullscreenPanelId
+            ? 'relative z-[1] h-full w-full overflow-hidden'
+            : 'relative z-[1] h-full w-full overflow-y-auto overflow-x-hidden'
       }
       onPointerDown={handleCanvasPointerDown}
       onDragOver={onDragOver}
@@ -102,6 +112,14 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderHeaderActions={renderHeaderActions}
         />
       ))}
+      {/* Air under the lowest widget once the free board scrolls. */}
+      {!narrow && panels.length > 0 && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-0 w-px"
+          style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
+        />
+      )}
     </div>
   )
 }
@@ -328,7 +346,7 @@ function usePanelDrag(
         const clamped = clampToCanvas(
           { x: current.pos_x + offsetX, y: current.pos_y + offsetY },
           { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: canvas.clientHeight },
+          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
         )
         offsetX = clamped.x - current.pos_x
         offsetY = clamped.y - current.pos_y
@@ -358,7 +376,7 @@ function usePanelDrag(
         const clamped = clampToCanvas(
           { x: newX, y: newY },
           { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: canvas.clientHeight },
+          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
         )
         newX = clamped.x
         newY = clamped.y
