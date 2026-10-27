@@ -65,6 +65,33 @@ test.describe('Weak topics', () => {
     await expect(weakest.getByText('Week 1')).toHaveCount(0)
   })
 
+  test('on a full board, the board scrolls to the Transcript showing the moment', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const ws = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: 'Full week' })
+    // Calendar and To-do fill the view, Weakest Topics beside them, the Transcript below the fold.
+    const panels = [
+      { lensType: 'calendar', pos_x: 20, pos_y: 20, width: 900, height: 640 },
+      { lensType: 'weakest-topics', pos_x: 940, pos_y: 20, width: 360, height: 600 },
+      { lensType: 'todo', pos_x: 20, pos_y: 680, width: 420, height: 380 },
+      { lensType: 'transcript', pos_x: 460, pos_y: 1100, width: 460, height: 420 },
+    ]
+    for (const p of panels) {
+      await trpcMutation(request, 'workspaces.addPanel', { workspaceId: ws.id, slotName: p.lensType, ...p })
+    }
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Full week')
+    const grid = new PanelGridPom(page)
+    const transcript = grid.panelByLabel('Transcript')
+    await expect(transcript).not.toBeInViewport()
+
+    await grid.panelByLabel('Weakest Topics').getByRole('button', { name: /^Maternal inheritance: go to this moment/ }).click()
+
+    const moment = transcript.locator('[data-moment]')
+    await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
+    await expect(transcript).toBeInViewport({ ratio: 0.9 })
+    await expect(moment).toBeInViewport()
+  })
+
   test('clicking a topic lands on its transcript moment on this board', async ({ page, request }) => {
     await board(request, 'Revision', ['weakest-topics', 'transcript'])
     await page.goto('/')
