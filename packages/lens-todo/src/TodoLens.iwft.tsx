@@ -275,7 +275,7 @@ test.describe('blocks that did not happen', () => {
     await banner.getByRole('button', { name: 'Move them' }).click()
 
     await expect(page.getByRole('status')).toHaveText(
-      "Moved 2 blocks. They're in your calendar. 1 didn't fit this week, so it stays on your to-do list.",
+      "Moved 2 blocks. They're in your calendar. 1 didn't fit before it is due, so it stays on your to-do list.",
     )
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
     await expect(page.getByTestId('todo-item').filter({ hasText: 'Essay plan' })).toBeVisible()

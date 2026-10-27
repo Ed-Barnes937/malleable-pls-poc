@@ -9,12 +9,17 @@ function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone
 }
 
-/** Why a missed block has no new time, in the student's words. */
-function noFitLabel(p: RefitProposal): string {
+/**
+ * Why a missed block has no new time: there is no free time before it is
+ * due (it's still due later), or none in the re-fit look-ahead.
+ */
+function noFitWhen(p: RefitProposal): 'before it is due' | 'this week' {
   const dueAhead = p.item.due_at != null && Date.parse(p.item.due_at) > Date.now()
-  return dueAhead
-    ? 'No free time before it is due. It stays on your list.'
-    : 'No free time this week. It stays on your list.'
+  return dueAhead ? 'before it is due' : 'this week'
+}
+
+function noFitLabel(p: RefitProposal): string {
+  return `No free time ${noFitWhen(p)}. It stays on your list.`
 }
 
 /** One missed block as it is now: a new miss of the same to-do is a new signature. */
@@ -22,12 +27,21 @@ const signature = (p: RefitProposal) => `${p.item.id}@${p.item.ends_at}`
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
-/** "Moved 2 blocks. They're in your calendar. 1 didn't fit this week, so it stays on your to-do list." */
-export function movedNote(moved: number, noFit: number): string {
+/**
+ * "Moved 2 blocks. They're in your calendar. 1 didn't fit this week, so it
+ * stays on your to-do list." Each block that didn't fit is reported with the
+ * reason the preview gave ("before it is due" / "this week").
+ */
+export function movedNote(moved: number, noFit: RefitProposal[]): string {
   const parts: string[] = []
   if (moved > 0) parts.push(`Moved ${moved} ${plural(moved, "block. It's", "blocks. They're")} in your calendar.`)
-  if (noFit > 0) {
-    parts.push(`${noFit} didn't fit this week, so ${plural(noFit, 'it stays', 'they stay')} on your to-do list.`)
+  const beforeDue = noFit.filter((p) => noFitWhen(p) === 'before it is due').length
+  const thisWeek = noFit.length - beforeDue
+  if (thisWeek > 0) {
+    parts.push(`${thisWeek} didn't fit this week, so ${plural(thisWeek, 'it stays', 'they stay')} on your to-do list.`)
+  }
+  if (beforeDue > 0) {
+    parts.push(`${beforeDue} didn't fit before ${plural(beforeDue, 'it is', 'they are')} due, so ${plural(beforeDue, 'it stays', 'they stay')} on your to-do list.`)
   }
   return parts.join(' ')
 }
@@ -93,7 +107,7 @@ export function RefitBanner({ course }: { course: string | undefined }) {
       (result) => {
         // Shown once here, so they don't bring the question straight back.
         markHandled(noFit)
-        setNote(movedNote(result.moved, noFit.length))
+        setNote(movedNote(result.moved, noFit))
       },
       (err: unknown) => {
         // A conflict refreshes the preview (the mutation invalidates it); show that one.
