@@ -52,6 +52,37 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
   await expect(page.getByText('Pick a lecture to see its transcript')).toBeVisible()
 })
 
+test('scrolls to and highlights a moment another widget asked to show', async ({ mount, page, simulator }) => {
+  // 2_200_000 ms falls in seg-bio4-13, far below the fold of a 300px panel.
+  await mount(
+    <TestProviders>
+      <div style={{ height: 300, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4', offsetMs: 2_200_000, id: 1 }} />
+      </div>
+    </TestProviders>,
+  )
+
+  const moment = page.locator('[data-moment]')
+  await expect(moment).toHaveCount(1)
+  await expect(moment).toContainText('chloroplast DNA')
+  await expect(moment).toBeInViewport()
+  await expect(page.locator('[aria-current="location"]')).toContainText('36:00')
+
+  // Clicking a segment clears the highlight.
+  await moment.getByRole('button').click()
+  await expect(moment).toHaveCount(0)
+})
+
+test('ignores a moment from another lecture', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-chem-1', offsetMs: 0, id: 2 }} />
+    </TestProviders>,
+  )
+  await expect(page.getByText('14 segments')).toBeVisible()
+  await expect(page.locator('[data-moment]')).toHaveCount(0)
+})
+
 test('a lecture focused outside the board course keeps its tags, and new tags appear', async ({ mount, page, simulator }) => {
   // Biology board, Chemistry lecture focused: the targeted lecture wins.
   await mount(

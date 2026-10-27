@@ -11,6 +11,8 @@ export const manifest: PanelManifest = {
   group: 'study',
   // Course narrows the lecture picker (focus clears when it leaves the course).
   scope: { courseTag: 'filter', recordingId: 'target' },
+  // Scrolls to and highlights a moment other widgets ask to show.
+  showsMoments: true,
   reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],

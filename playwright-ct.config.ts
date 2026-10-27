@@ -5,6 +5,9 @@ import path from 'path'
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
 process.env.AI_MODE = 'mock'
 delete process.env.OPENROUTER_API_KEY
+// Pin the demo's zone for both the test process (seed times) and the browser,
+// so date and DST behaviour doesn't depend on the host.
+process.env.TZ = 'Europe/London'
 
 export default defineConfig({
   testDir: '.',
@@ -35,6 +38,7 @@ export default defineConfig({
           '@pls/lens-connections': path.resolve(__dirname, 'packages/lens-connections/src'),
           '@pls/lens-gap-analysis': path.resolve(__dirname, 'packages/lens-gap-analysis/src'),
           '@pls/lens-weakest-topics': path.resolve(__dirname, 'packages/lens-weakest-topics/src'),
+          '@pls/lens-calendar': path.resolve(__dirname, 'packages/lens-calendar/src'),
           '@pls/lens-todo': path.resolve(__dirname, 'packages/lens-todo/src'),
           '@pls/lens-coming-up': path.resolve(__dirname, 'packages/lens-coming-up/src'),
         },
@@ -44,7 +48,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
   ],
 })
