@@ -27,6 +27,11 @@ export class PanelGridPom {
     })
   }
 
+  /** A first-run starting point on the empty board, by its title ("Plan my time"). */
+  starter(title: string) {
+    return this.emptyState.getByRole('button', { name: new RegExp(`^${title}: add `) })
+  }
+
   async expectEmpty() {
     await expect(this.emptyState).toBeVisible()
   }
