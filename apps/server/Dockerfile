@@ -7,16 +7,22 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/workflows/package.json packages/workflows/package.json
+COPY packages/substrate/package.json packages/substrate/package.json
+COPY packages/scheduler/package.json packages/scheduler/package.json
 RUN pnpm install --frozen-lockfile --filter @pls/server...
 
 FROM base AS runner
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/server/node_modules ./apps/server/node_modules
 COPY --from=deps /app/packages/db/node_modules ./packages/db/node_modules
+COPY --from=deps /app/packages/substrate/node_modules ./packages/substrate/node_modules
 
 COPY apps/server/ apps/server/
 COPY packages/db/ packages/db/
 COPY packages/workflows/ packages/workflows/
+COPY packages/substrate/ packages/substrate/
+COPY packages/scheduler/ packages/scheduler/
+COPY demo/ demo/
 COPY package.json pnpm-workspace.yaml ./
 
 RUN addgroup -S app && adduser -S app -G app
