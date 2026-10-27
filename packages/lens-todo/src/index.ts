@@ -8,6 +8,7 @@ export const manifest: PanelManifest = {
   label: 'To-do',
   icon: ListTodo,
   description: 'Quick to-dos, ticked off as you go',
+  group: 'plan',
   // Course filters (new to-dos inherit it); a focused lecture highlights the
   // to-dos made from it.
   scope: { courseTag: 'filter', recordingId: 'highlight' },

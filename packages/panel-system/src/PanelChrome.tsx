@@ -42,7 +42,7 @@ export function PanelChrome({
       {/* ── Header (drag handle) ── */}
       <div
         data-testid="panel-header"
-        className="flex shrink-0 cursor-grab items-center gap-2 border-b border-border-subtle bg-surface-overlay/50 px-3 py-2 select-none active:cursor-grabbing"
+        className={`flex shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-overlay/50 px-3 py-2 select-none ${onDragHandlePointerDown && !isFullscreen ? 'cursor-grab active:cursor-grabbing' : ''}`}
         style={{ touchAction: 'none' }}
         onPointerDown={onDragHandlePointerDown}
       >
@@ -77,6 +77,7 @@ export function PanelChrome({
             }}
             className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
             aria-label={isFullscreen ? `Exit fullscreen ${title ?? 'panel'}` : `Fullscreen ${title ?? 'panel'}`}
+            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
           >
             {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
           </button>
@@ -90,7 +91,9 @@ export function PanelChrome({
             onClose?.()
           }}
           className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
-          aria-label={`Close ${title ?? 'panel'}`}
+          // Closing removes the widget from the board, so say that.
+          aria-label={`Remove ${title ?? 'panel'} from board`}
+          title="Remove from board"
         >
           <X size={14} />
         </button>

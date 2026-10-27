@@ -26,7 +26,7 @@ test.describe('Journey: New lecture recording', () => {
     await topBar.openDrawer()
     const sidebar = new SidebarPom(page)
     await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
-    await sidebar.selectRecording('No recording selected')
+    await sidebar.selectRecording('No lecture selected')
 
     // Audio Capture transitions to idle/ready state
     await expect(audioPanel.getByText('Ready to record')).toBeVisible({ timeout: 5000 })

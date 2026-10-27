@@ -16,7 +16,7 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-center gap-2">
         <BarChart3 className="h-3.5 w-3.5 text-neutral-500" />
-        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">Gap Analysis — All Courses</span>
+        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">How your courses compare</span>
       </div>
 
       <div className="flex flex-1 flex-col justify-center gap-4">

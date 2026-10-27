@@ -20,6 +20,7 @@ import {
   CanvasEngine,
   WorkspaceBackground,
   useCanvasStore,
+  findFreeSpot,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -35,11 +36,12 @@ import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
 function jobLabel(jobType?: string): string {
-  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Job'
+  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Background task'
 }
 
+/** What a finished job means for the student; falls back to "Done: <job label>". */
 function jobDoneMessage(jobType?: string): string {
-  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `${jobLabel(jobType)} completed`
+  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
 }
 
 export function WorkspaceShell() {
@@ -71,6 +73,7 @@ export function WorkspaceShell() {
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -140,6 +143,44 @@ export function WorkspaceShell() {
     }
   }, [])
 
+  /**
+   * Adds a widget at its default size. Without a position (a palette click)
+   * it goes in the first free area of the visible board.
+   */
+  const addWidget = useCallback(
+    (lensType: string, at?: { x: number; y: number }) => {
+      const m = manifests.find((man) => man.id === lensType)
+      const width = m?.defaultWidth ?? 400
+      const height = m?.defaultHeight ?? 300
+      const existing = useCanvasStore.getState().panels
+      const canvas = canvasRef.current
+      const spot = at ?? findFreeSpot(
+        existing.map((p) => ({ x: p.pos_x, y: p.pos_y, width: p.width, height: p.height })),
+        { width, height },
+        { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+      )
+
+      addPanel.mutate(
+        {
+          workspaceId: activeWorkspaceId,
+          lensType,
+          slotName: `slot-${Date.now()}`,
+          pos_x: Math.round(spot.x),
+          pos_y: Math.round(spot.y),
+          width,
+          height,
+          z_index: existing.length > 0 ? Math.max(...existing.map((p) => p.z_index)) + 1 : 1,
+        },
+        {
+          // One toast for a run of adds, not a stack of them.
+          onSuccess: () => pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' }),
+          onError: () => pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' }),
+        },
+      )
+    },
+    [activeWorkspaceId, addPanel, manifests, pushToast],
+  )
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
@@ -150,30 +191,18 @@ export function WorkspaceShell() {
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
 
-      const slotName = `slot-${Date.now()}`
       // Anchor the panel's top-left at the cursor, then clamp within the canvas
       // so it stays fully visible. (Centering on the cursor caused drops near
       // the top/left edge to collapse to 0,0 once the negative result was clamped.)
       const rect = e.currentTarget.getBoundingClientRect()
       const maxX = Math.max(0, rect.width - width)
       const maxY = Math.max(0, rect.height - height)
-      const pos_x = Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX)
-      const pos_y = Math.min(Math.max(0, Math.round(e.clientY - rect.top)), maxY)
-
-      addPanel.mutate({
-        workspaceId: activeWorkspaceId,
-        lensType,
-        slotName,
-        pos_x,
-        pos_y,
-        width,
-        height,
-        z_index: (useCanvasStore.getState().panels.length > 0
-          ? Math.max(...useCanvasStore.getState().panels.map((p) => p.z_index)) + 1
-          : 1),
+      addWidget(lensType, {
+        x: Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX),
+        y: Math.min(Math.max(0, Math.round(e.clientY - rect.top)), maxY),
       })
     },
-    [activeWorkspaceId, addPanel, manifests],
+    [addWidget, manifests],
   )
 
   // Handle panel removal — remove from DB then let query invalidation update canvas store
@@ -262,9 +291,10 @@ export function WorkspaceShell() {
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
+        menuOpen={drawerOpen}
         onOrganize={handleOrganize}
       />
-      <DrawerSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {!panels ? (
           <CanvasSkeleton />
@@ -291,7 +321,7 @@ export function WorkspaceShell() {
               >
                 <EmptyState
                   icon={LayoutGrid}
-                  message="This workspace is empty. Add a lens to get started."
+                  message="This board is empty. Add widgets to build it your way."
                   action={
                     <button
                       type="button"
@@ -300,7 +330,7 @@ export function WorkspaceShell() {
                       style={{ background: 'var(--color-accent)' }}
                     >
                       <Plus size={16} />
-                      Add lenses
+                      Add widgets
                     </button>
                   }
                 />

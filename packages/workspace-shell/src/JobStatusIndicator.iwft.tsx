@@ -46,8 +46,8 @@ test('failed job explains itself and can be retried from Activity', async ({ mou
     </ShellProviders>,
   )
 
-  await page.getByTitle('2 jobs running').click()
-  const failed = page.getByTestId('job-item').filter({ hasText: 'failed' })
+  await page.getByTitle('Activity: 2 running').click()
+  const failed = page.getByTestId('job-item').filter({ hasText: "Didn't finish" })
   await expect(failed.getByText("This didn't finish. Give it another go.")).toBeVisible()
   await failed.getByText('Details').click()
   await expect(failed.getByText('Recording rec-x not found')).toBeVisible()

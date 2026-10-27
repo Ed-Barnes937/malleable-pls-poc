@@ -208,6 +208,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     type="button"
                     onClick={() => moveJob(idx, -1)}
                     aria-label="Move step up"
+                    title="Move step up"
                     disabled={idx === 0}
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
                   >
@@ -217,6 +218,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     type="button"
                     onClick={() => moveJob(idx, 1)}
                     aria-label="Move step down"
+                    title="Move step down"
                     disabled={idx === jobs.length - 1}
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
                   >
@@ -226,6 +228,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     type="button"
                     onClick={() => removeJob(idx)}
                     aria-label="Remove step"
+                    title="Remove step"
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
                   >
                     <Trash2 className="h-3 w-3" />

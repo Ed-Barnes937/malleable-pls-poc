@@ -100,7 +100,7 @@ test.describe('Course scope filters every widget', () => {
     await topBar.openDrawer()
     await new SidebarPom(page).selectCourse('Biology')
     await page.keyboard.press('Escape')
-    await expect(topBar.scopeChip).toHaveText('Biology')
+    await expect(topBar.scopeChip).toHaveText('Showing: Biology')
 
     // Filtered widgets show only Biology and say what they leave out.
     await expect(weakest.getByText('chemistry')).toHaveCount(0, { timeout: 10000 })
@@ -149,7 +149,7 @@ test.describe('Course scope filters every widget', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await topBar.switchToWorkspace('Evening Review')
-    await expect(topBar.scopeChip).toHaveText('Biology · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
 
     const transcript = grid.panelByLabel('Transcript')
     await expect(transcript.getByText('SN1 vs SN2 still confusing')).toBeVisible({ timeout: 10000 })

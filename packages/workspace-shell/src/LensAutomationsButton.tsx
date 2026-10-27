@@ -34,6 +34,7 @@ export function LensAutomationsButton({ panelId, lensType, workspaceId }: LensAu
         }}
         className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         aria-label={`Automations for ${manifest.label}`}
+        title="Automations"
       >
         <Zap size={14} />
       </button>

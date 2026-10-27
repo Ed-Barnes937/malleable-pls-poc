@@ -1,7 +1,8 @@
 import type { Locator, Page } from '@playwright/test'
 
 /**
- * The drawer aside hosts the Scope editor, Workflows, and Lens palette.
+ * The drawer ("board menu") hosts the widget palette, the "Showing" scope
+ * pickers and the board's automations.
  * Workspace switching / creation / deletion lives in the TopBar — see
  * `TopBarPom`.
  */
@@ -15,8 +16,8 @@ export class SidebarPom {
   constructor(private page: Page) {
     this.root = page.locator('aside')
     this.scopeSection = this.root.getByTestId('scope-section')
-    this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course filter' })
-    this.recordingSelect = this.scopeSection.getByRole('combobox', { name: 'Recording focus' })
+    this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course' })
+    this.recordingSelect = this.scopeSection.getByRole('combobox', { name: 'Lecture' })
     this.lensItems = this.root.locator('[draggable="true"]')
   }
 
@@ -26,6 +27,11 @@ export class SidebarPom {
 
   async selectRecording(label: string) {
     await this.recordingSelect.selectOption({ label })
+  }
+
+  /** Adds a widget by clicking its palette tile; the drawer stays open. */
+  async addWidget(label: string) {
+    await this.root.getByRole('button', { name: `Add ${label}`, exact: true }).click()
   }
 
   async dragLensToGrid(lensName: string, target: Locator) {

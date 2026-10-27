@@ -96,22 +96,30 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
           {showEditDelete && !isDefault && (
             <>
               <button
+                type="button"
                 onClick={() => onEdit?.(workflow)}
                 aria-label="Edit automation"
+                title="Edit automation"
                 className="rounded p-1 text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
               >
                 <Pencil className="h-3 w-3" />
               </button>
               <button
+                type="button"
                 onClick={() => deleteWorkflow.mutate({ workflowId: workflow.id })}
                 aria-label="Delete automation"
+                title="Delete automation"
                 className="rounded p-1 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
               >
                 <Trash2 className="h-3 w-3" />
               </button>
             </>
           )}
-          <Switch checked={isEnabled} onCheckedChange={handleToggle} />
+          <Switch
+            checked={isEnabled}
+            onCheckedChange={handleToggle}
+            label={`Automation: ${triggerLabel}`}
+          />
         </div>
       </div>
 
@@ -158,8 +166,8 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
 
       <p className="mt-2 text-[10px] text-neutral-500">
         {isDefault
-          ? 'Built in - switching it off here turns it off on this board only'
-          : 'Just for this board'}
+          ? 'Built-in automation. Turning it on or off only changes this board.'
+          : 'Just for this board.'}
       </p>
     </div>
   )

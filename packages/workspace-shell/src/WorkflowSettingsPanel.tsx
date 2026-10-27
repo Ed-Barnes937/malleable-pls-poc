@@ -21,8 +21,8 @@ export function WorkflowSettingsPanel() {
       isError={isError}
       error={error}
       workspaceId={workspaceId}
-      errorLabel="Couldn’t load workflows"
-      emptyLabel="No workflows for the lenses in this workspace"
+      errorLabel="Couldn’t load automations"
+      emptyLabel="No automations for the widgets on this board yet"
     />
   )
 }

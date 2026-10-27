@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useCanvasStore, clampDimensions, DEFAULT_SIZE_CONSTRAINTS, DEFAULT_BACKGROUND } from './canvas-store'
+import { useCanvasStore, clampDimensions, persistableLayout, DEFAULT_SIZE_CONSTRAINTS, DEFAULT_BACKGROUND } from './canvas-store'
 import type { PanelItem, BackgroundConfig } from './canvas-store'
 
 function makePanel(overrides: Partial<PanelItem> = {}): PanelItem {
@@ -26,6 +26,17 @@ describe('canvas-store', () => {
       const panels = [makePanel({ id: 'a' }), makePanel({ id: 'b' })]
       useCanvasStore.getState().setPanels(panels)
       expect(useCanvasStore.getState().panels).toEqual(panels)
+    })
+
+    it('clears selection, focus mode and fullscreen (view state never carries across boards)', () => {
+      useCanvasStore.getState().setPanels([makePanel({ id: 'a' })])
+      useCanvasStore.getState().enterFullscreen('a', 1000, 800)
+      useCanvasStore.getState().enterFocusMode('a')
+      useCanvasStore.getState().setPanels([makePanel({ id: 'b' })])
+      const s = useCanvasStore.getState()
+      expect(s.fullscreenPanelId).toBeNull()
+      expect(s.preFullscreenLayout).toBeNull()
+      expect(s.focusModePanelId).toBeNull()
     })
 
     it('clears panels when given an empty array', () => {
@@ -277,6 +288,19 @@ describe('canvas-store', () => {
       expect(panel.pos_y).toBe(60)
       expect(panel.width).toBe(400)
       expect(panel.height).toBe(300)
+    })
+
+    it('persistableLayout reports a fullscreen panel at its pre-fullscreen layout', () => {
+      useCanvasStore.getState().setPanels([makePanel({ id: 'fs', pos_x: 50, pos_y: 60 }), makePanel({ id: 'other' })])
+      useCanvasStore.getState().enterFullscreen('fs', CANVAS_W, CANVAS_H)
+      const saved = persistableLayout(useCanvasStore.getState())
+      expect(saved[0]).toMatchObject({ id: 'fs', pos_x: 50, pos_y: 60, width: 400, height: 300 })
+      expect(saved[1]).toBe(useCanvasStore.getState().panels[1])
+    })
+
+    it('persistableLayout returns the panels unchanged when nothing is fullscreen', () => {
+      useCanvasStore.getState().setPanels([makePanel()])
+      expect(persistableLayout(useCanvasStore.getState())).toBe(useCanvasStore.getState().panels)
     })
 
     it('exitFullscreen when not in fullscreen clears state cleanly', () => {

@@ -111,7 +111,7 @@ export default function TranscriptLens({ scope, config }: LensProps) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
         <div className="flex flex-1 items-center justify-center">
-          <EmptyState message="Select a recording to view transcript" />
+          <EmptyState message="Pick a lecture to see its transcript" />
         </div>
       </div>
     )
@@ -198,7 +198,9 @@ export default function TranscriptLens({ scope, config }: LensProps) {
                     return (
                       <button
                         key={label}
+                        type="button"
                         onClick={() => handleTag(label)}
+                        title={`Mark this moment as ${label}`}
                         className={cn('inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
                       >
                         <Icon className="h-3 w-3" />
@@ -223,7 +225,9 @@ export default function TranscriptLens({ scope, config }: LensProps) {
               return (
                 <button
                   key={label}
+                  type="button"
                   onClick={() => handleTag(label)}
+                  title={`Mark this moment as ${label}`}
                   className={cn('inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] font-medium transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
                 >
                   <Icon className="h-2.5 w-2.5" />
