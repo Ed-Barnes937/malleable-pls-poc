@@ -15,5 +15,5 @@ export const manifest: PanelManifest = {
   minWidth: 200,
   minHeight: 150,
   defaultWidth: 340,
-  defaultHeight: 280,
+  defaultHeight: 400,
 }

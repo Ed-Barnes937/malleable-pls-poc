@@ -55,25 +55,23 @@ export function ToastHost() {
         <div
           key={toast.id}
           className={cn(
-            'flex items-center gap-2 rounded-lg border px-3 py-2 shadow-xl',
-            'bg-surface-raised',
-            toast.tone === 'success' ? 'border-emerald-500/30' : 'border-red-500/30',
+            'flex items-center gap-3 rounded-[14px] bg-inverse py-3 pr-3 pl-4 text-inverse-foreground shadow-pop',
           )}
         >
           {toast.tone === 'success' ? (
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
           ) : (
-            <XCircle className="h-4 w-4 shrink-0 text-red-400" />
+            <XCircle className="h-4 w-4 shrink-0" />
           )}
-          <span className="text-xs text-neutral-200">{toast.message}</span>
+          <span className="text-body">{toast.message}</span>
           <button
             type="button"
             onClick={() => dismiss(toast.id)}
             aria-label="Dismiss"
             title="Dismiss"
-            className="ml-1 rounded p-0.5 text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
+            className="ml-1 rounded-item p-1 text-inverse-foreground/70 transition-colors hover:text-inverse-foreground"
           >
-            <X className="h-3 w-3" />
+            <X className="h-4 w-4" />
           </button>
         </div>
       ))}

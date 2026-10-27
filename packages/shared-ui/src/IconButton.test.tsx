@@ -40,13 +40,13 @@ describe('IconButton', () => {
   it('applies sm size by default', () => {
     render(<IconButton icon={TestIcon} label="Close" />)
     const btn = screen.getByRole('button')
-    expect(btn.className).toMatch(/h-7|h-6|h-5/)
+    expect(btn.className).toMatch(/\bh-8\b/)
   })
 
   it('applies md size variant', () => {
     render(<IconButton icon={TestIcon} label="Close" size="md" />)
     const btn = screen.getByRole('button')
-    expect(btn.className).toMatch(/h-9|h-8/)
+    expect(btn.className).toMatch(/\bh-9\b/)
   })
 
   it('forwards additional button props like type', () => {

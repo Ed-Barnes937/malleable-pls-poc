@@ -8,7 +8,7 @@ export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement>
 }
 
 const SIZES = {
-  sm: { button: 'h-7 w-7', icon: 'h-3.5 w-3.5' },
+  sm: { button: 'h-8 w-8', icon: 'h-4 w-4' },
   md: { button: 'h-9 w-9', icon: 'h-4 w-4' },
 } as const
 
@@ -26,9 +26,9 @@ export function IconButton({
       type={type}
       aria-label={label}
       className={cn(
-        'inline-flex items-center justify-center rounded-md text-neutral-400 transition-colors',
-        'hover:bg-neutral-800 hover:text-neutral-100',
-        'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-neutral-400',
+        'inline-flex items-center justify-center rounded-item text-text-muted transition-colors',
+        'hover:bg-surface-overlay hover:text-text-primary',
+        'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-text-muted',
         s.button,
         className,
       )}

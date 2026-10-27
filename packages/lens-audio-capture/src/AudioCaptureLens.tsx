@@ -25,11 +25,9 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
             className={cn(
               'w-[2px] rounded-full transition-all duration-300 @tall:w-[3px]',
               active && !isPlayed && 'animate-pulse',
-              isPlayed
-                ? 'bg-accent/70'
-                : active
-                  ? 'bg-tag-confused/40'
-                  : 'bg-neutral-700'
+              // Played bars in accent, the rest faded; live input in the
+              // recording colour.
+              active ? 'bg-confused opacity-60' : isPlayed ? 'bg-accent' : 'bg-accent opacity-30',
             )}
             style={{
               height,
@@ -128,10 +126,10 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         {state === 'recording' && (
           <div className="flex items-center gap-1.5">
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-tag-confused opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-tag-confused" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-confused opacity-75" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-confused" />
             </span>
-            <span className="font-mono text-[10px] font-medium tracking-wider text-tag-confused">
+            <span className="text-meta font-semibold text-confused">
               REC
             </span>
           </div>
@@ -139,29 +137,29 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
 
         {state === 'uploading' && (
           <div className="flex items-center gap-1.5">
-            <Loader2 className="h-3 w-3 animate-spin text-accent" />
-            <span className="text-[10px] text-neutral-400">Uploading & transcribing…</span>
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+            <span className="text-meta text-text-secondary">Uploading & transcribing…</span>
           </div>
         )}
 
         {state === 'complete' && (
           <div className="hidden text-center @tall:block">
-            <p className="truncate text-sm font-medium text-neutral-300">{recording?.title ?? 'Recording complete'}</p>
-            <p className="mt-0.5 text-[10px] text-neutral-600">{formatTime(duration)} total</p>
+            <p className="truncate text-body font-semibold text-text-primary">{recording?.title ?? 'Recording complete'}</p>
+            <p className="mt-0.5 text-meta text-text-muted">{formatTime(duration)} total</p>
           </div>
         )}
 
         {state === 'idle' && (
-          <p className="text-[10px] text-neutral-500 @tall:text-sm">Ready to record</p>
+          <p className="text-meta text-text-muted @tall:text-body">Ready to record</p>
         )}
 
         {(fileError ?? error) && (
-          <p role="alert" className="text-center text-[10px] text-tag-confused">{fileError ?? error}</p>
+          <p role="alert" className="text-center text-meta text-confused">{fileError ?? error}</p>
         )}
 
         <Waveform active={state === 'recording'} progress={progress} />
 
-        <span className="font-mono text-sm font-semibold tabular-nums text-neutral-300 @tall:text-2xl">
+        <span className="text-body font-semibold tabular-nums text-text-primary @tall:text-heading">
           {state === 'recording'
             ? formatTime(elapsed)
             : state === 'complete' && playback.playing
@@ -180,11 +178,11 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                   onClick={playback.toggle}
                   aria-label={playback.playing ? 'Pause' : 'Play recording'}
                   title={playback.playing ? 'Pause' : 'Play recording'}
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
+                  className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-accent-foreground transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
                 >
                   {playback.playing
-                    ? <Pause className="h-3 w-3 @tall:h-4 @tall:w-4" />
-                    : <Play className="ml-px h-3 w-3 @tall:ml-0.5 @tall:h-4 @tall:w-4" />}
+                    ? <Pause className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
+                    : <Play className="ml-0.5 h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />}
                 </button>
               )}
               <button
@@ -192,17 +190,17 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                 onClick={recorder.start}
                 aria-label="Start recording"
                 title="Start recording"
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
               >
-                <Mic className="h-3.5 w-3.5 @tall:h-5 @tall:w-5" />
+                <Mic className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 aria-label="Upload a recording"
                 title="Upload a recording"
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
               >
-                <Upload className="h-3 w-3 @tall:h-4 @tall:w-4" />
+                <Upload className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
               </button>
               {state === 'complete' && (
                 <button
@@ -210,9 +208,9 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                   onClick={() => { recorder.reset(); playback.stop() }}
                   aria-label="Record another lecture"
                   title="Record another lecture"
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
                 >
-                  <RotateCcw className="h-3 w-3 @tall:h-4 @tall:w-4" />
+                  <RotateCcw className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
                 </button>
               )}
             </>
@@ -222,27 +220,27 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               onClick={recorder.stop}
               aria-label="Stop recording"
               title="Stop recording"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-confused text-surface-raised ring-4 ring-confused-soft transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
             >
-              <Square className="h-3 w-3 @tall:h-4 @tall:w-4" />
+              <Square className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
             </button>
           ) : null}
         </div>
       </div>
 
       {state === 'complete' && (
-        <div className="border-t border-border-subtle px-3 py-1.5 @tall:py-2.5">
-          <div className="relative h-1.5 rounded-full bg-neutral-800">
+        <div className="pt-2 @tall:pt-3">
+          <div className="relative h-1.5 rounded-full bg-surface-overlay">
             <div
-              className="absolute inset-y-0 left-0 rounded-full bg-accent/60 transition-all duration-1000"
+              className="absolute inset-y-0 left-0 rounded-full bg-accent transition-all duration-1000"
               style={{ width: `${progress * 100}%` }}
             />
             <div
-              className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border-2 border-accent bg-surface-raised shadow-[0_0_6px_var(--color-accent)] transition-all duration-1000"
+              className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-[3px] border-accent bg-surface-raised transition-all duration-1000"
               style={{ left: `${progress * 100}%` }}
             />
           </div>
-          <div className="mt-1 flex justify-between font-mono text-[10px] text-neutral-600">
+          <div className="mt-1.5 flex justify-between text-meta tabular-nums text-text-muted">
             <span>{playback.playing || playback.position > 0 ? formatTime(playback.position) : '0:00'}</span>
             <span>{formatTime(duration)}</span>
           </div>

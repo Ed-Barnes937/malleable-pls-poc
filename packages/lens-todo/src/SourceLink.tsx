@@ -49,16 +49,16 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
   if (!onShowMoment && !onScopeChange) {
     return <span className="truncate">{label}</span>
   }
-  const linkButton = 'inline-flex items-center gap-1 text-accent/80 hover:text-accent hover:underline'
+  const linkButton = 'inline-flex items-center gap-1 font-medium text-accent hover:underline'
   return (
     <>
       <button
         type="button"
         onClick={() => void show()}
         title={onShowMoment ? 'Go to this moment' : 'Focus this lecture on the board'}
-        className="flex min-w-0 items-center gap-1 truncate text-accent/80 hover:text-accent hover:underline"
+        className="flex min-w-0 items-center gap-1 truncate text-meta font-medium text-accent hover:underline"
       >
-        <CirclePlay className="h-2.5 w-2.5 shrink-0" />
+        <CirclePlay className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{label}</span>
       </button>
       {state === 'no-viewer' && (
@@ -66,7 +66,7 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
           This board has no Transcript.
           <button type="button" onClick={() => void show(true)} className={linkButton}>
             Open in a board with Transcript
-            <ArrowUpRight className="h-2.5 w-2.5" />
+            <ArrowUpRight className="h-3 w-3" />
           </button>
         </span>
       )}

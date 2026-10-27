@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, type ShowMomentResult, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, formatTime } from '@pls/shared-ui'
+import { COURSES, cn, courseTone, formatTime } from '@pls/shared-ui'
 import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -316,23 +316,23 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }
 
   return (
-    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-2.5 pt-1">
-      <header className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1.5">
-        <div className="flex items-center rounded-lg ring-1 ring-border-subtle">
+    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2">
+        <div className="flex items-center gap-1">
           <button
             type="button"
             aria-label={view === 'week' ? 'Previous week' : 'Previous day'}
             title={view === 'week' ? 'Previous week' : 'Previous day'}
             onClick={() => setAnchorDay((d) => addDays(d, -step))}
-            className="rounded-l-lg p-1.5 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 w-8"
           >
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={() => setAnchorDay(today)}
             disabled={showingToday && view === 'day'}
-            className="border-x border-border-subtle px-2.5 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 px-2.5"
           >
             Today
           </button>
@@ -341,20 +341,20 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             aria-label={view === 'week' ? 'Next week' : 'Next day'}
             title={view === 'week' ? 'Next week' : 'Next day'}
             onClick={() => setAnchorDay((d) => addDays(d, step))}
-            className="rounded-r-lg p-1.5 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 w-8"
           >
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-4 w-4" />
           </button>
         </div>
 
-        <h2 data-testid="calendar-title" className="min-w-0 truncate text-sm font-semibold text-text-primary">
+        <h2 data-testid="calendar-title" className="ml-1 min-w-0 truncate text-heading font-semibold text-text-primary">
           {formatRangeTitle(days[0], days[days.length - 1])}
         </h2>
 
         {highlight?.courseTag && (
           <span
             data-testid="calendar-highlight"
-            className="inline-flex items-center gap-1.5 rounded-full bg-surface-overlay/70 px-2 py-0.5 text-[10px] font-medium text-text-secondary ring-1 ring-border-subtle"
+            className={cn('inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-meta font-semibold', courseTone(highlight.courseTag).soft, courseTone(highlight.courseTag).ink)}
           >
             <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(highlight.courseTag).bar)} />
             {courseLabel(highlight.courseTag)} highlighted
@@ -362,14 +362,14 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         )}
 
         {notice && (
-          <span role="status" data-testid="calendar-notice" className="text-[11px] text-text-secondary">{notice}</span>
+          <span role="status" data-testid="calendar-notice" className="text-meta text-text-secondary">{notice}</span>
         )}
         {!notice && !isLoading && items.length === 0 && (
-          <span className="text-[11px] text-text-muted">Nothing planned. Click or drag on the grid to add something.</span>
+          <span className="text-meta text-text-muted">Nothing planned. Click or drag on the grid to add something.</span>
         )}
 
-        <div className="ml-auto flex items-center gap-2">
-          <div role="tablist" aria-label="Calendar view" className="flex rounded-lg bg-surface-overlay/60 p-0.5">
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <div role="tablist" aria-label="Calendar view" className="flex rounded-control bg-surface-overlay p-[3px]">
             {(['week', 'day'] as const).map((v) => (
               <button
                 key={v}
@@ -378,8 +378,8 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
                 aria-selected={view === v}
                 onClick={() => setView(v)}
                 className={cn(
-                  'rounded-md px-2.5 py-0.5 text-[11px] font-medium transition-colors',
-                  view === v ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:text-text-primary',
+                  'inline-flex h-[30px] items-center rounded-item px-3 text-body transition-colors',
+                  view === v ? 'bg-surface-raised font-semibold text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary',
                 )}
               >
                 {v === 'week' ? 'Week' : 'Day'}
@@ -391,9 +391,9 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             onClick={handleAddButton}
             aria-label="Add to calendar"
             title="Add to calendar"
-            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-text-secondary ring-1 ring-border-subtle transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            className="inline-flex h-9 items-center gap-2 rounded-control border border-border bg-surface-raised px-3.5 text-body font-medium whitespace-nowrap text-text-primary transition-colors hover:bg-surface-overlay"
           >
-            <Plus className="h-3 w-3" />
+            <Plus className="h-4 w-4" />
             Add
           </button>
           {view === 'week' && (
@@ -419,7 +419,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       />
       {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
-      <div className="@container/cal relative flex min-h-0 flex-1 gap-2.5">
+      <div className="@container/cal relative flex min-h-0 flex-1 gap-3">
         <TimeGrid
           days={days}
           items={items}
@@ -452,15 +452,15 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           <button
             type="button"
             onClick={() => setPlanCollapsed(false)}
-            className="absolute bottom-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground shadow-lg transition-colors hover:bg-accent/90"
+            className="absolute bottom-3 right-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90"
           >
-            <Sparkles className="h-3 w-3" />
+            <Sparkles className="h-4 w-4" />
             Show plan
           </button>
         )}
         {planLayout && !planCollapsed && (
           // Beside the grid when there is room; over it in a narrow panel.
-          <div className="absolute inset-y-0 right-0 z-30 flex shadow-2xl @[760px]/cal:static @[760px]/cal:shadow-none">
+          <div className="absolute inset-y-0 right-0 z-30 flex rounded-widget shadow-pop @[760px]/cal:static @[760px]/cal:shadow-none">
             <HelpMePlanPanel
               layout={planLayout}
               weekLabel={weekLabel}
@@ -557,45 +557,45 @@ interface MomentLinkProps {
 function MomentLink({ recordingId, offsetMs, state, canShow, onShow, onShowElsewhere }: MomentLinkProps) {
   const substrate = useSubstrate()
   const { data: recording } = substrate.useRecording(recordingId)
-  const linkButton = 'inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline'
+  const linkButton = 'inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline'
 
   return (
-    <div data-testid="calendar-moment" className="flex flex-col gap-1.5 rounded-xl bg-surface-overlay/60 px-2.5 py-2">
-      <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-text-secondary">
-        <AudioLines className="h-3 w-3 shrink-0 text-accent" />
+    <div data-testid="calendar-moment" className="flex flex-col gap-1.5 rounded-item bg-surface-inset px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
+        <AudioLines className="h-3.5 w-3.5 shrink-0 text-accent" />
         <span className="line-clamp-2">
           From: <span className="font-medium text-text-primary">{recording?.title ?? 'a lecture'}</span>, {formatTime(offsetMs)}
         </span>
       </div>
-      {state === 'opening' && <span className="text-[11px] text-text-muted">Opening the moment...</span>}
+      {state === 'opening' && <span className="text-meta text-text-muted">Opening the moment...</span>}
       {state === 'failed' && (
         <div className="flex flex-col gap-1">
-          <span className="text-[11px] text-text-muted">Couldn't open the moment just now.</span>
+          <span className="text-meta text-text-muted">Couldn't open the moment just now.</span>
           <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
             Try again
-            <ArrowUpRight className="h-3 w-3" />
+            <ArrowUpRight className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
-      {state === 'shown' && <span className="text-[11px] text-text-muted">Showing this moment in the Transcript.</span>}
+      {state === 'shown' && <span className="text-meta text-text-muted">Showing this moment in the Transcript.</span>}
       {state === 'no-viewer' && (
         <div className="flex flex-col gap-1">
-          <span className="text-[11px] text-text-muted">This board has no Transcript.</span>
+          <span className="text-meta text-text-muted">This board has no Transcript.</span>
           <button type="button" onClick={onShowElsewhere} className={cn(linkButton, 'self-start')}>
             Open in a board with Transcript
-            <ArrowUpRight className="h-3 w-3" />
+            <ArrowUpRight className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
       {state === 'nowhere' && (
-        <span className="text-[11px] text-text-muted">
+        <span className="text-meta text-text-muted">
           None of your boards has a Transcript yet. Add one from the widget drawer to see this moment.
         </span>
       )}
       {!state && canShow && (
         <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
           Go to this moment
-          <ArrowUpRight className="h-3 w-3" />
+          <ArrowUpRight className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

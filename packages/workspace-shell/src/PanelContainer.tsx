@@ -16,15 +16,15 @@ class LensErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
     if (this.state.error) {
       return (
         <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-          <AlertTriangle size={24} className="text-text-muted" />
-          <p className="text-xs text-text-secondary">This lens failed to render</p>
-          <p className="text-[10px] text-text-muted">{this.state.error.message}</p>
+          <AlertTriangle size={24} className="text-confused" />
+          <p className="text-body font-semibold text-text-primary">This lens failed to render</p>
+          <p className="text-meta text-text-muted">{this.state.error.message}</p>
           <button
             type="button"
             onClick={() => this.setState({ error: null })}
-            className="mt-1 flex items-center gap-1.5 rounded-md bg-surface-overlay px-3 py-1 text-xs text-text-secondary transition-colors hover:text-text-primary"
+            className="mt-1 flex h-9 items-center gap-1.5 rounded-control border border-border bg-surface-raised px-3.5 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay"
           >
-            <RefreshCw className="h-3 w-3" />
+            <RefreshCw className="h-4 w-4" />
             Retry
           </button>
         </div>
@@ -39,10 +39,10 @@ class LensErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
 function LoadingSkeleton() {
   return (
     <div className="flex h-full flex-col gap-3 p-1">
-      <div className="h-3 w-2/3 animate-pulse rounded bg-neutral-800" />
-      <div className="h-3 w-full animate-pulse rounded bg-neutral-800/60" />
-      <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-800/40" />
-      <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/30" />
+      <div className="h-3 w-2/3 animate-pulse rounded-full bg-surface-overlay" />
+      <div className="h-3 w-full animate-pulse rounded-full bg-surface-overlay/80" />
+      <div className="h-3 w-5/6 animate-pulse rounded-full bg-surface-overlay/60" />
+      <div className="h-3 w-3/4 animate-pulse rounded-full bg-surface-overlay/40" />
     </div>
   )
 }

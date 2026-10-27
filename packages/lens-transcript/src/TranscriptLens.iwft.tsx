@@ -76,6 +76,26 @@ test('shows the lecture summary at the top and the review a confused moment beca
   await expect(chip).toHaveAttribute('title', 'Review: maternal inheritance')
 })
 
+test('a long summary in a short widget leaves the transcript room to take clicks', async ({ mount, page, simulator }) => {
+  simulator.db.annotations.push({
+    id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',
+    anchor_start_ms: null, anchor_end_ms: null,
+    body: Array.from({ length: 6 }, (_, i) => `Point ${i + 1}: mitochondria carry their own small circular genome, passed down the maternal line.`).join('\n'),
+    created_at: '2026-04-16T11:00:00Z', author_id: 'dev-user-1',
+  })
+  await mount(
+    <TestProviders>
+      <div style={{ width: 420, height: 300 }}>
+        <TranscriptLens {...defaultProps} />
+      </div>
+    </TestProviders>,
+  )
+
+  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(6)
+  // Nothing covers the first moment: it can take a click.
+  await page.getByText(/continuing our discussion of mitochondria/).click({ trial: true, timeout: 3000 })
+})
+
 function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed', recordingId: string) {
   return {
     id, workflow_id: 'wf-test', workflow_job_id: 'wfj-test', job_type: jobType, status,

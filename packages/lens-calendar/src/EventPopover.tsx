@@ -80,7 +80,7 @@ export function EventPopover({
 
   const isDue = draft.kind === 'deadline'
   const length = Math.round((draft.end.getTime() - draft.start.getTime()) / 60_000)
-  const fieldLabel = 'mb-1 block text-[10px] font-medium uppercase tracking-wider text-text-muted'
+  const fieldLabel = 'mb-1 block text-meta font-semibold text-text-muted'
 
   return (
     <form
@@ -93,7 +93,7 @@ export function EventPopover({
         if (!invalid && canEdit) onSubmit(draft)
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-2xl border border-border bg-surface-raised p-3.5 shadow-[var(--shadow-panel-focused)]"
+      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
       style={{ left: pos.left, top: pos.top, width: WIDTH }}
     >
       <div className="flex items-start gap-2">
@@ -105,20 +105,20 @@ export function EventPopover({
           value={draft.title}
           disabled={!canEdit}
           onChange={(e) => set({ title: e.target.value })}
-          className="border-transparent bg-transparent px-0 text-sm font-medium text-text-primary focus:border-transparent focus:ring-0"
+          className="border-transparent bg-transparent px-0 text-title font-semibold text-text-primary focus:border-transparent focus:ring-0"
         />
         <button
           type="button"
           aria-label="Close"
           onClick={onClose}
-          className="mt-1 rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
       {isCreate ? (
-        <div role="radiogroup" aria-label="Kind" className="grid grid-cols-3 gap-1 rounded-lg bg-surface-overlay/60 p-0.5">
+        <div role="radiogroup" aria-label="Kind" className="grid grid-cols-3 gap-1 rounded-control bg-surface-overlay p-[3px]">
           {KINDS.map((kind) => (
             <button
               key={kind}
@@ -127,8 +127,8 @@ export function EventPopover({
               aria-checked={draft.kind === kind}
               onClick={() => set({ kind })}
               className={cn(
-                'rounded-md px-1.5 py-1 text-[10px] font-medium leading-tight transition-colors',
-                draft.kind === kind ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:text-text-primary',
+                'rounded-item px-1.5 py-1.5 text-meta leading-tight transition-colors',
+                draft.kind === kind ? 'bg-surface-raised font-semibold text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary',
               )}
             >
               {kind === 'commitment' ? 'Class / commitment' : KIND_LABELS[kind]}
@@ -136,7 +136,7 @@ export function EventPopover({
           ))}
         </div>
       ) : (
-        <span className="-mt-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">
+        <span className="-mt-1 text-meta font-semibold text-text-muted">
           {row.kind === 'commitment' ? (row.subtype ?? 'Fixed commitment') : KIND_LABELS[row.kind]}
           {row.kind === 'commitment' && ' · stays where it is unless you edit it'}
         </span>
@@ -155,7 +155,7 @@ export function EventPopover({
           {!isDue && (
             <label className="min-w-0">
               <span className={fieldLabel}>
-                To{length > 0 && <span className="ml-1 normal-case tracking-normal">· {formatDuration(length)}</span>}
+                To{length > 0 && <span className="ml-1 font-normal">· {formatDuration(length)}</span>}
               </span>
               <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} onChange={(e) => setTime('end', e.target.value)} />
             </label>
@@ -172,7 +172,7 @@ export function EventPopover({
           </Select>
         </label>
         {draft.kind === 'commitment' && (
-          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 pb-1.5 text-[11px] text-text-secondary">
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 pb-2 text-body text-text-secondary">
             <input
               type="checkbox"
               checked={draft.repeatsWeekly}
@@ -180,7 +180,7 @@ export function EventPopover({
               onChange={(e) => set({ repeatsWeekly: e.target.checked })}
               className="h-3.5 w-3.5 accent-[var(--color-accent)]"
             />
-            <Repeat className="h-3 w-3" />
+            <Repeat className="h-3.5 w-3.5" />
             Repeats weekly
           </label>
         )}
@@ -189,9 +189,9 @@ export function EventPopover({
       {children}
 
       {row?.recurrence && canEdit && (
-        <p className="text-[10px] text-text-muted">Changes apply to every week.</p>
+        <p className="text-meta text-text-muted">Changes apply to every week.</p>
       )}
-      {error && <p role="alert" className="text-[11px] text-tag-confused">{error}</p>}
+      {error && <p role="alert" className="text-meta text-confused">{error}</p>}
 
       {canEdit && (
         <div className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
@@ -200,7 +200,7 @@ export function EventPopover({
               type="button"
               onClick={onDelete}
               disabled={busy}
-              className="rounded-lg px-2 py-1 text-[11px] font-medium text-tag-confused transition-colors hover:bg-tag-confused/10"
+              className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >
               {row?.recurrence ? 'Delete every week?' : 'Delete it?'}
             </button>
@@ -210,9 +210,9 @@ export function EventPopover({
               aria-label="Delete"
               title="Delete"
               onClick={() => setConfirmDelete(true)}
-              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-control text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
             </button>
           ))}
           {onToggleDone && (
@@ -220,9 +220,9 @@ export function EventPopover({
               type="button"
               onClick={onToggleDone}
               disabled={busy}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+              className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay"
             >
-              {done ? <RotateCcw className="h-3 w-3" /> : <Check className="h-3 w-3" />}
+              {done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
               {done ? 'Not done yet' : 'Mark done'}
             </button>
           )}
@@ -230,7 +230,7 @@ export function EventPopover({
             type="submit"
             disabled={!!invalid || busy}
             title={invalid ?? undefined}
-            className="ml-auto rounded-lg bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="ml-auto inline-flex h-9 items-center rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
           >
             {isCreate ? 'Add' : 'Save'}
           </button>

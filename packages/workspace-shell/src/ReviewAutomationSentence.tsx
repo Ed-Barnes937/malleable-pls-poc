@@ -85,7 +85,7 @@ export function ReviewAutomationSentence({ workflow, job }: { workflow: Workflow
 
   return (
     <div data-testid="review-automation-sentence">
-      <p className="text-[15px] leading-7 text-neutral-200">
+      <p className="text-title leading-7 text-text-primary">
         When I mark something{' '}
         <InlineChoice
           label="Which mark starts this"
@@ -142,7 +142,7 @@ function InlineChoice({
   return (
     <span
       className={cn(
-        'relative inline-flex items-center gap-0.5 rounded-md bg-accent/15 px-1.5 align-baseline font-semibold text-accent',
+        'relative inline-flex items-center gap-0.5 rounded-item bg-accent-soft px-1.5 align-baseline font-semibold text-accent',
         'transition-colors hover:bg-accent/25 focus-within:ring-2 focus-within:ring-accent/60',
       )}
     >
@@ -177,8 +177,8 @@ function Hint({
     <p
       aria-live="polite"
       className={cn(
-        'mt-1 text-[11px]',
-        status?.tone === 'error' ? 'text-red-400' : status ? 'text-emerald-400' : 'text-neutral-500',
+        'mt-1 text-meta',
+        status?.tone === 'error' ? 'text-confused' : status ? 'text-good' : 'text-text-muted',
       )}
     >
       {pending ? 'Saving...' : status ? status.text : children}

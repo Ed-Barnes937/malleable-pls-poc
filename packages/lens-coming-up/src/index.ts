@@ -16,6 +16,6 @@ export const manifest: PanelManifest = {
   load: () => import('./ComingUpLens'),
   minWidth: 260,
   minHeight: 200,
-  defaultWidth: 340,
-  defaultHeight: 340,
+  defaultWidth: 360,
+  defaultHeight: 320,
 }

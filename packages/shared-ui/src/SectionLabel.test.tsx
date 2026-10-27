@@ -14,10 +14,10 @@ describe('SectionLabel', () => {
     expect(el.className).toContain('custom-class')
   })
 
-  it('applies uppercase/tracking styles', () => {
+  it('is a sentence-case meta label, not an uppercase one', () => {
     const { container } = render(<SectionLabel>Hello</SectionLabel>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('uppercase')
-    expect(el.className).toContain('tracking-widest')
+    expect(el.className).toContain('text-meta')
+    expect(el.className).not.toContain('uppercase')
   })
 })

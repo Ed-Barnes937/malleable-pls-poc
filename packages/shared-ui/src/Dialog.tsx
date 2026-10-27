@@ -30,7 +30,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     >
       <div
         data-testid="dialog-backdrop"
-        className="absolute inset-0 bg-black/60"
+        className="absolute inset-0 bg-black/40"
         onClick={onClose}
       />
       <div
@@ -38,18 +38,18 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
         aria-modal="true"
         aria-label={title}
         className={cn(
-          'relative z-10 max-w-md rounded-lg border border-border-subtle bg-surface-raised p-4 text-neutral-100 shadow-xl',
+          'relative z-10 max-w-md rounded-widget border border-border-subtle bg-surface-raised p-5 text-body text-text-primary shadow-pop',
           className,
         )}
       >
         {title && (
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-medium">{title}</h2>
+            <h2 className="text-title font-semibold">{title}</h2>
             <button
               type="button"
               aria-label="Close"
               onClick={onClose}
-              className="rounded p-1 text-neutral-400 hover:bg-surface-overlay hover:text-neutral-100"
+              className="rounded-item p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text-primary"
             >
               <X className="h-4 w-4" />
             </button>
@@ -60,7 +60,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-2 top-2 rounded p-1 text-neutral-400 hover:bg-surface-overlay hover:text-neutral-100"
+            className="absolute right-3 top-3 rounded-item p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text-primary"
           >
             <X className="h-4 w-4" />
           </button>

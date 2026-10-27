@@ -21,19 +21,19 @@ describe('Badge', () => {
   it('applies the success variant classes', () => {
     const { container } = render(<Badge variant="success">S</Badge>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toMatch(/emerald/)
+    expect(el.className).toContain('text-good')
   })
 
   it('applies the warning variant classes', () => {
     const { container } = render(<Badge variant="warning">W</Badge>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('text-tag-confused')
+    expect(el.className).toContain('text-confused')
   })
 
   it('defaults to the neutral variant', () => {
     const { container } = render(<Badge>N</Badge>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('text-neutral-500')
+    expect(el.className).toContain('text-text-secondary')
   })
 
   it('renders icon when provided', () => {
@@ -46,16 +46,16 @@ describe('Badge', () => {
     expect(screen.queryByTestId('badge-icon')).not.toBeInTheDocument()
   })
 
-  it('applies sm size by default (text-[10px])', () => {
+  it('applies sm size by default (text-meta)', () => {
     const { container } = render(<Badge>sm</Badge>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toContain('text-[10px]')
+    expect(el.className).toContain('text-meta')
   })
 
   it('applies md size variant', () => {
     const { container } = render(<Badge size="md">md</Badge>)
     const el = container.firstChild as HTMLElement
-    expect(el.className).toMatch(/text-xs|text-sm/)
+    expect(el.className).toContain('text-body')
   })
 
   it('applies ring class when ring=true', () => {

@@ -41,7 +41,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
     <Dialog open={open} onClose={onClose} title="New board">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
-          <label htmlFor="ws-name" className="mb-1 block text-xs text-neutral-400">
+          <label htmlFor="ws-name" className="mb-1.5 block text-meta font-semibold text-text-secondary">
             Name
           </label>
           <TextField
@@ -54,7 +54,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
           />
         </div>
         <div>
-          <label htmlFor="ws-course" className="mb-1 block text-xs text-neutral-400">
+          <label htmlFor="ws-course" className="mb-1.5 block text-meta font-semibold text-text-secondary">
             Course (optional)
           </label>
           <Select id="ws-course" value={courseTag} onChange={(e) => setCourseTag(e.target.value)}>
@@ -65,20 +65,20 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
               </option>
             ))}
           </Select>
-          <p className="mt-1 text-[11px] text-neutral-500">Widgets on this board focus on this course. You can change it later.</p>
+          <p className="mt-1.5 text-meta text-text-muted">Widgets on this board focus on this course. You can change it later.</p>
         </div>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-surface-overlay hover:text-neutral-200"
+            className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={!name.trim() || createWorkspace.isPending}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-40"
+            className="h-9 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-colors hover:bg-accent/90 disabled:opacity-40"
           >
             {createWorkspace.isPending ? 'Creating...' : 'Create board'}
           </button>
@@ -117,15 +117,15 @@ export function DeleteWorkspaceDialog({
 
   return (
     <Dialog open={open} onClose={onClose} title="Delete board">
-      <p className="mb-4 text-xs text-neutral-400">
-        Delete <span className="font-medium text-neutral-200">{workspace?.name}</span>? Its widgets
+      <p className="mb-4 text-body text-text-secondary">
+        Delete <span className="font-semibold text-text-primary">{workspace?.name}</span>? Its widgets
         and settings are removed. Your lectures, notes and to-dos stay.
       </p>
       <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onClose}
-          className="rounded-md px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-surface-overlay hover:text-neutral-200"
+          className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
           Cancel
         </button>
@@ -133,7 +133,7 @@ export function DeleteWorkspaceDialog({
           type="button"
           onClick={handleDelete}
           disabled={deleteWorkspace.isPending}
-          className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-40"
+          className="h-9 rounded-control bg-confused px-3.5 text-body font-medium text-surface-raised transition-colors hover:bg-confused/90 disabled:opacity-40"
         >
           {deleteWorkspace.isPending ? 'Deleting...' : 'Delete board'}
         </button>

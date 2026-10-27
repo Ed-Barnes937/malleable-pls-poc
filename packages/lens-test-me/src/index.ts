@@ -16,6 +16,6 @@ export const manifest: PanelManifest = {
   load: () => import('./TestMeLens'),
   minWidth: 300,
   minHeight: 250,
-  defaultWidth: 400,
-  defaultHeight: 350,
+  defaultWidth: 420,
+  defaultHeight: 470,
 }

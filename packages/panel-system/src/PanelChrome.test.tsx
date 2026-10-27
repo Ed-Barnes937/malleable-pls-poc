@@ -108,11 +108,11 @@ describe('PanelChrome', () => {
     expect(onDragHandlePointerDown).toHaveBeenCalledTimes(1)
   })
 
-  it('header is visually distinct from content (divider + background tint)', () => {
+  it('header sits on the panel with no divider or tint, titled at the item-title size', () => {
     render(<PanelChrome title="Test" />)
     const header = screen.getByTestId('panel-header')
-    expect(header.className).toContain('border-b')
-    expect(header.className).toContain('border-border-subtle')
-    expect(header.className).toContain('bg-surface-overlay/50')
+    expect(header.className).not.toMatch(/\bborder-b\b/)
+    expect(header.className).not.toMatch(/\bbg-/)
+    expect(screen.getByTestId('panel-title').className).toContain('text-title')
   })
 })
