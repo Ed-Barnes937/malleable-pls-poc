@@ -1,6 +1,4 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
-import { LayoutGrid, Plus } from 'lucide-react'
-import { EmptyState } from '@pls/shared-ui'
 import {
   useWorkspaces,
   useWorkspacePanels,
@@ -14,7 +12,7 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -34,6 +32,8 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { useShowMoment } from './moments'
+import { BoardStarters } from './BoardStarters'
+import { listNames } from './starters'
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -189,10 +189,12 @@ export function WorkspaceShell() {
 
   /**
    * Adds a widget at its default size. Without a position (a palette click)
-   * it goes in the first free area of the visible board.
+   * it goes in the first free area of the visible board. `quiet` skips the
+   * scroll into view and the "added" toast, for a caller adding a group of
+   * widgets to an empty board and announcing them together.
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onAdded?: () => void; onFailed?: () => void } = {}) => {
       const m = manifests.find((man) => man.id === lensType)
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
@@ -217,34 +219,51 @@ export function WorkspaceShell() {
       const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
       pendingAddsRef.current = [...pending, add]
 
-      addPanel.mutate(
-        {
-          workspaceId: activeWorkspaceId,
-          lensType,
-          slotName: `slot-${Date.now()}`,
-          pos_x: box.x,
-          pos_y: box.y,
-          width,
-          height,
-          z_index: box.z,
+      // mutateAsync, not mutate with callbacks: mutate's callbacks fire only
+      // for the latest of several overlapping calls, and every add needs its own.
+      addPanel.mutateAsync({
+        workspaceId: activeWorkspaceId,
+        lensType,
+        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pos_x: box.x,
+        pos_y: box.y,
+        width,
+        height,
+        z_index: box.z,
+      }).then(
+        (row) => {
+          // Stays taken until the canvas shows the saved panel (it may already).
+          add.panelId = (row as { id?: string } | undefined)?.id
+          dropPendingOnCanvas()
+          if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
+          opts.onAdded?.()
+          // One toast for a run of adds, not a stack of them.
+          if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
-        {
-          onSuccess: (row) => {
-            // Stays taken until the canvas shows the saved panel (it may already).
-            add.panelId = (row as { id?: string } | undefined)?.id
-            dropPendingOnCanvas()
-            if (add.panelId && !at) revealPanel(add.panelId)
-            // One toast for a run of adds, not a stack of them.
-            pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
-          },
-          onError: () => {
-            pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
-            pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
-          },
+        () => {
+          pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
+          opts.onFailed?.()
+          pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
         },
       )
     },
     [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel],
+  )
+
+  /**
+   * A first-run starter: its widgets, placed one after another by the same
+   * click-to-add placement (largest first), with one toast once all are saved.
+   */
+  const addStarter = useCallback(
+    (widgets: PanelManifest[], onFailed: () => void) => {
+      let saved = 0
+      const onAdded = () => {
+        if (++saved < widgets.length) return
+        pushToast({ message: `${listNames(widgets.map((w) => w.label))} added`, tone: 'success', key: 'widget-added' })
+      }
+      for (const w of widgets) addWidget(w.id, undefined, { quiet: true, onAdded, onFailed })
+    },
+    [addWidget, pushToast],
   )
 
   const handleDrop = useCallback(
@@ -396,20 +415,10 @@ export function WorkspaceShell() {
                 data-testid="workspace-empty-state"
                 className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
               >
-                <EmptyState
-                  icon={LayoutGrid}
-                  message="This board is empty. Add widgets to build it your way."
-                  action={
-                    <button
-                      type="button"
-                      onClick={() => setDrawerOpen(true)}
-                      className="pointer-events-auto mt-1 inline-flex items-center gap-1.5 rounded-[var(--radius-panel)] px-3 py-1.5 text-sm font-medium text-accent-foreground transition-colors"
-                      style={{ background: 'var(--color-accent)' }}
-                    >
-                      <Plus size={16} />
-                      Add widgets
-                    </button>
-                  }
+                <BoardStarters
+                  manifests={manifests}
+                  onStart={addStarter}
+                  onAddWidgets={() => setDrawerOpen(true)}
                 />
               </div>
             )}
