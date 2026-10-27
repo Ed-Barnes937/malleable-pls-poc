@@ -17,6 +17,7 @@ describe.skipIf(!TEST_DATABASE_URL)('failInterruptedJobs (Postgres)', () => {
   let executors: ReturnType<typeof import('./executors').createServerExecutors>
   const user = `test-jr-${randomUUID().slice(0, 8)}`
   const rec = `rec-${user}`
+  const otherUser = `${user}-other`
 
   const job = (jobType: string, status: string) => db.withUser(user, async (tx) => {
     const [row] = await tx`
@@ -50,7 +51,7 @@ describe.skipIf(!TEST_DATABASE_URL)('failInterruptedJobs (Postgres)', () => {
   afterAll(async () => {
     if (!db) return
     for (const table of ['job_runs', 'recordings']) {
-      await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [user])
+      await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [[user, otherUser]])
     }
     await db.sql.end()
   })
@@ -59,14 +60,21 @@ describe.skipIf(!TEST_DATABASE_URL)('failInterruptedJobs (Postgres)', () => {
     const transcribe = await job('ai:transcribe', 'running')
     const other = await job('search:related', 'running')
     const waiting = await job('ai:summarize-lecture', 'pending')
+    const [elsewhere] = await db.sql`
+      INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, status, run_after)
+      VALUES (${otherUser}, 'wf-test', 'wj-test', 'ai:transcribe', 'running', now() + interval '1 hour')
+      RETURNING id
+    `
     expect((await caller.recordings.byId(rec))?.processing).toBe('transcribing')
 
-    expect(await runner.failInterruptedJobs(executors)).toBeGreaterThanOrEqual(2)
+    // Scoped to this test's user: other tests' runs in the shared database stay as they are.
+    expect(await runner.failInterruptedJobs(executors, { userId: user })).toBe(2)
 
     expect(await statusOf(transcribe)).toMatchObject({ status: 'failed', error: runner.INTERRUPTED_ERROR })
     // Retries count as used up: no automatic re-run, a retry button instead.
     expect(await statusOf(other)).toMatchObject({ status: 'failed', retry_count: runner.MAX_RETRIES })
     expect(await statusOf(waiting)).toMatchObject({ status: 'pending' })
+    expect(await statusOf(elsewhere!.id as string)).toMatchObject({ status: 'running' })
     const recent = (await caller.jobs.recent(10)) as unknown as { id: string; retryable: boolean }[]
     expect(recent.filter((r) => r.id === transcribe || r.id === other).map((r) => r.retryable)).toEqual([true, true])
     // Only the queued summary is left.

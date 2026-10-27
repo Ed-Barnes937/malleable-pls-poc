@@ -2,6 +2,8 @@
 
 tRPC API, `/upload`, and the workflow job runner.
 
+**One server per database.** On start the server marks every job run still `running` as failed (`failInterruptedJobs`, `src/workflows/job-runner.ts`), assuming a restart cut it off. A second server on the same database would fail the first one's live runs: keep Fly at one machine (`fly scale count 1`), and never point `dev:server` and `e2e:server` at the same `PG_DB`.
+
 ## AI (`AI_MODE`)
 
 All AI goes through `AiDeps` (`src/ai/deps.ts`): a `Transcriber` and an
