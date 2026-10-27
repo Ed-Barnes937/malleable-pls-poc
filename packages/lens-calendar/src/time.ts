@@ -126,3 +126,16 @@ export function fromInputs(date: string, time: string): Date | null {
 export function localTimeZone(): string {
   return Intl.DateTimeFormat().resolvedOptions().timeZone
 }
+
+/**
+ * Where "Pick a time" starts for a to-do of `durationMin`: the first free
+ * gap (UTC ms intervals, in order) long enough for it, at a 15-minute
+ * boundary; else the first free moment of at least 15 minutes; else null.
+ */
+export function firstFreeStart(free: ReadonlyArray<{ start: number; end: number }>, durationMin: number): number | null {
+  const step = SNAP_MIN * 60_000
+  const aligned = (f: { start: number }) => Math.ceil(f.start / step) * step
+  const fits = (f: { start: number; end: number }, min: number) => f.end - aligned(f) >= min * 60_000
+  const gap = free.find((f) => fits(f, durationMin)) ?? free.find((f) => fits(f, SNAP_MIN))
+  return gap ? aligned(gap) : null
+}

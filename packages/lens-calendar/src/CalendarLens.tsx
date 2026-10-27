@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
-import { type LensProps, type DateRange, type ShowMomentResult, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, type DateRange, type ShowMomentResult, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, formatTime } from '@pls/shared-ui'
 import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
+import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
 import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposals'
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
@@ -152,17 +153,29 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     [items],
   )
 
+  // Study blocks whose time passed without being done, offered for re-fitting.
+  const missed = useMissedBlocks()
+  const refit = useRefitDraft(missed)
+  const missedIds = useMemo(() => (missed.preview ? new Set(missed.preview.map((m) => m.item.id)) : null), [missed.preview])
+
   const validateProposal: ProposalValidator = useCallback((p, source) => {
     if (source === 'autofill' && todos && !todos.some((t) => t.id === p.taskId)) return 'it already has a time'
+    if (source === REFIT_SOURCE) {
+      if (missedIds && !missedIds.has(p.taskId)) return 'it was already moved, done or removed'
+      if (Date.parse(p.startsAt) < Date.now()) return 'that time has already started'
+    }
     const clash = clashAt(p.taskId, Date.parse(p.startsAt), Date.parse(p.endsAt))
     return clash ? `that time overlaps ${clash.title}` : null
-  }, [todos, clashAt])
+  }, [todos, clashAt, missedIds])
 
-  // Ghost blocks (Auto-fill drafts and any other proposals): client state
-  // until accepted, which saves the block like a drag would. Each is checked
-  // against the calendar as it is now, so a ghost never lands on something.
+  // Ghost blocks (Auto-fill drafts, re-fitted blocks): client state until
+  // accepted. An Auto-fill ghost saves like a drag would; re-fitted ones are
+  // written together by `planItems.refit`, which refuses a stale preview.
+  // Each is checked against the calendar as it is now, so a ghost never
+  // lands on something.
   const layer = useProposalLayer({
     save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
+    saveTogether: { [REFIT_SOURCE]: refit.save },
     rows: items,
     validate: validateProposal,
   })
@@ -394,7 +407,16 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         </div>
       </header>
 
-      {(!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+      <RefitBanner
+        refit={refit}
+        layer={layer}
+        onReveal={(startsAt) => {
+          // Show the first new time: its week (or day).
+          const start = Date.parse(startsAt)
+          if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
+        }}
+      />
+      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
       <div className="@container/cal relative flex min-h-0 flex-1 gap-2.5">
         <TimeGrid
@@ -410,6 +432,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           proposals={layer.proposals}
           savedProposalIds={layer.savedIds}
           onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
+          onProposalNudge={layer.nudge}
           onProposalAccept={(id) => void layer.accept(id)}
           onProposalDismiss={layer.dismiss}
           freeTime={freeTime}
@@ -424,10 +447,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           }}
         />
         {planLayout && planCollapsed && (
+          // Bottom corner, clear of the day headers.
           <button
             type="button"
             onClick={() => setPlanCollapsed(false)}
-            className="absolute right-2 top-2 z-30 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground shadow-lg transition-colors hover:bg-accent/90"
+            className="absolute bottom-3 right-3 z-30 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground shadow-lg transition-colors hover:bg-accent/90"
           >
             <Sparkles className="h-3 w-3" />
             Show plan

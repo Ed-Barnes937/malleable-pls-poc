@@ -48,6 +48,13 @@ export interface ProposalLayer {
    * (with a notice) if the new time fails `validate` or overlaps another ghost.
    */
   move: (id: string, startsAt: string, endsAt: string) => void
+  /**
+   * Keyboard adjust: steps one by `minutes` (up / down, within its day) or
+   * `days` (left / right). A step that would land on something keeps going
+   * in the same direction to the next position that holds, so a ghost can
+   * hop past a commitment; if none does, it stays put (with a notice).
+   */
+  nudge: (id: string, minutes: number, days: number) => void
   dismiss: (id: string) => void
   /** "Keep my plan": drops every proposal, writes nothing. */
   dismissAll: () => void
@@ -68,6 +75,9 @@ const LAND_TIMEOUT_MS = 4000
  */
 export type ProposalValidator = (proposal: Proposal, source: string) => string | null
 
+/** How far a nudge looks for a free position: a whole day in 15-minute steps, or a week of days. */
+const MAX_NUDGE_STEPS = 96
+
 const overlaps = (a: Proposal, b: Proposal) =>
   Date.parse(a.startsAt) < Date.parse(b.endsAt) && Date.parse(b.startsAt) < Date.parse(a.endsAt)
 
@@ -83,8 +93,16 @@ export function useProposalLayer({
   save,
   rows,
   validate,
+  saveTogether,
 }: {
   save: (proposal: Proposal) => Promise<unknown>
+  /**
+   * Sources whose accepted proposals are written in one call, all or
+   * nothing, instead of one `save` each (re-fit: `planItems.refit`, so the
+   * server checks the whole batch against the week as it is). A rejection
+   * leaves every one of them drafted.
+   */
+  saveTogether?: Partial<Record<string, (proposals: Proposal[]) => Promise<unknown>>>
   rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at'>>
   validate?: ProposalValidator
 }): ProposalLayer {
@@ -156,19 +174,52 @@ export function useProposalLayer({
     setSource(next.length > 0 ? from : null)
   }, [])
 
+  /** Why `next` (a moved version of proposal `id`) can't go there, or null. */
+  const moveProblem = useCallback((id: string, next: Proposal) => {
+    const other = latest.current.find((p) => p.id !== id && overlaps(p, next))
+    return check(next) ?? (other ? `that time overlaps "${other.title}"` : null)
+  }, [check])
+
+  const place = useCallback((id: string, next: Proposal) => {
+    setNotice(null)
+    setProposals((prev) => prev.map((p) => (p.id === id ? next : p)))
+  }, [])
+
   const move = useCallback((id: string, startsAt: string, endsAt: string) => {
     const current = latest.current.find((p) => p.id === id)
     if (!current) return
     const next = { ...current, startsAt, endsAt, adjusted: true }
-    const other = latest.current.find((p) => p.id !== id && overlaps(p, next))
-    const reason = check(next) ?? (other ? `that time overlaps "${other.title}"` : null)
+    const reason = moveProblem(id, next)
     if (reason) {
       setNotice(`Can't move "${current.title}" there: ${reason}.`)
       return
     }
-    setNotice(null)
-    setProposals((prev) => prev.map((p) => (p.id === id ? next : p)))
-  }, [check])
+    place(id, next)
+  }, [moveProblem, place])
+
+  const nudge = useCallback((id: string, minutes: number, days: number) => {
+    const current = latest.current.find((p) => p.id === id)
+    if (!current) return
+    const shifted = (steps: number) => {
+      const [start, end] = [new Date(current.startsAt), new Date(current.endsAt)]
+      for (const d of [start, end]) {
+        d.setDate(d.getDate() + days * steps)
+        d.setMinutes(d.getMinutes() + minutes * steps)
+      }
+      return { start, end }
+    }
+    let firstReason: string | null = null
+    for (let steps = 1; steps <= (minutes !== 0 ? MAX_NUDGE_STEPS : 7); steps++) {
+      const { start, end } = shifted(steps)
+      // Up and down stay within the ghost's day.
+      if (minutes !== 0 && !withinDay(start, end, new Date(current.startsAt))) break
+      const next = { ...current, startsAt: start.toISOString(), endsAt: end.toISOString(), adjusted: true }
+      const reason = moveProblem(id, next)
+      if (!reason) return place(id, next)
+      firstReason ??= reason
+    }
+    if (firstReason) setNotice(`Can't move "${current.title}" there: ${firstReason}.`)
+  }, [moveProblem, place])
 
   const dismiss = useCallback((id: string) => drop(new Set([id])), [drop])
   const dismissAll = useCallback(() => propose('', []), [propose])
@@ -186,12 +237,18 @@ export function useProposalLayer({
       // One at a time, in order: each is a normal plan item update. Each is
       // checked again right before it is saved, against the latest data and
       // the blocks accepted just before it in this batch.
+      const together = sourceRef.current ? saveTogether?.[sourceRef.current] : undefined
+      const ready: Proposal[] = []
       for (const p of targets) {
-        const earlier = accepted.find((a) => overlaps(a, p))
+        const earlier = (together ? ready : accepted).find((a) => overlaps(a, p))
         const reason = check(p) ?? (earlier ? `that time overlaps "${earlier.title}"` : null)
         if (reason) {
           skipped.push(`Didn't save "${p.title}": ${reason}.`)
           drop(new Set([p.id]))
+          continue
+        }
+        if (together) {
+          ready.push(p)
           continue
         }
         try {
@@ -202,6 +259,19 @@ export function useProposalLayer({
           failed.push(p.title)
         }
       }
+      if (together && ready.length > 0) {
+        try {
+          await together(ready)
+          const at = Date.now()
+          setSaved((prev) => {
+            const next = new Map(prev)
+            for (const p of ready) next.set(p.id, at)
+            return next
+          })
+        } catch {
+          failed.push(...ready.map((p) => p.title))
+        }
+      }
     } finally {
       setSaving((n) => n - 1)
     }
@@ -209,7 +279,7 @@ export function useProposalLayer({
     if (failed.length > 0) {
       setError(`Couldn't save ${failed.map((t) => `"${t}"`).join(', ')}. Still drafted - try again?`)
     }
-  }, [save, saved, check, drop])
+  }, [save, saveTogether, saved, check, drop])
 
   const savedIds = useMemo(() => new Set(saved.keys()), [saved])
   const accept = useCallback((id: string) => acceptMany([id]), [acceptMany])
@@ -225,11 +295,18 @@ export function useProposalLayer({
     clearNotice: () => setNotice(null),
     propose,
     move,
+    nudge,
     dismiss,
     dismissAll,
     accept,
     acceptAll,
   }
+}
+
+/** [start, end) stays on `day`'s local date (ending at its midnight is fine). */
+function withinDay(start: Date, end: Date, day: Date): boolean {
+  const midnight = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+  return start.toDateString() === day.toDateString() && end.getTime() <= midnight.getTime()
 }
 
 /** The plan item patch that accepting a proposal writes. */
