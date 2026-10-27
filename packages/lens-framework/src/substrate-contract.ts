@@ -95,9 +95,10 @@ export interface SubstrateReader {
    * To-dos whose time block ended without being done, each with where re-fit
    * would put it now (or why it doesn't fit). Empty when nothing was missed.
    * Always across every course: scope never changes where things go. Refreshed
-   * every minute, as blocks end.
+   * every minute, as blocks end. `refetch` asks the server now (e.g. right
+   * before showing new times), resolving with the fresh preview.
    */
-  useRefitPreview: (timeZone: string) => QueryResult<RefitPreview>
+  useRefitPreview: (timeZone: string) => QueryResult<RefitPreview> & { refetch: () => Promise<RefitPreview> }
 }
 
 /**

@@ -239,6 +239,49 @@ test('changing study time per day during a draft re-drafts it; a too-long to-do 
   await draft.getByRole('button', { name: 'Shrink to 1h' }).click()
   await expect(draft.getByTestId('autofill-unplaced')).toContainText('Flashcards: organelles (1h) - no free gap long enough')
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 1h didn't fit.")
+
+  // 3h a day: the offer is the new day length, not the 2h the advice said.
+  await draft.getByRole('button', { name: 'Undo' }).click()
+  await panel.getByLabel('Study time per day').selectOption('180')
+  await expect(draft.getByTestId('autofill-trim')).toHaveText([/Shrink "Lab report write-up" to 3h\?/])
+  await expect(draft.getByRole('button', { name: 'Shrink to 3h' })).toBeVisible()
+})
+
+test('arrow keys hop a ghost past whatever is in the way, within its day', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await draftWithAssumedEstimates(page)
+  const quiz = ghost(page, 'Biology quiz prep')
+  await expect(quiz).toHaveAttribute('aria-label', /08:00 - 09:00/)
+  await expect(ghost(page, 'Flashcards')).toHaveAttribute('aria-label', /09:15 - 10:15/)
+  await quiz.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /08:15 - 09:15/)
+  // 08:30 would overlap the Flashcards ghost: it hops past it.
+  await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /10:15 - 11:15/)
+  for (let i = 0; i < 3; i++) await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /11:00 - 12:00/)
+  // Monday is busy from 12:00 to 22:00: past the commitment in one step.
+  await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /22:00 - 23:00/)
+  await expect(quiz).toBeFocused()
+  // And back up past it.
+  await page.keyboard.press('ArrowUp')
+  await expect(quiz).toHaveAttribute('aria-label', /11:00 - 12:00/)
+})
+
+test('"Pick a time" starts at the first free gap long enough for the to-do', async ({ mount, page, simulator }) => {
+  // Monday has only 08:00-08:30 free; Tuesday 08:00-10:00.
+  seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+    id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d === 0 ? 8 : d === 1 ? 10 : 8, d === 0 ? 30 : 0), ends_at: iso(d, 22),
+  })))
+  seed(simulator, [{ id: 'essay', title: 'Essay plan', duration_min: 90 }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  const essay = panel.getByTestId('plan-todo').filter({ hasText: 'Essay plan' })
+  await essay.getByRole('button', { name: /Other time|Pick a time/ }).click()
+  await expect(essay.getByLabel('Start time for Essay plan')).toHaveValue(toLocalInput(at(1, 8)))
 })
 
 test('keyboard: nudge a ghost with the arrows and accept it with Enter; pick a time for a to-do with no slot', async ({ mount, page, simulator }) => {
@@ -257,7 +300,7 @@ test('keyboard: nudge a ghost with the arrows and accept it with Enter; pick a t
   await panel.getByRole('button', { name: 'Keep my plan' }).click()
   const lab = panel.getByTestId('plan-todo').filter({ hasText: 'Lab report write-up' })
   await lab.getByRole('button', { name: 'Pick a time' }).click()
-  // It starts at the first free study time ahead: Monday after the accepted quiz block.
+  // No gap fits 4h, so it starts at the first free moment: Monday after the accepted quiz block.
   await expect(lab.getByLabel('Start time for Lab report write-up')).toHaveValue(toLocalInput(at(0, 8, 30)))
   await lab.getByLabel('Start time for Lab report write-up').fill(toLocalInput(at(1, 9)))
   await lab.getByRole('button', { name: 'Add' }).click()

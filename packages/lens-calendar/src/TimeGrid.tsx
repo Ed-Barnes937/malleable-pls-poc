@@ -36,6 +36,8 @@ export interface TimeGridProps {
   /** Proposals accepted and being saved: drawn, but no longer actionable. */
   savedProposalIds?: ReadonlySet<string>
   onProposalMove?: (id: string, start: Date, end: Date) => void
+  /** Keyboard adjust: by `minutes` or `days`, hopping past anything in the way (see `ProposalLayer.nudge`). */
+  onProposalNudge?: (id: string, minutes: number, days: number) => void
   onProposalAccept?: (id: string) => void
   onProposalDismiss?: (id: string) => void
   /** Free study time to shade (UTC ms intervals), e.g. while planning. */
@@ -75,7 +77,7 @@ type Drag =
 
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
-  proposals, savedProposalIds, onProposalMove, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
+  proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -399,15 +401,7 @@ export function TimeGrid({
                       onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
-                      onNudge={(minutes, dayShift) => {
-                        const start = new Date(seg.item.starts_at!)
-                        const end = new Date(seg.item.ends_at!)
-                        for (const d of [start, end]) {
-                          d.setDate(d.getDate() + dayShift)
-                          d.setMinutes(d.getMinutes() + minutes)
-                        }
-                        onProposalMove?.(ghostId(seg.item)!, start, end)
-                      }}
+                      onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
                     />
                   ) : (
                     <Block
