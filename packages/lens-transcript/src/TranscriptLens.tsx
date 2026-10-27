@@ -30,6 +30,9 @@ function ReviewChip({ review }: { review: PlanItemOccurrence }) {
   )
 }
 
+/** Space kept above a shown moment too tall to centre. */
+const MOMENT_TOP_GAP = 8
+
 /** A calm note that the lecture's AI work is still under way. */
 function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; message: string; testId: string }) {
   return (
@@ -83,8 +86,12 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     const list = listRef.current
     const el = momentSegmentId ? list?.querySelector<HTMLElement>(`[data-segment-id="${momentSegmentId}"]`) : null
     if (!list || !el) return
-    // Scroll only the transcript list (scrollIntoView could also shift the board).
-    const top = el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
+    // Scroll only the transcript list (scrollIntoView could also shift the
+    // board). Centre the moment, unless it is taller than the list: then show
+    // it from its first line.
+    const top = el.clientHeight > list.clientHeight
+      ? el.offsetTop - MOMENT_TOP_GAP
+      : el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
     list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
   }, [momentSegmentId])
 
