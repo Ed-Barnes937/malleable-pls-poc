@@ -2,7 +2,7 @@ import { test, expect, type Locator } from '@playwright/test'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
-import { trpcQuery } from './api'
+import { trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
 import { expectedReviewSlots } from './review-placement'
 
@@ -81,5 +81,46 @@ test.describe('The confused-to-calendar ripple', () => {
     await expect(block).not.toHaveAttribute('data-revealed', 'true', { timeout: 6000 })
     await chip.click()
     await expect(block).toHaveAttribute('data-revealed', 'true')
+  })
+
+  test('a review that finds no time goes to the To-do list, and says so', async ({ page, request }) => {
+    // Away for the whole window (today and the next 3 days): no free time at all.
+    const now = Date.now()
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'commitment', title: 'Field trip', subtype: 'other',
+      starts_at: new Date(startOfLocalDay(now, TZ)).toISOString(), ends_at: new Date(startOfLocalDay(now, TZ, 4)).toISOString(),
+    })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    await sidebar.addWidget('Calendar')
+    await sidebar.addWidget('To-do')
+    await page.keyboard.press('Escape')
+
+    const transcript = grid.panelByLabel('Transcript')
+    await expect(transcript.getByText('14 segments')).toBeVisible({ timeout: 10000 })
+    await page.locator('body').evaluate((el) => {
+      const w = window as unknown as { liftOff: string[] }
+      w.liftOff = []
+      new MutationObserver(() => {
+        const card = el.querySelector('[data-testid="review-lift-off"]')
+        if (card?.textContent && !w.liftOff.includes(card.textContent)) w.liftOff.push(card.textContent)
+      }).observe(el, { subtree: true, childList: true })
+    })
+    const moment = transcript.locator('[data-segment-id]').filter({ hasText: /Today we're continuing our discussion/ })
+    await moment.getByText(/Today we're continuing our discussion/).click()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+
+    const chip = moment.getByTestId('review-chip')
+    await expect(chip).toContainText('Review on your to-do list', { timeout: 20000 })
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Review added to your to-do list')
+    await expect(toast.getByRole('button', { name: 'See it' })).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { liftOff: string[] }).liftOff.join(' | ')))
+      .toContain('Adding to your to-do list')
+    expect(await page.evaluate(() => (window as unknown as { liftOff: string[] }).liftOff.join(' | '))).not.toContain('Adding to your plan')
   })
 })

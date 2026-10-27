@@ -61,6 +61,8 @@ export async function findReviewSlots(
     to: new Date(range.end).toISOString(),
     statuses: ['open', 'done'],
   })
+  // The daily budget is the default (2h): the board's Calendar setting is
+  // panel config the server can't see. Moves to a user preference with S1.
   return placeReviews(items, reviews, range, opts)
 }
 
@@ -183,8 +185,10 @@ export async function createReview(
 // ---------------------------------------------------------------------------
 
 export interface ReplaceResult {
-  /** Reviews whose time block or length changed. */
+  /** Reviews now at a different time (or newly on the calendar). */
   moved: number
+  /** Reviews that kept their start and only changed length. */
+  resized: number
   /** Reviews that no longer fit their window and are now unscheduled. */
   unscheduled: number
 }
@@ -214,7 +218,7 @@ export async function replaceAutomationReviews(
     const id = output.plan_item_id as string
     if (!placedAt.has(id)) placedAt.set(id, (output.starts_at as string | null | undefined) ?? null)
   }
-  if (placedAt.size === 0) return { moved: 0, unscheduled: 0 }
+  if (placedAt.size === 0) return { moved: 0, resized: 0, unscheduled: 0 }
 
   const rows = await tx`
     SELECT id FROM plan_items
@@ -229,7 +233,7 @@ export async function replaceAutomationReviews(
     const autoPlaced = placedAt.get(item.id) ?? null
     if (sameInstant(item.starts_at, autoPlaced)) movable.push(item)
   }
-  if (movable.length === 0) return { moved: 0, unscheduled: 0 }
+  if (movable.length === 0) return { moved: 0, resized: 0, unscheduled: 0 }
 
   const deadlines = new Map(movable.map((item) => [item.id, reviewDeadline(Date.parse(item.created_at), params)]))
   const slots = await findReviewSlots(
@@ -244,7 +248,7 @@ export async function replaceAutomationReviews(
     { now, timeZone: params.timeZone },
   )
 
-  const result: ReplaceResult = { moved: 0, unscheduled: 0 }
+  const result: ReplaceResult = { moved: 0, resized: 0, unscheduled: 0 }
   for (const before of movable) {
     const placed = placementColumns(slots.get(before.id))
     await tx`
@@ -262,8 +266,9 @@ export async function replaceAutomationReviews(
         AND output->>'plan_item_id' = ${before.id} AND NOT (output ? 'deduplicated')
     `
     const after = await fetchOne(tx, userId, before.id)
-    if (!sameInstant(before.starts_at, after.starts_at) || before.duration_min !== after.duration_min) result.moved++
     if (before.starts_at && !after.starts_at) result.unscheduled++
+    else if (!sameInstant(before.starts_at, after.starts_at)) result.moved++
+    else if (before.duration_min !== after.duration_min) result.resized++
     await dispatchWorkflows(tx, userId, 'plan-item:updated', eventPayload(after), null)
   }
   return result

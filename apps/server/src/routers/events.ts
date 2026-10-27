@@ -17,6 +17,8 @@ export interface ServerEvent {
   quiet?: boolean
   /** job:completed only - the time block the run placed (e.g. a new review), so the UI can offer "See it". */
   planItem?: { id: string; startsAt: string }
+  /** job:completed only - the run made a to-do but found no time for it. */
+  unplaced?: true
   userId: string
 }
 

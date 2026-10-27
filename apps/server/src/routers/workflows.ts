@@ -196,7 +196,7 @@ export const workflowsRouter = router({
             WHERE id = ${input.workflowId} AND user_id = ${ctx.userId}
           `
         }
-        const reviews: ReplaceResult = { moved: 0, unscheduled: 0 }
+        const reviews: ReplaceResult = { moved: 0, resized: 0, unscheduled: 0 }
         for (const { workflowJobId, params } of input.jobParams ?? []) {
           const [job] = await tx`
             SELECT job_type FROM workflow_jobs
@@ -222,6 +222,7 @@ export const workflowsRouter = router({
               now: Date.now(),
             })
             reviews.moved += result.moved
+            reviews.resized += result.resized
             reviews.unscheduled += result.unscheduled
           }
         }

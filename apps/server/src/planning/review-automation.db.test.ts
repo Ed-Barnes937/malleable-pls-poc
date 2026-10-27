@@ -160,7 +160,9 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       workflowId,
       jobParams: [{ workflowJobId, params: { durationMin: 30, windowDays: 1, timeZone: TZ } }],
     })
-    expect(reviews).toEqual({ moved: 1, unscheduled: 0 })
+    // Earliest placement: it keeps its start if 30 minutes still fit there, else moves.
+    expect(reviews.moved + reviews.resized).toBe(1)
+    expect(reviews.unscheduled).toBe(0)
 
     const moved = await api.planItems.byId(auto.id)
     expect(moved!.duration_min).toBe(30)

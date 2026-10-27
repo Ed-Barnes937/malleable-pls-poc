@@ -127,7 +127,7 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
       if (!job) throw new Error('Automation step not found')
       job.params = JSON.stringify(params)
     }
-    return { reviews: { moved: 0, unscheduled: 0 } }
+    return { reviews: { moved: 0, resized: 0, unscheduled: 0 } }
   })
 
   router.register('workflows.delete', (input) => {

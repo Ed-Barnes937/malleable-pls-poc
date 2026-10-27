@@ -308,9 +308,16 @@ describe('placeReviews', () => {
     expect(slots.get('r')).toEqual({ start: at(1, 9), end: at(1, 9, 20) })
   })
 
-  it('stays unscheduled when no day in the window has room', () => {
+  it('goes over the budget as a last resort, when every day in the window is at it', () => {
     const full = [0, 1, 2].map((d) => item({ id: `full-${d}`, kind: 'task', starts_at: iso(d, 15), ends_at: iso(d, 17) }))
     const slots = placeReviews(full, [review('r')], range, { now: at(0, 11), timeZone: tz })
+    // Still an hour after the mark, in the earliest free slot.
+    expect(slots.get('r')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+  })
+
+  it('stays unscheduled only when the window has no free slot at all', () => {
+    const away = [0, 1, 2].map((d) => item({ id: `away-${d}`, kind: 'commitment', starts_at: iso(d, 0), ends_at: iso(d + 1, 0) }))
+    const slots = placeReviews(away, [review('r')], range, { now: at(0, 11), timeZone: tz })
     expect(slots.get('r')).toEqual({ reason: 'no-free-slot' })
   })
 

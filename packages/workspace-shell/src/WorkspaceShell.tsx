@@ -42,8 +42,9 @@ function jobLabel(jobType?: string): string {
 }
 
 /** What a finished job means for the student; falls back to "Done: <job label>". */
-function jobDoneMessage(jobType?: string): string {
-  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
+function jobDoneMessage(jobType?: string, unplaced?: boolean): string {
+  const info = jobType ? JOB_TYPES.get(jobType) : undefined
+  return (unplaced && info?.unplacedMessage) || info?.doneMessage || `Done: ${jobLabel(jobType)}`
 }
 
 interface PendingAdd {
@@ -70,7 +71,7 @@ export function WorkspaceShell() {
       if (event.quiet) return
       const block = event.planItem
       pushToast({
-        message: jobDoneMessage(event.jobType),
+        message: jobDoneMessage(event.jobType, event.unplaced),
         tone: 'success',
         action: block && canShowPlanItemRef.current
           ? { label: 'See it', onClick: () => showPlanItemRef.current(block) }

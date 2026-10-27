@@ -15,7 +15,8 @@ import { trpcQuery } from './api'
  */
 export async function expectedReviewSlots(
   request: APIRequestContext,
-  review: { id: string; durationMin: number; latest: number },
+  /** `markedAt` when re-placing (the review's `created_at`); a new review is marked at the server's clock. */
+  review: { id: string; durationMin: number; latest: number; markedAt?: number },
   marked: { from: number; to: number },
   timeZone: string,
 ): Promise<Array<{ start: number; end: number } | null>> {
@@ -26,7 +27,7 @@ export async function expectedReviewSlots(
     statuses: ['open', 'done'],
   })
   return [marked.from, marked.to].map((now) => {
-    const slot = placeReviews(items, [{ ...review, markedAt: now }], range, { now, timeZone }).get(review.id)
+    const slot = placeReviews(items, [{ ...review, markedAt: review.markedAt ?? now }], range, { now, timeZone }).get(review.id)
     return slot && 'start' in slot ? slot : null
   })
 }

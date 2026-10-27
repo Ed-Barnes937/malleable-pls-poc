@@ -34,8 +34,9 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
       type="button"
       data-testid="review-chip"
       title="Show on calendar"
+      aria-label={`${label}, show on calendar`}
       onClick={onShow}
-      className={cn(className, 'transition-colors hover:border-attn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-attn')}
+      className={cn(className, 'text-left transition-colors hover:border-attn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-attn')}
     >
       <Icon className="h-3 w-3" />
       {label}
@@ -50,7 +51,8 @@ function prefersReducedMotion(): boolean {
 
 /**
  * The one signature motion: a card for the new review lifts off the moment
- * and flies toward the board's Calendar (to the right if there is none).
+ * and flies toward the board's Calendar, or its To-do list when the review
+ * found no time (to the right if neither is on the board).
  * Decorative only; never shown under reduced motion.
  */
 function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrence; recordingTitle: string; onDone: (id: string) => void }) {
@@ -64,16 +66,17 @@ function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrenc
     if (!anchor) return
     const left = anchor.right - LIFT_OFF_WIDTH_PX
     const top = anchor.top
-    const calendar = document.querySelector('[data-testid="calendar"]')?.getBoundingClientRect()
-    setFlight(calendar
+    // A review with a time flies to the Calendar; one left without a time, to the To-do list.
+    const target = document.querySelector(review.starts_at ? '[data-testid="calendar"]' : 'ul[aria-label="To-dos"]')?.getBoundingClientRect()
+    setFlight(target
       ? {
           left,
           top,
-          x: calendar.left + calendar.width / 2 - (left + LIFT_OFF_WIDTH_PX / 2),
-          y: calendar.top + calendar.height / 3 - top,
+          x: target.left + target.width / 2 - (left + LIFT_OFF_WIDTH_PX / 2),
+          y: target.top + target.height / 3 - top,
         }
       : { left, top, x: 160, y: 0 })
-  }, [])
+  }, [review.starts_at])
   // Gone after its run, even if the animation never ends (e.g. a hidden tab).
   useEffect(() => {
     const t = setTimeout(() => onDone(review.id), 1400)
@@ -100,7 +103,7 @@ function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrenc
         >
           <p className={cn('flex items-center gap-1 text-meta font-semibold', tone.ink)}>
             <Sparkles className="h-3 w-3" />
-            Adding to your plan
+            {review.starts_at ? 'Adding to your plan' : 'Adding to your to-do list'}
           </p>
           <p className="truncate text-body font-semibold text-text-primary">{review.title}</p>
           <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">

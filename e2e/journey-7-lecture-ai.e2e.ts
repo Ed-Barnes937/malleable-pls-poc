@@ -139,7 +139,8 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     await expect(sentence).toContainText('When I mark something')
     await sentence.getByLabel('Review length in minutes').selectOption('30')
     // Earlier journeys mark moments too, so this may move more than our review.
-    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
+    // Each review either keeps its start and gets longer, or moves to fit.
+    await expect(sentence).toContainText(/Saved\. (Moved \d+ reviews? to fit|Your review is now 30 min|\d+ reviews are now 30 min)\./)
     // Earliest placement: "by tomorrow" usually moves nothing (it is already that soon).
     await sentence.getByLabel('When the review should happen by').selectOption({ label: 'by tomorrow' })
     await expect(sentence).toContainText(/^.*Saved\. (Moved \d+ reviews? to fit\.|New reviews will follow this\.)$/)

@@ -296,8 +296,11 @@ export type ReviewSlot = { start: number; end: number } | { reason: UnplacedReas
  * Where the confusion automation puts each review: the earliest free time in
  * its window, at least `REVIEW_LEAD_MIN` after the mark, inside the study day,
  * around every commitment (all courses) and every other block, `STUDY_BLOCK_GAP_MIN`
- * clear of other study blocks, and only on days with study time left
- * (`studyMinPerDay`, Help me plan's budget). Earlier entries get first pick.
+ * clear of other study blocks, on a day with study time left
+ * (`studyMinPerDay`, Help me plan's budget). Only when no day in the window
+ * has any left does it go over the budget, still in the earliest free slot;
+ * it stays unscheduled only when the window has no free slot at all.
+ * Earlier entries get first pick.
  * `items` covers `range` (from the local start of today, recurrences expanded);
  * the reviews being placed may all move, so their current blocks are ignored.
  * Pure: the server and tests share it.
@@ -313,25 +316,23 @@ export function placeReviews(
   // Unpadded: `gapMin` keeps the gap, and the budget counts real minutes.
   const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)), { padReviews: false })
   const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
-  const result = place(
-    reviews.map((r) => ({
-      id: r.id,
-      durationMin: r.durationMin,
-      earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS,
-      latest: r.latest,
-    })),
-    free,
-    {
-      now: opts.now,
-      existingPlacements: busy,
-      policy: 'priority',
-      anchor: 'earliest',
-      gapMin: STUDY_BLOCK_GAP_MIN,
-      dailyBudget: { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone },
-    },
-  )
-  for (const p of result.placements) slots.set(p.taskId, { start: p.start, end: p.end })
-  for (const u of result.unplaced) slots.set(u.taskId, { reason: u.reason })
+  const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
+  // One at a time, in priority order, so each placed review is busy for the next.
+  for (const r of reviews) {
+    const task = { id: r.id, durationMin: r.durationMin, earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS, latest: r.latest }
+    const rules = { now: opts.now, existingPlacements: busy, anchor: 'earliest' as const, gapMin: STUDY_BLOCK_GAP_MIN }
+    const withinBudget = place([task], free, { ...rules, dailyBudget: budget })
+    // Every day in the window is at its study time: a review is short and
+    // time-sensitive, so it goes over the budget rather than off the calendar.
+    const result = withinBudget.placements.length ? withinBudget : place([task], free, rules)
+    const [p] = result.placements
+    if (p) {
+      slots.set(r.id, { start: p.start, end: p.end })
+      busy.push({ start: p.start, end: p.end, taskId: `placed:${r.id}` })
+    } else {
+      slots.set(r.id, { reason: result.unplaced[0]?.reason ?? 'no-free-slot' })
+    }
+  }
   return slots
 }
 

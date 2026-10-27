@@ -190,22 +190,35 @@ test.describe('Journey: the demo script (mock AI)', () => {
     for (let i = 0; i < weeksAhead; i++) await calendar.root.getByRole('button', { name: 'Previous week' }).click()
 
     // 5. Malleability: make reviews 30 minutes. With earliest placement the
-    // block stays where it is and gets longer (it moves only if it no longer fits).
+    // block usually stays where it is and gets longer; it moves only if 30
+    // minutes no longer fit there. Either way it is where placeReviews says.
     const chipBefore = await chip.textContent()
     await transcript.locator('[data-testid^="panel-automations-"]').click()
     const dialog = page.getByRole('dialog', { name: 'Automations · Transcript' })
     const sentence = dialog.getByTestId('review-automation-sentence')
     await expect(sentence).toContainText('When I mark something')
+    const editFrom = Date.now()
     await sentence.getByLabel('Review length in minutes').selectOption('30')
-    await expect(sentence).toContainText('Saved. Moved 1 review to fit.')
+    await expect(sentence).toContainText('Saved.')
+    const editTo = Date.now()
+    const longer = await reviewOf()
+    expect(longer.id).toBe(review.id)
+    expect(longer.duration_min).toBe(30)
+    expect(Date.parse(longer.ends_at!) - Date.parse(longer.starts_at!)).toBe(30 * 60_000)
+    const replaced = await expectedReviewSlots(
+      request,
+      { id: review.id, durationMin: 30, latest: deadline, markedAt: Date.parse(review.created_at) },
+      { from: editFrom, to: editTo },
+      SEED_TIME_ZONE,
+    )
+    expect(replaced.map((slot) => slot?.start)).toContain(Date.parse(longer.starts_at!))
+    // The sentence says what happened to it.
+    await expect(sentence).toContainText(longer.starts_at === review.starts_at
+      ? 'Saved. Your review is now 30 min.'
+      : 'Saved. Moved 1 review to fit.')
     await dialog.getByRole('button', { name: /close/i }).click()
     await expect(chip).toContainText('30 min')
     await expect(chip).not.toHaveText(chipBefore!)
-    await expect.poll(async () => (await reviewOf()).duration_min, { timeout: 10000 }).toBe(30)
-    const longer = await reviewOf()
-    expect(longer.id).toBe(review.id)
-    expect(longer.starts_at).toBe(review.starts_at)
-    expect(Date.parse(longer.ends_at!) - Date.parse(longer.starts_at!)).toBe(30 * 60_000)
 
     // ...and add a widget with a click.
     await addWidgets(page, ['Weakest Topics'])

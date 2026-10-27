@@ -35,10 +35,14 @@ function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: R
   })
 }
 
-/** The time block a run placed (`output.plan_item_id` + `output.starts_at`), if any. */
-export function placedBlock(output: Record<string, unknown>): { planItem?: { id: string; startsAt: string } } {
+/**
+ * The time block a run placed (`output.plan_item_id` + `output.starts_at`),
+ * or `unplaced` when it made a to-do but found no time for it.
+ */
+export function placedBlock(output: Record<string, unknown>): { planItem?: { id: string; startsAt: string }; unplaced?: true } {
   const { plan_item_id: id, starts_at: startsAt } = output
-  return typeof id === 'string' && typeof startsAt === 'string' ? { planItem: { id, startsAt } } : {}
+  if (typeof id !== 'string') return {}
+  return typeof startsAt === 'string' ? { planItem: { id, startsAt } } : { unplaced: true }
 }
 
 /** The board a job was dispatched on (stored as `input._workspaceId` by the pg adapter), or null. */
