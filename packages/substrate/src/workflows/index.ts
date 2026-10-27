@@ -17,5 +17,7 @@ export {
   reviewTaskParamsInput,
   timeZoneInput,
   reviewWindowLabel,
+  reviewJobOf,
+  reviewAutomationSentence,
   type ReviewTaskParams,
 } from './review-automation'

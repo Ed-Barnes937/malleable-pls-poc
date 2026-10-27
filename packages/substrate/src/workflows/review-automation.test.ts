@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { DEFAULT_REVIEW_PARAMS, parseReviewParams, reviewTaskParamsInput, reviewWindowLabel } from './review-automation'
+import type { WorkflowWithJobs } from '@pls/workflows'
+import { DEFAULT_REVIEW_PARAMS, parseReviewParams, reviewAutomationSentence, reviewTaskParamsInput, reviewWindowLabel } from './review-automation'
 import { getJobTypesForTrigger } from './executors'
 
 describe('parseReviewParams', () => {
@@ -46,5 +47,25 @@ describe('getJobTypesForTrigger', () => {
     expect(getJobTypesForTrigger('tag:created').map((j) => j.type)).toEqual(['plan:review-task'])
     expect(getJobTypesForTrigger('recording:transcribed').map((j) => j.type)).toEqual(['ai:summarize-lecture'])
     expect(getJobTypesForTrigger('annotation:created')).toEqual([])
+  })
+})
+
+describe('reviewAutomationSentence', () => {
+  const workflow = (overrides: Partial<WorkflowWithJobs> = {}, params: unknown = { durationMin: 20, windowDays: 3 }): WorkflowWithJobs => ({
+    id: 'wf', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'confused',
+    enabled: true,
+    jobs: [{ id: 'wfj', workflow_id: 'wf', job_type: 'plan:review-task', params: params as Record<string, unknown>, sort_order: 0, delay_ms: 0 }],
+    ...overrides,
+  })
+
+  it('says what the automation does, in the words of its sentence', () => {
+    expect(reviewAutomationSentence(workflow())).toBe('When I mark something confusing, add a 20-min review within 3 days')
+    expect(reviewAutomationSentence(workflow({ condition_value: 'question' }, JSON.stringify({ durationMin: 30, windowDays: 1 }))))
+      .toBe('When I mark something as a question, add a 30-min review by tomorrow')
+  })
+
+  it('is null for any other automation', () => {
+    expect(reviewAutomationSentence(workflow({ trigger_event: 'recording:completed', condition_field: null }))).toBeNull()
+    expect(reviewAutomationSentence({ ...workflow(), jobs: [] })).toBeNull()
   })
 })

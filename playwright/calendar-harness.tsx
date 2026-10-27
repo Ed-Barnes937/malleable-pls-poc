@@ -5,8 +5,9 @@ import { TestProviders } from './mount-wrapper'
 
 /**
  * Mounts the Calendar at a realistic panel size with a stub `onShowMoment`
- * that records each request (as "recordingId@offsetMs [elsewhere]") in a
- * list the test can read, and answers `result` (or `no-viewer` elsewhere).
+ * that records each request (as "recordingId@offsetMs") in a list the test
+ * can read and answers `result`, and a stub `onEditAutomation` that records
+ * each automation asked for (as "edit <workflowId>") in the same list.
  */
 export function CalendarHarness({
   highlight,
@@ -25,11 +26,12 @@ export function CalendarHarness({
           scope={{}}
           highlight={highlight}
           config={{}}
-          onShowMoment={async (moment, options) => {
-            setCalls((c) => [...c, `${moment.recordingId}@${moment.offsetMs}${options?.elsewhere ? ' elsewhere' : ''}`])
+          onShowMoment={async (moment) => {
+            setCalls((c) => [...c, `${moment.recordingId}@${moment.offsetMs}`])
             if (result === 'fail') throw new Error('setScope failed')
-            return options?.elsewhere ? 'no-viewer' : result
+            return result
           }}
+          onEditAutomation={(workflowId) => setCalls((c) => [...c, `edit ${workflowId}`])}
         />
       </div>
       <ul data-testid="moment-calls">

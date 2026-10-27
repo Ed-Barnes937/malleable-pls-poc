@@ -54,7 +54,7 @@ test('shows the lecture summary at the top and the review a confused moment beca
     starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
     duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
     // seg-bio4-04 starts at 540000 ms.
-    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
     created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
   })
   await mount(
@@ -246,4 +246,87 @@ test('a lecture focused outside the board course keeps its tags, and new tags ap
   await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-chem1-01' && t.label === 'confused').length).toBe(1)
   // The new pill appears even though the lecture is outside the course.
   await expect(page.locator('text=confused')).toHaveCount(before + 1)
+})
+
+test('landing on a moment folds the summary to one line and outlines the moment in the lecture course', async ({ mount, page, simulator }) => {
+  simulator.db.annotations.push({
+    id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',
+    anchor_start_ms: null, anchor_end_ms: null,
+    body: 'Mitochondria carry their own DNA.\nIt is passed down the maternal line.\nKnow two mitochondrial diseases.',
+    created_at: '2026-04-16T11:00:00Z', author_id: 'dev-user-1',
+  })
+  // No board course and no reviews: the colours come from the lecture's own course.
+  await mount(
+    <TestProviders>
+      <div style={{ height: 400, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4', offsetMs: 540000, id: 1 }} />
+      </div>
+    </TestProviders>,
+  )
+
+  const moment = page.locator('[data-moment]')
+  await expect(moment).toContainText('inherited exclusively from the maternal line')
+  await expect(moment).toBeInViewport()
+  await expect(moment.getByRole('button').first()).toHaveClass(/border-course-biology/)
+  await expect(page.getByText('Biology', { exact: true })).toBeVisible()
+
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await expect(summary).toHaveText('Mitochondria carry their own DNA.Show summary')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  await summary.getByRole('button', { name: 'Show summary' }).click()
+  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(3)
+})
+
+test('the summary stays open when nothing landed', async ({ mount, page, simulator }) => {
+  simulator.db.annotations.push({
+    id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',
+    anchor_start_ms: null, anchor_end_ms: null, body: 'One.\nTwo.\nThree.',
+    created_at: '2026-04-16T11:00:00Z', author_id: 'dev-user-1',
+  })
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} />
+    </TestProviders>,
+  )
+  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(3)
+})
+
+test('gutter marks and a scroll rail show every tagged moment', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <div style={{ height: 320, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens {...defaultProps} />
+      </div>
+    </TestProviders>,
+  )
+
+  // seg-bio4-04 is both confused and a key point: confusion leads.
+  await expect(page.locator('[data-segment-id="seg-bio4-04"]').getByTestId('transcript-gutter-mark')).toHaveAttribute('data-tag', 'confused')
+  await expect(page.locator('[data-segment-id="seg-bio4-12"]').getByTestId('transcript-gutter-mark')).toHaveAttribute('data-tag', 'key-point')
+  await expect(page.locator('[data-segment-id="seg-bio4-05"]').getByTestId('transcript-gutter-mark')).toHaveCount(0)
+
+  const rail = page.getByTestId('transcript-rail')
+  expect(await rail.getByRole('button').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual([
+    'Confused at 9:00', 'Confused at 21:00', 'Confused at 27:00', 'Key point at 33:00',
+  ])
+
+  // Clicking a mark brings that moment into view.
+  const keyPoint = page.locator('[data-segment-id="seg-bio4-12"]')
+  await expect(keyPoint).not.toBeInViewport()
+  await rail.getByRole('button', { name: 'Key point at 33:00' }).click()
+  await expect(keyPoint).toBeInViewport()
+})
+
+test('a lecture with no course of its own falls back to the board course', async ({ mount, page, simulator }) => {
+  simulator.db.recordings.push({
+    id: 'rec-plain', title: 'Untitled lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: null, status: 'ready',
+  })
+  simulator.db.transcriptSegments.push({ id: 'seg-plain-1', recording_id: 'rec-plain', start_ms: 0, end_ms: 5000, text: 'Hello.', speaker: null })
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-plain', courseTag: 'chemistry' }} config={{ mode: 'review' }} />
+    </TestProviders>,
+  )
+  await expect(page.getByText('Untitled lecture')).toBeVisible()
+  await expect(page.getByText('Chemistry', { exact: true })).toBeVisible()
 })

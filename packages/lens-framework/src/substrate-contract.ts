@@ -21,6 +21,7 @@ import type {
   RefitAccept,
   RefitPreview,
   RefitResult,
+  WorkflowWithJobs,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -99,6 +100,12 @@ export interface SubstrateReader {
    * before showing new times), resolving with the fresh preview.
    */
   useRefitPreview: (timeZone: string) => QueryResult<RefitPreview> & { refetch: () => Promise<RefitPreview> }
+  /**
+   * One automation with its jobs, e.g. the one that made a plan item
+   * (`PlanItem.created_by_workflow_id`); null once it has been deleted.
+   * Disabled for an empty id.
+   */
+  useAutomation: (id: string) => QueryResult<WorkflowWithJobs>
 }
 
 /**

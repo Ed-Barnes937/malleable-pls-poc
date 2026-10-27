@@ -153,9 +153,15 @@ export function useWorkflowsForWorkspace(workspaceId: string): UseQueryResult<Wo
   return trpc.workflows.forWorkspace.useQuery({ workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
+/** One automation with its jobs; null once deleted. */
+export function useWorkflow(workflowId: string): UseQueryResult<WorkflowWithJobs | null> {
+  return trpc.workflows.byId.useQuery(workflowId, { enabled: !!workflowId }) as unknown as UseQueryResult<WorkflowWithJobs | null>
+}
+
 function invalidateWorkflows(utils: ReturnType<typeof trpc.useUtils>) {
   utils.workflows.forLens.invalidate()
   utils.workflows.forWorkspace.invalidate()
+  utils.workflows.byId.invalidate()
 }
 
 export function useToggleWorkflow() {

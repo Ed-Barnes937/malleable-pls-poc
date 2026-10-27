@@ -26,6 +26,15 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
   })
 
+  router.register('workflows.byId', (input) => {
+    const workflow = db.workflows.find((w) => w.id === (input as string))
+    if (!workflow) return null
+    return {
+      ...workflow,
+      jobs: db.workflowJobs.filter((j) => j.workflow_id === workflow.id).sort((a, b) => a.sort_order - b.sort_order),
+    }
+  })
+
   router.register('workflows.forWorkspace', (input) => {
     const { workspaceId } = input as { workspaceId: string }
     const matching = effectiveOnBoard(db.workflows, workspaceId)

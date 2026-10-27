@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
-import { type LensProps, type DateRange, type ShowMomentResult, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, courseTone, formatTime } from '@pls/shared-ui'
-import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
+import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { COURSES, cn, courseTone } from '@pls/shared-ui'
+import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
+import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
@@ -18,10 +19,11 @@ type View = 'week' | 'day'
 
 type Popover =
   | { mode: 'create'; x: number; y: number; draft: Draft }
-  | { mode: 'edit'; x: number; y: number; key: string; moment?: MomentState }
-
-/** Where a block's lecture moment went after clicking it. */
-type MomentState = 'opening' | ShowMomentResult | 'nowhere' | 'failed'
+  /**
+   * A block from a lecture moment opens on where it came from; `editingTime`
+   * swaps that for the date and time pickers.
+   */
+  | { mode: 'edit'; x: number; y: number; key: string; moment?: MomentState; editingTime?: boolean }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -40,11 +42,16 @@ function useNow(): Date {
   return now
 }
 
+/** A block made from a lecture moment (provenance `source_type = 'recording'`). */
+function fromMoment(item: PlanItemOccurrence): boolean {
+  return item.source_type === 'recording' && !!item.source_id
+}
+
 function courseLabel(course: string): string {
   return COURSES.find((c) => c.value === course)?.label ?? course
 }
 
-export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment }: LensProps) {
+export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment, onEditAutomation }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
   const createItem = mutations.useCreatePlanItem()
@@ -231,16 +238,17 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     return { x: anchor.clientX - (rect?.left ?? 0), y: anchor.clientY - (rect?.top ?? 0) }
   }
 
-  const showMoment = async (item: PlanItemOccurrence, key: string, elsewhere = false) => {
+  /**
+   * "Go to moment": the shell shows it in this board's Transcript, or switches
+   * to a board that has one (and says so with a way back).
+   */
+  const showMoment = async (item: PlanItemOccurrence, key: string) => {
     if (!onShowMoment || item.source_id == null) return
     setPopover((p) => (p?.mode === 'edit' && p.key === key ? { ...p, moment: 'opening' } : p))
     let moment: MomentState
     try {
-      const result = await onShowMoment(
-        { recordingId: item.source_id, offsetMs: item.source_offset_ms ?? 0 },
-        elsewhere ? { elsewhere: true } : undefined,
-      )
-      moment = elsewhere && result === 'no-viewer' ? 'nowhere' : result
+      const result = await onShowMoment({ recordingId: item.source_id, offsetMs: item.source_offset_ms ?? 0 })
+      moment = result === 'no-viewer' ? 'nowhere' : result
     } catch {
       moment = 'failed'
     }
@@ -249,8 +257,6 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
   const handleOpen = (item: PlanItemOccurrence, anchor: Anchor) => {
     openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
-    // Clicking a block that came from a lecture moment lands on that moment.
-    if (item.source_type === 'recording' && item.source_id) void showMoment(item, item.occurrence_key)
   }
 
   const handleCreate = (start: Date, end: Date, anchor: Anchor) => {
@@ -500,9 +506,37 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onSubmit={(draft) => run(() => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
         />
       )}
-      {popover?.mode === 'edit' && editing && (
+      {popover?.mode === 'edit' && editing && fromMoment(editing) && !popover.editingTime && (
+        <StudyBlockPopover
+          x={popover.x}
+          y={popover.y}
+          bounds={bounds}
+          row={editing}
+          moment={popover.moment}
+          canShowMoment={!!onShowMoment}
+          canEdit
+          busy={busy}
+          error={error}
+          onClose={closePopover}
+          onGoToMoment={() => void showMoment(editing, editing.occurrence_key)}
+          onToggleDone={() => run(() =>
+            editing.status === 'done'
+              ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
+              : completeItem.mutateAsync(editing.id),
+          )}
+          onEditTime={() => {
+            setError(null)
+            setPopover((p) => (p?.mode === 'edit' ? { ...p, editingTime: true } : p))
+          }}
+          onEditAutomation={onEditAutomation}
+        />
+      )}
+      {popover?.mode === 'edit' && editing && (!fromMoment(editing) || popover.editingTime) && (
         <EventPopover
-          key={`edit-${editing.occurrence_key}`}
+          // Keyed by the stored version too: if the item changes underneath
+          // (an automation moves it), the form starts again from what is
+          // stored instead of showing the old times.
+          key={`edit-${editing.occurrence_key}-${editing.updated_at}`}
           x={popover.x}
           y={popover.y}
           bounds={bounds}
@@ -527,76 +561,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
                     : completeItem.mutateAsync(editing.id),
                 )
           }
-        >
-          {editing.source_type === 'recording' && editing.source_id && (
-            <MomentLink
-              recordingId={editing.source_id}
-              offsetMs={editing.source_offset_ms ?? 0}
-              state={popover.moment}
-              canShow={!!onShowMoment}
-              onShow={() => showMoment(editing, editing.occurrence_key)}
-              onShowElsewhere={() => showMoment(editing, editing.occurrence_key, true)}
-            />
-          )}
-        </EventPopover>
-      )}
-    </div>
-  )
-}
-
-interface MomentLinkProps {
-  recordingId: string
-  offsetMs: number
-  state?: MomentState
-  canShow: boolean
-  onShow: () => void
-  onShowElsewhere: () => void
-}
-
-/** "From: Mitochondrial DNA lecture, 9:00", plus where clicking it took you. */
-function MomentLink({ recordingId, offsetMs, state, canShow, onShow, onShowElsewhere }: MomentLinkProps) {
-  const substrate = useSubstrate()
-  const { data: recording } = substrate.useRecording(recordingId)
-  const linkButton = 'inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline'
-
-  return (
-    <div data-testid="calendar-moment" className="flex flex-col gap-1.5 rounded-item bg-surface-inset px-3 py-2.5">
-      <div className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
-        <AudioLines className="h-3.5 w-3.5 shrink-0 text-accent" />
-        <span className="line-clamp-2">
-          From: <span className="font-medium text-text-primary">{recording?.title ?? 'a lecture'}</span>, {formatTime(offsetMs)}
-        </span>
-      </div>
-      {state === 'opening' && <span className="text-meta text-text-muted">Opening the moment...</span>}
-      {state === 'failed' && (
-        <div className="flex flex-col gap-1">
-          <span className="text-meta text-text-muted">Couldn't open the moment just now.</span>
-          <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
-            Try again
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-      {state === 'shown' && <span className="text-meta text-text-muted">Showing this moment in the Transcript.</span>}
-      {state === 'no-viewer' && (
-        <div className="flex flex-col gap-1">
-          <span className="text-meta text-text-muted">This board has no Transcript.</span>
-          <button type="button" onClick={onShowElsewhere} className={cn(linkButton, 'self-start')}>
-            Open in a board with Transcript
-            <ArrowUpRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-      {state === 'nowhere' && (
-        <span className="text-meta text-text-muted">
-          None of your boards has a Transcript yet. Add one from the widget drawer to see this moment.
-        </span>
-      )}
-      {!state && canShow && (
-        <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
-          Go to this moment
-          <ArrowUpRight className="h-3.5 w-3.5" />
-        </button>
+        />
       )}
     </div>
   )

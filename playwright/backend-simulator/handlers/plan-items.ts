@@ -91,6 +91,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
       source_type: fields.source_type ?? null,
       source_id: fields.source_id ?? null,
       source_offset_ms: fields.source_offset_ms ?? null,
+      // Only automations credit themselves, server side; never from a client.
+      created_by_workflow_id: null,
       created_at: now,
       updated_at: now,
     }

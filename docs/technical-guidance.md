@@ -178,13 +178,19 @@ gesture, not lens-to-lens messaging, and it works like scope:
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
-`onShowMoment` resolves `no-viewer` when the board has no moment viewer (the
-recording is still focused). The caller can then offer "Open in a board with
-Transcript": `onShowMoment(moment, { elsewhere: true })` switches to the first
-board (in tab order) that has one, preferring a board already focused on that
-recording, and shows the moment there. The Calendar does both: clicking a block
-with provenance jumps straight away, and its popover says where it landed or
-offers the other board.
+When the board has no moment viewer, the shell switches to the first board
+(in tab order) that has one, preferring a board already focused on that
+recording, shows the moment there and raises a toast ("Opened 1:18 in In
+Lecture") whose action goes back to the board the student came from.
+`onShowMoment` resolves `no-viewer` only when no board has a moment viewer (the
+recording is still focused on this board). The Calendar, To-do and Weakest
+Topics all ask this way; the Calendar's study block popover leads with the
+moment the block came from and asks only when the student presses "Go to
+moment".
+
+A plan item an automation made records it (`created_by_workflow_id`, null for
+items a person made). The study block popover names that automation ("Made by
+...") and `LensProps.onEditAutomation(workflowId)` asks the shell to open it.
 
 ---
 

@@ -61,12 +61,14 @@ test('clicking a topic shows its lecture moment', async ({ mount, page, simulato
   await expect(page.getByTestId('weak-topic-moment')).toHaveCount(0)
 })
 
-test('on a board without a Transcript it offers one that has it', async ({ mount, page, simulator }) => {
+// The shell opens the moment on another board when this one has no
+// Transcript; `no-viewer` means none of the student's boards has one.
+test('when no board has a Transcript it says how to get one', async ({ mount, page, simulator }) => {
   await mount(<MomentHarness lens="weakest-topics" result="no-viewer" />)
 
   await page.getByRole('button', { name: /^Maternal inheritance: go to this moment/ }).click()
-  await expect(page.getByText('This board has no Transcript.')).toBeVisible()
-  await page.getByRole('button', { name: 'Open in a board with Transcript' }).click()
-  await expect(page.getByTestId('moment-calls').getByRole('listitem')).toHaveText(['rec-bio-4@540000', 'rec-bio-4@540000 elsewhere'])
-  await expect(page.getByText('This board has no Transcript.')).toHaveCount(0)
+  await expect(page.getByTestId('moment-calls').getByRole('listitem')).toHaveText(['rec-bio-4@540000'])
+  await expect(page.getByTestId('weak-topic-moment')).toHaveText(
+    'None of your boards has a Transcript yet. Add one from the widget drawer to see this moment.',
+  )
 })

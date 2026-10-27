@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
-import { type LensProps, type ShowMomentResult, useSubstrate } from '@pls/lens-framework'
+import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, HiddenElsewhere, COURSE_PILL_COLORS, formatTime } from '@pls/shared-ui'
 import { ArrowUpRight, CircleHelp } from 'lucide-react'
 
 const LIMIT = 8
 
 /** Where clicking a topic took the student. */
-type MomentState = 'opening' | ShowMomentResult | 'nowhere' | 'failed'
+/** Where the moment went: `nowhere` when no board has a Transcript. */
+type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
 
 /** "Biology Lecture: Mitochondrial DNA" -> "Mitochondrial DNA" (the course pill already says Biology). */
 export function lectureName(title: string): string {
@@ -32,16 +33,13 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
     return <EmptyState message="Nothing to review. Mark a moment confusing and it shows up here." action={hidden} />
   }
 
-  const show = async (topic: WeakTopic, elsewhere = false) => {
+  const show = async (topic: WeakTopic) => {
     if (!onShowMoment) return
     setOpened({ segmentId: topic.segmentId, state: 'opening' })
     let state: MomentState
     try {
-      const result = await onShowMoment(
-        { recordingId: topic.recordingId, offsetMs: topic.offsetMs },
-        elsewhere ? { elsewhere: true } : undefined,
-      )
-      state = elsewhere && result === 'no-viewer' ? 'nowhere' : result
+      const result = await onShowMoment({ recordingId: topic.recordingId, offsetMs: topic.offsetMs })
+      state = result === 'no-viewer' ? 'nowhere' : result
     } catch {
       state = 'failed'
     }
@@ -66,7 +64,6 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
             state={opened?.segmentId === topic.segmentId ? opened.state : undefined}
             canShow={!!onShowMoment}
             onShow={() => void show(topic)}
-            onShowElsewhere={() => void show(topic, true)}
           />
         ))}
       </ul>
@@ -80,10 +77,9 @@ interface TopicRowProps {
   state?: MomentState
   canShow: boolean
   onShow: () => void
-  onShowElsewhere: () => void
 }
 
-function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }: TopicRowProps) {
+function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) {
   const pillStyle = COURSE_PILL_COLORS[topic.course] ?? 'bg-neutral-700/50 text-neutral-500 ring-neutral-700'
   const where = `${lectureName(topic.recordingTitle)} · ${formatTime(topic.offsetMs)}`
   const linkButton = 'inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline'
@@ -143,15 +139,6 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
               <span>Couldn't open the moment just now.</span>
               <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
                 Try again
-                <ArrowUpRight className="h-3 w-3" />
-              </button>
-            </>
-          )}
-          {state === 'no-viewer' && (
-            <>
-              <span>This board has no Transcript.</span>
-              <button type="button" onClick={onShowElsewhere} className={cn(linkButton, 'self-start')}>
-                Open in a board with Transcript
                 <ArrowUpRight className="h-3 w-3" />
               </button>
             </>

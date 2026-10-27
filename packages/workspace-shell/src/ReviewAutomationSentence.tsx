@@ -14,11 +14,7 @@ import {
   type WorkflowWithJobs,
 } from '@pls/substrate'
 
-/** The confusion automation's review job, when `workflow` is one. */
-export function reviewJobOf(workflow: WorkflowWithJobs): WorkflowJob | undefined {
-  if (workflow.trigger_event !== 'tag:created' || workflow.condition_field !== 'label') return undefined
-  return workflow.jobs.find((j) => j.job_type === REVIEW_TASK_JOB)
-}
+export { reviewJobOf } from '@pls/substrate'
 
 function browserTimeZone(): string | undefined {
   try {

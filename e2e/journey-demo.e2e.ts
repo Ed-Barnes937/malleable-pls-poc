@@ -146,6 +146,7 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const weeksAhead = Math.max(0, Math.round((weekStart(Date.parse(review.starts_at!)) - weekStart(NOW)) / WEEK_MS))
     for (let i = 0; i < weeksAhead; i++) await calendar.nextWeek()
     await calendar.block('Review: maternal inheritance').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
     await expect(calendar.root.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
     await expect(transcript.locator('[data-moment]')).toContainText('explain maternal inheritance')
     await page.keyboard.press('Escape')

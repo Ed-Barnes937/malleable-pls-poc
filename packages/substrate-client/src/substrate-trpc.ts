@@ -1,6 +1,6 @@
 import { useCallback } from 'react'
 import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
-import type { PlanItemQuery, RefitPreview } from '@pls/substrate'
+import type { PlanItemQuery, RefitPreview, WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -47,6 +47,10 @@ export const substrateTrpc: SubstrateWriter = {
       // Job events refresh this too; the poll is a backstop while AI work runs.
       refetchInterval: (query) => ((query.state.data as { processing?: unknown } | null | undefined)?.processing ? 3000 : false),
     }))
+  },
+
+  useAutomation(id: string) {
+    return adapt(trpc.workflows.byId.useQuery(id, { enabled: !!id })) as QueryResult<WorkflowWithJobs>
   },
 
   useTranscript(recordingId: string) {

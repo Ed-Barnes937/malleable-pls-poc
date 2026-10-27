@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chooseMomentBoard, hasMomentViewer } from './moments'
+import { chooseMomentBoard, hasMomentViewer, openedElsewhereMessage } from './moments'
 import { useWorkspaceStore } from './store'
 
 const manifests = [
@@ -51,5 +51,11 @@ describe('focused moment', () => {
     expect(useWorkspaceStore.getState().focusedMoment?.offsetMs).toBe(2000)
     clearMoment(useWorkspaceStore.getState().focusedMoment!.id)
     expect(useWorkspaceStore.getState().focusedMoment).toBeNull()
+  })
+})
+
+describe('openedElsewhereMessage', () => {
+  it('names the moment and the board it opened on', () => {
+    expect(openedElsewhereMessage(78_000, 'In Lecture')).toBe('Opened 1:18 in In Lecture')
   })
 })
