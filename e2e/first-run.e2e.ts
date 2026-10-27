@@ -112,15 +112,37 @@ test.describe('The today line', () => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await expect(topBar.todayLine).toBeVisible()
-    for (const name of ['Biology revision', 'Chemistry lab week']) {
+    await expect(topBar.todayLine).toContainText('Tuesday')
+
+    /** What the line shows now; it is never clipped. */
+    const state = async (): Promise<'full' | 'no-weekday' | 'hidden'> => {
+      if (!(await topBar.todayLine.isVisible())) return 'hidden'
+      const clipped = await topBar.todayLine.evaluate((el) => el.offsetWidth > el.parentElement!.clientWidth)
+      expect(clipped).toBe(false)
+      const text = (await topBar.todayLine.textContent()) ?? ''
+      expect(text).toContain('Chemistry 14:00')
+      expect(text).toContain('2h to study')
+      return text.includes('Tuesday') ? 'full' : 'no-weekday'
+    }
+
+    // Each new board's tab takes room from the line: it drops the weekday, then steps aside.
+    const seen = [await state()]
+    for (const name of ['Biology revision', 'Chemistry lab week', 'Physics problem sets', 'Essay writing']) {
       await topBar.openCreateWorkspaceDialog()
       await new CreateWorkspaceDialogPom(page).createWorkspace(name)
       await topBar.expectActiveWorkspace(name)
+      // Let the bar settle (ResizeObserver) before reading it.
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+      seen.push(await state())
     }
-    await expect(topBar.todayLine).toBeHidden()
+    const order = ['full', 'no-weekday', 'hidden']
+    expect([...new Set(seen)]).toEqual(order)
+    expect(seen.map((s) => order.indexOf(s))).toEqual([...seen.map((s) => order.indexOf(s))].sort())
+
     // Room again: it comes back whole.
     await page.setViewportSize({ width: 1920, height: 900 })
-    await expect(topBar.todayLine).toBeVisible()
+    await expect(topBar.todayLine).toContainText('Tuesday')
+    expect(await state()).toBe('full')
   })
 
   test('stays out of the way on a day with no class or shift', async ({ page }) => {
