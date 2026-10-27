@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useCanvasStore } from './canvas-store'
+import { scrollPanelIntoView } from './reveal'
 
 /** Tags that indicate the user is typing — single-key shortcuts are suppressed */
 const INPUT_TAGS = new Set(['INPUT', 'TEXTAREA', 'SELECT'])
@@ -67,6 +68,9 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
         if (e.metaKey || e.ctrlKey || e.altKey) return
         if (state.panels.length === 0) return
         state.selectNext(e.key === '[')
+        // The newly selected widget may sit below the fold of a scrolled board.
+        const selected = useCanvasStore.getState().selectedPanelId
+        if (selected) scrollPanelIntoView(canvasRef?.current, selected)
         e.preventDefault()
         return
       }

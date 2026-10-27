@@ -1,8 +1,9 @@
 /**
- * Amber text must stay readable in both themes. The light theme remaps the
- * amber scale (like neutral and emerald), so every `text-amber-*` class the
- * widgets use is checked against the panel surfaces, with its opacity
- * modifier and any amber tint drawn behind it in the same class list.
+ * Amber ("needs another look") text must stay readable in both themes. The
+ * light theme remaps the amber scale and the `attention` text tokens, so every
+ * `text-amber-*` / `text-attention*` class the widgets use is checked against
+ * the panel surfaces, with its opacity and any amber tint drawn behind it in
+ * the same class list.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -16,12 +17,22 @@ const tailwindTheme = readFileSync(path.join(here, '../node_modules/tailwindcss/
 
 type Rgb = [number, number, number]
 
-/** `name -> oklch(...)` declarations inside the first block whose selector matches. */
+/** `name -> value` colour declarations (oklch or color-mix) in the first block whose selector matches. */
 function tokens(css: string, selector: string): Map<string, string> {
   const start = css.indexOf(`${selector} {`)
   if (start < 0) throw new Error(`no ${selector} block`)
   const body = css.slice(start, css.indexOf('\n}', start))
-  return new Map([...body.matchAll(/--([\w-]+):\s*(oklch\([^)]*\))/g)].map((m) => [m[1]!, m[2]!]))
+  return new Map([...body.matchAll(/--([\w-]+):\s*((?:oklch|color-mix)\((?:[^()]|\([^)]*\))*\))/g)].map((m) => [m[1]!, m[2]!]))
+}
+
+/** A token as a colour and opacity: `oklch(...)`, or `color-mix(in oklab, var(--x) N%, transparent)`. */
+function resolve(theme: Map<string, string>, name: string): { rgb: Rgb; alpha: number } {
+  const value = theme.get(name)
+  if (!value) throw new Error(`no --${name}`)
+  const mix = /^color-mix\(in oklab, var\(--([\w-]+)\) ([\d.]+)%, transparent\)$/.exec(value)
+  if (!mix) return { rgb: oklchToRgb(value), alpha: 1 }
+  const base = resolve(theme, mix[1]!)
+  return { rgb: base.rgb, alpha: base.alpha * (Number(mix[2]) / 100) }
 }
 
 function oklchToRgb(value: string): Rgb {
@@ -68,18 +79,18 @@ function sourceFiles(dir: string): string[] {
 }
 
 /** Every string literal using amber text, with the amber tint (if any) behind it. */
-function amberTextUses(): { where: string; shade: string; alpha: number; tint?: { shade: string; alpha: number } }[] {
+function amberTextUses(): { where: string; token: string; alpha: number; tint?: { token: string; alpha: number } }[] {
   const uses = []
   for (const file of sourceFiles(path.join(repo, 'packages'))) {
     const src = readFileSync(file, 'utf8')
-    for (const literal of src.match(/'[^'\n]*amber[^'\n]*'|"[^"\n]*amber[^"\n]*"/g) ?? []) {
-      const tint = /\bbg-amber-(\d+)\/(\d+)\b/.exec(literal)
-      for (const m of literal.matchAll(/\btext-amber-(\d+)(?:\/(\d+))?/g)) {
+    for (const literal of src.match(/'[^'\n]*(?:amber|attention)[^'\n]*'|"[^"\n]*(?:amber|attention)[^"\n]*"/g) ?? []) {
+      const tint = /\bbg-(amber-\d+)\/(\d+)\b/.exec(literal)
+      for (const m of literal.matchAll(/\btext-(amber-\d+|attention(?:-soft|-strong)?)(?:\/(\d+))?(?![\w-])/g)) {
         uses.push({
           where: `${path.relative(repo, file)}: ${m[0]}`,
-          shade: m[1]!,
+          token: `color-${m[1]}`,
           alpha: m[2] ? Number(m[2]) / 100 : 1,
-          tint: tint ? { shade: tint[1]!, alpha: Number(tint[2]) / 100 } : undefined,
+          tint: tint ? { token: `color-${tint[1]}`, alpha: Number(tint[2]) / 100 } : undefined,
         })
       }
     }
@@ -98,8 +109,9 @@ describe('amber text contrast', () => {
     expect(uses.length).toBeGreaterThan(5)
   })
 
-  it('leaves the dark theme on the stock amber scale', () => {
+  it('leaves the dark theme on the stock amber scale, faded as before', () => {
     expect([...tokens(indexCss, '@theme').keys()].filter((k) => k.startsWith('color-amber-'))).toEqual([])
+    expect(resolve(dark, 'color-attention').alpha).toBeCloseTo(0.7)
   })
 
   for (const [theme, t] of Object.entries(themes)) {
@@ -108,9 +120,12 @@ describe('amber text contrast', () => {
         const failures: string[] = []
         for (const use of uses) {
           let bg = oklchToRgb(t.get(surface)!)
-          if (use.tint) bg = over(oklchToRgb(t.get(`color-amber-${use.tint.shade}`)!), use.tint.alpha, bg)
-          const fg = over(oklchToRgb(t.get(`color-amber-${use.shade}`)!), use.alpha, bg)
-          const ratio = contrast(fg, bg)
+          if (use.tint) {
+            const tint = resolve(t, use.tint.token)
+            bg = over(tint.rgb, tint.alpha * use.tint.alpha, bg)
+          }
+          const text = resolve(t, use.token)
+          const ratio = contrast(over(text.rgb, text.alpha * use.alpha, bg), bg)
           if (ratio < 4.5) failures.push(`${use.where} ${ratio.toFixed(2)}:1`)
         }
         expect(failures).toEqual([])

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { motion, useDragControls, useMotionValue } from 'motion/react'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
@@ -50,9 +50,19 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     }
   }, [panels, onLayoutChange])
 
-  // A fullscreen panel fills the canvas from its top-left, so show the top.
-  useEffect(() => {
-    if (fullscreenPanelId && canvasRef.current) canvasRef.current.scrollTop = 0
+  // A fullscreen panel fills the canvas from its top-left, so show the top;
+  // leaving fullscreen puts the board back where it was scrolled to.
+  const scrollBeforeFullscreen = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (fullscreenPanelId) {
+      scrollBeforeFullscreen.current ??= canvas.scrollTop
+      canvas.scrollTop = 0
+    } else if (scrollBeforeFullscreen.current !== null) {
+      canvas.scrollTop = scrollBeforeFullscreen.current
+      scrollBeforeFullscreen.current = null
+    }
   }, [fullscreenPanelId])
 
   const narrow = useNarrowCanvas(canvasRef)

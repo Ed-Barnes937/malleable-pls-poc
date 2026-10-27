@@ -21,7 +21,7 @@ import {
   WorkspaceBackground,
   useCanvasStore,
   findFreeSpot,
-  PLACEMENT_GAP,
+  scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -181,21 +181,8 @@ export function WorkspaceShell() {
   const revealPanel = useCallback((panelId: string) => {
     let frames = 0
     const tryReveal = () => {
-      const el = canvasRef.current?.querySelector<HTMLElement>(`[data-panel-id="${CSS.escape(panelId)}"]`)
-      const scroller = el?.closest<HTMLElement>('[data-canvas-scroll]')
-      if (!el || !scroller) {
-        // The panel list refetches after the save; give it a couple of seconds.
-        if (++frames < 120) requestAnimationFrame(tryReveal)
-        return
-      }
-      const top = el.offsetTop
-      const bottom = top + el.offsetHeight
-      const viewTop = scroller.scrollTop
-      const viewBottom = viewTop + scroller.clientHeight
-      if (top >= viewTop && bottom <= viewBottom) return
-      // Show its top edge with a little air; a tall widget shows from the top.
-      const target = bottom - top > scroller.clientHeight ? top - PLACEMENT_GAP : bottom + PLACEMENT_GAP - scroller.clientHeight
-      scroller.scrollTo({ top: Math.max(0, top < viewTop ? top - PLACEMENT_GAP : target), behavior: 'smooth' })
+      // The panel list refetches after the save; give it a couple of seconds.
+      if (!scrollPanelIntoView(canvasRef.current, panelId) && ++frames < 120) requestAnimationFrame(tryReveal)
     }
     requestAnimationFrame(tryReveal)
   }, [])

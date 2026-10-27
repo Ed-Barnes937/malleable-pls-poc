@@ -22,6 +22,12 @@
   --color-accent: oklch(0.623 0.214 259.815);
   --color-accent-foreground: oklch(0.985 0 0);
 
+  /* "Needs another look" text (moments to review, missed blocks): faded pale
+     amber on dark. The light theme swaps in solid deep ambers. */
+  --color-attention-strong: color-mix(in oklab, var(--color-amber-200) 80%, transparent);
+  --color-attention: color-mix(in oklab, var(--color-amber-200) 70%, transparent);
+  --color-attention-soft: color-mix(in oklab, var(--color-amber-200) 60%, transparent);
+
   /* ── Text tokens (warm tint) ── */
   --color-text-primary: oklch(0.93 0.005 60);
   --color-text-secondary: oklch(0.65 0.005 60);
@@ -75,14 +81,16 @@ body {
   --color-emerald-400: oklch(0.5 0.17 160);
   --color-emerald-500: oklch(0.45 0.16 160);
 
-  /* Amber marks "needs another look". Its pale dark-theme shades vanish on a
-     light surface, and widgets use them at 60-80% opacity, so the light theme
-     flips them to deep ambers that still read at 4.5:1 once faded
-     (checked by theme-contrast.test.ts). */
-  --color-amber-200: oklch(0.22 0.07 48);
-  --color-amber-300: oklch(0.47 0.13 50);
-  --color-amber-400: oklch(0.47 0.13 50);
-  --color-amber-500: oklch(0.66 0.16 65);
+  /* Amber marks "needs another look". Pale dark-theme ambers vanish on a
+     light surface: text gets solid deep ambers (4.5:1, checked by
+     theme-contrast.test.ts) and tints a warm mid amber. */
+  --color-attention-strong: oklch(0.47 0.11 58);
+  --color-attention: oklch(0.5 0.11 60);
+  --color-attention-soft: oklch(0.52 0.105 62);
+  --color-amber-200: oklch(0.75 0.15 75);
+  --color-amber-300: oklch(0.5 0.11 60);
+  --color-amber-400: oklch(0.5 0.11 60);
+  --color-amber-500: oklch(0.72 0.15 70);
 
   --color-accent: oklch(0.55 0.214 259.815);
 

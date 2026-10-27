@@ -85,7 +85,7 @@ export function RefitBanner({ course }: { course: string | undefined }) {
       className="flex flex-col gap-2 rounded-lg bg-amber-200/5 px-2.5 py-2 ring-1 ring-amber-200/15"
     >
       <div className="flex items-start gap-2">
-        <RotateCcw className="mt-0.5 h-3 w-3 shrink-0 text-amber-200/70" />
+        <RotateCcw className="mt-0.5 h-3 w-3 shrink-0 text-attention" />
         <p className="flex-1 text-xs text-neutral-300">
           {question}{' '}
           {step === 'ask'

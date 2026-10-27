@@ -225,31 +225,34 @@ export interface ServerEventHandlers {
 
 export function useServerEvents(handlers?: ServerEventHandlers) {
   const utils = trpc.useUtils()
+  /**
+   * Everything a job may have written. A failed run too: it can fail after
+   * writing (e.g. while cascading), and a lecture's `processing` ends with it.
+   */
+  const refreshJobData = () => {
+    utils.recordings.invalidate()
+    utils.transcripts.invalidate()
+    utils.tags.invalidate()
+    utils.links.invalidate()
+    utils.confidence.invalidate()
+    utils.aggregates.invalidate()
+    utils.annotations.invalidate()
+    utils.planItems.invalidate()
+  }
   return trpc.events.onDataChange.useSubscription(undefined, {
     onError: () => {},
     onData: (event) => {
+      utils.jobs.recent.invalidate()
+      utils.jobs.runningCount.invalidate()
       if (event.type === 'job:started') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
         // A lecture's `processing` follows its jobs (e.g. its summary starting).
         utils.recordings.byId.invalidate()
         handlers?.onJobStarted?.(event)
       } else if (event.type === 'job:completed') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
-        utils.recordings.invalidate()
-        utils.transcripts.invalidate()
-        utils.tags.invalidate()
-        utils.links.invalidate()
-        utils.confidence.invalidate()
-        utils.aggregates.invalidate()
-        utils.annotations.invalidate()
-        utils.planItems.invalidate()
+        refreshJobData()
         handlers?.onJobCompleted?.(event)
       } else if (event.type === 'job:failed') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
-        utils.recordings.byId.invalidate()
+        refreshJobData()
         handlers?.onJobFailed?.(event)
       }
     },

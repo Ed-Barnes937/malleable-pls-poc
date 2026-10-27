@@ -128,6 +128,28 @@ test.describe('Building a board', () => {
 
     // Nothing covers the calendar: its controls still take clicks.
     await grid.panelByLabel('Calendar').getByRole('button', { name: 'Help me plan' }).click({ trial: true })
+
+    // Fullscreen shows the widget from the top of the board, and leaving it
+    // puts the board back where it was scrolled to.
+    // (The trial click above scrolled the Calendar back into view.)
+    const scrollTop = () => grid.root.evaluate((el) => el.scrollTop)
+    await page.waitForTimeout(500) // let any smooth scroll finish
+    await grid.root.evaluate((el) => { el.scrollTop = 150 })
+    await expect.poll(scrollTop).toBe(150)
+    const before = 150
+    await transcript.getByRole('button', { name: 'Fullscreen Transcript' }).click()
+    await expect.poll(scrollTop).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(scrollTop).toBe(before)
+
+    // ] / [ cycle the selection and scroll the selected widget into view.
+    await grid.root.evaluate((el) => { el.scrollTop = 0 })
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect(transcript).not.toBeInViewport({ ratio: 1 })
+    await page.keyboard.press('[') // nothing selected: the last widget, Transcript
+    await expect(transcript).toBeInViewport({ ratio: 1 })
+    await page.keyboard.press(']') // wraps to the first, Calendar
+    await expect(grid.panelByLabel('Calendar')).toBeInViewport({ ratio: 0.9 })
   })
 
   test('removing a widget frees its spot for the next one', async ({ page }) => {

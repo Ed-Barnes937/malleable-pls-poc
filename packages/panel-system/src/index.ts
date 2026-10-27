@@ -15,3 +15,4 @@ export {
 } from './canvas-store'
 export { snapToGrid, GRID_SIZE } from './snap'
 export { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, PLACEMENT_GAP } from './geometry'
+export { scrollPanelIntoView } from './reveal'

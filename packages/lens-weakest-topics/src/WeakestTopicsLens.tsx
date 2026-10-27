@@ -98,7 +98,7 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
     <>
       <span className={cn(
         'flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-xs font-bold',
-        topic.rank <= 3 ? 'bg-amber-200/10 text-amber-200/80' : 'bg-neutral-800 text-neutral-600',
+        topic.rank <= 3 ? 'bg-amber-200/10 text-attention-strong' : 'bg-neutral-800 text-neutral-600',
       )}>
         {topic.rank}
       </span>
@@ -173,7 +173,7 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
 function Sureness({ topic }: { topic: WeakTopic }) {
   if (topic.confidence == null) {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[10px] text-amber-200/70" title="You marked this confusing">
+      <span className="flex shrink-0 items-center gap-1 text-[10px] text-attention" title="You marked this confusing">
         <CircleHelp className="h-3 w-3" />
         Confusing
       </span>
@@ -185,7 +185,7 @@ function Sureness({ topic }: { topic: WeakTopic }) {
       className="flex w-[4.5rem] shrink-0 flex-col items-end gap-0.5"
       title={topic.confused ? `You felt ${sure}% sure, and marked it confusing` : `You felt ${sure}% sure`}
     >
-      <span className="font-mono text-[11px] font-bold tabular-nums text-amber-200/70">{sure}% sure</span>
+      <span className="font-mono text-[11px] font-bold tabular-nums text-attention">{sure}% sure</span>
       <span className="flex h-1 w-full gap-px" aria-hidden>
         {Array.from({ length: 5 }).map((_, i) => (
           <span key={i} className={cn('flex-1 rounded-sm', i < Math.round(sure / 20) ? 'bg-amber-200/50' : 'bg-neutral-800')} />

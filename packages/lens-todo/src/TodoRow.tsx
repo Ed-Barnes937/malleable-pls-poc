@@ -56,7 +56,7 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
         {!done && (
           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-neutral-500">
             {slipped ? (
-              <span className="flex items-center gap-1 text-amber-200/70">
+              <span className="flex items-center gap-1 text-attention">
                 <Hourglass className="h-2.5 w-2.5" />
                 {stillToDoLabel(slipped, now)}
               </span>
