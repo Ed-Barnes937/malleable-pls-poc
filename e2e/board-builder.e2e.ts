@@ -99,6 +99,32 @@ test.describe('Building a board', () => {
     }
   })
 
+  test('removing a widget frees its spot for the next one', async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.expectActiveWorkspace('My week')
+
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    await sidebar.addWidget('To-do')
+    await grid.expectPanelCount(1)
+    const first = await grid.panelByLabel('To-do').boundingBox()
+    await page.keyboard.press('Escape')
+    await grid.panelByLabel('To-do').getByRole('button', { name: 'Remove To-do from board' }).click()
+    await grid.expectPanelCount(0)
+
+    await topBar.openDrawer()
+    await sidebar.addWidget('Coming up')
+    await grid.expectPanelCount(1)
+    const second = await grid.panelByLabel('Coming up').boundingBox()
+    // Same spot (widgets scale in, so allow a few pixels of animation).
+    expect(Math.abs(second!.x - first!.x)).toBeLessThan(4)
+    expect(Math.abs(second!.y - first!.y)).toBeLessThan(4)
+  })
+
   test('fullscreen sits above other widgets and does not survive a reload', async ({ page }) => {
     const { grid } = await buildBiologyBoard(page)
     const transcript = grid.panelByLabel('Transcript')

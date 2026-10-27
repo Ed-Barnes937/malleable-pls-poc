@@ -48,7 +48,7 @@ function jobDoneMessage(jobType?: string): string {
 interface PendingAdd {
   workspaceId: string
   box: { x: number; y: number; width: number; height: number; z: number }
-  /** Set once saved; the add stops counting once the canvas has this panel. */
+  /** Set once saved; the add stops counting as soon as the canvas has this panel. */
   panelId?: string
 }
 
@@ -165,6 +165,13 @@ export function WorkspaceShell() {
    * quick successive adds don't all pick the same free spot.
    */
   const pendingAddsRef = useRef<PendingAdd[]>([])
+  const dropPendingOnCanvas = useCallback(() => {
+    const onCanvas = new Set(useCanvasStore.getState().panels.map((p) => p.id))
+    pendingAddsRef.current = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
+  }, [])
+  // Release a spot as soon as its panel first reaches the canvas (usePanelSync,
+  // above, has synced this panel list), so removing that panel later frees it.
+  useEffect(dropPendingOnCanvas, [panels, dropPendingOnCanvas])
 
   /**
    * Adds a widget at its default size. Without a position (a palette click)
@@ -176,10 +183,7 @@ export function WorkspaceShell() {
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
       const existing = useCanvasStore.getState().panels
-      const onCanvas = new Set(existing.map((p) => p.id))
-      const pending = pendingAddsRef.current.filter(
-        (a) => a.workspaceId === activeWorkspaceId && !(a.panelId && onCanvas.has(a.panelId)),
-      )
+      const pending = pendingAddsRef.current.filter((a) => a.workspaceId === activeWorkspaceId)
       const taken = [
         ...existing.map((p) => ({ x: p.pos_x, y: p.pos_y, width: p.width, height: p.height, z: p.z_index })),
         ...pending.map((a) => a.box),
@@ -212,8 +216,9 @@ export function WorkspaceShell() {
         },
         {
           onSuccess: (row) => {
-            // Stays taken until the canvas shows the saved panel.
+            // Stays taken until the canvas shows the saved panel (it may already).
             add.panelId = (row as { id?: string } | undefined)?.id
+            dropPendingOnCanvas()
             // One toast for a run of adds, not a stack of them.
             pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
           },
@@ -224,7 +229,7 @@ export function WorkspaceShell() {
         },
       )
     },
-    [activeWorkspaceId, addPanel, manifests, pushToast],
+    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas],
   )
 
   const handleDrop = useCallback(
