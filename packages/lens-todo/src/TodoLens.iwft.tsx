@@ -143,12 +143,12 @@ test('Undo right after ticking reopens the to-do where it was', async ({ mount, 
   await expect(row).toBeVisible()
 })
 
-/** Holds every request to `procedure` until `release()`; the simulator answers it then. */
+/** Holds every request to `procedure` (alone or in a batch) until `release()`; the simulator answers it then. */
 async function hold(page: Page, procedure: string) {
   let release!: () => void
   const held = new Promise<void>((resolve) => { release = resolve })
   // Registered after the simulator's route, so it runs first and hands over.
-  await page.route(`**/${procedure}**`, async (route) => {
+  await page.route((url) => url.pathname.split(/[/,]/).includes(procedure), async (route) => {
     await held
     await route.fallback()
   })
@@ -210,6 +210,33 @@ test('after an Undo, a late save never flashes the to-do into Done today', async
   await expect.poll(() => simulator.db.planItems[0].status).toBe('open')
   await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
   await expect(page.getByText('Done today')).toHaveCount(0)
+})
+
+test('a to-do reopened elsewhere while its tick is saving ends open', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Flashcards' })
+  await expect(row).toBeVisible()
+
+  // The tick saves, but the lists' refetch is slow...
+  const releaseLists = await hold(page, 'planItems.list')
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('done')
+  await expect(row).toHaveAttribute('data-just-done', 'shown')
+
+  // ...and meanwhile another device reopens it.
+  simulator.db.planItems[0].status = 'open'
+  releaseLists()
+
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect(row).not.toHaveAttribute('data-just-done')
+  await expect(page.getByText('Done today')).toHaveCount(0)
+  await expect(page.getByText('1 to do')).toBeVisible()
 })
 
 test('dismissing a to-do removes it without fuss', async ({ mount, page, simulator }) => {

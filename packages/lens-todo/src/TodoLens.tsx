@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
@@ -30,7 +30,6 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const justDone = useJustDone()
   // Ticks and Undos on one to-do save in order, and show at once.
   const status = useStatusWrites(
-    items,
     (id, next) => (next === 'done' ? complete.mutateAsync(id) : update.mutateAsync({ id, patch: { status: 'open' } })),
     justDone.remove,
   )
@@ -42,6 +41,15 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
     justDone.remove(id)
     status.setStatus(id, 'open')
   }
+  // Reopened elsewhere (another device, the Calendar) while its tick was
+  // saving: once saved, it shows open, not "Done · Undo".
+  const { stages: justDoneStages, remove: removeJustDone } = justDone
+  const { isSaving } = status
+  useEffect(() => {
+    for (const id of justDoneStages.keys()) {
+      if (!isSaving(id) && items?.find((item) => item.id === id)?.status === 'open') removeJustDone(id)
+    }
+  }, [items, justDoneStages, removeJustDone, isSaving])
 
   const now = Date.now()
   // Rows as the student last left them, while their saves are on the way.

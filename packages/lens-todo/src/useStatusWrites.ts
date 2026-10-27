@@ -6,21 +6,20 @@ export type TodoStatus = 'open' | 'done'
 /**
  * Ticking and unticking a to-do, in order. Each to-do's status writes go out
  * one after another (tick, Undo, tick again can't land out of order), and
- * until the server agrees the list shows what the student last asked for,
- * so a slow save never flashes the old state back.
+ * until the last one has saved the list shows what the student last asked
+ * for, so a slow save never flashes the old state back. `send` must resolve
+ * once the lists have refetched (plan item saves do): from then on the row
+ * shows the server's state, even if something else changed it meanwhile.
  */
 export function useStatusWrites(
-  items: PlanItemOccurrence[] | null | undefined,
   send: (id: string, status: TodoStatus) => Promise<unknown>,
   /** A write that failed and wasn't followed by another: the list falls back to the server's state. */
   onFailed?: (id: string) => void,
 ) {
-  /** What the student last asked for, per to-do, until the server shows it. */
+  /** What the student last asked for, per to-do, until its last write has saved. */
   const [wanted, setWanted] = useState<ReadonlyMap<string, TodoStatus>>(() => new Map())
   /** The last queued write per to-do; each new one waits for it. */
   const queue = useRef(new Map<string, Promise<unknown>>())
-  /** Bumped as each write settles, so the check below runs even if the refetch changes nothing. */
-  const [settled, setSettled] = useState(0)
   const latest = useRef({ send, onFailed })
   useEffect(() => {
     latest.current = { send, onFailed }
@@ -42,8 +41,9 @@ export function useStatusWrites(
     queue.current.set(id, write)
     write.then(
       () => {
-        if (queue.current.get(id) === write) queue.current.delete(id)
-        setSettled((n) => n + 1)
+        if (queue.current.get(id) !== write) return
+        queue.current.delete(id)
+        forget(id)
       },
       () => {
         if (queue.current.get(id) !== write) return
@@ -54,21 +54,12 @@ export function useStatusWrites(
     )
   }, [forget])
 
-  // Once nothing is queued and the fetched row matches (or is gone), the
-  // server's word is the truth again.
-  useEffect(() => {
-    if (!items || wanted.size === 0) return
-    for (const [id, status] of wanted) {
-      if (queue.current.has(id)) continue
-      const row = items.find((item) => item.id === id)
-      if (!row || row.status === status) forget(id)
-    }
-  }, [items, wanted, settled, forget])
-
   const statusOf = useCallback(
     (item: PlanItemOccurrence) => wanted.get(item.id) ?? item.status,
     [wanted],
   )
+  /** A write for this to-do is still on its way. */
+  const isSaving = useCallback((id: string) => wanted.has(id), [wanted])
 
-  return { statusOf, setStatus }
+  return { statusOf, isSaving, setStatus }
 }
