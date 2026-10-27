@@ -139,6 +139,11 @@ export const substrateTrpc: SubstrateWriter = {
     return adaptMutation(usePlanItemMutation(trpc.planItems.delete))
   },
 
+  useAutofillPlan() {
+    // Advice only: nothing is written, so nothing to invalidate.
+    return adaptMutation(trpc.planning.autofill.useMutation())
+  },
+
   useAcceptRefit() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.planItems.refit.useMutation({

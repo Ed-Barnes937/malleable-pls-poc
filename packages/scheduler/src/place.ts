@@ -1,4 +1,5 @@
 import { MINUTE_MS, subtract, type Interval } from './intervals'
+import { checkBudget, minutesByDay, splitByLocalDay, type DailyBudget } from './budget'
 
 /** Something that needs a contiguous block of time. */
 export interface SchedulerTask {
@@ -33,6 +34,8 @@ export type UnplacedReason =
   | 'no-free-slot'
   /** Another task with the same `id` was considered first and placed or reported. */
   | 'duplicate-id'
+  /** Longer than `dailyBudget.minutesPerDay`: it can never fit in one day's study time. */
+  | 'over-daily-budget'
 
 export interface Unplaced {
   taskId: string
@@ -67,6 +70,18 @@ export interface PlaceOptions {
    * disable rounding.
    */
   alignMin?: number
+  /**
+   * Minutes kept clear between a new block and any fixed existing placement
+   * or other new block, so study blocks never run back to back. Default 0.
+   * (Space around commitments is `freeSlots`' `bufferMin`.)
+   */
+  gapMin?: number
+  /**
+   * Caps study time per local day. Fixed existing placements count against
+   * the day they fall on (before `now` too: what is already scheduled
+   * today is spent). With a budget, a block never crosses local midnight.
+   */
+  dailyBudget?: DailyBudget
 }
 
 export interface PlaceResult {
@@ -88,6 +103,11 @@ function checkOptions(opts: PlaceOptions): number {
   if (!(alignMin > 0) || !Number.isFinite(alignMin)) {
     throw new RangeError(`alignMin must be a finite number > 0, got ${alignMin}`)
   }
+  const gapMin = opts.gapMin ?? 0
+  if (!(gapMin >= 0) || !Number.isFinite(gapMin)) {
+    throw new RangeError(`gapMin must be a finite number >= 0, got ${gapMin}`)
+  }
+  checkBudget(opts.dailyBudget)
   return alignMin * MINUTE_MS
 }
 
@@ -100,14 +120,59 @@ function resolveWindow(task: SchedulerTask, now: number): Window | UnplacedReaso
   return { lo, hi, durMs }
 }
 
-/** Free time minus blocks that stay put (those not belonging to `movingIds`). */
-function available(
-  free: ReadonlyArray<Interval>,
+/** Existing placements that stay put: those not belonging to `movingIds`. */
+export function fixedPlacements(
   existing: ReadonlyArray<ExistingPlacement>,
   movingIds: ReadonlySet<string>,
-): Interval[] {
-  const fixed = existing.filter((e) => e.taskId === undefined || !movingIds.has(e.taskId))
-  return subtract(free, fixed)
+): ExistingPlacement[] {
+  return existing.filter((e) => e.taskId === undefined || !movingIds.has(e.taskId))
+}
+
+/**
+ * Where new blocks may go: free time minus fixed blocks (padded by
+ * `gapMin`), and, with a daily budget, the study minutes left per day.
+ * `take` records a new block so later tasks see it as busy and spent.
+ */
+class Availability {
+  private avail: Interval[]
+  private readonly used: Map<number, number>
+  private readonly gapMs: number
+
+  constructor(
+    free: ReadonlyArray<Interval>,
+    fixed: ReadonlyArray<Interval>,
+    private readonly opts: Pick<PlaceOptions, 'gapMin' | 'dailyBudget'>,
+  ) {
+    this.gapMs = (opts.gapMin ?? 0) * MINUTE_MS
+    this.avail = subtract(free, fixed.map((b) => this.pad(b)))
+    this.used = opts.dailyBudget ? minutesByDay(fixed, opts.dailyBudget.timeZone) : new Map()
+  }
+
+  private pad(b: Interval): Interval {
+    return { start: b.start - this.gapMs, end: b.end + this.gapMs }
+  }
+
+  /** Free gaps a block of `durMs` may use: whole gaps, or per-day pieces with budget left. */
+  gaps(durMs: number): Interval[] {
+    const budget = this.opts.dailyBudget
+    if (!budget) return this.avail
+    return splitByLocalDay(this.avail, budget.timeZone).filter(
+      (p) => budget.minutesPerDay - (this.used.get(p.day) ?? 0) >= durMs / MINUTE_MS,
+    )
+  }
+
+  take(block: Interval): void {
+    this.avail = subtract(this.avail, [this.pad(block)])
+    const budget = this.opts.dailyBudget
+    if (!budget) return
+    for (const [day, min] of minutesByDay([block], budget.timeZone)) {
+      this.used.set(day, (this.used.get(day) ?? 0) + min)
+    }
+  }
+}
+
+function overBudget(task: SchedulerTask, budget: DailyBudget | undefined): boolean {
+  return !!budget && task.durationMin > budget.minutesPerDay
 }
 
 type Anchor = NonNullable<PlaceOptions['anchor']>
@@ -163,7 +228,7 @@ export function place(
 ): PlaceResult {
   const alignMs = checkOptions(opts)
   const moving = new Set(tasks.map((t) => t.id))
-  let avail = available(freeSlots, opts.existingPlacements ?? [], moving)
+  const avail = new Availability(freeSlots, fixedPlacements(opts.existingPlacements ?? [], moving), opts)
   const anchor = opts.anchor ?? 'earliest'
   const placements: Placement[] = []
   const unplaced: Unplaced[] = []
@@ -180,8 +245,12 @@ export function place(
       unplaced.push({ taskId: task.id, reason: w })
       continue
     }
+    if (overBudget(task, opts.dailyBudget)) {
+      unplaced.push({ taskId: task.id, reason: 'over-daily-budget' })
+      continue
+    }
     let start: number | undefined
-    for (const slot of byAnchor(avail, anchor)) {
+    for (const slot of byAnchor(avail.gaps(w.durMs), anchor)) {
       start = fitIn(slot, w, alignMs, anchor)
       if (start !== undefined) break
     }
@@ -191,7 +260,7 @@ export function place(
     }
     const block = { taskId: task.id, start, end: start + w.durMs }
     placements.push(block)
-    avail = subtract(avail, [block])
+    avail.take(block)
   }
   return { placements, unplaced }
 }
@@ -214,10 +283,10 @@ export function suggestSlots(
   const alignMs = checkOptions(opts)
   const w = resolveWindow(task, opts.now)
   const out: Placement[] = []
-  if (typeof w === 'string') return out
+  if (typeof w === 'string' || overBudget(task, opts.dailyBudget)) return out
   const anchor = opts.anchor ?? 'earliest'
-  const avail = available(freeSlots, opts.existingPlacements ?? [], new Set([task.id]))
-  for (const slot of byAnchor(avail, anchor)) {
+  const avail = new Availability(freeSlots, fixedPlacements(opts.existingPlacements ?? [], new Set([task.id])), opts)
+  for (const slot of byAnchor(avail.gaps(w.durMs), anchor)) {
     if (out.length >= n) break
     const start = fitIn(slot, w, alignMs, anchor)
     if (start !== undefined) out.push({ taskId: task.id, start, end: start + w.durMs })

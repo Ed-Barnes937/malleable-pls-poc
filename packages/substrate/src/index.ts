@@ -18,13 +18,49 @@ export {
   type ReviewTaskParams,
 } from './workflows'
 
+export {
+  ASSUMED_ESTIMATE_MIN,
+  DEFAULT_STUDY_MIN_PER_DAY,
+  STUDY_PER_DAY_OPTIONS,
+  studyDays,
+  type StudyDay,
+  ESTIMATE_OPTIONS,
+  STUDY_BLOCK_GAP_MIN,
+  STUDY_DAY,
+  capacityCopy,
+  completeTrims,
+  defaultTrims,
+  draftCopy,
+  longestBlockMin,
+  noteWithoutAmounts,
+  draftPlan,
+  formatMinutes,
+  matchesWeakTopic,
+  openTime,
+  padded,
+  planAutofillInput,
+  planCapacity,
+  planTasks,
+  rankForPlan,
+  sanitizeAdvice,
+  suggestTaskSlots,
+  weekLayout,
+  type DraftResult,
+  type PlanAdvice,
+  type PlanAutofillInput,
+  type PlanTask,
+  type PlanTrim,
+  type WeekLayout,
+  type Capacity,
+  type Placement,
+  type Unplaced,
+} from './planning'
+
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
 export {
-  STUDY_DAY,
   busyTime,
-  padded,
   isMissedBlock,
   REFIT_LOOKAHEAD_DAYS,
   refitRange,

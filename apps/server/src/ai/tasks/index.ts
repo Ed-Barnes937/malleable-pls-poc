@@ -1,6 +1,7 @@
 import type { LlmTask } from '../llm'
 import type { TranscribedSegment } from '../transcriber'
 import { lectureSummaryTask } from './lecture-summary'
+import { planAutofillTask } from './plan-autofill'
 import { reviewTask } from './review-task'
 
 /** What a sample input can be built from: a transcribed lecture. */
@@ -42,6 +43,27 @@ export const llmTaskSamples: LlmTaskSample[] = [
       moment: lecture.segments[i]?.text ?? '',
       before: lecture.segments[i - 1]?.text ?? '',
       after: lecture.segments[i + 1]?.text ?? '',
+    }
+  }),
+  // Help me plan over an over-capacity demo week: about 9 hours of study time left, 12 needed.
+  llmTaskSample(planAutofillTask, (lecture) => {
+    const day = (d: number, h: number) => new Date(Date.UTC(2026, 10, 2 + d, h)).toISOString()
+    const end = Date.UTC(2026, 10, 9)
+    const task = (id: string, title: string, course: string, durationMin: number, dueAt: string | null, weakTopic = false) =>
+      ({ id, title, course, dueAt, durationMin, assumed: false, weakTopic, latest: dueAt ? Date.parse(dueAt) : end })
+    return {
+      tasks: [
+        task('lab-report', 'Lab report write-up', 'chemistry', 240, day(4, 17)),
+        task('quiz-prep', 'Biology quiz prep', 'biology', 120, day(3, 9)),
+        task('reading', 'Chemistry reading: chapter 6', 'chemistry', 180, null),
+        task('review', `Review: ${lecture.title}`, 'biology', 30, day(2, 22), true),
+        task('problems', 'Problem sheet 3', 'chemistry', 150, day(5, 12)),
+      ],
+      freeMin: 9 * 60,
+      neededMin: 12 * 60,
+      minutesPerDay: 120,
+      weakTopics: lecture.segments.filter((s) => /maternal inheritance/i.test(s.text)).map((s) => s.text).slice(0, 2),
+      timeZone: 'Europe/London',
     }
   }),
 ]

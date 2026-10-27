@@ -1,9 +1,10 @@
-import { useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { cn } from '@pls/shared-ui'
-import { AudioLines, Check, Repeat } from 'lucide-react'
+import { AudioLines, Check, Repeat, Sparkles, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { toneFor } from './colors'
+import { ghostId, ghostRow, type Proposal } from './proposals'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -30,6 +31,19 @@ export interface TimeGridProps {
   onOpen: (item: PlanItemOccurrence, anchor: Anchor) => void
   /** A study block was dragged to a new time or resized. */
   onMove: (item: PlanItemOccurrence, start: Date, end: Date) => void
+  /** Ghost blocks: drafted, not saved (see ./proposals.ts). */
+  proposals?: Proposal[]
+  /** Proposals accepted and being saved: drawn, but no longer actionable. */
+  savedProposalIds?: ReadonlySet<string>
+  onProposalMove?: (id: string, start: Date, end: Date) => void
+  onProposalAccept?: (id: string) => void
+  onProposalDismiss?: (id: string) => void
+  /** Free study time to shade (UTC ms intervals), e.g. while planning. */
+  freeTime?: ReadonlyArray<{ start: number; end: number }>
+  /** A to-do being dragged in from outside the grid (Help me plan), to preview where it lands. */
+  incoming?: { title: string; durationMin: number; course: string | null } | null
+  /** That to-do was dropped at `start`. */
+  onDropIncoming?: (start: Date) => void
 }
 
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
@@ -59,7 +73,10 @@ type Drag =
       moved: boolean
     }
 
-export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove }: TimeGridProps) {
+export function TimeGrid({
+  days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
+  proposals, savedProposalIds, onProposalMove, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
+}: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
@@ -93,7 +110,13 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
     }
   }, [])
 
-  const segments = useMemo(() => layoutDays(items, days), [items, days])
+  // Ghosts are laid out with real blocks, so a dragged one never hides another.
+  const segments = useMemo(
+    () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
+    [items, proposals, days],
+  )
+  const freeSegments = useMemo(() => (freeTime?.length ? shadeDays(freeTime, days) : null), [freeTime, days])
+  const [dropAt, setDropAt] = useState<{ dayIndex: number; minute: number } | null>(null)
   const markers = useMemo(() => dueMarkers(items, days), [items, days])
   const hasDue = markers.some((m) => m.length > 0)
 
@@ -185,14 +208,49 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
       }
       return
     }
+    const ghost = ghostId(drag.item)
     if (!drag.moved) {
-      onOpen(drag.item, anchor)
+      // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
+      if (!ghost) onOpen(drag.item, anchor)
       return
     }
     if (!isMovable(drag.item)) return
     const unchanged = drag.start.getTime() === Date.parse(drag.item.starts_at!) && drag.end.getTime() === Date.parse(drag.item.ends_at!)
-    if (!unchanged) onMove(drag.item, drag.start, drag.end)
+    if (unchanged) return
+    if (ghost) onProposalMove?.(ghost, drag.start, drag.end)
+    else onMove(drag.item, drag.start, drag.end)
   }
+
+  // A to-do dragged in from Help me plan (native drag and drop).
+  const dropMinute = (e: ReactDragEvent) => {
+    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
+    return { dayIndex, minute: clamp(snapDown(minute), 0, MINUTES_PER_DAY - SNAP_MIN) }
+  }
+  const handleDragOver = (e: ReactDragEvent) => {
+    if (!incoming || !onDropIncoming) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const at = dropMinute(e)
+    if (at.dayIndex !== dropAt?.dayIndex || at.minute !== dropAt.minute) setDropAt(at)
+  }
+  const handleDrop = (e: ReactDragEvent) => {
+    if (!incoming || !onDropIncoming) return
+    e.preventDefault()
+    const at = dropMinute(e)
+    setDropAt(null)
+    onDropIncoming(atMinutes(days[at.dayIndex], at.minute))
+  }
+  const dropStart = incoming && dropAt ? atMinutes(days[dropAt.dayIndex], dropAt.minute) : null
+  const dropPreview = incoming && dropStart
+    ? layoutDays([{
+        ...ghostRow({
+          id: 'incoming', taskId: 'incoming', title: incoming.title, course: incoming.course,
+          startsAt: dropStart.toISOString(),
+          endsAt: new Date(dropStart.getTime() + incoming.durationMin * 60_000).toISOString(),
+        }),
+        occurrence_key: 'incoming',
+      }], days)
+    : null
 
   const createDraft = drag?.type === 'create' && drag.moved
     ? { dayIndex: drag.dayIndex, from: snap(Math.min(drag.fromMin, drag.toMin)), to: snap(Math.max(drag.fromMin, drag.toMin)) }
@@ -298,6 +356,11 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
             onPointerMove={handleMove}
             onPointerUp={handleUp}
             onPointerCancel={() => setDrag(null)}
+            onDragOver={handleDragOver}
+            onDragLeave={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null)
+            }}
+            onDrop={handleDrop}
           >
             {/* Hour and half-hour lines */}
             {Array.from({ length: 24 }, (_, h) => (
@@ -316,7 +379,37 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
                   data-date={day.toISOString()}
                   className={cn('relative border-l border-border-subtle/70', isToday && 'bg-accent/[0.03]')}
                 >
-                  {segments[dayIndex].map((seg) => (
+                  {freeSegments?.[dayIndex].map((f) => (
+                    <div
+                      key={f.key}
+                      data-testid="calendar-free"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0.5 rounded-md bg-sky-400/[0.07] ring-1 ring-inset ring-sky-400/15"
+                      style={{ top: (f.startMin / 60) * hourPx, height: ((f.endMin - f.startMin) / 60) * hourPx }}
+                    />
+                  ))}
+
+                  {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
+                    <GhostBlock
+                      key={seg.key}
+                      seg={seg}
+                      hourPx={hourPx}
+                      saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
+                      lifted={draggingKey === seg.item.occurrence_key}
+                      onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
+                      onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
+                      onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
+                      onNudge={(minutes, dayShift) => {
+                        const start = new Date(seg.item.starts_at!)
+                        const end = new Date(seg.item.ends_at!)
+                        for (const d of [start, end]) {
+                          d.setDate(d.getDate() + dayShift)
+                          d.setMinutes(d.getMinutes() + minutes)
+                        }
+                        onProposalMove?.(ghostId(seg.item)!, start, end)
+                      }}
+                    />
+                  ) : (
                     <Block
                       key={seg.key}
                       seg={seg}
@@ -343,6 +436,19 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
 
                   {preview?.[dayIndex].map((seg) => (
                     <Block key={seg.key} seg={seg} hourPx={hourPx} preview />
+                  ))}
+
+                  {dropPreview?.[dayIndex].map((seg) => (
+                    <div
+                      key={seg.key}
+                      data-testid="calendar-drop-preview"
+                      className="pointer-events-none absolute inset-x-1 z-30 rounded-lg bg-accent/15 ring-2 ring-accent/60"
+                      style={{ top: (seg.startMin / 60) * hourPx + 1, height: Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2) }}
+                    >
+                      <span className="block truncate px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                        {incoming?.title} · {formatSpan(new Date(seg.item.starts_at!), new Date(seg.item.ends_at!))}
+                      </span>
+                    </div>
                   ))}
 
                   {createDraft?.dayIndex === dayIndex && createDraft.to > createDraft.from && (
@@ -471,6 +577,156 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
           className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-text-muted/60" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Free intervals cut into per-day spans (wall-clock minutes) for shading. */
+function shadeDays(intervals: ReadonlyArray<{ start: number; end: number }>, days: Date[]) {
+  return days.map((day, dayIndex) => {
+    const dayStart = startOfDay(day).getTime()
+    const nextDay = addDays(day, 1).getTime()
+    return intervals
+      .filter((i) => i.end > dayStart && i.start < nextDay)
+      .map((i) => {
+        const end = Math.min(i.end, nextDay)
+        return {
+          key: `${dayIndex}:${i.start}`,
+          startMin: wallMinutes(new Date(Math.max(i.start, dayStart))),
+          endMin: end === nextDay ? MINUTES_PER_DAY : wallMinutes(new Date(end)),
+        }
+      })
+  })
+}
+
+interface GhostBlockProps {
+  seg: DaySegment
+  hourPx: number
+  /** Accepted and saving: drawn until the real block arrives. */
+  saved: boolean
+  lifted: boolean
+  onPointerDown: (e: ReactPointerEvent, type: 'move' | 'resize') => void
+  onAccept: () => void
+  onDismiss: () => void
+  /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
+  onNudge: (minutes: number, days: number) => void
+}
+
+/**
+ * A drafted, unsaved block. Visibly not real yet (accent stripes, dashed
+ * edge, sparkle), draggable to adjust, with its own accept and dismiss.
+ */
+function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+  const { item } = seg
+  const tone = toneFor(item.course)
+  const start = new Date(item.starts_at!)
+  const end = new Date(item.ends_at!)
+  const top = (seg.startMin / 60) * hourPx
+  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  const roomy = height >= 52
+  const span = formatSpan(start, end)
+  const stop = (e: ReactPointerEvent) => e.stopPropagation()
+  const iconButton = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+
+  return (
+    <div
+      data-block="ghost"
+      data-testid="calendar-ghost"
+      data-saved={saved || undefined}
+      aria-label={`Suggested: ${item.title}, ${span}`}
+      aria-description={saved ? undefined : 'Arrow keys move it, Enter accepts, Delete dismisses'}
+      tabIndex={saved ? undefined : 0}
+      onKeyDown={saved ? undefined : (e) => {
+        if (e.target !== e.currentTarget) return
+        const keys: Record<string, () => void> = {
+          ArrowUp: () => onNudge(-SNAP_MIN, 0),
+          ArrowDown: () => onNudge(SNAP_MIN, 0),
+          ArrowLeft: () => onNudge(0, -1),
+          ArrowRight: () => onNudge(0, 1),
+          Enter: onAccept,
+          Delete: onDismiss,
+          Backspace: onDismiss,
+        }
+        const action = keys[e.key]
+        if (!action) return
+        e.preventDefault()
+        action()
+      }}
+      title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
+      onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
+      className={cn(
+        'group absolute z-10 overflow-hidden rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'bg-surface-raised/85 shadow-[0_0_0_3px_rgba(99,102,241,0.10)]',
+        'border border-dashed border-accent/70 transition-[opacity,box-shadow] duration-200',
+        saved ? 'cursor-default opacity-70' : 'cursor-grab hover:shadow-[0_0_0_4px_rgba(99,102,241,0.18)] active:cursor-grabbing',
+        seg.continuesBefore && 'rounded-t-none',
+        seg.continuesAfter && 'rounded-b-none',
+        lifted && 'opacity-30',
+      )}
+      style={{
+        top: top + 1,
+        height,
+        left: `calc(${(seg.column / seg.columns) * 100}% + 2px)`,
+        width: `calc(${100 / seg.columns}% - 4px)`,
+      }}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[repeating-linear-gradient(135deg,rgba(99,102,241,0.13)_0_6px,transparent_6px_12px)]"
+      />
+      <span aria-hidden className={cn('absolute inset-y-0 left-0 w-[3px] opacity-70', tone.bar)} />
+      <div className={cn('relative flex h-full min-w-0 flex-col pl-2 pr-1', roomy ? 'py-[3px]' : 'justify-center')}>
+        <div className="flex min-w-0 items-center gap-1">
+          <Sparkles className="h-2.5 w-2.5 shrink-0 text-accent" aria-hidden />
+          <span className="min-w-0 flex-1 truncate text-[11px] font-medium leading-tight text-text-primary">{item.title}</span>
+        </div>
+        {roomy && (
+          <span className="truncate text-[10px] tabular-nums leading-tight text-text-secondary">
+            {saved ? 'Saving...' : span}
+          </span>
+        )}
+        {!saved && (
+          // Bottom right when there is room; over the title on hover / focus in a short block.
+          <div
+            className={cn(
+              'flex gap-1',
+              roomy
+                ? 'mt-auto justify-end pb-0.5'
+                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised/90 p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
+            )}
+          >
+              <button
+                type="button"
+                aria-label={`Accept ${item.title}`}
+                title="Accept"
+                onPointerDown={stop}
+                onClick={onAccept}
+                className={cn(iconButton, 'bg-accent text-accent-foreground hover:bg-accent/85')}
+              >
+                <Check className="h-2.5 w-2.5" />
+              </button>
+              <button
+                type="button"
+                aria-label={`Dismiss ${item.title}`}
+                title="Dismiss"
+                onPointerDown={stop}
+                onClick={onDismiss}
+                className={cn(iconButton, 'text-text-secondary ring-1 ring-border-subtle hover:bg-surface-overlay hover:text-text-primary')}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+          </div>
+        )}
+      </div>
+      {!saved && (
+        <div
+          aria-hidden
+          onPointerDown={(e) => onPointerDown(e, 'resize')}
+          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <span className="mb-0.5 h-0.5 w-6 rounded-full bg-accent/60" />
         </div>
       )}
     </div>

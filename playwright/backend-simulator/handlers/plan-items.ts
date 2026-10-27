@@ -8,6 +8,11 @@ import {
   planItemIdInput,
   planItemOnBoardInput,
   parsePlanItemInput as parse,
+  planAutofillInput,
+  planCapacity,
+  planTasks,
+  sanitizeAdvice,
+  weekLayout,
   busyTime,
   isMissedBlock,
   planRefit,
@@ -16,6 +21,8 @@ import {
   refitPreviewInput,
   refitRange,
 } from '@pls/substrate'
+// The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
+import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
@@ -116,6 +123,22 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const id = parse(planItemIdInput, input)
     if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
+  })
+
+  // Mirrors apps/server/src/routers/planning.ts with the mock LLM. The
+  // simulator keeps no confidence-derived weak topics: reviews still count.
+  router.register('planning.autofill', (input) => {
+    const q = parse(planAutofillInput, input)
+    const now = Date.now()
+    const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
+    const all = db.planItems.map(withCourse)
+    const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
+    const todos = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
+    const tasks = planTasks(todos, week, { now, estimates: q.estimates })
+    if (tasks.length === 0) return { order: [], trims: [], note: null }
+    const cap = planCapacity(weekLayout(rows, week, { timeZone: q.timeZone, studyMinPerDay: q.studyMinPerDay }), tasks, now)
+    const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: q.studyMinPerDay, weakTopics: [], timeZone: q.timeZone })
+    return sanitizeAdvice(raw, tasks, cap, q.studyMinPerDay)
   })
 
   // Re-fit, as apps/server/src/planning/refit.ts: same rules (@pls/substrate

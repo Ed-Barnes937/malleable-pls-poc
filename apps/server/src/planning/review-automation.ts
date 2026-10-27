@@ -12,6 +12,9 @@ import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-i
 // and placed, still where it put them. Commitments never move; every other
 // block (accepted, dragged by hand, made by anything else) is fixed and busy.
 
+// The study day (08:00-22:00, breathing room around classes and shifts) is
+// shared with Help me plan: STUDY_DAY in @pls/substrate's planning module.
+
 const MINUTE_MS = 60_000
 
 /** The review must end by this instant: the end of the local day `windowDays` after it was marked. */
