@@ -21,6 +21,10 @@ const at = (day: number, h: number, m = 0) =>
   new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m).toISOString()
 
 async function seedWeek(request: APIRequestContext) {
+  // An exact over-capacity week: start from no plan items (the reseed adds Priya's week).
+  for (const item of await trpcQuery<Row[]>(request, 'planItems.list')) {
+    await trpcMutation(request, 'planItems.delete', item.id)
+  }
   const ws = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: 'Week plan' })
   await trpcMutation(request, 'workspaces.addPanel', {
     workspaceId: ws.id, lensType: 'calendar', slotName: 'calendar', pos_x: 24, pos_y: 24, width: 1100, height: 680,
@@ -71,7 +75,7 @@ test.describe('Help me plan', () => {
     await panel.getByTestId('autofill').click()
     await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
     const draft = panel.getByTestId('autofill-draft')
-    await expect(draft.getByTestId('autofill-note')).toContainText('Lab report write-up is due soonest, so it goes first.')
+    await expect(draft.getByTestId('autofill-note')).toContainText('Lab report write-up is due soonest, so it gets first pick of your study time.')
     await expect(draft.getByTestId('autofill-trim')).toContainText('Shrink "Lab report write-up" to 2h?')
     await expect(draft.getByTestId('autofill-unplaced')).toContainText('Lab report write-up (4h)')
     // Nothing is written while it is a draft.
