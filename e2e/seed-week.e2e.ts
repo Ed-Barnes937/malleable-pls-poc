@@ -56,9 +56,11 @@ test.describe("Priya's seeded week", () => {
       await expect(comingUp.getByText(/Still to do from earlier/)).toHaveCount(0)
 
       const todo = grid.panelByLabel('To-do')
-      await expect(todo.getByTestId('todo-item')).toHaveCount(4)
+      // Six to plan, two already planned for the weekend, two from yesterday that didn't happen.
+      await expect(todo.getByTestId('todo-item')).toHaveCount(10)
       await expect(todo.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })).toBeVisible()
-      await expect(todo.getByText(/Still to do/)).toHaveCount(0)
+      // Yesterday's two blocks, said gently; nothing else is behind.
+      await expect(todo.getByText('Still to do from yesterday')).toHaveCount(2)
     })
   }
 })

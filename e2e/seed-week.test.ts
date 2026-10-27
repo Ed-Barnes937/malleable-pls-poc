@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { expandPlanItems, validatePlanItem } from '../packages/substrate/src/plan-items'
+import {
+  capacityCopy, completeTrims, defaultTrims, draftPlan, planCapacity, planTasks, rankForPlan, studyDays, weekLayout,
+} from '../packages/substrate/src/planning'
 import type { PlanItem } from '../packages/substrate/src/types'
-import { priyaWeek, SEED_TIME_ZONE } from './seed-week'
+import { priyaWeek, seededReviews, SEED_MISSED_IDS, SEED_TIME_ZONE } from './seed-week'
 
 const at = (iso: string) => Date.parse(iso)
 
-function stored(now: number): PlanItem[] {
-  return priyaWeek(now).map((item) => ({
+function stored(now: number, items = priyaWeek(now)): PlanItem[] {
+  return items.map((item) => ({
     starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open', recurrence: null,
     subtype: null, source_type: null, source_id: null, source_offset_ms: null, course: null,
     created_at: '', updated_at: '',
@@ -79,14 +82,86 @@ describe("Priya's seeded week", () => {
   })
 
   it('has valid items, fixed unique ids, and 12 hours of unscheduled to-dos with estimates and courses', () => {
-    const items = priyaWeek(at('2026-10-28T12:00:00Z'))
+    const items = [...priyaWeek(at('2026-10-28T12:00:00Z')), ...seededReviews()]
     for (const item of items) expect(validatePlanItem(item), item.id).toBeNull()
     expect(new Set(items.map((i) => i.id)).size).toBe(items.length)
-    const todos = items.filter((i) => i.kind === 'task')
+    const todos = items.filter((i) => i.kind === 'task' && i.starts_at == null)
     expect(todos.length).toBeGreaterThanOrEqual(3)
-    expect(todos.every((t) => t.starts_at == null && t.duration_min! > 0 && t.course)).toBe(true)
+    expect(todos.every((t) => t.duration_min! > 0 && t.course)).toBe(true)
     expect(todos.reduce((sum, t) => sum + t.duration_min!, 0)).toBe(12 * 60)
     // Shifts are part of no course.
     expect(items.filter((i) => i.subtype === 'shift').every((i) => i.course == null)).toBe(true)
+  })
+
+  it.each([
+    ['Mon morning', '2026-10-26T08:00:00Z'],
+    ['Sat 10:00, the reading just started', '2026-10-31T10:00:00Z'],
+    ['Sun 23:30', '2026-11-01T23:30:00Z'],
+  ])('on %s the planned study blocks are still ahead, so none is a missed block', (_when, nowIso) => {
+    const now = at(nowIso)
+    const missed = new Set<string>(SEED_MISSED_IDS)
+    for (const item of priyaWeek(now).filter((i) => i.kind === 'task' && i.starts_at && !missed.has(i.id))) {
+      expect(Date.parse(item.starts_at!), item.id).toBeGreaterThan(now)
+    }
+  })
+
+  it.each([
+    ['Tue 10:30', '2026-10-27T10:30:00Z', ['Mon 08:30-09:30', 'Mon 12:30-13:30']],
+    ['Mon 08:00, after a weekend', '2026-10-26T08:00:00Z', ['Sun 08:30-09:30', 'Sun 12:30-13:30']],
+  ])('on %s two open study blocks from yesterday did not happen', (_when, nowIso, slots) => {
+    const now = at(nowIso)
+    const missed = priyaWeek(now).filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
+    expect(missed.map((m) => `${london(m.starts_at!)}-${london(m.ends_at!).slice(4)}`)).toEqual(slots)
+    for (const m of missed) {
+      expect(m).toMatchObject({ kind: 'task', duration_min: 60 })
+      expect(m.status ?? 'open').toBe('open')
+      expect(Date.parse(m.ends_at!)).toBeLessThan(now)
+    }
+  })
+
+  it('reviews for the seeded confusing moments are done and in April, as the automation shapes them', () => {
+    for (const review of seededReviews()) {
+      expect(review).toMatchObject({ kind: 'task', subtype: 'review', status: 'done', duration_min: 20, source_type: 'recording' })
+      expect(review.title).toMatch(/^Review: /)
+      expect(review.source_offset_ms).toBeGreaterThanOrEqual(0)
+      expect(Date.parse(review.ends_at!)).toBeLessThan(at('2026-05-01T00:00:00Z'))
+    }
+  })
+})
+
+/**
+ * Demo step 2 (plans/student-planning-demo.md) on the demo day, through the
+ * same planning code Help me plan and the mock Auto-fill run: Tue 27 Oct
+ * 2026 10:30 London (GMT), the default 2h of study time a day.
+ */
+describe('Help me plan on Tuesday 10:30 of the demo week', () => {
+  const now = at('2026-10-27T10:30:00Z')
+  const week = { start: at('2026-10-26T00:00:00Z'), end: at('2026-11-02T00:00:00Z') }
+  const items = stored(now, [...priyaWeek(now), ...seededReviews()])
+  const rows = expandPlanItems(items, { from: new Date(week.start).toISOString(), to: new Date(week.end).toISOString() })
+  const layout = weekLayout(rows, week, { timeZone: SEED_TIME_ZONE })
+  const todos = items.filter((i) => i.kind === 'task' && i.status === 'open' && i.starts_at == null)
+  const tasks = planTasks(todos, week, { now })
+  const cap = planCapacity(layout, tasks, now)
+
+  it('reads "About 9 hours of study time left this week. Your to-dos need 12."', () => {
+    expect(studyDays(layout, now).map((d) => d.leftMin)).toEqual([0, 120, 120, 120, 120, 0, 60])
+    expect(capacityCopy(cap)).toBe('About 9 hours of study time left this week. Your to-dos need 12.')
+    expect(cap.fits).toBe(false)
+  })
+
+  it('Auto-fill trims only the lab report write-up, to 2h', () => {
+    const trims = completeTrims(defaultTrims(tasks, cap.shortfallMin, 120), tasks, { overCapacity: !cap.fits, minutesPerDay: 120 })
+    expect(trims.map((t) => [t.taskId, t.durationMin])).toEqual([['seed-todo-lab-write-up', 120]])
+  })
+
+  it('drafts the quiz revision first and leaves the rest honestly unplaced', () => {
+    const order = rankForPlan(tasks)
+    expect(order[0]).toBe('seed-todo-quiz-revision')
+    const ordered = order.map((id) => tasks.find((t) => t.id === id)!)
+    const draft = draftPlan(ordered, layout, { now })
+    const placed = draft.placements.reduce((sum, p) => sum + (p.end - p.start) / 60_000, 0)
+    expect(placed).toBeLessThanOrEqual(cap.freeMin)
+    expect(draft.unplaced.map((u) => [u.taskId, u.reason])).toContainEqual(['seed-todo-lab-write-up', 'over-daily-budget'])
   })
 })
