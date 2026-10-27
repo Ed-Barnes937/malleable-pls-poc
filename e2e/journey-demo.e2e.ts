@@ -5,6 +5,7 @@ import type { PlanItem, PlanItemOccurrence, Recording } from '../packages/substr
 import { AudioCapturePom, CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
+import { expectedReviewSlots } from './review-placement'
 import { SEED_MISSED_IDS, SEED_TIME_ZONE, weekMonday } from './seed-week'
 
 /**
@@ -118,8 +119,11 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await audio.submitUpload({ title: LECTURE })
     const transcript = grid.panelByLabel('Transcript')
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
-    await expect(summary.getByRole('listitem')).toHaveCount(3, { timeout: 30000 })
+    await expect(summary.getByTestId('summary-line')).toBeVisible({ timeout: 30000 })
+    await summary.getByRole('button', { name: 'More' }).click()
+    await expect(summary.getByRole('listitem')).toHaveCount(3)
     await expect(summary).toContainText(/mitochondrial DNA/i)
+    await summary.getByRole('button', { name: 'Less' }).click()
     // Remove a widget with a click: frees the calendar's evenings.
     await page.getByRole('button', { name: 'Remove Audio Capture from board' }).click()
     await expect(grid.panelByLabel('Audio Capture')).toHaveCount(0)
@@ -129,46 +133,78 @@ test.describe('Journey: the demo script (mock AI)', () => {
       sourceType: 'recording', sourceId: recording.id, kinds: ['task'],
     }))[0]
 
+    // The ripple: a review card lifts off the moment (too quick to poll for,
+    // so it is recorded), the To-do row slides in, and the toast offers "See it".
+    await transcript.evaluate((el) => {
+      const w = window as unknown as { liftedOff: boolean }
+      w.liftedOff = false
+      new MutationObserver(() => {
+        if (el.querySelector('[data-testid="review-lift-off"]')) w.liftedOff = true
+      }).observe(el, { subtree: true, childList: true })
+    })
     await transcript.getByText(/let me try to explain maternal inheritance/).click()
+    const markedFrom = Date.now()
     await transcript.getByRole('button', { name: 'confused', exact: true }).click()
     const chip = transcript.getByTestId('review-chip')
-    await expect(chip).toContainText('Review planned', { timeout: 20000 })
+    await expect(chip).toContainText('Review planned · ', { timeout: 20000 })
+    const markedTo = Date.now()
     await expect(chip).toContainText('20 min')
     const review = await reviewOf()
     expect(review).toMatchObject({ title: 'Review: maternal inheritance', duration_min: 20, source_offset_ms: 78313, course: 'biology' })
-    // Placed by the server on the real clock: as late as possible within 3 days.
-    const markedAt = Date.now()
-    expect(Date.parse(review.ends_at!)).toBeLessThanOrEqual(startOfLocalDay(markedAt, SEED_TIME_ZONE, 4))
+    // Placed by the server on the real clock: the earliest free time within 3
+    // days, an hour after the mark, from 09:00, around the shifts and every
+    // accepted block, on a day with study time left.
+    const deadline = startOfLocalDay(markedFrom, SEED_TIME_ZONE, 4)
+    expect(Date.parse(review.ends_at!)).toBeLessThanOrEqual(deadline)
+    expect(Date.parse(review.starts_at!)).toBeGreaterThanOrEqual(markedFrom + 60 * 60_000)
+    expect(wallClock(Date.parse(review.starts_at!), SEED_TIME_ZONE).hour).toBeGreaterThanOrEqual(9)
+    const expected = await expectedReviewSlots(
+      request,
+      { id: review.id, durationMin: 20, latest: deadline },
+      { from: markedFrom, to: markedTo },
+      SEED_TIME_ZONE,
+    )
+    expect(expected.map((slot) => slot?.start)).toContain(Date.parse(review.starts_at!))
+    await expect.poll(() => page.evaluate(() => (window as unknown as { liftedOff: boolean }).liftedOff)).toBe(true)
     const todo = grid.panelByLabel('To-do')
-    await expect(todo.getByRole('button', { name: `From ${LECTURE} · 1:18` })).toBeVisible()
+    const reviewRow = todo.getByTestId('todo-item').filter({ hasText: 'Review: maternal inheritance' })
+    await expect(reviewRow).toHaveAttribute('data-fresh', 'true')
+    await expect(reviewRow.getByRole('button', { name: `From ${LECTURE} · 1:18` })).toBeVisible()
+
+    // "See it": the calendar opens the review's week, scrolls to it and it glows once.
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Review added to your plan')
+    await toast.getByRole('button', { name: 'See it' }).click()
+    const reviewBlock = calendar.block('Review: maternal inheritance')
+    await expect(reviewBlock).toHaveAttribute('data-revealed', 'true')
+    await expect(reviewBlock).toBeInViewport()
+    await expect(calendar.root.getByTestId('calendar-reveal')).toContainText(`From ${LECTURE} · 1:18`)
 
     // Click the block: land on that transcript moment.
     const weeksAhead = Math.max(0, Math.round((weekStart(Date.parse(review.starts_at!)) - weekStart(NOW)) / WEEK_MS))
-    for (let i = 0; i < weeksAhead; i++) await calendar.nextWeek()
-    await calendar.block('Review: maternal inheritance').click()
+    await reviewBlock.click()
     await expect(calendar.root.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
     await expect(transcript.locator('[data-moment]')).toContainText('explain maternal inheritance')
     await page.keyboard.press('Escape')
     for (let i = 0; i < weeksAhead; i++) await calendar.root.getByRole('button', { name: 'Previous week' }).click()
 
-    // 5. Malleability: "30 min by tomorrow" and the block moves.
+    // 5. Malleability: make reviews 30 minutes. With earliest placement the
+    // block stays where it is and gets longer (it moves only if it no longer fits).
     const chipBefore = await chip.textContent()
     await transcript.locator('[data-testid^="panel-automations-"]').click()
     const dialog = page.getByRole('dialog', { name: 'Automations · Transcript' })
     const sentence = dialog.getByTestId('review-automation-sentence')
     await expect(sentence).toContainText('When I mark something')
     await sentence.getByLabel('Review length in minutes').selectOption('30')
-    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
-    await sentence.getByLabel('When the review should happen by').selectOption({ label: 'by tomorrow' })
+    await expect(sentence).toContainText('Saved. Moved 1 review to fit.')
     await dialog.getByRole('button', { name: /close/i }).click()
     await expect(chip).toContainText('30 min')
     await expect(chip).not.toHaveText(chipBefore!)
-    // By the end of (real) tomorrow, 30 minutes long.
-    await expect.poll(async () => Date.parse((await reviewOf()).ends_at!), { timeout: 10000 })
-      .toBeLessThanOrEqual(startOfLocalDay(markedAt, SEED_TIME_ZONE, 2))
-    const moved = await reviewOf()
-    expect(moved.id).toBe(review.id)
-    expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * 60_000)
+    await expect.poll(async () => (await reviewOf()).duration_min, { timeout: 10000 }).toBe(30)
+    const longer = await reviewOf()
+    expect(longer.id).toBe(review.id)
+    expect(longer.starts_at).toBe(review.starts_at)
+    expect(Date.parse(longer.ends_at!) - Date.parse(longer.starts_at!)).toBe(30 * 60_000)
 
     // ...and add a widget with a click.
     await addWidgets(page, ['Weakest Topics'])

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
 import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
@@ -27,6 +27,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const dismiss = writer.useDismissPlanItem()
   const update = writer.useUpdatePlanItem()
 
+  // To-dos that arrive while the list is open (e.g. a review just added) slide in.
+  const arrived = useArrivals(items?.map((i) => i.id), course ?? '')
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
 
@@ -76,6 +78,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
             now={now}
             showCourse={!course}
             highlighted={isFromRecording(item, highlight?.recordingId)}
+            fresh={arrived.has(item.id)}
             onToggle={() => complete.mutate(item.id)}
             onDismiss={() => dismiss.mutate(item.id)}
             onScopeChange={onScopeChange}

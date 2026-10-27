@@ -336,7 +336,7 @@ export function WorkspaceShell() {
               // into view so the landed moment is seen.
               scrollPanelIntoView(canvasRef.current, panel.id)
             } : undefined}
-            onShowPlanItem={handleShowPlanItem}
+            onShowPlanItem={canShowPlanItem ? handleShowPlanItem : undefined}
             focusedPlanItem={manifest?.showsPlanItems ? focusedPlanItem ?? undefined : undefined}
             onPlanItemShown={manifest?.showsPlanItems ? (requestId) => {
               clearPlanItem(requestId)

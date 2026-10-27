@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, TagPill, TAG_STYLES, useArrivals } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { segmentAtOffset } from './moments'
 
@@ -43,8 +43,9 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
   )
 }
 
-/** A review this new (made since the moment was marked on screen) lifts off toward the calendar. */
-const FRESH_REVIEW_MS = 15_000
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+}
 
 /**
  * The one signature motion: a card for the new review lifts off the moment
@@ -244,22 +245,12 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
-  // Reviews that just arrived for a moment on screen get the lift-off once.
-  // Those already here when the lecture opened never do.
-  const seenReviews = useRef<Set<string> | null>(null)
-  const [lifting, setLifting] = useState<string[]>([])
-  useEffect(() => {
-    if (!reviews) return
-    if (!seenReviews.current) {
-      seenReviews.current = new Set(reviews.map((r) => r.id))
-      return
-    }
-    const fresh = reviews.filter((r) =>
-      !seenReviews.current!.has(r.id) && Date.now() - Date.parse(r.created_at) < FRESH_REVIEW_MS)
-    for (const r of reviews) seenReviews.current.add(r.id)
-    if (fresh.length) setLifting((ids) => [...ids, ...fresh.map((r) => r.id)])
-  }, [reviews])
-  const landed = useCallback((id: string) => setLifting((ids) => ids.filter((i) => i !== id)), [])
+  // A review that arrives while the lecture is open (the student just marked
+  // its moment) gets the lift-off once; reviews already there never do.
+  const arrived = useArrivals(reviews?.map((r) => r.id), recordingId)
+  const [landedIds, setLandedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const reducedMotion = useMemo(prefersReducedMotion, [])
+  const landed = useCallback((id: string) => setLandedIds((ids) => new Set([...ids, id])), [])
 
   // Until the transcript lands there is nothing to show but that it's coming.
   const transcribing = recording?.processing === 'transcribing' && !segments?.length
@@ -385,7 +376,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                   )}
                 </div>
               )}
-              {review && lifting.includes(review.id) && (
+              {review && !reducedMotion && arrived.has(review.id) && !landedIds.has(review.id) && (
                 <LiftOff review={review} recordingTitle={recording?.title ?? 'this lecture'} onDone={landed} />
               )}
 

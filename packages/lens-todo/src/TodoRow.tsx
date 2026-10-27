@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { LensProps } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, dayAndTime, dayLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
@@ -13,6 +12,8 @@ export interface TodoRowProps {
   showCourse: boolean
   /** Linked to the board's focused lecture. */
   highlighted: boolean
+  /** Arrived while the list was on screen (e.g. a review just added): it slides in. */
+  fresh?: boolean
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
@@ -20,14 +21,9 @@ export interface TodoRowProps {
   onShowMoment: LensProps['onShowMoment']
 }
 
-/** A row this new arrived while the list was on screen (e.g. a review just added): it slides in. */
-const FRESH_MS = 15_000
-
-export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, fresh, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
   const done = item.status === 'done'
   const slipped = done ? null : slippedAt(item, now)
-  // Decided once, on mount, so a re-render never replays it.
-  const [fresh] = useState(() => Date.now() - Date.parse(item.created_at) < FRESH_MS)
 
   return (
     <li
