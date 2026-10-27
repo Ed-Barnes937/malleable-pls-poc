@@ -25,7 +25,11 @@ export const workspacesRouter = router({
     }),
 
   create: publicProcedure
-    .input(z.object({ name: z.string().max(500).min(1) }))
+    .input(z.object({
+      name: z.string().max(500).min(1),
+      // Optional board course, stored as the board's 'tag' scope.
+      courseTag: z.string().max(1000).min(1).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const [ws] = await tx`
@@ -33,6 +37,12 @@ export const workspacesRouter = router({
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
+        if (input.courseTag) {
+          await tx`
+            INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
+            VALUES (${ctx.userId}, ${ws.id}, 'tag', ${input.courseTag})
+          `
+        }
         return ws
       })
     }),

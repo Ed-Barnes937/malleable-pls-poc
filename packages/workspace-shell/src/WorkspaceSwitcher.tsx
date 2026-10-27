@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useWorkspaces, useReorderWorkspaces } from '@pls/substrate-client'
 import { cn } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
@@ -96,11 +96,22 @@ export function WorkspaceSwitcher() {
     resetDrag()
   }, [resetDrag])
 
+  // Keep the open board's tab visible when the tab strip scrolls (narrow screens).
+  const activeIdx = workspaces?.findIndex((ws) => ws.id === activeWorkspaceId) ?? -1
+  useEffect(() => {
+    tabRefs.current[activeIdx]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [activeIdx])
+
   if (!workspaces) return null
 
   return (
     <>
-      <div ref={containerRef} className="flex items-center gap-0.5 rounded-lg bg-surface p-1 touch-none">
+      <div
+        ref={containerRef}
+        role="group"
+        aria-label="Boards"
+        className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-surface p-1 touch-none [scrollbar-width:none]"
+      >
         {workspaces.map((ws, idx) => {
           const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
           const isActive = activeWorkspaceId === ws.id
@@ -111,7 +122,10 @@ export function WorkspaceSwitcher() {
             <div
               key={ws.id}
               data-testid="workspace-tab"
-              className="group/tab relative flex items-center"
+              className={cn(
+                'relative flex shrink-0 items-center rounded-md transition-all duration-150',
+                isActive && 'bg-surface-raised shadow-sm shadow-black/20',
+              )}
             >
               {showDropBefore && (
                 <div className="absolute -left-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
@@ -124,10 +138,10 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all duration-150 select-none',
+                  'relative flex items-center gap-1.5 whitespace-nowrap rounded-md py-1.5 text-xs font-medium transition-all duration-150 select-none',
                   isActive
-                    ? 'bg-surface-raised text-neutral-100 shadow-sm shadow-black/20'
-                    : 'text-neutral-500 hover:bg-surface-overlay/30 hover:text-neutral-300',
+                    ? 'pl-3 pr-1 text-neutral-100'
+                    : 'px-3 text-neutral-500 hover:bg-surface-overlay/30 hover:text-neutral-300',
                   isDragging && 'opacity-40',
                   dragging && 'cursor-grabbing',
                 )}
@@ -135,16 +149,22 @@ export function WorkspaceSwitcher() {
                 <Icon className="h-3.5 w-3.5" />
                 {ws.name}
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setDeleteTarget({ id: ws.id, name: ws.name })
-                }}
-                aria-label={`Delete ${ws.name}`}
-                className="absolute -right-1 -top-1 rounded p-0.5 text-neutral-700 opacity-0 transition-all hover:bg-red-500/10 hover:text-red-400 group-hover/tab:opacity-100"
-              >
-                <Trash2 className="h-2.5 w-2.5" />
-              </button>
+              {/* Only the open board can be deleted, so the button sits inside
+                  its tab and never overlaps a neighbour. */}
+              {isActive && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setDeleteTarget({ id: ws.id, name: ws.name })
+                  }}
+                  aria-label={`Delete ${ws.name}`}
+                  title="Delete board"
+                  className="mr-1 rounded p-1 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              )}
               {dragging && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
                 <div className="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
               )}
@@ -152,9 +172,11 @@ export function WorkspaceSwitcher() {
           )
         })}
         <button
+          type="button"
           onClick={() => setCreateDialogOpen(true)}
-          aria-label="New workspace"
-          className="flex items-center justify-center rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-surface-overlay/30 hover:text-neutral-400"
+          aria-label="New board"
+          title="New board"
+          className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-surface-overlay/30 hover:text-neutral-400"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>

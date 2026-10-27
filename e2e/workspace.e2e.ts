@@ -106,8 +106,8 @@ test.describe('Workspace management', () => {
 
     await expect(deleteDialog.root).toBeHidden()
     await expect(topBar.workspaceTabs).toHaveCount(countBefore)
-    // Cancelling never changed the active workspace — still the default
-    await topBar.expectActiveWorkspace('In Lecture')
+    // Cancelling keeps the board open (deleting starts from the open board)
+    await topBar.expectActiveWorkspace('Evening Review')
   })
 
   test('cancelling workspace creation does not create one', async ({ page }) => {

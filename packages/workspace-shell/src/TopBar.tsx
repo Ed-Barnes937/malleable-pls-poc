@@ -11,14 +11,23 @@ import { COURSES } from '@pls/shared-ui'
 
 export interface TopBarProps {
   onMenuClick: () => void
+  /** Whether the board menu (drawer) is open, for the menu button's state. */
+  menuOpen?: boolean
   onOrganize?: () => void
 }
 
+const ICON_BUTTON =
+  'flex shrink-0 items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
+
 /**
- * Summarises the board scope, limited to the dimensions some widget on the
- * board actually uses, so the chip never claims a filter nothing applies.
+ * Summarises the board scope as "Showing: ..." chip text, limited to the
+ * dimensions some widget on the board actually uses, so the chip never
+ * claims a filter nothing applies. A board whose widgets use the course but
+ * has none set (and no focused lecture) says "All courses" rather than hiding the chip, so the
+ * student can always see (and change) what the board shows. Returns null
+ * when no widget uses any scope.
  */
-function useScopeSummary(workspaceId: string): string | null {
+export function useScopeSummary(workspaceId: string): string | null {
   const dims = useBoardScopeDims(workspaceId)
   const { data: scopes } = useWorkspaceScopes(workspaceId)
   const s = useMemo(
@@ -28,19 +37,21 @@ function useScopeSummary(workspaceId: string): string | null {
   const { data: focused } = useFocusedRecording(s.recordingId)
 
   return useMemo(() => {
+    const lecture = s.recordingId && dims.has('recordingId') && focused?.id === s.recordingId
+      ? (focused?.title as string | undefined)
+      : undefined
     const parts: string[] = []
-    if (s.courseTag && dims.has('courseTag')) {
-      parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
+    if (dims.has('courseTag')) {
+      if (s.courseTag) parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
+      // "All courses" next to one lecture reads as a contradiction; the lecture says enough.
+      else if (!lecture) parts.push('All courses')
     }
-    if (s.recordingId && dims.has('recordingId')) {
-      const title = focused?.id === s.recordingId ? (focused?.title as string | undefined) : undefined
-      if (title) parts.push(title)
-    }
+    if (lecture) parts.push(lecture)
     return parts.length > 0 ? parts.join(' · ') : null
   }, [s, dims, focused])
 }
 
-export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
+export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const scopeSummary = useScopeSummary(activeWorkspaceId)
 
@@ -68,7 +79,9 @@ export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
   return (
     <header
       data-testid="top-bar"
-      className="flex shrink-0 items-center gap-3 px-4 py-2.5"
+      // Wraps on narrow screens: the "Showing" chip drops to its own row
+      // and the board tabs scroll sideways instead of pushing things off-screen.
+      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2 py-2 sm:px-4 sm:py-2.5"
       style={{
         background: 'var(--color-surface-raised)',
         boxShadow: 'var(--shadow-panel)',
@@ -82,88 +95,99 @@ export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
         data-testid="drawer-trigger"
         type="button"
         onClick={onMenuClick}
-        aria-label="Toggle drawer"
-        className="flex items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+        aria-label="Board menu"
+        aria-expanded={menuOpen}
+        title="Board menu: add widgets, choose what's shown"
+        className={ICON_BUTTON}
       >
         <Menu size={18} />
       </button>
 
-      {/* Workspace tabs */}
-      <WorkspaceSwitcher />
+      {/* Board tabs */}
+      <div className="min-w-0 flex-1 sm:flex-initial">
+        <WorkspaceSwitcher />
+      </div>
 
-      {/* Scope chip — hidden when no filters are active */}
+      {/* Scope chip - opens the board menu, where the scope is changed */}
       {scopeSummary && (
-        <span
+        <button
+          type="button"
           data-testid="scope-chip"
-          className="rounded-full px-2.5 py-0.5 text-xs text-text-secondary"
-          style={{
-            background: 'var(--color-surface-overlay)',
-            transition: 'var(--transition-panel)',
-          }}
+          onClick={onMenuClick}
+          title={`Showing: ${scopeSummary}. Click to change.`}
+          className="order-last min-w-0 max-w-full basis-full truncate rounded-full px-2.5 py-0.5 text-left text-xs text-text-secondary transition-colors hover:text-text-primary sm:order-none sm:basis-auto sm:max-w-[40ch]"
+          style={{ background: 'var(--color-surface-overlay)' }}
         >
+          <span className="text-text-muted">Showing: </span>
           {scopeSummary}
-        </span>
+        </button>
       )}
 
       {/* Spacer */}
-      <div className="flex-1" />
+      <div className="hidden flex-1 sm:block" />
 
-      {/* Job activity */}
-      <JobStatusIndicator />
+      <div className="flex shrink-0 items-center gap-1">
+        {/* Background activity */}
+        <JobStatusIndicator />
 
-      {/* Theme toggle */}
-      <ThemeToggle />
+        {/* Theme toggle */}
+        <ThemeToggle />
 
-      {/* Settings popover */}
-      <div className="relative">
-        <button
-          ref={settingsBtnRef}
-          data-testid="settings-button"
-          type="button"
-          onClick={toggleSettings}
-          aria-label="Settings"
-          className="flex items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
-        >
-          <Settings size={16} />
-        </button>
-        {settingsOpen && (
-          <div
-            ref={settingsRef}
-            data-testid="settings-popover"
-            className="absolute right-0 top-full mt-2 w-64 rounded-[var(--radius-panel)] border border-border-subtle p-4"
-            style={{
-              background: 'var(--color-surface-raised)',
-              boxShadow: 'var(--shadow-panel-focused)',
-              zIndex: 10002,
-            }}
+        {/* Settings popover */}
+        <div className="relative">
+          <button
+            ref={settingsBtnRef}
+            data-testid="settings-button"
+            type="button"
+            onClick={toggleSettings}
+            aria-label="Board appearance"
+            aria-expanded={settingsOpen}
+            title="Board appearance"
+            className={ICON_BUTTON}
           >
-            <BackgroundPicker />
-            <div className="mt-3 border-t border-border-subtle pt-3">
-              <button
-                onClick={() => window.location.reload()}
-                className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
-                title="Reset demo data"
-              >
-                <RotateCcw className="h-3 w-3" />
-                Reset
-              </button>
+            <Settings size={16} />
+          </button>
+          {settingsOpen && (
+            <div
+              ref={settingsRef}
+              data-testid="settings-popover"
+              className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-16px)] rounded-[var(--radius-panel)] border border-border-subtle p-4"
+              style={{
+                background: 'var(--color-surface-raised)',
+                boxShadow: 'var(--shadow-panel-focused)',
+                zIndex: 10002,
+              }}
+            >
+              <BackgroundPicker />
+              <div className="mt-3 border-t border-border-subtle pt-3">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
+                  title="Reload the page"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Reload
+                </button>
+              </div>
             </div>
-          </div>
+          )}
+        </div>
+
+        {/* Organize button */}
+        {onOrganize && (
+          <button
+            data-testid="organize-button"
+            type="button"
+            onClick={onOrganize}
+            aria-label="Tidy up widgets"
+            title="Tidy up widgets"
+            className={ICON_BUTTON}
+          >
+            <LayoutGrid size={16} />
+          </button>
         )}
       </div>
-
-      {/* Organize button */}
-      {onOrganize && (
-        <button
-          data-testid="organize-button"
-          type="button"
-          onClick={onOrganize}
-          aria-label="Auto-organize panels"
-          className="flex items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
-        >
-          <LayoutGrid size={16} />
-        </button>
-      )}
     </header>
   )
 }

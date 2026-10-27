@@ -115,11 +115,24 @@ export interface SubstrateWriter extends SubstrateReader {
 // PanelManifest — single source of truth per panel
 // ---------------------------------------------------------------------------
 
+/**
+ * What a student wants to do with a widget. The widget palette groups tiles
+ * by it, in this order: capture (record or bring in material), study (work
+ * through it), plan (organise time and to-dos), review (see how it's going).
+ */
+export type WidgetGroup = 'capture' | 'study' | 'plan' | 'review'
+
 export interface PanelManifest {
   id: string
   label: string
   icon: ComponentType<{ className?: string }>
+  /** One short line shown on the palette tile, e.g. "Record or upload a lecture". */
   description: string
+  /**
+   * Palette group. Declare one on every widget; a widget without one still
+   * appears, under "More widgets".
+   */
+  group?: WidgetGroup
   reads: TableName[]
   /** Tables this widget writes. Declaring any grants it writer access. */
   writes?: TableName[]
