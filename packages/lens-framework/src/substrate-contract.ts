@@ -133,6 +133,11 @@ export interface PanelManifest {
    * Omit for a widget that ignores board scope entirely.
    */
   scope?: ScopeDeclaration
+  /**
+   * The widget can show a recording moment (`LensProps.focusedMoment`), e.g.
+   * the Transcript. Decides where `LensProps.onShowMoment` can land.
+   */
+  showsMoments?: boolean
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

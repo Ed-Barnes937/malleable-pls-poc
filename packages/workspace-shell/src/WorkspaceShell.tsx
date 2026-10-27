@@ -31,6 +31,7 @@ import { LensAutomationsButton } from './LensAutomationsButton'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
+import { useShowMoment } from './moments'
 
 const JOB_LABELS: Record<string, string> = Object.fromEntries(
   getAvailableJobTypes().map((j) => [j.type, j.label]),
@@ -44,6 +45,7 @@ export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
     onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
@@ -99,6 +101,12 @@ export function WorkspaceShell() {
     },
     [activeWorkspaceId, setWorkspaceScope.mutate],
   )
+
+  const activeLensTypes = useMemo(
+    () => (panels as unknown as { lens_type: string }[] | undefined)?.map((p) => p.lens_type) ?? [],
+    [panels],
+  )
+  const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
@@ -190,7 +198,8 @@ export function WorkspaceShell() {
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
       // Each widget sees only the dimensions it declares, with highlighted
       // ones kept apart from what its readers may filter by.
-      const panelScope = splitScope(scope, manifests.find((m) => m.id === panel.lens_type)?.scope)
+      const manifest = manifests.find((m) => m.id === panel.lens_type)
+      const panelScope = splitScope(scope, manifest?.scope)
 
       return (
         <PanelContainer lensType={panel.lens_type}>
@@ -201,11 +210,13 @@ export function WorkspaceShell() {
             config={config}
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
+            onShowMoment={handleShowMoment}
+            focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment],
   )
 
   // Icon resolver: look up icon from the manifest registry

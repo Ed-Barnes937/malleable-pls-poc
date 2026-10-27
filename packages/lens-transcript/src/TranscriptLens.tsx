@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import type { Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
+import { segmentAtOffset } from './moments'
 
-export default function TranscriptLens({ scope, config }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -21,6 +22,31 @@ export default function TranscriptLens({ scope, config }: LensProps) {
 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [annotationDraft, setAnnotationDraft] = useState('')
+
+  // A moment another widget asked to show (e.g. a calendar study block that
+  // came from this lecture): scroll to its segment and highlight it, once per
+  // request, once this lecture's segments, tags and notes have loaded (they
+  // set the row heights the scroll position depends on).
+  const [momentSegmentId, setMomentSegmentId] = useState<string | null>(null)
+  const handledMomentId = useRef<number | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!focusedMoment || focusedMoment.id === handledMomentId.current) return
+    if (focusedMoment.recordingId !== recordingId) return
+    const own = segments?.filter((s) => s.recording_id === recordingId)
+    if (!own?.length || !tags || !annotations) return
+    handledMomentId.current = focusedMoment.id
+    setMomentSegmentId(segmentAtOffset(own, focusedMoment.offsetMs)?.id ?? null)
+    setSelectedSegmentId(null)
+  }, [focusedMoment, recordingId, segments, tags, annotations])
+  useEffect(() => {
+    const list = listRef.current
+    const el = momentSegmentId ? list?.querySelector<HTMLElement>(`[data-segment-id="${momentSegmentId}"]`) : null
+    if (!list || !el) return
+    // Scroll only the transcript list (scrollIntoView could also shift the board).
+    const top = el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
+    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+  }, [momentSegmentId])
 
   const tagsBySegment = useMemo(() => {
     const map = new Map<string, Tag[]>()
@@ -82,29 +108,38 @@ export default function TranscriptLens({ scope, config }: LensProps) {
         </span>
       </div>
 
-      <div className="-mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
+      <div ref={listRef} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
+          const isMoment = momentSegmentId === seg.id
 
           return (
-            <div key={seg.id}>
+            <div key={seg.id} data-segment-id={seg.id} data-moment={isMoment || undefined}>
               <button
-                onClick={() => setSelectedSegmentId(isSelected ? null : seg.id)}
+                onClick={() => {
+                  setMomentSegmentId(null)
+                  setSelectedSegmentId(isSelected ? null : seg.id)
+                }}
+                aria-current={isMoment ? 'location' : undefined}
                 className={cn(
                   'group flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-all',
-                  isSelected ? 'bg-accent/8 ring-1 ring-accent/20' : 'hover:bg-surface-overlay/50'
+                  isSelected
+                    ? 'bg-accent/8 ring-1 ring-accent/20'
+                    : isMoment
+                      ? 'bg-accent/10 ring-2 ring-accent/40'
+                      : 'hover:bg-surface-overlay/50'
                 )}
               >
                 <span className={cn(
                   'shrink-0 pt-0.5 font-mono text-[11px] tabular-nums',
-                  isSelected ? 'text-accent' : 'text-neutral-600 group-hover:text-neutral-500'
+                  isSelected || isMoment ? 'text-accent' : 'text-neutral-600 group-hover:text-neutral-500'
                 )}>
                   {formatTime(seg.start_ms)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={cn('text-[13px] leading-relaxed', isSelected ? 'text-neutral-200' : 'text-neutral-400')}>
+                  <p className={cn('text-[13px] leading-relaxed', isSelected || isMoment ? 'text-neutral-200' : 'text-neutral-400')}>
                     {seg.text}
                   </p>
                   {segTags.length > 0 && (

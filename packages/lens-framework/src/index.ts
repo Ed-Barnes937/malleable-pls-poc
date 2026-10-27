@@ -7,6 +7,10 @@ export type {
   RecordingScopeMode,
   DateRange,
   LensProps,
+  Moment,
+  FocusedMoment,
+  ShowMomentResult,
+  ShowMomentOptions,
 } from './types'
 export {
   usesScopeDim,
