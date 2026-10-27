@@ -25,3 +25,9 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U3 PR #83, U6 PR #82 opened (suites green); fresh reviewers running.
 - U4 review round 1: CHANGES NEEDED (toast keyboard/focus, scroll rail a11y, tag legend, simulator delete parity, tests). Sent back with Ed's answers.
 - Open for Ed: U3 Q1 (reviews unscheduled when the whole window is at budget), U3 Q2 (server only knows default 2h/day), U6 phone top bar menu.
+- U2 merged into `feat/student-planning-ux` (b34052a, PR #80) after re-review PASS. Nit left: Shrink/Undo from the keyboard drops focus (pre-existing).
+- U3 review: CHANGES NEEDED (merge conflict, step-5 copy, misleading ripple when unscheduled, clock-dependent e2e). Sent back with Ed's answers (decisions 11-12).
+- U6 review: CHANGES NEEDED (tick/Undo/tick ordering race). Sent back.
+- U4 fixes pushed (2d497c2); re-review running.
+- U5 follow-up: `first-run.e2e.ts` crowded today line test flaky under load; U5 implementer fixing on `fix/u5-first-run-flake`.
+- Queued: U6b phone top bar + today line on phone (decision 13).
