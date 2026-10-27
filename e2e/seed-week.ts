@@ -1,5 +1,7 @@
-import type { NewPlanItem } from '../packages/substrate/src'
-import { wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
+import type { NewPlanItem, PlanItem } from '../packages/substrate/src'
+import { startOfLocalDay, wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
+import { expandPlanItems } from '../packages/substrate/src/plan-items'
+import { studyDays, weekLayout } from '../packages/substrate/src/planning'
 import { REVIEW_SUBTYPE } from '../packages/substrate/src/workflows/review-automation'
 
 /**
@@ -11,23 +13,23 @@ import { REVIEW_SUBTYPE } from '../packages/substrate/src/workflows/review-autom
  *   two cafe shifts (Tue and Thu evening), each a weekly series in London
  *   time that started a few weeks ago, so every week shows them.
  * - Deadlines: Biology quiz on Thursday, Chemistry lab report on Friday.
- * - Study Priya already planned: Biology reading on Saturday morning (2h)
- *   and lab prep on Sunday (1h). Two blocks from yesterday didn't happen
- *   (still open), for demo step 6's "2 blocks didn't happen. Re-fit them?".
+ * - Two study blocks from yesterday that didn't happen (still open), for
+ *   demo step 6's "2 blocks didn't happen. Re-fit them?".
  * - Open to-dos with estimates, not yet scheduled. They add up to 12 hours,
  *   the "Your to-dos need 12." of demo step 2. Only the lab report write-up
  *   (3h) is longer than the default 2h of study time a day, so it is
- *   Auto-fill's trim: "Shrink it to 2h?".
- *
- * Demo step 2 on a Tuesday morning (the demo day): 2h of study time left on
- * each day Tue-Fri, none on Saturday (the reading fills it) and 1h on
- * Sunday, so "About 9 hours of study time left this week. Your to-dos need
- * 12." (seed-week.test.ts pins this through the real planning code).
+ *   Auto-fill's only trim: "Shrink it to 2h?".
+ * - Study Priya already planned, sized at reseed time so that Help me plan
+ *   reads "About 9 hours of study time left this week. Your to-dos need 12."
+ *   (`STEP2_STUDY_LEFT_MIN`): on later days of the week only (Sat, Sun, then
+ *   Fri), each up to a day's budget. With 9 hours or less left in the week
+ *   (from Thursday, at 2h a day), none is planned and the copy honestly
+ *   says what is left. seed-week.test.ts checks a grid of reseed times
+ *   through the real planning code.
  *
  * The weekly blocks are anchored on the London week containing `now`. Each
- * deadline (and the to-do due with it) and each planned study block is this
- * week's, unless that has already passed (started), then next week's: so
- * they are always still ahead, whatever the day and time.
+ * deadline (and the to-do due with it) is this week's, unless that has
+ * already passed, then next week's: so they are always still ahead.
  *
  * Kept pure (no DB) so other seeds and tests can build on it; ids are fixed
  * so they can be referred to.
@@ -55,6 +57,16 @@ export function weekMonday(now: number): { year: number; month: number; day: num
   const weekday = (new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay() + 6) % 7
   return { year: w.year, month: w.month, day: w.day - weekday }
 }
+
+/** Study time Help me plan should find left this week right after a reseed. */
+export const STEP2_STUDY_LEFT_MIN = 9 * 60
+
+/** Already-planned study, in the order used to bring the week down to `STEP2_STUDY_LEFT_MIN`. */
+const PLANNED = [
+  { id: 'seed-study-bio-reading', title: 'Biology reading: chapter 4', course: 'biology', day: 'Sat', from: '10:00' },
+  { id: 'seed-study-lab-prep', title: 'Lab prep: read the method', course: 'chemistry', day: 'Sun', from: '11:00' },
+  { id: 'seed-study-pre-lab', title: 'Pre-lab questions', course: 'chemistry', day: 'Fri', from: '10:00' },
+] as const
 
 /** The two study blocks seeded as yesterday's and not done (re-fit candidates). */
 export const SEED_MISSED_IDS = ['seed-missed-notes', 'seed-missed-reading'] as const
@@ -93,16 +105,7 @@ export function priyaWeek(now: number = Date.now()): SeedPlanItem[] {
   }
   const quizDue = nextDue('Thu', '10:00')
   const labReportDue = nextDue('Fri', '17:00')
-  /** A study block already planned: this week's, or next week's once it has started. */
-  const planned = (id: string, title: string, course: string, day: Day, from: string, to: string): SeedPlanItem => {
-    const weekOffset = Date.parse(at(day, from)) > now ? 0 : 1
-    const starts_at = at(day, from, weekOffset)
-    const ends_at = at(day, to, weekOffset)
-    const duration_min = (Date.parse(ends_at) - Date.parse(starts_at)) / 60_000
-    return { id, kind: 'task', title, course, starts_at, ends_at, duration_min }
-  }
-
-  return [
+  const base: SeedPlanItem[] = [
     series('seed-bio-lecture-mon', 'Biology lecture', 'class', 'biology', 'Mon', '10:00', '12:00'),
     series('seed-bio-lecture-wed', 'Biology lecture', 'class', 'biology', 'Wed', '10:00', '12:00'),
     series('seed-chem-lecture-tue', 'Chemistry lecture', 'class', 'chemistry', 'Tue', '14:00', '16:00'),
@@ -117,9 +120,6 @@ export function priyaWeek(now: number = Date.now()): SeedPlanItem[] {
     yesterday(SEED_MISSED_IDS[0], 'Read lecture notes: cell division', 'biology', '08:30', '09:30'),
     yesterday(SEED_MISSED_IDS[1], 'Practice questions: cell structure', 'biology', '12:30', '13:30'),
 
-    planned('seed-study-bio-reading', 'Biology reading: chapter 4', 'biology', 'Sat', '10:00', '12:00'),
-    planned('seed-study-lab-prep', 'Lab prep: read the method', 'chemistry', 'Sun', '11:00', '12:00'),
-
     { id: 'seed-todo-lab-write-up', kind: 'task', title: 'Lab report write-up', course: 'chemistry', duration_min: 180, due_at: labReportDue },
     { id: 'seed-todo-quiz-revision', kind: 'task', title: 'Revise for the Biology quiz', course: 'biology', duration_min: 120, due_at: quizDue },
     { id: 'seed-todo-problem-sheet', kind: 'task', title: 'Chemistry problem sheet', course: 'chemistry', duration_min: 120 },
@@ -127,6 +127,45 @@ export function priyaWeek(now: number = Date.now()): SeedPlanItem[] {
     { id: 'seed-todo-essay-plan', kind: 'task', title: 'Plan the Biology essay', course: 'biology', duration_min: 120 },
     { id: 'seed-todo-flashcards', kind: 'task', title: 'Make flashcards: cell structure', course: 'biology', duration_min: 60 },
   ]
+  return [...base, ...plannedStudy(base, now, at)]
+}
+
+/**
+ * Study blocks already planned on days after today, sized so the week has
+ * `STEP2_STUDY_LEFT_MIN` of study time left (to the 15 minutes below), as
+ * Help me plan counts it with the default study time per day.
+ */
+function plannedStudy(base: SeedPlanItem[], now: number, at: (day: Day, time: string, weekOffset?: number) => string): SeedPlanItem[] {
+  const week = { start: Date.parse(at('Mon', '00:00')), end: Date.parse(at('Mon', '00:00', 1)) }
+  const rows = expandPlanItems(base.map(asRow), { from: new Date(week.start).toISOString(), to: new Date(week.end).toISOString() })
+  const days = studyDays(weekLayout(rows, week, { timeZone: SEED_TIME_ZONE }), now)
+  let excess = days.reduce((sum, d) => sum + d.leftMin, 0) - STEP2_STUDY_LEFT_MIN
+  const tomorrow = startOfLocalDay(now, SEED_TIME_ZONE, 1)
+  const planned: SeedPlanItem[] = []
+  for (const p of PLANNED) {
+    const start = Date.parse(at(p.day, p.from))
+    // Never today: today's study time keeps the hand-assign and Auto-fill slots.
+    if (start < tomorrow) continue
+    const left = days.find((d) => d.day === startOfLocalDay(start, SEED_TIME_ZONE))?.leftMin ?? 0
+    const duration_min = Math.floor(Math.min(excess, left) / 15) * 15
+    if (duration_min < 15) continue
+    excess -= duration_min
+    planned.push({
+      id: p.id, kind: 'task', title: p.title, course: p.course, duration_min,
+      starts_at: new Date(start).toISOString(), ends_at: new Date(start + duration_min * 60_000).toISOString(),
+    })
+  }
+  return planned
+}
+
+/** A seed item as a stored row, to count the week the way the app does. */
+function asRow(item: SeedPlanItem): PlanItem {
+  return {
+    starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open', recurrence: null,
+    subtype: null, source_type: null, source_id: null, source_offset_ms: null, course: null,
+    ...item,
+    created_at: item.created_at ?? '', updated_at: item.updated_at ?? '',
+  }
 }
 
 /**

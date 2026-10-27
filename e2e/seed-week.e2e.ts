@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { priyaWeek } from './seed-week'
 
 /**
  * Demo step 1 (plans/student-planning-demo.md): on a new empty board, add
@@ -56,8 +57,8 @@ test.describe("Priya's seeded week", () => {
       await expect(comingUp.getByText(/Still to do from earlier/)).toHaveCount(0)
 
       const todo = grid.panelByLabel('To-do')
-      // Six to plan, two already planned for the weekend, two from yesterday that didn't happen.
-      await expect(todo.getByTestId('todo-item')).toHaveCount(10)
+      // Six to plan, two from yesterday that didn't happen, and the study already planned (sized at reseed).
+      await expect(todo.getByTestId('todo-item')).toHaveCount(priyaWeek(now).filter((i) => i.kind === 'task').length)
       await expect(todo.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })).toBeVisible()
       // Yesterday's two blocks, said gently; nothing else is behind.
       await expect(todo.getByText('Still to do from yesterday')).toHaveCount(2)
