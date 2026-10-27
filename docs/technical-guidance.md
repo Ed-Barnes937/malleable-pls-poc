@@ -113,9 +113,19 @@ to pass straight to readers, and `LensProps.highlight` with its `highlight`
 dimensions, which is for styling only and never reaches readers. So a calendar
 written the obvious way (`usePlanItems(scope)`) cannot hide another course's
 commitments. Ignored dimensions reach neither. The drawer offers a picker for
-each dimension some widget on the board uses, and the TopBar chip summarises
-only those dimensions. Writer access is granted to lenses that declare
-`writes`, not by category.
+each dimension some widget on the board uses, and the TopBar "Showing: ..."
+chip summarises only those dimensions ("All courses" when the course is used
+but unset; hidden when no widget uses scope). Writer access is granted to
+lenses that declare `writes`, not by category.
+
+**Palette groups.** The widget palette groups widgets by what a student wants
+to do, not by tool/view: each manifest declares `group: 'capture' | 'study' |
+'plan' | 'review'` (`WidgetGroup` in
+`packages/lens-framework/src/substrate-contract.ts`). Groups show in that
+order; a widget without a group still appears, under "More widgets". A new
+widget slots in by declaring its group and being registered in
+`apps/web/src/App.tsx`; no shell change is needed (see
+`packages/workspace-shell/src/widget-groups.ts`).
 
 **A targeted lecture wins over the course.** When a reader gets a
 `recordingId` (tags, annotations, confidence, links of the focused lecture), it

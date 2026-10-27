@@ -29,37 +29,37 @@ describe('useCanvasKeyboard', () => {
     return result
   }
 
-  /* ── Tab cycling ── */
+  /* ── Selection cycling ── */
 
-  it('Tab selects the first panel when nothing is selected, then cycles forward', () => {
+  it('] selects the first panel when nothing is selected, then cycles forward', () => {
     useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2), makePanel('c', 3)] })
     mount()
 
-    pressKey('Tab')
+    pressKey(']')
     expect(useCanvasStore.getState().selectedPanelId).toBe('a')
-    pressKey('Tab')
+    pressKey(']')
     expect(useCanvasStore.getState().selectedPanelId).toBe('b')
-    pressKey('Tab')
+    pressKey(']')
     expect(useCanvasStore.getState().selectedPanelId).toBe('c')
-    pressKey('Tab')
+    pressKey(']')
     expect(useCanvasStore.getState().selectedPanelId).toBe('a')
   })
 
-  it('Shift+Tab cycles backward', () => {
+  it('[ cycles backward', () => {
     useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2), makePanel('c', 3)] })
     mount()
 
-    pressKey('Tab', { shiftKey: true })
+    pressKey('[')
     expect(useCanvasStore.getState().selectedPanelId).toBe('c')
-    pressKey('Tab', { shiftKey: true })
+    pressKey('[')
     expect(useCanvasStore.getState().selectedPanelId).toBe('b')
   })
 
-  it('Tab brings the newly selected panel to the front', () => {
+  it('] brings the newly selected panel to the front', () => {
     useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2), makePanel('c', 3)] })
     mount()
 
-    pressKey('Tab') // selects 'a'
+    pressKey(']') // selects 'a'
     const a = useCanvasStore.getState().panels.find((p) => p.id === 'a')!
     const maxZ = Math.max(...useCanvasStore.getState().panels.map((p) => p.z_index))
     expect(a.z_index).toBe(maxZ)
@@ -149,6 +149,46 @@ describe('useCanvasKeyboard', () => {
     expect(useCanvasStore.getState().selectedPanelId).toBe('a')
   })
 
+  /* ── Focus outside the canvas ── */
+
+  it('never intercepts Tab, so focus moves normally', () => {
+    useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2)] })
+    mount()
+    const event = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    window.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    expect(useCanvasStore.getState().selectedPanelId).toBeNull()
+  })
+
+  it('shortcuts are ignored while focus is outside the canvas (top bar, board menu)', () => {
+    useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2)], selectedPanelId: 'a' })
+    const onRemovePanel = vi.fn()
+    const canvas = document.createElement('div')
+    document.body.appendChild(canvas)
+    mount({ onRemovePanel, canvasRef: { current: canvas } })
+
+    const outside = document.createElement('button')
+    document.body.appendChild(outside)
+    outside.focus()
+    pressKey(']')
+    pressKey('f')
+    pressKey('Backspace')
+    pressKey('Escape')
+    expect(useCanvasStore.getState().selectedPanelId).toBe('a')
+    expect(useCanvasStore.getState().fullscreenPanelId).toBeNull()
+    expect(onRemovePanel).not.toHaveBeenCalled()
+
+    // Focus inside the canvas: shortcuts work again.
+    const inside = document.createElement('button')
+    canvas.appendChild(inside)
+    inside.focus()
+    pressKey(']')
+    expect(useCanvasStore.getState().selectedPanelId).toBe('b')
+
+    document.body.removeChild(outside)
+    document.body.removeChild(canvas)
+  })
+
   /* ── Typing suppression ── */
 
   it('shortcuts are suppressed while typing in an input', () => {
@@ -160,7 +200,7 @@ describe('useCanvasKeyboard', () => {
     document.body.appendChild(input)
     input.focus()
 
-    pressKey('Tab')
+    pressKey(']')
     pressKey('f')
     pressKey('Backspace')
     expect(useCanvasStore.getState().selectedPanelId).toBe('a')

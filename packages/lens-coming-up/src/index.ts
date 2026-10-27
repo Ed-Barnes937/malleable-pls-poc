@@ -7,7 +7,8 @@ export const manifest: PanelManifest = {
   id: 'coming-up',
   label: 'Coming up',
   icon: CalendarClock,
-  description: 'Deadlines in the next couple of weeks',
+  description: 'Deadlines ahead, day by day',
+  group: 'plan',
   // Course filters (with "+N in other courses"); a focused lecture highlights
   // deadlines linked to it.
   scope: { courseTag: 'filter', recordingId: 'highlight' },

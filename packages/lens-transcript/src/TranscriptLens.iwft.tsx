@@ -49,7 +49,7 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
     </TestProviders>,
   )
 
-  await expect(page.getByText('Select a recording to view transcript')).toBeVisible()
+  await expect(page.getByText('Pick a lecture to see its transcript')).toBeVisible()
 })
 
 test('a lecture focused outside the board course keeps its tags, and new tags appear', async ({ mount, page, simulator }) => {

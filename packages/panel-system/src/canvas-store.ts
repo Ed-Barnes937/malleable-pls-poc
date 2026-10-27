@@ -106,10 +106,25 @@ interface CanvasState {
   setBackground: (background: BackgroundConfig) => void
 }
 
+/**
+ * The panels as they should be saved: a fullscreen panel reports the layout it
+ * will return to, so fullscreen never outlives a reload.
+ */
+export function persistableLayout(
+  state: Pick<CanvasState, 'panels' | 'fullscreenPanelId' | 'preFullscreenLayout'>,
+): PanelItem[] {
+  const { panels, fullscreenPanelId, preFullscreenLayout } = state
+  if (!fullscreenPanelId || !preFullscreenLayout) return panels
+  return panels.map((p) => (p.id === fullscreenPanelId ? { ...p, ...preFullscreenLayout } : p))
+}
+
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   panels: [],
 
-  setPanels: (panels) => set({ panels, selectedPanelId: null }),
+  // A new panel set (e.g. switching boards) starts with no selection, focus
+  // mode or fullscreen: those are per-visit view state, never persisted.
+  setPanels: (panels) =>
+    set({ panels, selectedPanelId: null, focusModePanelId: null, fullscreenPanelId: null, preFullscreenLayout: null }),
 
   addPanel: (item) =>
     set((state) => {

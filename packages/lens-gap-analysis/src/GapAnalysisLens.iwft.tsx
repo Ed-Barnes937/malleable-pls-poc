@@ -15,7 +15,7 @@ test('renders gap analysis for all courses', async ({ mount, page, simulator }) 
     </TestProviders>,
   )
 
-  await expect(page.getByText('Gap Analysis — All Courses')).toBeVisible()
+  await expect(page.getByText('How your courses compare')).toBeVisible()
   await expect(page.getByText('biology')).toBeVisible()
   await expect(page.getByText('chemistry')).toBeVisible()
 })

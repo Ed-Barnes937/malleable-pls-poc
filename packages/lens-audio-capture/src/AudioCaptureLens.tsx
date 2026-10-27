@@ -176,7 +176,10 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
             <>
               {state === 'complete' && (
                 <button
+                  type="button"
                   onClick={playback.toggle}
+                  aria-label={playback.playing ? 'Pause' : 'Play recording'}
+                  title={playback.playing ? 'Pause' : 'Play recording'}
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
                 >
                   {playback.playing
@@ -185,7 +188,10 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                 </button>
               )}
               <button
+                type="button"
                 onClick={recorder.start}
+                aria-label="Start recording"
+                title="Start recording"
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
               >
                 <Mic className="h-3.5 w-3.5 @tall:h-5 @tall:w-5" />
@@ -200,7 +206,10 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               </button>
               {state === 'complete' && (
                 <button
+                  type="button"
                   onClick={() => { recorder.reset(); playback.stop() }}
+                  aria-label="Record another lecture"
+                  title="Record another lecture"
                   className="flex h-7 w-7 items-center justify-center rounded-full bg-surface-overlay text-neutral-400 ring-1 ring-border transition-all hover:ring-accent/40 hover:text-neutral-200 @tall:h-10 @tall:w-10"
                 >
                   <RotateCcw className="h-3 w-3 @tall:h-4 @tall:w-4" />
@@ -209,7 +218,10 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
             </>
           ) : state === 'recording' ? (
             <button
+              type="button"
               onClick={recorder.stop}
+              aria-label="Stop recording"
+              title="Stop recording"
               className="flex h-9 w-9 items-center justify-center rounded-full bg-tag-confused/15 text-tag-confused ring-2 ring-tag-confused/30 transition-all hover:bg-tag-confused/25 hover:ring-tag-confused/50 active:scale-95 @tall:h-12 @tall:w-12"
             >
               <Square className="h-3 w-3 @tall:h-4 @tall:w-4" />

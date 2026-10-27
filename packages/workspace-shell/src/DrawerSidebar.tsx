@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { X } from 'lucide-react'
 import {
   useWorkspaceScopes,
   useSetWorkspaceScope,
@@ -8,19 +9,14 @@ import {
 } from '@pls/substrate-client'
 import { COURSES, SectionLabel, Select } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
-import { useManifests, canWrite, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
+import { groupWidgets } from './widget-groups'
 
 /* ── Constants ── */
 
 const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
-
-const CATEGORY_ORDER = ['tool', 'view'] as const
-const CATEGORY_LABELS: Record<string, string> = {
-  tool: 'Tools',
-  view: 'Views',
-}
 
 /* ── Scope Editor ── */
 
@@ -55,9 +51,11 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
     <div className="flex flex-col gap-2.5">
       {activeDims.has('courseTag') && (
         <div>
-          <SectionLabel className="mb-1">Course</SectionLabel>
+          <label htmlFor="scope-course" className="mb-1 block text-[11px] text-neutral-400">
+            Course
+          </label>
           <Select
-            aria-label="Course filter"
+            id="scope-course"
             value={currentCourse}
             onChange={(e) => handleChange('tag', e.target.value)}
           >
@@ -72,13 +70,15 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
 
       {activeDims.has('recordingId') && (
         <div>
-          <SectionLabel className="mb-1">Recording</SectionLabel>
+          <label htmlFor="scope-lecture" className="mb-1 block text-[11px] text-neutral-400">
+            Lecture
+          </label>
           <Select
-            aria-label="Recording focus"
+            id="scope-lecture"
             value={currentRecordingId}
             onChange={(e) => handleChange('recording', e.target.value)}
           >
-            <option value="">No recording selected</option>
+            <option value="">No lecture selected</option>
             {recordings?.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.title}
@@ -91,9 +91,15 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   )
 }
 
-/* ── Lens Palette ── */
+/* ── Widget Palette ── */
 
-function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
+function WidgetPalette({
+  onAdd,
+  onDragStart,
+}: {
+  onAdd: (lensType: string) => void
+  onDragStart?: () => void
+}) {
   const manifests = useManifests()
 
   const handleDragStart = useCallback(
@@ -105,37 +111,36 @@ function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
     [onDragStart],
   )
 
-  // Widgets that write data are grouped as tools, read-only ones as views.
-  const grouped = CATEGORY_ORDER.map((cat) => ({
-    category: cat,
-    label: CATEGORY_LABELS[cat],
-    lenses: manifests.filter((m) => (canWrite(m) ? 'tool' : 'view') === cat),
-  })).filter((g) => g.lenses.length > 0)
-
   return (
     <div className="flex flex-col gap-3">
-      {grouped.map((group) => (
-        <div key={group.category}>
-          <SectionLabel className="mb-1.5 px-1">{group.label}</SectionLabel>
-          <div className="grid grid-cols-2 gap-1.5">
-            {group.lenses.map((m) => {
+      {groupWidgets(manifests).map((group) => (
+        <div key={group.id} data-testid={`widget-group-${group.id}`} role="group" aria-label={group.label}>
+          <div className="mb-1 px-1 text-[11px] font-medium text-neutral-400">{group.label}</div>
+          <div className="flex flex-col gap-1">
+            {group.widgets.map((m) => {
               const Icon = m.icon
               return (
-                <div
+                <button
                   key={m.id}
+                  type="button"
                   data-lens-type={m.id}
                   draggable
                   onDragStart={(e) => handleDragStart(e, m.id)}
-                  title={m.description}
-                  className="group flex aspect-square cursor-grab flex-col items-center justify-center gap-1.5 rounded-lg bg-surface-overlay/40 p-2 ring-1 ring-border-subtle transition-all hover:bg-surface-overlay/70 hover:ring-accent/30 active:cursor-grabbing active:scale-[0.97]"
+                  onClick={() => onAdd(m.id)}
+                  aria-label={`Add ${m.label}`}
+                  title={`Add ${m.label} to this board`}
+                  className="group flex w-full items-center gap-2.5 rounded-lg bg-surface-overlay/40 px-2 py-1.5 text-left ring-1 ring-border-subtle transition-all hover:bg-surface-overlay/70 hover:ring-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 active:scale-[0.98]"
                 >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
-                    <Icon className="h-4 w-4" />
-                  </div>
-                  <p className="w-full truncate text-center text-[10px] font-medium text-neutral-400 group-hover:text-neutral-200">
-                    {m.label}
-                  </p>
-                </div>
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
+                    <Icon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-xs font-medium text-neutral-300 group-hover:text-neutral-100">
+                      {m.label}
+                    </span>
+                    <span className="block truncate text-[10px] text-neutral-500">{m.description}</span>
+                  </span>
+                </button>
               )
             })}
           </div>
@@ -150,9 +155,11 @@ function LensPalette({ onDragStart }: { onDragStart?: () => void }) {
 export interface DrawerSidebarProps {
   open: boolean
   onClose: () => void
+  /** Adds a widget to the board in the first free area. The drawer stays open. */
+  onAddWidget: (lensType: string) => void
 }
 
-export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
+export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps) {
   const asideRef = useRef<HTMLElement>(null)
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -172,13 +179,19 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
       previousFocusRef.current = document.activeElement
       asideRef.current?.focus()
     } else if (previousFocusRef.current) {
+      // The opener may be gone (e.g. the empty-board button once a widget is
+      // added); fall back to the menu button so focus never drops to <body>.
       const el = previousFocusRef.current as HTMLElement
-      if (typeof el.focus === 'function') el.focus()
+      const target = el.isConnected
+        ? el
+        : document.querySelector<HTMLElement>('[data-testid="drawer-trigger"]')
+      target?.focus()
       previousFocusRef.current = null
     }
   }, [open])
 
-  const handleLensDragStart = useCallback(() => {
+  // Dragging needs the board uncovered, so the drawer gets out of the way.
+  const handleWidgetDragStart = useCallback(() => {
     onClose()
   }, [onClose])
 
@@ -204,13 +217,15 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
         ref={asideRef}
         tabIndex={-1}
         data-testid="drawer-sidebar"
-        aria-label="Drawer sidebar"
+        aria-label="Board menu"
+        aria-hidden={!open}
+        inert={!open}
         style={{
           position: 'fixed',
           top: 0,
           left: 0,
           bottom: 0,
-          width: 280,
+          width: 'min(300px, calc(100vw - 48px))',
           zIndex: 10001,
           background: 'var(--color-surface-raised)',
           boxShadow: open ? 'var(--shadow-panel-focused)' : 'none',
@@ -222,27 +237,40 @@ export function DrawerSidebar({ open, onClose }: DrawerSidebarProps) {
           overflow: 'hidden',
         }}
       >
+        <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 py-2.5">
+          <h2 className="text-sm font-semibold text-neutral-200">Board menu</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close board menu"
+            title="Close board menu"
+            className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-5 px-3 py-4">
+            {/* Widgets */}
+            <section data-testid="widget-palette">
+              <SectionLabel className="mb-1 px-1">Add widgets</SectionLabel>
+              <p className="mb-2.5 px-1 text-[11px] text-neutral-500">Click to add, or drag onto your board.</p>
+              <WidgetPalette onAdd={onAddWidget} onDragStart={handleWidgetDragStart} />
+            </section>
+
             {/* Scope - hidden when every widget on the board ignores scope */}
             {activeScopeDims.size > 0 && (
               <section data-testid="scope-section">
-                <SectionLabel className="mb-2 px-1">Scope</SectionLabel>
+                <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
+                <p className="mb-2.5 px-1 text-[11px] text-neutral-500">Choose what the widgets on this board focus on.</p>
                 <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
               </section>
             )}
 
-            {/* Workflows */}
+            {/* Automations */}
             <section>
-              <SectionLabel className="mb-2 px-1">Workflows</SectionLabel>
+              <SectionLabel className="mb-2 px-1">Automations</SectionLabel>
               <WorkflowSettingsPanel />
-            </section>
-
-            {/* Lenses */}
-            <section>
-              <SectionLabel className="mb-2 px-1">Lenses</SectionLabel>
-              <p className="mb-2 px-1 text-[10px] text-neutral-700">Drag onto the workspace</p>
-              <LensPalette onDragStart={handleLensDragStart} />
             </section>
           </div>
         </div>

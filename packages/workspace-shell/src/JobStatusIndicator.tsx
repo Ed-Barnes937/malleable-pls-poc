@@ -28,6 +28,14 @@ function toMs(value: unknown): number | null {
   return Number.isNaN(ms) ? null : ms
 }
 
+/** Student-facing words for a run's status when there's no time to show. */
+const STATUS_LABELS: Record<string, string> = {
+  pending: 'Waiting',
+  running: 'Working',
+  completed: 'Done',
+  failed: 'Didn\'t finish',
+}
+
 interface JobRow {
   id: string
   job_type: string
@@ -73,7 +81,7 @@ function JobItem({ job, now }: { job: JobRow; now: number }) {
             {elapsed}
           </span>
         ) : (
-          <span className="text-[10px] text-neutral-600">{job.status}</span>
+          <span className="text-[10px] text-neutral-600">{STATUS_LABELS[job.status] ?? job.status}</span>
         )}
       </div>
       {job.status === 'failed' && <FailedJobDetails job={job} />}
@@ -127,6 +135,14 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const running = rows.filter((j) => j.status === 'running' || j.status === 'pending')
   const finished = rows.filter((j) => j.status === 'completed' || j.status === 'failed')
 
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
   // Tick once a second while jobs are running so elapsed time stays live.
   useEffect(() => {
     if (running.length === 0) return
@@ -136,10 +152,11 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <>
-      <div className="fixed inset-0 z-[150] bg-black/30" onClick={onClose} />
+      {/* Above the top bar (z 9999), like the board menu. */}
+      <div className="fixed inset-0 z-[10000] bg-black/30" onClick={onClose} />
       <aside
-        className="fixed bottom-0 right-0 top-0 z-[151] flex w-80 flex-col border-l border-border-subtle bg-surface-raised shadow-2xl"
-        aria-label="Job activity"
+        className="fixed bottom-0 right-0 top-0 z-[10001] flex w-80 max-w-[calc(100vw-48px)] flex-col border-l border-border-subtle bg-surface-raised shadow-2xl"
+        aria-label="Activity"
       >
         <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
           <div className="flex items-center gap-2">
@@ -147,7 +164,10 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
             <h2 className="text-sm font-semibold text-neutral-200">Activity</h2>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close activity"
+            title="Close activity"
             className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
           >
             <X className="h-4 w-4" />
@@ -156,7 +176,9 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {rows.length === 0 ? (
-            <div className="px-3 py-8 text-center text-[11px] text-neutral-600">No jobs yet</div>
+            <div className="px-6 py-8 text-center text-[11px] text-neutral-500">
+              Nothing here yet. When an automation runs, like transcribing a lecture, you can follow it here.
+            </div>
           ) : (
             <>
               {running.length > 0 && (
@@ -194,18 +216,23 @@ export function JobStatusIndicator() {
   const isActive = (count ?? 0) > 0
 
   const toggle = useCallback(() => setShowDrawer((v) => !v), [])
+  const label = isActive ? `Activity: ${count} running` : 'Activity'
 
   return (
     <>
       <button
+        type="button"
+        data-testid="activity-button"
         onClick={toggle}
+        aria-label={label}
+        aria-expanded={showDrawer}
         className={cn(
           'flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors',
           isActive
             ? 'text-accent hover:bg-accent/10'
             : 'text-neutral-600 hover:bg-surface-overlay hover:text-neutral-400',
         )}
-        title={isActive ? `${count} jobs running` : 'Job activity'}
+        title={label}
       >
         <Zap className={cn('h-3 w-3', isActive && 'animate-pulse')} />
         {isActive && <span>{count} running</span>}

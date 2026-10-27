@@ -13,7 +13,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   })
 
   router.register('workspaces.create', (input) => {
-    const { name } = input as { name: string }
+    const { name, courseTag } = input as { name: string; courseTag?: string }
     const ws = {
       id: `ws-${crypto.randomUUID().slice(0, 8)}`,
       name,
@@ -24,6 +24,14 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       sort_order: db.workspaces.length,
     }
     db.workspaces.push(ws)
+    if (courseTag) {
+      db.workspaceScopes.push({
+        id: `ws-scope-${crypto.randomUUID().slice(0, 8)}`,
+        workspace_id: ws.id,
+        scope_type: 'tag',
+        scope_value: courseTag,
+      })
+    }
     return ws
   })
 
