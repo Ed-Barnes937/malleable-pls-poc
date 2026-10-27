@@ -50,7 +50,8 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useAutomation(id: string) {
-    return adapt(trpc.workflows.byId.useQuery(id, { enabled: !!id })) as QueryResult<WorkflowWithJobs>
+    // Polled while shown, so "Made by ..." goes once the automation is deleted elsewhere.
+    return adapt(trpc.workflows.byId.useQuery(id, { enabled: !!id, refetchInterval: 30_000 })) as QueryResult<WorkflowWithJobs>
   },
 
   useTranscript(recordingId: string) {

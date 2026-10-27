@@ -190,10 +190,7 @@ const GRAPHIC_PAIRS: [string, string][] = [
   ...COURSES.flatMap((c): [string, string][] => [
     [`course-${c}`, 'surface-raised'],
     [`course-${c}`, `course-${c}-soft`],
-    // Transcript gutter marks per tag, also on a landed moment's soft tint.
-    ['confused', `course-${c}-soft`],
-    ['attn', `course-${c}-soft`],
-    ['accent', `course-${c}-soft`],
+    // (Tag marks on a landed moment's soft tint: covered by the text pairs above.)
   ]),
   ['confused', 'surface-raised'],
   ['attn', 'surface-raised'],

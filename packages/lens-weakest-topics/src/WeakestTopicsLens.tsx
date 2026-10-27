@@ -6,8 +6,7 @@ import { ArrowUpRight, CircleHelp } from 'lucide-react'
 
 const LIMIT = 8
 
-/** Where clicking a topic took the student. */
-/** Where the moment went: `nowhere` when no board has a Transcript. */
+/** Where clicking a topic took the student: `nowhere` when no board has a Transcript. */
 type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
 
 /** "Biology Lecture: Mitochondrial DNA" -> "Mitochondrial DNA" (the course pill already says Biology). */

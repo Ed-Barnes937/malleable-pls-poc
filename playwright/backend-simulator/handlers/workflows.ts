@@ -143,6 +143,10 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
     const { workflowId } = input as { workflowId: string }
     db.workflows = db.workflows.filter((w) => w.id !== workflowId)
     db.workflowJobs = db.workflowJobs.filter((j) => j.workflow_id !== workflowId)
+    // As ON DELETE SET NULL on the server: what it made stays, uncredited.
+    for (const item of db.planItems) {
+      if (item.created_by_workflow_id === workflowId) item.created_by_workflow_id = null
+    }
   })
 
   router.register('workflows.toggle', (input) => {

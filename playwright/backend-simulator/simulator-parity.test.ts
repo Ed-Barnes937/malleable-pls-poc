@@ -366,3 +366,38 @@ describe('simulator parity - plan items behave like the server router', () => {
     expect(await titles(false)).toEqual(['Loose'])
   })
 })
+
+describe('simulator parity - which automation made a plan item', () => {
+  let db: InMemoryDb
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    db = new InMemoryDb(createDefaultSeedData())
+    router = new ProcedureRouter()
+    registerWorkflowsHandlers(router, db)
+    registerPlanItemsHandlers(router, db)
+  })
+
+  async function call(path: string, input: unknown) {
+    const result = await router.resolve(path, input)
+    if (result.error) throw new Error(result.error.message)
+    return result.data as Record<string, unknown>
+  }
+
+  it('never takes it from a client, on create or update', async () => {
+    const created = await call('planItems.create', { kind: 'task', title: 'Review', created_by_workflow_id: 'wf-confused-review' })
+    expect(created.created_by_workflow_id).toBeNull()
+    const updated = await call('planItems.update', { id: created.id, patch: { title: 'Review it', created_by_workflow_id: 'wf-confused-review' } })
+    expect(updated).toMatchObject({ title: 'Review it', created_by_workflow_id: null })
+  })
+
+  it('forgets it when the automation is deleted, and keeps the item', async () => {
+    const created = await call('planItems.create', { kind: 'task', title: 'Review' })
+    db.planItems.find((p) => p.id === created.id)!.created_by_workflow_id = 'wf-confused-review'
+    expect(await call('workflows.byId', 'wf-confused-review')).toMatchObject({ id: 'wf-confused-review' })
+
+    await call('workflows.delete', { workflowId: 'wf-confused-review' })
+    expect(await call('workflows.byId', 'wf-confused-review')).toBeNull()
+    expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
+  })
+})

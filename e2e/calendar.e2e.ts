@@ -164,26 +164,60 @@ test.describe('Calendar', () => {
       kind: 'task', title: 'Review: chloroplast DNA', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
       course: 'biology', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
     })
+    // A controllable clock, to show the toast outlasting the usual 8s.
+    await page.clock.install()
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Week plan')
     const calendar = new CalendarPom(page)
 
+    // The toasts' live region is there before anything is said, so the first toast is announced.
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toBeAttached()
+    await expect(toast).toHaveAttribute('aria-live', 'polite')
+
     await calendar.block('Review: chloroplast DNA').click()
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
 
-    // The first board (in tab order) with a Transcript focused on that lecture.
+    // A board with a Transcript set up for reviewing (In Lecture's captures),
+    // first in tab order: Evening Review.
     await topBar.expectActiveWorkspace('Evening Review')
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
-    await expect(transcript.locator('[data-moment]')).toContainText('chloroplast DNA', { timeout: 10000 })
-    await expect(transcript.locator('[data-moment]')).toBeInViewport()
+    const moment = transcript.locator('[data-moment]')
+    await expect(moment).toContainText('chloroplast DNA', { timeout: 10000 })
+    await expect(moment).toBeInViewport()
+    // Keyboard focus lands on the moment too.
+    await expect(moment.getByRole('button').first()).toBeFocused()
 
-    // The toast says where it went and offers the way back.
-    const toast = page.getByTestId('toast-host')
+    // The toast says where it went and offers the way back; it stays while
+    // the student is on this board, so the way back is there whenever they reach it.
     await expect(toast).toContainText('Opened 36:40 in Evening Review')
+    await page.clock.runFor(10_000)
+    await expect(toast.getByRole('button', { name: 'Back to Week plan' })).toBeVisible()
     await toast.getByRole('button', { name: 'Back to Week plan' }).click()
     await topBar.expectActiveWorkspace('Week plan')
     await expect(calendar.block('Review: chloroplast DNA')).toBeVisible()
+    await expect(toast).not.toContainText('Opened')
+  })
+
+  test('leaving the board a moment opened on dismisses its "Back to ..." toast', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await call(request, 'planItems.create', {
+      kind: 'task', title: 'Review: chloroplast DNA', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      course: 'biology', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    await calendar.block('Review: chloroplast DNA').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+    await topBar.expectActiveWorkspace('Evening Review')
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Opened 36:40 in Evening Review')
+
+    await topBar.switchToWorkspace('Exam Prep')
+    await expect(toast).not.toContainText('Opened')
   })
 
   test('the automation that made a block: the footer names it, Edit opens it, and the open popover follows the change', async ({ page, request }) => {

@@ -273,8 +273,43 @@ test('landing on a moment folds the summary to one line and outlines the moment 
   const summary = page.getByRole('region', { name: 'Lecture summary' })
   await expect(summary).toHaveText('Mitochondria carry their own DNA.Show summary')
   await expect(summary.getByRole('listitem')).toHaveCount(0)
-  await summary.getByRole('button', { name: 'Show summary' }).click()
-  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(3)
+  const toggle = summary.getByRole('button', { name: 'Show summary' })
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await toggle.click()
+  await expect(summary.getByRole('listitem')).toHaveCount(3)
+  // The same button folds it again, and keeps focus.
+  const hide = summary.getByRole('button', { name: 'Hide summary' })
+  await expect(hide).toHaveAttribute('aria-expanded', 'true')
+  await expect(hide).toBeFocused()
+  await hide.press('Enter')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  await expect(summary.getByRole('button', { name: 'Show summary' })).toBeFocused()
+})
+
+test('a moment shown after a board switch also takes keyboard focus', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <div style={{ height: 400, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4', offsetMs: 2_200_000, id: 1, takeFocus: true }} />
+      </div>
+    </TestProviders>,
+  )
+  const moment = page.locator('[data-moment]')
+  await expect(moment).toContainText('chloroplast DNA')
+  await expect(moment.getByRole('button').first()).toBeFocused()
+  await expect(moment).toBeInViewport()
+})
+
+test('a moment shown on the same board leaves focus where it was', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <div style={{ height: 400, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4', offsetMs: 2_200_000, id: 1 }} />
+      </div>
+    </TestProviders>,
+  )
+  await expect(page.locator('[data-moment]')).toContainText('chloroplast DNA')
+  await expect(page.locator('[data-moment]').getByRole('button').first()).not.toBeFocused()
 })
 
 test('the summary stays open when nothing landed', async ({ mount, page, simulator }) => {
@@ -305,16 +340,28 @@ test('gutter marks and a scroll rail show every tagged moment', async ({ mount, 
   await expect(page.locator('[data-segment-id="seg-bio4-12"]').getByTestId('transcript-gutter-mark')).toHaveAttribute('data-tag', 'key-point')
   await expect(page.locator('[data-segment-id="seg-bio4-05"]').getByTestId('transcript-gutter-mark')).toHaveCount(0)
 
-  const rail = page.getByTestId('transcript-rail')
-  expect(await rail.getByRole('button').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual([
+  // A legend names the colours, so they don't carry meaning on their own.
+  await expect(page.getByRole('list', { name: 'Tag colours' }).getByRole('listitem')).toHaveText(['Confused', 'Key point', 'Question'])
+
+  const rail = page.getByRole('group', { name: 'Tagged moments' })
+  const marks = rail.getByRole('button')
+  expect(await marks.evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')))).toEqual([
     'Confused at 9:00', 'Confused at 21:00', 'Confused at 27:00', 'Key point at 33:00',
   ])
+  // Targets at least 24px, never overlapping.
+  const boxes = await marks.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: r.top, w: r.width, h: r.height })))
+  for (const [i, b] of boxes.entries()) {
+    expect(b.w).toBeGreaterThanOrEqual(24)
+    expect(b.h).toBeGreaterThanOrEqual(24)
+    if (i > 0) expect(b.top - boxes[i - 1].top).toBeGreaterThanOrEqual(24)
+  }
 
-  // Clicking a mark brings that moment into view.
+  // Clicking a mark brings that moment into view and puts focus on it.
   const keyPoint = page.locator('[data-segment-id="seg-bio4-12"]')
   await expect(keyPoint).not.toBeInViewport()
   await rail.getByRole('button', { name: 'Key point at 33:00' }).click()
   await expect(keyPoint).toBeInViewport()
+  await expect(keyPoint.getByRole('button').first()).toBeFocused()
 })
 
 test('a lecture with no course of its own falls back to the board course', async ({ mount, page, simulator }) => {

@@ -344,4 +344,12 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     expect(await api.workflows.byId(wf.id as string)).toBeNull()
     expect(await api.planItems.byId(item.id as string)).toMatchObject({ title: 'Review: a question', created_by_workflow_id: null })
   })
+
+  it('never takes the automation from a client, on create or update', async () => {
+    const api = caller(alice)
+    const created = await api.planItems.create({ kind: 'task', title: 'Review: by hand', created_by_workflow_id: workflowId } as never)
+    expect(created.created_by_workflow_id).toBeNull()
+    const updated = await api.planItems.update({ id: created.id, patch: { title: 'Review: still by hand', created_by_workflow_id: workflowId } as never })
+    expect(updated).toMatchObject({ title: 'Review: still by hand', created_by_workflow_id: null })
+  })
 })

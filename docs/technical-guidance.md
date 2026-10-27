@@ -178,10 +178,12 @@ gesture, not lens-to-lens messaging, and it works like scope:
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
-When the board has no moment viewer, the shell switches to the first board
-(in tab order) that has one, preferring a board already focused on that
-recording, shows the moment there and raises a toast ("Opened 1:18 in In
-Lecture") whose action goes back to the board the student came from.
+When the board has no moment viewer, the shell switches to a board that has
+one: a viewer set up for reviewing (not a Transcript in capture mode) first,
+then one already focused on that recording, then tab order. It shows the
+moment there, moves keyboard focus to it, and raises a toast ("Opened 1:18 in
+Evening Review") whose action goes back to the board the student came from;
+the toast stays until dismissed or the student leaves that board.
 `onShowMoment` resolves `no-viewer` only when no board has a moment viewer (the
 recording is still focused on this board). The Calendar, To-do and Weakest
 Topics all ask this way; the Calendar's study block popover leads with the

@@ -70,6 +70,8 @@ export interface Moment {
  */
 export interface FocusedMoment extends Moment {
   id: number
+  /** Move keyboard focus to the moment as well (the shell switched boards to show it). */
+  takeFocus?: boolean
 }
 
 /**
