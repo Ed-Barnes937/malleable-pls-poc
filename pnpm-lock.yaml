@@ -481,6 +481,9 @@ importers:
 
   packages/substrate:
     dependencies:
+      '@pls/scheduler':
+        specifier: workspace:*
+        version: link:../scheduler
       '@pls/workflows':
         specifier: workspace:*
         version: link:../workflows

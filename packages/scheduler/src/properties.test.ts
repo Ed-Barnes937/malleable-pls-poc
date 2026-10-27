@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest'
 import { capacity } from './capacity'
 import { freeSlots } from './free-slots'
+import { minutesByDay } from './budget'
 import { MINUTE_MS, normalize, type Interval } from './intervals'
 import { place, refit, suggestSlots, type ExistingPlacement, type SchedulerTask } from './place'
 
@@ -157,6 +158,34 @@ describe('scheduler properties', () => {
       // If place() fit everything, capacity must agree there was room.
       const res = place(tasks.filter((t, i) => t.durationMin > 0 && tasks.findIndex((x) => x.id === t.id) === i), free, { now: 0, alignMin: 1 })
       if (res.unplaced.length === 0) expect(c.fits).toBe(true)
+    }
+  })
+
+  it('with a daily budget and gap, no day goes over budget and blocks keep their gap', () => {
+    for (const seed of SEEDS) {
+      const { free, existing, tasks, now, prefs, anchor } = scenario(seed)
+      const dailyBudget = { minutesPerDay: [30, 60, 120, 240][seed % 4], timeZone: prefs.timeZone }
+      const gapMin = [0, 10][seed % 2]
+      const { placements, unplaced } = place(tasks, free, { now, existingPlacements: existing, anchor, dailyBudget, gapMin })
+      const used = minutesByDay([...existing, ...placements], prefs.timeZone)
+      const fixedUsed = minutesByDay(existing, prefs.timeZone)
+      for (const p of placements) {
+        const [day] = minutesByDay([p], prefs.timeZone).keys()
+        // A single block per day piece: it never crosses local midnight.
+        expect(minutesByDay([p], prefs.timeZone).size).toBe(1)
+        // Over budget only if existing blocks alone already were (they are not moved).
+        const newOnDay = (used.get(day) ?? 0) - (fixedUsed.get(day) ?? 0)
+        expect(newOnDay + (fixedUsed.get(day) ?? 0)).toBeLessThanOrEqual(Math.max(dailyBudget.minutesPerDay, fixedUsed.get(day) ?? 0) + 1e-9)
+        const g = gapMin * MINUTE_MS
+        for (const e of existing) expect(overlaps(p, { start: e.start - g, end: e.end + g })).toBe(false)
+        for (const q of placements) if (q !== p) expect(overlaps(p, { start: q.start - g, end: q.end + g })).toBe(false)
+      }
+      for (const u of unplaced.filter((x) => x.reason === 'over-daily-budget')) {
+        expect(tasks.find((t) => t.id === u.taskId)!.durationMin).toBeGreaterThan(dailyBudget.minutesPerDay)
+      }
+      const c = capacity(free, tasks, { now, existingPlacements: existing, dailyBudget })
+      const plain = capacity(free, tasks, { now, existingPlacements: existing })
+      expect(c.freeMin).toBeLessThanOrEqual(plain.freeMin)
     }
   })
 

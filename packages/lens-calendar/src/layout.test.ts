@@ -70,7 +70,7 @@ describe('layoutDays', () => {
 })
 
 describe('dueMarkers', () => {
-  it('lists deadlines and unscheduled to-dos with a due date by day and time', () => {
+  it('lists deadlines by day and time; to-dos never get a marker of their own', () => {
     const report = row({ kind: 'deadline', due_at: at(4, 17) })
     const quiz = row({ kind: 'deadline', due_at: at(4, 9) })
     const todo = row({ kind: 'task', due_at: at(2, 12) })
@@ -78,7 +78,7 @@ describe('dueMarkers', () => {
     const days = dueMarkers([report, quiz, todo, scheduled], week)
     expect(days[4].map((m) => m.item.id)).toEqual([quiz.id, report.id])
     expect(days[4][1].minute).toBe(17 * 60)
-    expect(days[2].map((m) => m.item.id)).toEqual([todo.id])
+    expect(days[2]).toEqual([])
     expect(days[4][1].allDay).toBe(false)
   })
 

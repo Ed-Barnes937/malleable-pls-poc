@@ -1,8 +1,12 @@
+import { checkBudget, minutesByDay, type DailyBudget } from './budget'
 import { subtract, totalMinutes, type Interval } from './intervals'
 import type { ExistingPlacement, SchedulerTask } from './place'
 
 export interface Capacity {
-  /** Free minutes left after fixed existing placements. */
+  /**
+   * Free minutes left after fixed existing placements. With a daily budget,
+   * each day counts at most the budget left that day.
+   */
   freeMin: number
   /** Sum of the tasks' valid durations. */
   neededMin: number
@@ -19,6 +23,11 @@ export interface CapacityOptions {
   now: number
   /** Same meaning as in `place`. */
   existingPlacements?: ReadonlyArray<ExistingPlacement>
+  /**
+   * Same meaning as in `place`: each local day contributes at most
+   * `minutesPerDay` minus the fixed placements already on that day.
+   */
+  dailyBudget?: DailyBudget
 }
 
 /**
@@ -38,13 +47,15 @@ export function capacity(
   opts: CapacityOptions,
 ): Capacity {
   if (!Number.isFinite(opts.now)) throw new RangeError(`now must be a finite UTC ms value`)
+  checkBudget(opts.dailyBudget)
   const ids = new Set<string>()
   const unique = tasks.filter((t) => !ids.has(t.id) && ids.add(t.id))
   const fixed = (opts.existingPlacements ?? []).filter(
     (e) => e.taskId === undefined || !ids.has(e.taskId),
   )
   const past = { start: -Infinity, end: opts.now }
-  const freeMin = totalMinutes(subtract(freeSlots, [...fixed, past]))
+  const open = subtract(freeSlots, [...fixed, past])
+  const freeMin = opts.dailyBudget ? budgetedMinutes(open, fixed, opts.dailyBudget) : totalMinutes(open)
   const neededMin = unique.reduce(
     (sum, t) => sum + (t.durationMin > 0 && Number.isFinite(t.durationMin) ? t.durationMin : 0),
     0,
@@ -56,4 +67,14 @@ export function capacity(
     spareMin: Math.max(0, freeMin - neededMin),
     fits: neededMin <= freeMin,
   }
+}
+
+/** Per local day: the free minutes, capped by the budget left after `fixed`. */
+function budgetedMinutes(open: Interval[], fixed: ReadonlyArray<Interval>, budget: DailyBudget): number {
+  const used = minutesByDay(fixed, budget.timeZone)
+  let total = 0
+  for (const [day, free] of minutesByDay(open, budget.timeZone)) {
+    total += Math.min(free, Math.max(0, budget.minutesPerDay - (used.get(day) ?? 0)))
+  }
+  return Math.floor(total)
 }

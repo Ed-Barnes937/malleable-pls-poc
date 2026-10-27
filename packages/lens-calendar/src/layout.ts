@@ -103,13 +103,13 @@ function assignColumns(segments: DaySegment[]): void {
 }
 
 /**
- * Due rows per day: deadlines, plus to-dos with a due date but no time block
- * yet (so nothing in range goes unshown).
+ * Due rows per day: deadlines only. A to-do's due date is part of the to-do
+ * (its popover, the To-do widget, Help me plan), not a marker of its own.
  */
 export function dueMarkers(items: PlanItemOccurrence[], days: Date[]): DueMarker[][] {
   const perDay: DueMarker[][] = days.map(() => [])
   for (const item of items) {
-    if (isTimed(item) || item.due_at == null) continue
+    if (item.kind !== 'deadline' || isTimed(item) || item.due_at == null) continue
     const due = new Date(item.due_at)
     const dayIndex = days.findIndex((d) => sameDay(d, due))
     if (dayIndex === -1) continue

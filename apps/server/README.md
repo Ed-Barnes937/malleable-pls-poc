@@ -81,3 +81,11 @@ AI_MODE=live pnpm demo:live-smoke
 ```
 
 It refuses to run unless `AI_MODE=live` is set on the command line (it checks before loading `apps/server/.env`, which is where it reads `OPENROUTER_API_KEY` and `OPENROUTER_LLM_MODEL` from). Agents and CI must never run it.
+
+## Help me plan (`planning.autofill`)
+
+Auto-fill advice for one week: `{ from, to, timeZone, studyMinPerDay, estimates? }` -> `{ order, trims, note }`. It loads the week's rows and the open unscheduled to-dos (every course), builds the same `planTasks` / `weekLayout` / `planCapacity` the Calendar uses (`@pls/substrate`'s `planning.ts`, which also owns `STUDY_DAY`, shared with the confusion automation), adds weak topics (moments marked confused or below 50 "how sure you feel"), and runs the `plan-autofill` LLM task (`src/ai/tasks/plan-autofill.ts`). The reply goes through `sanitizeAdvice` (every to-do ranked exactly once, trims only for known to-dos when over capacity or longer than a day's study time, text clipped).
+
+It writes and places nothing. "AI suggests, code decides": the Calendar places the ghost blocks with `draftPlan` (`@pls/scheduler`, within the daily study budget), the capacity copy comes from `capacityCopy`, and only blocks the student accepts are saved (`planItems.update`). The mock reply ranks by due date, then weak topics, then shorter first, and trims the longest to-do when the week is short. DB-backed tests: `TEST_DATABASE_URL=... pnpm test planning.db`.
+
+Accepted blocks are ordinary scheduled to-dos, so the confusion automation treats them as busy and never moves them (it only re-places reviews still where it put them).

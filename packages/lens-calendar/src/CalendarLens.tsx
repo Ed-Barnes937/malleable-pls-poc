@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import type { PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, type ShowMomentResult, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, formatTime } from '@pls/shared-ui'
 import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
-import { HelpMePlan } from './HelpMePlan'
+import { HelpMePlanButton, HelpMePlanPanel, type DraggedTodo } from './HelpMePlan'
+import { ProposalTray } from './ProposalTray'
+import { acceptPatch, useProposalLayer } from './proposals'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
 import { addDays, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
@@ -54,6 +56,13 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const [popover, setPopover] = useState<Popover | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
+  const [planOpen, setPlanOpen] = useState(false)
+  // Layer-2 knob: how much study Help me plan fills into a day.
+  const [studyMinPerDay, setStudyMinPerDay] = useState(() =>
+    typeof config.studyMinPerDay === 'number' && config.studyMinPerDay > 0 ? config.studyMinPerDay : DEFAULT_STUDY_MIN_PER_DAY,
+  )
+  /** A to-do being dragged from Help me plan onto the grid. */
+  const [incoming, setIncoming] = useState<DraggedTodo | null>(null)
   /** A calm note in the header, e.g. a move that didn't save. */
   const [notice, setNotice] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -82,6 +91,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
   const setView = (next: View) => {
     setViewState(next)
+    if (next !== 'week') setPlanOpen(false)
     onConfigChange?.({ view: next })
   }
 
@@ -122,6 +132,33 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       return next
     })
   }, [data, pending])
+
+  // Ghost blocks (Auto-fill drafts and any other proposals): client state
+  // until accepted, which saves the block like a drag would.
+  const layer = useProposalLayer({
+    save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
+    rows: items,
+  })
+
+  // Help me plan works on the week shown, around every course's commitments.
+  const timeZone = useMemo(() => localTimeZone(), [])
+  const planLayout = useMemo(
+    () => (planOpen && view === 'week'
+      ? weekLayout(items, { start: Date.parse(range.from), end: Date.parse(range.to) }, { timeZone, studyMinPerDay })
+      : null),
+    [planOpen, view, items, range, timeZone, studyMinPerDay],
+  )
+  const freeTime = useMemo(() => (planLayout ? openTime(planLayout, now.getTime()) : undefined), [planLayout, now])
+  const thisWeek = startOfWeek(now).getTime()
+  const weekLabel = days[0].getTime() === thisWeek ? 'this week'
+    : days[0].getTime() === addDays(new Date(thisWeek), 7).getTime() ? 'next week' : 'that week'
+
+  /** Assigning a to-do by hand (suggested slot or drop) saves its block straight away. */
+  const scheduleTodo = (id: string, start: Date, durationMin: number) =>
+    updateItem.mutateAsync({
+      id,
+      patch: { starts_at: start.toISOString(), ends_at: new Date(start.getTime() + durationMin * 60_000).toISOString(), duration_min: durationMin },
+    })
 
   const isDimmed = useCallback(
     // Only other courses dim: items with no course (a shift) stay as they are.
@@ -304,21 +341,58 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             <Plus className="h-3 w-3" />
             Add
           </button>
-          {view === 'week' && <HelpMePlan week={range} items={items} />}
+          {view === 'week' && <HelpMePlanButton open={planOpen} onToggle={() => setPlanOpen((o) => !o)} />}
         </div>
       </header>
 
-      <TimeGrid
-        days={days}
-        items={items}
-        now={now}
-        isDimmed={isDimmed}
-        isLinked={isLinked}
-        activeKey={popover?.mode === 'edit' ? popover.key : undefined}
-        onCreate={handleCreate}
-        onOpen={handleOpen}
-        onMove={handleMove}
-      />
+      {(!planOpen || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+
+      <div className="@container/cal relative flex min-h-0 flex-1 gap-2.5">
+        <TimeGrid
+          days={days}
+          items={items}
+          now={now}
+          isDimmed={isDimmed}
+          isLinked={isLinked}
+          activeKey={popover?.mode === 'edit' ? popover.key : undefined}
+          onCreate={handleCreate}
+          onOpen={handleOpen}
+          onMove={handleMove}
+          proposals={layer.proposals}
+          savedProposalIds={layer.savedIds}
+          onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
+          onProposalAccept={(id) => void layer.accept(id)}
+          onProposalDismiss={layer.dismiss}
+          freeTime={freeTime}
+          incoming={incoming}
+          onDropIncoming={(start) => {
+            const todo = incoming
+            setIncoming(null)
+            if (!todo) return
+            scheduleTodo(todo.id, start, todo.durationMin).catch(() =>
+              setNotice(`Couldn't add "${todo.title}" to the calendar - try again?`),
+            )
+          }}
+        />
+        {planLayout && (
+          // Beside the grid when there is room; over it in a narrow panel.
+          <div className="absolute inset-y-0 right-0 z-30 flex shadow-2xl @[760px]/cal:static @[760px]/cal:shadow-none">
+            <HelpMePlanPanel
+              layout={planLayout}
+              weekLabel={weekLabel}
+              now={now.getTime()}
+              layer={layer}
+              onClose={() => setPlanOpen(false)}
+              onSchedule={(todo, start, durationMin) => scheduleTodo(todo.id, start, durationMin)}
+              onDragTodo={setIncoming}
+              onStudyMinPerDayChange={(min) => {
+                setStudyMinPerDay(min)
+                onConfigChange?.({ studyMinPerDay: min })
+              }}
+            />
+          </div>
+        )}
+      </div>
 
       {popover && (
         // Click-away layer: closes the popover without starting a new block.

@@ -34,10 +34,11 @@ never moved.
 | Function | What it does |
 |---|---|
 | `freeSlots(commitments, range, prefs?)` | Study-day windows in `range` minus commitments (padded by `bufferMin`), keeping gaps of at least `minSlotMin`. Defaults: `08:00`-`22:00`, UTC, 15 min, no buffer. |
-| `place(tasks, freeSlots, { now, existingPlacements?, policy?, anchor?, alignMin? })` | One contiguous block per task, earliest-fit (or latest-fit with `anchor: 'latest'`). Returns `{ placements, unplaced: [{ taskId, reason }] }`. |
-| `suggestSlots(task, freeSlots, n, { now, existingPlacements?, anchor?, alignMin? })` | Up to `n` candidate blocks, one per separate free gap, in the anchor's preference order (the first is where `place` would put it). |
-| `capacity(freeSlots, tasks, { now, existingPlacements? })` | `{ freeMin, neededMin, shortfallMin, spareMin, fits }`. Free time before `now` is not counted, so a whole week's `freeSlots` is fine mid-week. |
+| `place(tasks, freeSlots, { now, existingPlacements?, policy?, anchor?, alignMin?, gapMin?, dailyBudget? })` | One contiguous block per task, earliest-fit (or latest-fit with `anchor: 'latest'`). Returns `{ placements, unplaced: [{ taskId, reason }] }`. |
+| `suggestSlots(task, freeSlots, n, { now, existingPlacements?, anchor?, alignMin?, gapMin?, dailyBudget? })` | Up to `n` candidate blocks, one per separate free gap, in the anchor's preference order (the first is where `place` would put it). |
+| `capacity(freeSlots, tasks, { now, existingPlacements?, dailyBudget? })` | `{ freeMin, neededMin, shortfallMin, spareMin, fits }`. Free time before `now` is not counted, so a whole week's `freeSlots` is fine mid-week. With a budget, each day counts at most what is left of it. |
 | `refit(blocks, freeSlots, { now, ... })` | Re-places blocks that ended before `now` (the caller says which were not done). Blocks that have not ended stay put and count as busy. Returns `place`'s result plus `notMissed`. |
+| `splitByLocalDay(intervals, timeZone)`, `minutesByDay(intervals, timeZone)` | Intervals cut at local midnight / minutes per local day (keyed by local midnight), DST-safe. |
 | `startOfLocalDay(instant, timeZone, addDays?)` | Local midnight, e.g. "by end of tomorrow" = `startOfLocalDay(now, tz, 2)`. |
 | `normalize`, `subtract`, `totalMinutes`, `dayWindows`, `zonedTimeToUtc`, `wallClock` | Building blocks, exported for UIs. |
 
@@ -61,6 +62,19 @@ matters). `policy: 'deadline'` sorts by `latest` instead (stable).
 a spaced review that lets a lecture settle. With `'latest'`, a task with no
 `latest` goes at the end of the supplied free time.
 
+**Gap:** `gapMin` keeps that many minutes clear between a new block and
+every fixed existing placement or other new block, so study blocks never
+run back to back (space around commitments is `freeSlots`' `bufferMin`).
+
+**Daily budget:** `dailyBudget: { minutesPerDay, timeZone }` caps study time
+per local day, so a plan is one a student would actually follow rather than
+every free minute from 08:00 to 22:00. Fixed existing placements count
+against the day they are on (before `now` too: what is scheduled today is
+spent). With a budget a block never crosses local midnight, and a task
+longer than `minutesPerDay` is `'over-daily-budget'` (it can never fit in one
+day; trim it). `capacity` with the same budget gives the matching copy
+("About 9 hours of study time left").
+
 **Moving a task:** an existing placement whose `taskId` is one of the tasks
 being placed is ignored, so that task can move. Every other existing
 placement is fixed. So a block is movable if and only if its task id is in
@@ -71,7 +85,8 @@ unless you mean to move it. Leave it out of `tasks` and pass its block in
 **Unplaced reasons:** `'invalid-duration'`, `'window-closed'` (not enough time
 between `max(now, earliest)` and `latest` even with an empty calendar),
 `'no-free-slot'` (the window is open but busy or fragmented), `'duplicate-id'`
-(another task with the same id was considered first).
+(another task with the same id was considered first), `'over-daily-budget'`
+(longer than a whole day's `dailyBudget`).
 
 `capacity().fits` is necessary, not sufficient (free time can be fragmented or
 outside a window). Use `place` for the truth and `capacity` for the copy.
@@ -101,11 +116,13 @@ place([{ id: item.id, durationMin: 30, latest: startOfLocalDay(now, tz, 2) }], f
   anchor: 'latest',
 })
 
-// T9: Help me plan. `capacity` ignores free time before `now`.
-const c = capacity(free, todos, { now, existingPlacements: acceptedBlocks })
-// `About ${Math.round(c.freeMin / 60)} free hours. This needs ${Math.round(c.neededMin / 60)}.`
-const options = suggestSlots(todo, free, 3, { now, existingPlacements: acceptedBlocks })
-const ghosts = place(aiRankedTodos, free, { now, existingPlacements: acceptedBlocks })
+// T9: Help me plan, at most 2h of study a day, 10 minutes between blocks.
+// `capacity` ignores free time before `now`. (@pls/substrate's planning module wraps this.)
+const rules = { gapMin: 10, dailyBudget: { minutesPerDay: 120, timeZone: tz } }
+const c = capacity(free, todos, { now, existingPlacements: acceptedBlocks, dailyBudget: rules.dailyBudget })
+// `About ${Math.round(c.freeMin / 60)} hours of study time left. Your to-dos need ${Math.round(c.neededMin / 60)}.`
+const options = suggestSlots(todo, free, 3, { now, existingPlacements: acceptedBlocks, ...rules })
+const ghosts = place(aiRankedTodos, free, { now, existingPlacements: acceptedBlocks, ...rules })
 
 // T10: re-fit blocks that were not done; any that have not ended yet stay put and are busy.
 const refitted = refit(notDoneBlocks, freeSlots(commitments, { start: now, end: week.end }), {

@@ -17,6 +17,8 @@ import type {
   PlanItemQuery,
   NewPlanItem,
   PlanItemUpdate,
+  PlanAdvice,
+  PlanAutofillInput,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -109,6 +111,13 @@ export interface SubstrateWriter extends SubstrateReader {
   /** Marks dismissed ("not doing this"). Takes the plan item id. */
   useDismissPlanItem: () => MutationHandle<string, PlanItem>
   useDeletePlanItem: () => MutationHandle<string, void>
+  /**
+   * Help me plan's Auto-fill advice for a week (priority order, trims when
+   * over capacity, a short note). Writes and places nothing: place with
+   * `draftPlan` from @pls/substrate and save accepted blocks with
+   * `useUpdatePlanItem`.
+   */
+  useAutofillPlan: () => MutationHandle<PlanAutofillInput, PlanAdvice>
 }
 
 // ---------------------------------------------------------------------------

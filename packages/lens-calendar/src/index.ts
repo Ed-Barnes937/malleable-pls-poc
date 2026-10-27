@@ -2,7 +2,10 @@ import { CalendarDays } from 'lucide-react'
 import type { PanelManifest } from '@pls/lens-framework'
 
 export { default } from './CalendarLens'
-export { HelpMePlan, type HelpMePlanProps } from './HelpMePlan'
+export { HelpMePlanButton, HelpMePlanPanel, type HelpMePlanPanelProps } from './HelpMePlan'
+export { ProposalTray } from './ProposalTray'
+export { acceptPatch, ghostRow, useProposalLayer, type Proposal, type ProposalLayer } from './proposals'
+export { buildAutofillDraft, type AutofillDraft } from './autofill'
 
 export const manifest: PanelManifest = {
   id: 'calendar',

@@ -1,6 +1,14 @@
 import type { JSONValue, TransactionSql } from 'postgres'
 import { freeSlots, place, startOfLocalDay, type ExistingPlacement, type Interval } from '@pls/scheduler'
-import { REVIEW_SUBTYPE, REVIEW_TASK_JOB, type PlanItem, type ReviewTaskParams } from '@pls/substrate'
+import {
+  REVIEW_SUBTYPE,
+  REVIEW_TASK_JOB,
+  STUDY_BLOCK_GAP_MIN,
+  STUDY_DAY,
+  padded as paddedBy,
+  type PlanItem,
+  type ReviewTaskParams,
+} from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
 
@@ -12,8 +20,8 @@ import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-i
 // and placed, still where it put them. Commitments never move; every other
 // block (accepted, dragged by hand, made by anything else) is fixed and busy.
 
-/** The study day reviews are placed in, with breathing room around classes and shifts. */
-export const STUDY_DAY = { dayStart: '08:00', dayEnd: '22:00', bufferMin: 10 } as const
+// The study day (08:00-22:00, breathing room around classes and shifts) is
+// shared with Help me plan: STUDY_DAY in @pls/substrate's planning module.
 
 const MINUTE_MS = 60_000
 
@@ -94,8 +102,7 @@ export async function findReviewSlots(
 }
 
 function padded(block: Interval): Interval {
-  const pad = STUDY_DAY.bufferMin * MINUTE_MS
-  return { start: block.start - pad, end: block.end + pad }
+  return paddedBy(block, STUDY_BLOCK_GAP_MIN)
 }
 
 /** The fields a placement result writes on the review. */
