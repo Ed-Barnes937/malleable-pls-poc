@@ -159,6 +159,43 @@ test('scrolls to and highlights a moment another widget asked to show', async ({
   await expect(moment).toHaveCount(0)
 })
 
+test('a moment taller than the transcript shows from its first line', async ({ mount, page, simulator }) => {
+  simulator.db.recordings.push({
+    id: 'rec-long', title: 'Long moment', created_at: '2026-04-16T10:00:00Z',
+    duration: 600000, audio_url: null, status: 'ready',
+  })
+  for (let i = 0; i < 12; i++) {
+    const long = i === 6
+    simulator.db.transcriptSegments.push({
+      id: `seg-long-${i}`, recording_id: 'rec-long', start_ms: i * 30000, end_ms: (i + 1) * 30000, speaker: null,
+      text: long
+        ? `Now, here is the part people find tricky. ${'It keeps going, sentence after sentence, well past the fold. '.repeat(30)}`
+        : `Short moment ${i}.`,
+    })
+  }
+  await mount(
+    <TestProviders>
+      <div style={{ height: 300, width: 400, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-long' }} config={{ mode: 'review' }} focusedMoment={{ recordingId: 'rec-long', offsetMs: 6 * 30000, id: 3 }} />
+      </div>
+    </TestProviders>,
+  )
+
+  const moment = page.locator('[data-moment]')
+  await expect(moment).toContainText('Now, here is the part people find tricky')
+  const opening = moment.getByText(/^Now, here is the part people find tricky/)
+  // Its opening line sits at the top of the list, not scrolled past.
+  await expect(async () => {
+    const list = await page.locator('[data-segment-id="seg-long-0"]').evaluate((el) => el.parentElement!.getBoundingClientRect().top)
+    const top = (await moment.boundingBox())!.y
+    expect(top - list).toBeGreaterThanOrEqual(0)
+    expect(top - list).toBeLessThan(20)
+  }).toPass()
+  await expect(opening).toBeInViewport()
+  // (It really is taller than the list.)
+  expect(await moment.evaluate((el) => el.clientHeight > el.parentElement!.clientHeight)).toBe(true)
+})
+
 test('ignores a moment from another lecture', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
