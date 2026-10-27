@@ -11,6 +11,7 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
     scopeId,
     pollIntervalMs = DEFAULT_INTERVAL_MS,
     maxRetries = DEFAULT_MAX_RETRIES,
+    scopeForJob = () => scopeId,
   } = config
 
   let intervalHandle: ReturnType<typeof setInterval> | null = null
@@ -37,12 +38,13 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
           await adapter.commit?.()
         }
         const runningJob = { ...job, status: 'running' as const }
+        const jobScope = scopeForJob(job)
         emit({ type: 'job:started', jobRun: runningJob })
 
         try {
           const input = job.input ?? {}
           const result = await executors.execute(job.job_type, input, {
-            scopeId,
+            scopeId: jobScope,
             depth: job.depth,
             jobRun: job,
           })
@@ -60,7 +62,7 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
             for (const event of result.events) {
               // Cascade at job.depth — engine.dispatch adds +1 so children land
               // at job.depth + 1. This fixes the prior cross-backend divergence.
-              await engine.dispatch(event, { scopeId, depth: job.depth })
+              await engine.dispatch(event, { scopeId: jobScope, depth: job.depth })
             }
           }
         } catch (err) {

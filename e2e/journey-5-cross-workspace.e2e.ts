@@ -69,7 +69,10 @@ test.describe('Journey: Cross-workspace data flow', () => {
 
     // WeakestTopics should reflect the lowered confidence
     const weakestPanel = grid.panelByLabel('Weakest Topics')
-    await expect(weakestPanel.getByText('Weakest Topics')).toBeVisible({ timeout: 10000 })
+    // The panel title and, once topics load, the lens's own heading both read
+    // "Weakest Topics": check the panel, then wait for its loaded heading.
+    await expect(weakestPanel).toBeVisible({ timeout: 10000 })
+    await expect(weakestPanel.getByText('Weakest Topics', { exact: true }).nth(1)).toBeVisible({ timeout: 10000 })
 
     // Verify the panel loaded with data (ranks visible)
     await expect(weakestPanel.locator('text=1').first()).toBeVisible()

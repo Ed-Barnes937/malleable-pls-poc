@@ -45,4 +45,5 @@ export {
   SubstrateProvider,
   useSubstrate,
   useSubstrateMutations,
+  useBoardId,
 } from './substrate-context'

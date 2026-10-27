@@ -186,6 +186,21 @@ export function useUpdateWorkflow() {
   })
 }
 
+/**
+ * Edits an automation in place (condition value, job params). Editing the
+ * confusion automation re-places its reviews on the server, so plan items
+ * refresh too.
+ */
+export function usePatchWorkflow() {
+  const utils = trpc.useUtils()
+  return trpc.workflows.patch.useMutation({
+    onSuccess: () => {
+      invalidateWorkflows(utils)
+      utils.planItems.invalidate()
+    },
+  })
+}
+
 export function useDeleteWorkflow() {
   const utils = trpc.useUtils()
   return trpc.workflows.delete.useMutation({
@@ -198,6 +213,8 @@ export interface JobEvent {
   jobType?: string
   /** job:failed only - true when the server will retry automatically. */
   willRetry?: boolean
+  /** job:completed only - nothing changed worth a toast (e.g. a moment marked twice). */
+  quiet?: boolean
 }
 
 export interface ServerEventHandlers {
@@ -224,6 +241,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
         utils.links.invalidate()
         utils.confidence.invalidate()
         utils.aggregates.invalidate()
+        utils.annotations.invalidate()
         utils.planItems.invalidate()
         handlers?.onJobCompleted?.(event)
       } else if (event.type === 'job:failed') {

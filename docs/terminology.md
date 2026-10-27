@@ -79,7 +79,7 @@ A small, stable set of types that the platform team owns. Lenses read and write 
 
 - **Recording** — audio blob + duration + timestamp
 - **Transcript** — text segments linked to recording timestamps
-- **Annotation** — user-created, anchored to a moment or span
+- **Annotation** - user-created, anchored to a moment or span. One AI-written kind exists: a lecture's 3-line summary, anchored to the whole recording (`anchor_type = 'recording_summary'`)
 - **Tag** — a label on anything (confused, key concept, exam-relevant)
 - **Link** — a connection between any two things
 - **Confidence Signal** — a score on a piece of material (from quizzes, self-assessment, spaced repetition)

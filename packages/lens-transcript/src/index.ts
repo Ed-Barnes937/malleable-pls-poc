@@ -13,7 +13,7 @@ export const manifest: PanelManifest = {
   scope: { courseTag: 'filter', recordingId: 'target' },
   // Scrolls to and highlights a moment other widgets ask to show.
   showsMoments: true,
-  reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
+  reads: ['transcript_segments', 'tags', 'annotations', 'recordings', 'plan_items'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],
   load: () => import('./TranscriptLens'),

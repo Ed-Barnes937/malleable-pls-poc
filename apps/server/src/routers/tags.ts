@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { boardIdInput } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -49,15 +50,16 @@ export const tagsRouter = router({
       target_type: z.string().max(255),
       target_id: z.string().max(255),
       label: z.string().max(500),
+      workspaceId: boardIdInput,
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
         const [tag] = await tx`
           INSERT INTO tags (user_id, target_type, target_id, label)
           VALUES (${ctx.userId}, ${input.target_type}, ${input.target_id}, ${input.label})
           RETURNING *
         `
-        await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, null)
+        await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, workspaceId ?? null)
         return tag
       })
     }),

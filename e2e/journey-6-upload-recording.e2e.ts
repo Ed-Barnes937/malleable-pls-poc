@@ -23,8 +23,8 @@ test.describe('Journey: Upload a lecture recording', () => {
     // The new recording becomes the workspace focus, so the Transcript lens
     // follows it and fills in once the (mock) transcription job completes.
     await expect(transcript.getByText('Uploaded: Enzyme Kinetics')).toBeVisible({ timeout: 10000 })
-    await expect(transcript.getByText(/Welcome to today's lecture/)).toBeVisible({ timeout: 20000 })
-    await expect(transcript.getByText('3 segments')).toBeVisible()
+    await expect(transcript.getByText(/Today we're looking at mitochondrial DNA/)).toBeVisible({ timeout: 20000 })
+    await expect(transcript.getByText('6 segments')).toBeVisible()
 
     await topBar.openDrawer()
     const sidebar = new SidebarPom(page)

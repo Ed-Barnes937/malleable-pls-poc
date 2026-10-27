@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { boardIdInput } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -31,15 +32,16 @@ export const confidenceRouter = router({
       target_id: z.string().max(255),
       score: z.number(),
       source_lens_id: z.string().max(255),
+      workspaceId: boardIdInput,
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
         const [signal] = await tx`
           INSERT INTO confidence_signals (user_id, target_type, target_id, score, source_lens_id)
           VALUES (${ctx.userId}, ${input.target_type}, ${input.target_id}, ${input.score}, ${input.source_lens_id})
           RETURNING *
         `
-        await dispatchWorkflows(tx, ctx.userId, 'confidence:recorded', input, null)
+        await dispatchWorkflows(tx, ctx.userId, 'confidence:recorded', input, workspaceId ?? null)
         return signal
       })
     }),

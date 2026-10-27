@@ -34,26 +34,15 @@ import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { useShowMoment } from './moments'
 
-const JOB_LABELS: Record<string, string> = Object.fromEntries(
-  getAvailableJobTypes().map((j) => [j.type, j.label]),
-)
+const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
 function jobLabel(jobType?: string): string {
-  return (jobType && JOB_LABELS[jobType]) || 'Background task'
+  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Background task'
 }
 
-/**
- * What a finished job means for the student, by job type. Types not listed
- * fall back to "Done: <job label>".
- */
-const JOB_DONE_MESSAGES: Record<string, string> = {
-  'ai:transcribe': 'Transcript ready',
-  'ai:find-connections': 'Connections found',
-  'ai:generate-questions': 'Practice questions ready',
-}
-
+/** What a finished job means for the student; falls back to "Done: <job label>". */
 function jobDoneMessage(jobType?: string): string {
-  return (jobType && JOB_DONE_MESSAGES[jobType]) || `Done: ${jobLabel(jobType)}`
+  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
 }
 
 export function WorkspaceShell() {
@@ -64,7 +53,10 @@ export function WorkspaceShell() {
   const clearMoment = useWorkspaceStore((s) => s.clearMoment)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' }),
+    onJobCompleted: (event) => {
+      if (event.quiet) return
+      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+    },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
@@ -245,7 +237,7 @@ export function WorkspaceShell() {
       const panelScope = splitScope(scope, manifest?.scope)
 
       return (
-        <PanelContainer lensType={panel.lens_type}>
+        <PanelContainer lensType={panel.lens_type} boardId={activeWorkspaceId}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
             scope={panelScope.scope}

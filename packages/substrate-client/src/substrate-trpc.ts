@@ -1,4 +1,4 @@
-import type { SubstrateWriter, QueryResult, MutationHandle, QueryFilter } from '@pls/lens-framework'
+import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
 import type { PlanItemQuery } from '@pls/substrate'
 import { trpc } from './trpc'
 
@@ -10,6 +10,24 @@ function adapt<T>(query: { data: any; isLoading: boolean; error: any }): QueryRe
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adaptMutation<TInput, TOutput = TInput>(mutation: any): MutationHandle<TInput, TOutput> {
   return { mutate: mutation.mutate, mutateAsync: mutation.mutateAsync, isPending: mutation.isPending }
+}
+
+/**
+ * Like adaptMutation, but sends the panel's board with every call so the
+ * server runs that board's automations (a copy switched off on this board
+ * stays off). `toInput` builds the wire input from the lens-facing one.
+ */
+function useOnBoard<TInput, TOutput>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  mutation: any,
+  toInput: (input: TInput, workspaceId: string | null) => unknown = (input, workspaceId) => ({ ...(input as object), workspaceId }),
+): MutationHandle<TInput, TOutput> {
+  const boardId = useBoardId()
+  return {
+    mutate: (input: TInput) => mutation.mutate(toInput(input, boardId)),
+    mutateAsync: (input: TInput) => mutation.mutateAsync(toInput(input, boardId)),
+    isPending: mutation.isPending,
+  }
 }
 
 /** The board-scope part of a filter, as the list endpoints accept it. */
@@ -71,7 +89,7 @@ export const substrateTrpc: SubstrateWriter = {
 
   useCreateTag() {
     const utils = trpc.useUtils()
-    return adaptMutation(trpc.tags.create.useMutation({
+    return useOnBoard(trpc.tags.create.useMutation({
       onSuccess: () => {
         utils.tags.invalidate()
         utils.aggregates.invalidate()
@@ -80,12 +98,15 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreateAnnotation() {
-    return adaptMutation(trpc.annotations.create.useMutation())
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.annotations.create.useMutation({
+      onSuccess: () => utils.annotations.invalidate(),
+    }))
   },
 
   useRecordConfidence() {
     const utils = trpc.useUtils()
-    return adaptMutation(trpc.confidence.record.useMutation({
+    return useOnBoard(trpc.confidence.record.useMutation({
       onSuccess: () => {
         utils.confidence.invalidate()
         utils.aggregates.invalidate()
@@ -94,19 +115,19 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreatePlanItem() {
-    return adaptMutation(usePlanItemMutation(trpc.planItems.create))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.create))
   },
 
   useUpdatePlanItem() {
-    return adaptMutation(usePlanItemMutation(trpc.planItems.update))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.update))
   },
 
   useCompletePlanItem() {
-    return adaptMutation(usePlanItemMutation(trpc.planItems.complete))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.complete), (id: string, workspaceId) => ({ id, workspaceId }))
   },
 
   useDismissPlanItem() {
-    return adaptMutation(usePlanItemMutation(trpc.planItems.dismiss))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.dismiss), (id: string, workspaceId) => ({ id, workspaceId }))
   },
 
   useDeletePlanItem() {

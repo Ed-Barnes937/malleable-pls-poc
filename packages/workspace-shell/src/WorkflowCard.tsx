@@ -1,4 +1,5 @@
 import { Pencil, Trash2, ChevronRight } from 'lucide-react'
+import { ReviewAutomationSentence, reviewJobOf } from './ReviewAutomationSentence'
 import { cn, Switch } from '@pls/shared-ui'
 import {
   useToggleWorkflow,
@@ -17,6 +18,22 @@ const TRIGGER_LABELS = Object.fromEntries(
 )
 
 const DAY_MS = 86400000
+
+const REVIEW_HEADINGS: Record<string, string> = {
+  confused: 'Review what confused you',
+  'key-point': 'Review your key points',
+  question: 'Review your questions',
+}
+const HOUR_MS = 3600000
+
+function waitLabel(delayMs: number): string {
+  if (delayMs >= DAY_MS) {
+    const days = Math.round(delayMs / DAY_MS)
+    return `after ${days} ${days === 1 ? 'day' : 'days'}`
+  }
+  const hours = Math.max(1, Math.round(delayMs / HOUR_MS))
+  return `after ${hours} ${hours === 1 ? 'hour' : 'hours'}`
+}
 
 interface WorkflowCardProps {
   // Server rows carry workspace_id (null = default workflow); the core
@@ -46,8 +63,9 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
   const triggerLabel = TRIGGER_LABELS[workflow.trigger_event] ?? workflow.trigger_event
   const conditionLabel =
     workflow.condition_field && workflow.condition_value
-      ? `${workflow.condition_field} = "${workflow.condition_value}"`
+      ? `only when ${workflow.condition_field === 'label' ? 'the mark' : workflow.condition_field} is "${workflow.condition_value}"`
       : null
+  const reviewJob = reviewJobOf(workflow)
 
   return (
     <div
@@ -58,12 +76,20 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-medium text-neutral-300">{triggerLabel}</p>
-          {conditionLabel && (
-            <p className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-600">
-              <ChevronRight className="h-2.5 w-2.5" />
-              where {conditionLabel}
+          {reviewJob ? (
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              {REVIEW_HEADINGS[workflow.condition_value ?? ''] ?? 'Review what you marked'}
             </p>
+          ) : (
+            <>
+              <p className="text-[11px] font-medium text-neutral-300">{triggerLabel}</p>
+              {conditionLabel && (
+                <p className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-600">
+                  <ChevronRight className="h-2.5 w-2.5" />
+                  {conditionLabel}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -97,6 +123,13 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
         </div>
       </div>
 
+      {reviewJob ? (
+        <ReviewAutomationSentence
+          key={`${workflow.id}:${reviewJob.id}`}
+          workflow={workflow}
+          job={reviewJob}
+        />
+      ) : (
       <div className="flex flex-col gap-1.5">
         {workflow.jobs.map((job) => {
           const info = JOB_TYPE_INFO[job.job_type]
@@ -112,7 +145,7 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
                     ? 'bg-purple-500/20 text-purple-400'
                     : info?.category === 'Search'
                       ? 'bg-blue-500/20 text-blue-400'
-                      : info?.category === 'Schedule'
+                      : info?.category === 'Plan'
                         ? 'bg-amber-500/20 text-amber-400'
                         : 'bg-emerald-500/20 text-emerald-400',
                 )}
@@ -122,19 +155,20 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
               <span className="text-xs text-neutral-300">{info?.label ?? job.job_type}</span>
               {job.delay_ms > 0 && (
                 <span className="ml-auto text-[10px] text-neutral-600">
-                  +{Math.round(job.delay_ms / DAY_MS)}d
+                  {waitLabel(job.delay_ms)}
                 </span>
               )}
             </div>
           )
         })}
       </div>
-
-      {isDefault && (
-        <p className="mt-2 text-[10px] text-neutral-700">
-          Built-in automation. Turning it on or off only changes this board.
-        </p>
       )}
+
+      <p className="mt-2 text-[10px] text-neutral-500">
+        {isDefault
+          ? 'Built-in automation. Turning it on or off only changes this board.'
+          : 'Just for this board.'}
+      </p>
     </div>
   )
 }

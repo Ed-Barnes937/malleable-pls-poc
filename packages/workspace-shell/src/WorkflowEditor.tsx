@@ -2,19 +2,27 @@ import { useState } from 'react'
 import { Dialog, Select, TextField, cn } from '@pls/shared-ui'
 import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
 import {
+  DEFAULT_REVIEW_PARAMS,
   getAvailableJobTypes,
+  getJobTypesForTrigger,
   getTriggerEventsForLens,
+  REVIEW_TASK_JOB,
   type WorkflowWithJobs,
 } from '@pls/substrate'
 import { useManifest } from '@pls/lens-framework'
 import { useCreateWorkflow, useUpdateWorkflow } from '@pls/substrate-client'
 
-const JOB_TYPES = getAvailableJobTypes()
+const JOB_LABELS = new Map(getAvailableJobTypes().map((j) => [j.type, j.label]))
 const DAY_MS = 86400000
 
 interface JobDraft {
   jobType: string
   delayMs: number
+  params: Record<string, unknown>
+}
+
+function defaultParams(jobType: string): Record<string, unknown> {
+  return jobType === REVIEW_TASK_JOB ? { ...DEFAULT_REVIEW_PARAMS } : {}
 }
 
 interface WorkflowEditorProps {
@@ -39,17 +47,23 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
   const [conditionValue, setConditionValue] = useState(() => workflow?.condition_value ?? '')
   const [jobs, setJobs] = useState<JobDraft[]>(
     () =>
-      workflow?.jobs.map((j) => ({ jobType: j.job_type, delayMs: j.delay_ms })) ?? [],
+      workflow?.jobs.map((j) => ({ jobType: j.job_type, delayMs: j.delay_ms, params: j.params ?? {} })) ?? [],
   )
 
   const createWorkflow = useCreateWorkflow()
   const updateWorkflow = useUpdateWorkflow()
   const isPending = createWorkflow.isPending || updateWorkflow.isPending
 
+  // Only steps that understand the trigger's event are offered.
+  const jobTypes = getJobTypesForTrigger(triggerEvent)
+  // Keep a step whose type no longer fits listed, so it is visible, not silently dropped.
+  const optionsFor = (current: string) =>
+    jobTypes.some((t) => t.type === current) ? jobTypes : [...jobTypes, { type: current, label: JOB_LABELS.get(current) ?? current }]
+
   const addJob = () => {
     const used = new Set(jobs.map((j) => j.jobType))
-    const next = JOB_TYPES.find((t) => !used.has(t.type)) ?? JOB_TYPES[0]
-    if (next) setJobs((prev) => [...prev, { jobType: next.type, delayMs: 0 }])
+    const next = jobTypes.find((t) => !used.has(t.type)) ?? jobTypes[0]
+    if (next) setJobs((prev) => [...prev, { jobType: next.type, delayMs: 0, params: defaultParams(next.type) }])
   }
 
   const removeJob = (idx: number) => setJobs((prev) => prev.filter((_, i) => i !== idx))
@@ -70,6 +84,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
   const handleSave = () => {
     const jobPayload = jobs.map((j, i) => ({
       jobType: j.jobType,
+      params: j.params,
       sortOrder: i,
       delayMs: j.delayMs,
     }))
@@ -115,7 +130,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
     >
       <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
         <div>
-          <label className={labelClass}>Trigger</label>
+          <label className={labelClass}>When</label>
           <Select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)}>
             {triggerEvents.map((t) => (
               <option key={t.event} value={t.event}>
@@ -127,29 +142,30 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
 
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className={labelClass}>Condition field</label>
+            <label className={labelClass}>Only when (optional)</label>
             <TextField
               value={conditionField}
               onChange={(e) => setConditionField(e.target.value)}
-              placeholder="optional"
+              placeholder="e.g. label"
             />
           </div>
           <div>
-            <label className={labelClass}>Equals</label>
+            <label className={labelClass}>is</label>
             <TextField
               value={conditionValue}
               onChange={(e) => setConditionValue(e.target.value)}
-              placeholder="optional"
+              placeholder="e.g. confused"
             />
           </div>
         </div>
 
         <div>
           <div className="mb-1 flex items-center justify-between">
-            <label className={labelClass}>Jobs</label>
+            <label className={labelClass}>Then</label>
             <button
               type="button"
               onClick={addJob}
+              disabled={jobTypes.length === 0}
               className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/10"
             >
               <Plus className="h-3 w-3" />
@@ -158,7 +174,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
           </div>
           {jobs.length === 0 ? (
             <p className="rounded-md border border-dashed border-border-subtle px-2.5 py-3 text-center text-[10px] text-neutral-600">
-              No jobs — add at least one
+              {jobTypes.length === 0 ? 'Nothing can run after this yet' : 'No steps yet - add at least one'}
             </p>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -166,25 +182,28 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                 <div key={idx} className="flex items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 py-1.5">
                   <select
                     value={job.jobType}
-                    onChange={(e) => updateJob(idx, { jobType: e.target.value })}
+                    onChange={(e) => updateJob(idx, { jobType: e.target.value, params: defaultParams(e.target.value) })}
+                    aria-label={`Step ${idx + 1}`}
                     className="min-w-0 flex-1 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
                   >
-                    {JOB_TYPES.map((t) => (
+                    {optionsFor(job.jobType).map((t) => (
                       <option key={t.type} value={t.type}>
                         {t.label}
                       </option>
                     ))}
                   </select>
-                  <input
-                    type="number"
-                    min={0}
-                    value={Math.round(job.delayMs / DAY_MS)}
-                    onChange={(e) => updateJob(idx, { delayMs: Math.max(0, Number(e.target.value)) * DAY_MS })}
-                    title="Delay (days)"
-                    aria-label="Delay (days)"
-                    className="w-12 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
-                  />
-                  <span className="text-[9px] text-neutral-600">d</span>
+                  <label className="flex items-center gap-1 text-[10px] text-neutral-500">
+                    wait
+                    <input
+                      type="number"
+                      min={0}
+                      value={Math.round(job.delayMs / DAY_MS)}
+                      onChange={(e) => updateJob(idx, { delayMs: Math.max(0, Number(e.target.value)) * DAY_MS })}
+                      aria-label={`Days to wait before step ${idx + 1}`}
+                      className="w-10 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
+                    />
+                    days
+                  </label>
                   <button
                     type="button"
                     onClick={() => moveJob(idx, -1)}
