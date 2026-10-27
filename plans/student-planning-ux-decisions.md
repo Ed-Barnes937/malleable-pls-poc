@@ -15,3 +15,7 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 ## 2026-10-27 (orchestrator, cheap to reverse)
 7. U5 today line reads "2h to study" (study time left today, capped by the daily budget) instead of the mock-up's "2h free", because Help me plan uses "free" for all unbooked time.
 8. "Do by" and "How long?" ship in the To-do widget as part of U2 (the mock-up shows them there); U6 doesn't repeat them.
+
+## 2026-10-27 (Ed, from U4 questions)
+9. "Go to moment" prefers a board whose Transcript is in review mode, then falls back to tab order. No new data.
+10. Recording course is read from the recording's course-label tags (oldest first). No new column; this replaces the "migration" wording of decision 6.

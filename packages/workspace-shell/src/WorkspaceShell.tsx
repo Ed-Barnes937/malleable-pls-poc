@@ -1,6 +1,4 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
-import { LayoutGrid, Plus } from 'lucide-react'
-import { EmptyState } from '@pls/shared-ui'
 import {
   useWorkspaces,
   useWorkspacePanels,
@@ -14,7 +12,7 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -35,6 +33,8 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { useShowMoment } from './moments'
+import { BoardStarters } from './BoardStarters'
+import { listNames } from './starters'
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -166,13 +166,21 @@ export function WorkspaceShell() {
   /**
    * Widgets added but not yet on the canvas: still saving, or saved and
    * waiting for the panel list to refetch. Placement counts them as taken, so
-   * quick successive adds don't all pick the same free spot.
+   * quick successive adds don't all pick the same free spot. Read from the
+   * ref (current even between renders); the state copy re-renders the board,
+   * whose first-run starters stay away while an add is on its way.
    */
   const pendingAddsRef = useRef<PendingAdd[]>([])
+  const [pendingAdds, setPendingAddsState] = useState<PendingAdd[]>([])
+  const setPendingAdds = useCallback((next: PendingAdd[]) => {
+    pendingAddsRef.current = next
+    setPendingAddsState(next)
+  }, [])
   const dropPendingOnCanvas = useCallback(() => {
     const onCanvas = new Set(useCanvasStore.getState().panels.map((p) => p.id))
-    pendingAddsRef.current = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
-  }, [])
+    const next = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
+    if (next.length !== pendingAddsRef.current.length) setPendingAdds(next)
+  }, [setPendingAdds])
   // Release a spot as soon as its panel first reaches the canvas (usePanelSync,
   // above, has synced this panel list), so removing that panel later frees it.
   useEffect(dropPendingOnCanvas, [panels, dropPendingOnCanvas])
@@ -192,10 +200,12 @@ export function WorkspaceShell() {
 
   /**
    * Adds a widget at its default size. Without a position (a palette click)
-   * it goes in the first free area of the visible board.
+   * it goes in the first free area of the visible board. `quiet` skips the
+   * scroll into view and the toasts, for a caller adding a group of widgets
+   * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
       const m = manifests.find((man) => man.id === lensType)
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
@@ -218,36 +228,59 @@ export function WorkspaceShell() {
         z: taken.length > 0 ? Math.max(...taken.map((t) => t.z)) + 1 : 1,
       }
       const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
-      pendingAddsRef.current = [...pending, add]
+      setPendingAdds([...pendingAddsRef.current, add])
 
-      addPanel.mutate(
-        {
-          workspaceId: activeWorkspaceId,
-          lensType,
-          slotName: `slot-${Date.now()}`,
-          pos_x: box.x,
-          pos_y: box.y,
-          width,
-          height,
-          z_index: box.z,
+      // mutateAsync, not mutate with callbacks: mutate's callbacks fire only
+      // for the latest of several overlapping calls, and every add needs its own.
+      addPanel.mutateAsync({
+        workspaceId: activeWorkspaceId,
+        lensType,
+        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pos_x: box.x,
+        pos_y: box.y,
+        width,
+        height,
+        z_index: box.z,
+      }).then(
+        (row) => {
+          // Stays taken until the canvas shows the saved panel (it may already).
+          add.panelId = (row as { id?: string } | undefined)?.id
+          dropPendingOnCanvas()
+          if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
+          opts.onSettled?.(true)
+          // One toast for a run of adds, not a stack of them.
+          if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
-        {
-          onSuccess: (row) => {
-            // Stays taken until the canvas shows the saved panel (it may already).
-            add.panelId = (row as { id?: string } | undefined)?.id
-            dropPendingOnCanvas()
-            if (add.panelId && !at) revealPanel(add.panelId)
-            // One toast for a run of adds, not a stack of them.
-            pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
-          },
-          onError: () => {
-            pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
-            pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
-          },
+        () => {
+          setPendingAdds(pendingAddsRef.current.filter((a) => a !== add))
+          opts.onSettled?.(false)
+          if (!opts.quiet) pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
         },
       )
     },
-    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel],
+    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
+  )
+
+  /**
+   * A first-run starter: its widgets, placed one after another by the same
+   * click-to-add placement (largest first), with one toast once all have
+   * settled: what was added, or what couldn't be (the adds share one request,
+   * so they usually fail together).
+   */
+  const addStarter = useCallback(
+    (widgets: PanelManifest[]) => {
+      const added: string[] = []
+      const failed: string[] = []
+      const onSettled = (label: string) => (ok: boolean) => {
+        ;(ok ? added : failed).push(label)
+        if (added.length + failed.length < widgets.length) return
+        const names = (list: string[]) => listNames(widgets.map((w) => w.label).filter((l) => list.includes(l)))
+        if (failed.length > 0) pushToast({ message: `Couldn't add ${names(failed)}. Try again.`, tone: 'error' })
+        else pushToast({ message: `${names(added)} added`, tone: 'success', key: 'widget-added' })
+      }
+      for (const w of widgets) addWidget(w.id, undefined, { quiet: true, onSettled: onSettled(w.label) })
+    },
+    [addWidget, pushToast],
   )
 
   const handleDrop = useCallback(
@@ -395,25 +428,16 @@ export function WorkspaceShell() {
               getLabel={getLabel}
               renderHeaderActions={renderHeaderActions}
             />
-            {panels.length === 0 && (
+            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
+            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
               <div
                 data-testid="workspace-empty-state"
                 className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
               >
-                <EmptyState
-                  icon={LayoutGrid}
-                  message="This board is empty. Add widgets to build it your way."
-                  action={
-                    <button
-                      type="button"
-                      onClick={() => setDrawerOpen(true)}
-                      className="pointer-events-auto mt-1 inline-flex items-center gap-1.5 rounded-[var(--radius-panel)] px-3 py-1.5 text-sm font-medium text-accent-foreground transition-colors"
-                      style={{ background: 'var(--color-accent)' }}
-                    >
-                      <Plus size={16} />
-                      Add widgets
-                    </button>
-                  }
+                <BoardStarters
+                  manifests={manifests}
+                  onStart={addStarter}
+                  onAddWidgets={() => setDrawerOpen(true)}
                 />
               </div>
             )}

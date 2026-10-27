@@ -15,6 +15,7 @@ export {
   useSetWorkspaceScope,
   useRecordings,
   useFocusedRecording,
+  usePlanItemList,
   useRecentJobs,
   useRunningJobCount,
   useRetryJob,
