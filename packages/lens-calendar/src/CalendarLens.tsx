@@ -44,7 +44,7 @@ function courseLabel(course: string): string {
   return COURSES.find((c) => c.value === course)?.label ?? course
 }
 
-export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment }: LensProps) {
+export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment, focusedPlanItem, onPlanItemShown }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
   const createItem = mutations.useCreatePlanItem()
@@ -110,6 +110,21 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     () => ({ from: days[0].toISOString(), to: addDays(days[days.length - 1], 1).toISOString() }),
     [days],
   )
+
+  // A block another widget asked to show ("See it" on a new review): open
+  // its week (or day), then the grid scrolls to it and it glows once.
+  const [reveal, setReveal] = useState<{ id: string; requestId: number } | null>(null)
+  useEffect(() => {
+    if (!focusedPlanItem) return
+    const day = startOfDay(new Date(focusedPlanItem.startsAt))
+    setAnchorDay((current) => {
+      const shown = view === 'day' ? current : startOfWeek(current)
+      const until = view === 'day' ? addDays(current, 1) : addDays(startOfWeek(current), 7)
+      return day >= shown && day < until ? current : day
+    })
+    setReveal({ id: focusedPlanItem.id, requestId: focusedPlanItem.requestId })
+    onPlanItemShown?.(focusedPlanItem.requestId)
+  }, [focusedPlanItem, onPlanItemShown, view])
 
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
@@ -437,6 +452,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onProposalAccept={(id) => void layer.accept(id)}
           onProposalDismiss={layer.dismiss}
           freeTime={freeTime}
+          reveal={reveal}
           incoming={incoming}
           onDropIncoming={(start) => {
             const todo = incoming

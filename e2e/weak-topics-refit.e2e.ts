@@ -140,7 +140,7 @@ test.describe('To-do source link', () => {
     await new TopBarPom(page).switchToWorkspace('Revision')
     const grid = new PanelGridPom(page)
 
-    await grid.panelByLabel('To-do').getByRole('button', { name: 'from: Biology Lecture: Mitochondrial DNA, 9:00' }).click()
+    await grid.panelByLabel('To-do').getByRole('button', { name: 'From Biology Lecture: Mitochondrial DNA · 9:00' }).click()
     const moment = grid.panelByLabel('Transcript').locator('[data-moment]')
     await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
     await expect(moment).toBeInViewport()

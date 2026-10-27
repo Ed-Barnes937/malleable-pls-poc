@@ -28,3 +28,8 @@ export function formatTime(ms: number): string {
   const seconds = totalSeconds % 60
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
+
+/** Where a to-do came from: "From Mitochondrial DNA · 1:18" (the lecture and the moment). */
+export function fromMomentLabel(title: string, offsetMs: number | null | undefined): string {
+  return offsetMs == null ? `From ${title}` : `From ${title} · ${formatTime(offsetMs)}`
+}

@@ -12,6 +12,11 @@ export interface MomentBoardCandidate {
 
 type ManifestFlags = Pick<PanelManifest, 'id' | 'showsMoments'>
 
+/** Whether any of `lensTypes` is a widget that can show a scheduled block (e.g. the Calendar). */
+export function hasPlanItemViewer(lensTypes: string[], manifests: Pick<PanelManifest, 'id' | 'showsPlanItems'>[]): boolean {
+  return lensTypes.some((type) => manifests.find((m) => m.id === type)?.showsPlanItems === true)
+}
+
 /** Whether any of `lensTypes` is a widget that can show a recording moment. */
 export function hasMomentViewer(lensTypes: string[], manifests: ManifestFlags[]): boolean {
   return lensTypes.some((type) => manifests.find((m) => m.id === type)?.showsMoments === true)

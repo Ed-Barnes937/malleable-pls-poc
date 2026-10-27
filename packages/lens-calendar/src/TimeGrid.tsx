@@ -1,9 +1,10 @@
-import { useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { cn } from '@pls/shared-ui'
+import { cn, courseTone } from '@pls/shared-ui'
 import { AudioLines, Check, Repeat, Sparkles, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { toneFor } from './colors'
+import { RevealCallout } from './RevealCallout'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
@@ -46,6 +47,18 @@ export interface TimeGridProps {
   incoming?: { title: string; durationMin: number; course: string | null } | null
   /** That to-do was dropped at `start`. */
   onDropIncoming?: (start: Date) => void
+  /**
+   * A block to bring into view and glow once ("See it"), by plan item id; a
+   * new `requestId` reveals it again. Waits until the block is on the grid.
+   */
+  reveal?: { id: string; requestId: number } | null
+}
+
+/** How long a revealed block keeps its callout (and, under reduced motion, its still ring). */
+const REVEAL_MS = 4000
+
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
 }
 
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
@@ -78,6 +91,7 @@ type Drag =
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
+  reveal,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -117,6 +131,29 @@ export function TimeGrid({
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // "See it": once the block is laid out, scroll it into the top third and
+  // glow it once (a still ring under reduced motion), with a short callout.
+  const [revealed, setRevealed] = useState<{ key: string; requestId: number } | null>(null)
+  const handledReveal = useRef<number | null>(null)
+  useEffect(() => {
+    if (!reveal || reveal.requestId === handledReveal.current) return
+    const el = scrollRef.current
+    const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
+    if (!el || !seg) return
+    handledReveal.current = reveal.requestId
+    userScrolled.current = true
+    el.scrollTo({
+      top: Math.max(0, (seg.startMin / 60) * hourPx - el.clientHeight / 3),
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+    })
+    setRevealed({ key: seg.key, requestId: reveal.requestId })
+  }, [reveal, segments, hourPx])
+  useEffect(() => {
+    if (!revealed) return
+    const t = setTimeout(() => setRevealed(null), REVEAL_MS)
+    return () => clearTimeout(t)
+  }, [revealed])
+
   const freeSegments = useMemo(() => (freeTime?.length ? shadeDays(freeTime, days) : null), [freeTime, days])
   const [dropAt, setDropAt] = useState<{ dayIndex: number; minute: number } | null>(null)
   const markers = useMemo(() => dueMarkers(items, days), [items, days])
@@ -408,15 +445,25 @@ export function TimeGrid({
                     />
                   ) : (
                     <Block
-                      key={seg.key}
+                      key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
                       seg={seg}
                       hourPx={hourPx}
                       dimmed={isDimmed(seg.item)}
                       linked={isLinked(seg.item)}
                       active={activeKey === seg.item.occurrence_key}
                       lifted={draggingKey === seg.item.occurrence_key}
+                      glow={revealed?.key === seg.key}
                       onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
+                    />
+                  ))}
+
+                  {segments[dayIndex].filter((seg) => revealed?.key === seg.key).map((seg) => (
+                    <RevealCallout
+                      key={`callout:${revealed!.requestId}`}
+                      item={seg.item}
+                      top={(seg.endMin / 60) * hourPx + 6}
+                      alignRight={days.length > 1 && dayIndex >= days.length - 2}
                     />
                   ))}
 
@@ -490,11 +537,13 @@ interface BlockProps {
   lifted?: boolean
   /** The would-be position while dragging. */
   preview?: boolean
+  /** Just revealed ("See it"): glows once in its course colour. */
+  glow?: boolean
   onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onKeyOpen?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onPointerDown, onKeyOpen }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -519,6 +568,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
       data-kind={item.kind}
       data-dimmed={dimmed || undefined}
       data-linked={linked || undefined}
+      data-revealed={glow || undefined}
       aria-label={`${item.title}, ${kindLabel.toLowerCase()}, ${formatSpan(start, end)}${done ? ', done' : ''}`}
       title={`${item.title}, ${formatSpan(start, end)}${isCommitment ? ' - fixed, open to edit' : movable ? ' - drag to move' : ''}`}
       onPointerDown={preview ? undefined : (e) => onPointerDown?.(e, 'move')}
@@ -540,8 +590,10 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
         active && 'ring-2 ring-accent',
         lifted && 'opacity-30',
         preview && 'pointer-events-none z-30 shadow-pop ring-2 ring-accent',
+        glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
       style={{
+        ...(glow ? ({ '--glow': courseTone(item.course).solid } as CSSProperties) : {}),
         top: top + 1,
         height,
         left: `calc(${(seg.column / seg.columns) * 100}% + 2px)`,

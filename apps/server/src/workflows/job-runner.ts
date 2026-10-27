@@ -31,7 +31,14 @@ function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: R
     ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < retryLimit } : {}),
     // Executors flag runs that did nothing visible with `output.quiet`.
     ...(event.type === 'job:completed' && event.result.output.quiet === true ? { quiet: true } : {}),
+    ...(event.type === 'job:completed' ? placedBlock(event.result.output) : {}),
   })
+}
+
+/** The time block a run placed (`output.plan_item_id` + `output.starts_at`), if any. */
+export function placedBlock(output: Record<string, unknown>): { planItem?: { id: string; startsAt: string } } {
+  const { plan_item_id: id, starts_at: startsAt } = output
+  return typeof id === 'string' && typeof startsAt === 'string' ? { planItem: { id, startsAt } } : {}
 }
 
 /** The board a job was dispatched on (stored as `input._workspaceId` by the pg adapter), or null. */

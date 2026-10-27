@@ -215,6 +215,8 @@ export interface JobEvent {
   willRetry?: boolean
   /** job:completed only - nothing changed worth a toast (e.g. a moment marked twice). */
   quiet?: boolean
+  /** job:completed only - the time block the run placed (e.g. a new review). */
+  planItem?: { id: string; startsAt: string }
 }
 
 export interface ServerEventHandlers {

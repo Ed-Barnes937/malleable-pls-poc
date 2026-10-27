@@ -28,4 +28,12 @@ describe('toast store', () => {
     vi.advanceTimersByTime(4000)
     expect(useToastStore.getState().toasts).toEqual([])
   })
+
+  it('keeps a toast with an action for 8s, so there is time to reach it', () => {
+    useToastStore.getState().push({ message: 'Review added to your plan', tone: 'success', action: { label: 'See it', onClick: () => {} } })
+    vi.advanceTimersByTime(4000)
+    expect(useToastStore.getState().toasts).toHaveLength(1)
+    vi.advanceTimersByTime(4000)
+    expect(useToastStore.getState().toasts).toEqual([])
+  })
 })

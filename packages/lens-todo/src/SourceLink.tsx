@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { type LensProps, type ShowMomentResult, useSubstrate } from '@pls/lens-framework'
 import type { PlanItem } from '@pls/substrate'
-import { formatTime } from '@pls/shared-ui'
-import { ArrowUpRight, CirclePlay } from 'lucide-react'
+import { cn, courseTone, fromMomentLabel } from '@pls/shared-ui'
+import { ArrowUpRight, AudioLines } from 'lucide-react'
 
 type MomentState = 'opening' | ShowMomentResult | 'nowhere' | 'failed'
 
@@ -13,7 +13,7 @@ interface SourceLinkProps {
 }
 
 /**
- * "from: Mitochondrial DNA lecture, 9:00" for a to-do made from a lecture
+ * "From Mitochondrial DNA · 9:00" for a to-do made from a lecture
  * moment (provenance `source_type = 'recording'`). Clicking lands on that
  * moment in the board's Transcript (the shell's `onShowMoment`, as the
  * Calendar does), or offers a board that has one. Without that, it focuses
@@ -25,9 +25,7 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
   const [state, setState] = useState<MomentState | null>(null)
   if (!recordingId) return null
 
-  const title = recording?.title ?? 'a lecture'
-  const at = item.source_offset_ms != null ? `, ${formatTime(item.source_offset_ms)}` : ''
-  const label = `from: ${title}${at}`
+  const label = fromMomentLabel(recording?.title ?? 'a lecture', item.source_offset_ms)
 
   const show = async (elsewhere = false) => {
     if (!onShowMoment) {
@@ -56,9 +54,12 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
         type="button"
         onClick={() => void show()}
         title={onShowMoment ? 'Go to this moment' : 'Focus this lecture on the board'}
-        className="flex min-w-0 items-center gap-1 truncate text-meta font-medium text-accent hover:underline"
+        className={cn(
+          'flex min-w-0 items-center gap-1 truncate text-meta font-semibold hover:underline',
+          item.course ? courseTone(item.course).ink : 'text-accent',
+        )}
       >
-        <CirclePlay className="h-3.5 w-3.5 shrink-0" />
+        <AudioLines className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="truncate">{label}</span>
       </button>
       {state === 'no-viewer' && (

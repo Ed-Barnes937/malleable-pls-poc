@@ -115,7 +115,7 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
 
     // The review is on the To-do list, linked back to the moment it came from.
     await expect(todo.getByText('Review: maternal inheritance')).toBeVisible()
-    await expect(todo.getByRole('button', { name: `from: ${title}, 1:35` })).toBeVisible()
+    await expect(todo.getByRole('button', { name: `From ${title} · 1:35` })).toBeVisible()
 
     // 3. Edit the automation in the Transcript widget: 30 min, by tomorrow.
     await transcript.locator('[data-testid^="panel-automations-"]').click()

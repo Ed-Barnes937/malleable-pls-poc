@@ -14,7 +14,7 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type PlanItemRef, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -33,7 +33,7 @@ import { LensAutomationsButton } from './LensAutomationsButton'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
-import { useShowMoment } from './moments'
+import { hasPlanItemViewer, useShowMoment } from './moments'
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -59,11 +59,23 @@ export function WorkspaceShell() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
   const clearMoment = useWorkspaceStore((s) => s.clearMoment)
+  const focusedPlanItem = useWorkspaceStore((s) => s.focusedPlanItem)
+  const clearPlanItem = useWorkspaceStore((s) => s.clearPlanItem)
   const pushToast = useToastStore((s) => s.push)
+  // Read when a job finishes, so the toast offers "See it" only on a board that can show the block.
+  const showPlanItemRef = useRef<(item: PlanItemRef) => boolean>(() => false)
+  const canShowPlanItemRef = useRef(false)
   useServerEvents({
     onJobCompleted: (event) => {
       if (event.quiet) return
-      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+      const block = event.planItem
+      pushToast({
+        message: jobDoneMessage(event.jobType),
+        tone: 'success',
+        action: block && canShowPlanItemRef.current
+          ? { label: 'See it', onClick: () => showPlanItemRef.current(block) }
+          : undefined,
+      })
     },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
@@ -124,6 +136,18 @@ export function WorkspaceShell() {
     [panels],
   )
   const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
+  const focusPlanItem = useWorkspaceStore((s) => s.focusPlanItem)
+  const canShowPlanItem = hasPlanItemViewer(activeLensTypes, manifests)
+  const handleShowPlanItem = useCallback(
+    (item: PlanItemRef) => {
+      if (!canShowPlanItem) return false
+      focusPlanItem(item)
+      return true
+    },
+    [canShowPlanItem, focusPlanItem],
+  )
+  showPlanItemRef.current = handleShowPlanItem
+  canShowPlanItemRef.current = canShowPlanItem
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
@@ -312,11 +336,17 @@ export function WorkspaceShell() {
               // into view so the landed moment is seen.
               scrollPanelIntoView(canvasRef.current, panel.id)
             } : undefined}
+            onShowPlanItem={handleShowPlanItem}
+            focusedPlanItem={manifest?.showsPlanItems ? focusedPlanItem ?? undefined : undefined}
+            onPlanItemShown={manifest?.showsPlanItems ? (requestId) => {
+              clearPlanItem(requestId)
+              scrollPanelIntoView(canvasRef.current, panel.id)
+            } : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
   )
 
   // Icon resolver: look up icon from the manifest registry

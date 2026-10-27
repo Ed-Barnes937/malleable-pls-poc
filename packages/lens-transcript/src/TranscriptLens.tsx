@@ -1,32 +1,136 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
-import { AudioLines, CalendarCheck, CalendarClock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { segmentAtOffset } from './moments'
 
-/** What happened to the review a marked moment turned into, in a few words. */
-function ReviewChip({ review }: { review: PlanItemOccurrence }) {
+/** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
+function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: () => void }) {
   const minutes = review.duration_min ? `${review.duration_min} min` : null
   const done = review.status === 'done'
   const Icon = done ? CalendarCheck : review.starts_at ? CalendarClock : ListTodo
   const when = done
     ? 'Reviewed'
     : review.starts_at
-      ? `Review planned ${dayAndTime(review.starts_at)}`
+      ? `Review planned · ${dayAndTime(review.starts_at)}`
       : 'Review on your to-do list'
+  const label = [when, minutes].filter(Boolean).join(' · ')
+  const className = cn(
+    'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold',
+    done ? 'border-transparent bg-good-soft text-good' : 'border-attn-line bg-attn-soft text-attn',
+  )
+  if (!onShow || done || !review.starts_at) {
+    return (
+      <span data-testid="review-chip" title={review.title} className={className}>
+        <Icon className="h-3 w-3" />
+        {label}
+      </span>
+    )
+  }
   return (
-    <span
+    <button
+      type="button"
       data-testid="review-chip"
-      title={review.title}
-      className={cn(
-        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold',
-        done ? 'border-transparent bg-good-soft text-good' : 'border-attn-line bg-attn-soft text-attn',
-      )}
+      title={`${review.title}: show it on the calendar`}
+      onClick={onShow}
+      className={cn(className, 'transition-colors hover:border-attn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-attn')}
     >
       <Icon className="h-3 w-3" />
-      {[when, minutes].filter(Boolean).join(' · ')}
-    </span>
+      {label}
+      <ArrowRight className="h-3 w-3" aria-hidden />
+    </button>
+  )
+}
+
+/** A review this new (made since the moment was marked on screen) lifts off toward the calendar. */
+const FRESH_REVIEW_MS = 15_000
+
+/**
+ * The one signature motion: a card for the new review lifts off the moment
+ * and flies toward the board's Calendar (to the right if there is none).
+ * Decorative only; never shown under reduced motion.
+ */
+function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrence; recordingTitle: string; onDone: (id: string) => void }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [path, setPath] = useState<{ x: number; y: number } | null>(null)
+  const tone = courseTone(review.course)
+  useLayoutEffect(() => {
+    const card = ref.current?.getBoundingClientRect()
+    const calendar = document.querySelector('[data-testid="calendar"]')?.getBoundingClientRect()
+    if (!card) return
+    setPath(calendar
+      ? {
+          x: calendar.left + calendar.width / 2 - (card.left + card.width / 2),
+          y: calendar.top + calendar.height / 3 - (card.top + card.height / 2),
+        }
+      : { x: 160, y: 0 })
+  }, [])
+  // Gone after its run, even if the animation never starts (reduced motion, hidden tab).
+  useEffect(() => {
+    const t = setTimeout(() => onDone(review.id), 1400)
+    return () => clearTimeout(t)
+  }, [onDone, review.id])
+  return (
+    <div
+      ref={ref}
+      aria-hidden
+      data-testid="review-lift-off"
+      className={cn(
+        'pointer-events-none absolute right-2 top-1 z-20 hidden w-64 rounded-item border-l-4 bg-surface-raised px-3 py-2 shadow-pop motion-safe:block',
+        tone.stripeBorder,
+        path ? 'motion-safe:animate-lift-off' : 'opacity-0',
+      )}
+      style={path ? ({ '--lift-x': `${path.x}px`, '--lift-y': `${path.y}px` } as CSSProperties) : undefined}
+    >
+      <p className={cn('flex items-center gap-1 text-meta font-semibold', tone.ink)}>
+        <Sparkles className="h-3 w-3" />
+        Adding to your plan
+      </p>
+      <p className="truncate text-body font-semibold text-text-primary">{review.title}</p>
+      <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
+        <Clock className="h-3 w-3 shrink-0" />
+        {review.duration_min ? <span className="shrink-0">{review.duration_min} min</span> : null}
+        <span className="truncate">{fromMomentLabel(recordingTitle, review.source_offset_ms)}</span>
+      </p>
+    </div>
+  )
+}
+
+/** The lecture summary: one line until opened. */
+function Summary({ lines }: { lines: string[] }) {
+  const [open, setOpen] = useState(false)
+  const listId = useId()
+  return (
+    <section
+      aria-label="Lecture summary"
+      // Capped so a long summary in a short widget still leaves the
+      // transcript room to show and take clicks.
+      className="max-h-[40%] shrink-0 overflow-y-auto rounded-item border border-border-subtle bg-surface-inset px-3.5 py-2"
+    >
+      <div className="flex items-start gap-2">
+        <Sparkles className="mt-[3px] h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
+        {open ? (
+          <ul id={listId} className="min-w-0 flex-1 space-y-0.5">
+            {lines.map((line, i) => (
+              <li key={i} className="text-body text-text-secondary">{line}</li>
+            ))}
+          </ul>
+        ) : (
+          <p data-testid="summary-line" className="min-w-0 flex-1 truncate text-body text-text-secondary">{lines[0]}</p>
+        )}
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          onClick={() => setOpen(!open)}
+          className="inline-flex shrink-0 items-center gap-0.5 rounded-item text-body font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {open ? 'Less' : 'More'}
+          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && '-rotate-90')} aria-hidden />
+        </button>
+      </div>
+    </section>
   )
 }
 
@@ -43,7 +147,7 @@ function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; me
   )
 }
 
-export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -140,6 +244,23 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
+  // Reviews that just arrived for a moment on screen get the lift-off once.
+  // Those already here when the lecture opened never do.
+  const seenReviews = useRef<Set<string> | null>(null)
+  const [lifting, setLifting] = useState<string[]>([])
+  useEffect(() => {
+    if (!reviews) return
+    if (!seenReviews.current) {
+      seenReviews.current = new Set(reviews.map((r) => r.id))
+      return
+    }
+    const fresh = reviews.filter((r) =>
+      !seenReviews.current!.has(r.id) && Date.now() - Date.parse(r.created_at) < FRESH_REVIEW_MS)
+    for (const r of reviews) seenReviews.current.add(r.id)
+    if (fresh.length) setLifting((ids) => [...ids, ...fresh.map((r) => r.id)])
+  }, [reviews])
+  const landed = useCallback((id: string) => setLifting((ids) => ids.filter((i) => i !== id)), [])
+
   // Until the transcript lands there is nothing to show but that it's coming.
   const transcribing = recording?.processing === 'transcribing' && !segments?.length
   const summarising = recording?.processing === 'summarising'
@@ -199,24 +320,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         </section>
       )}
 
-      {summaryLines.length > 0 && (
-        <section
-          aria-label="Lecture summary"
-          // Capped so a long summary in a short widget still leaves the
-          // transcript room to show and take clicks.
-          className="max-h-[40%] shrink-0 overflow-y-auto rounded-item bg-surface-inset px-3.5 py-2.5"
-        >
-          <p className="mb-1 flex items-center gap-1.5 text-meta font-semibold text-text-muted">
-            <Sparkles className="h-3.5 w-3.5 text-accent" />
-            Summary
-          </p>
-          <ul className="space-y-0.5">
-            {summaryLines.map((line, i) => (
-              <li key={i} className="text-body text-text-secondary">{line}</li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {summaryLines.length > 0 && <Summary lines={summaryLines} />}
 
       <div ref={listRef} hidden={transcribing} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
         {segments?.map((seg) => {
@@ -227,7 +331,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
           const isMoment = momentSegmentId === seg.id
 
           return (
-            <div key={seg.id} data-segment-id={seg.id} data-moment={isMoment || undefined}>
+            <div key={seg.id} data-segment-id={seg.id} data-moment={isMoment || undefined} className="relative">
               <button
                 onClick={() => {
                   setMomentSegmentId(null)
@@ -255,12 +359,6 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                   <p className="text-body leading-relaxed text-text-primary">
                     {seg.text}
                   </p>
-                  {(segTags.length > 0 || review) && (
-                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
-                      {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
-                      {review && <ReviewChip review={review} />}
-                    </div>
-                  )}
                   {!isCapture && segAnnotations.length > 0 && (
                     <div className="mt-1.5 space-y-1">
                       {segAnnotations.map((ann) => (
@@ -273,6 +371,23 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                   )}
                 </div>
               </button>
+
+              {(segTags.length > 0 || review) && (
+                <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[3.625rem] pr-2.5">
+                  {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                  {review && (
+                    <ReviewChip
+                      review={review}
+                      onShow={onShowPlanItem && review.starts_at
+                        ? () => onShowPlanItem({ id: review.id, startsAt: review.starts_at! })
+                        : undefined}
+                    />
+                  )}
+                </div>
+              )}
+              {review && lifting.includes(review.id) && (
+                <LiftOff review={review} recordingTitle={recording?.title ?? 'this lecture'} onDone={landed} />
+              )}
 
               {isSelected && isCapture && (
                 <div className="ml-[3.625rem] flex items-center gap-1 py-1.5">

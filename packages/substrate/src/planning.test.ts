@@ -12,6 +12,7 @@ import {
   matchesWeakTopic,
   planAutofillInput,
   planCapacity,
+  placeReviews,
   planTasks,
   rankForPlan,
   sanitizeAdvice,
@@ -43,13 +44,14 @@ function task(over: Partial<PlanTask> & Pick<PlanTask, 'id'>): PlanTask {
 describe('weekLayout', () => {
   it('frees the study day around commitments (with buffer) and keeps study blocks busy', () => {
     const layout = weekLayout([
-      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 9), ends_at: iso(0, 11) }),
+      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 10), ends_at: iso(0, 12) }),
       item({ id: 'study', kind: 'task', starts_at: iso(0, 14), ends_at: iso(0, 15) }),
       item({ id: 'gone', kind: 'task', status: 'dismissed', starts_at: iso(0, 16), ends_at: iso(0, 17) }),
       item({ id: 'quiz', kind: 'deadline', due_at: iso(3, 9) }),
     ], week, { timeZone: tz })
-    expect(layout.free[0]).toEqual({ start: at(0, 8), end: at(0, 8, 50) })
-    expect(layout.free[1]).toEqual({ start: at(0, 11, 10), end: at(0, 22) })
+    // The study day starts at 09:00.
+    expect(layout.free[0]).toEqual({ start: at(0, 9), end: at(0, 9, 50) })
+    expect(layout.free[1]).toEqual({ start: at(0, 12, 10), end: at(0, 22) })
     expect(layout.busy).toEqual([{ start: at(0, 14), end: at(0, 15), taskId: 'study' }])
     expect(layout.budget).toEqual({ minutesPerDay: 120, timeZone: tz })
   })
@@ -115,31 +117,31 @@ describe('capacity and copy', () => {
     expect(days).toHaveLength(7)
     expect(days[0]).toEqual({ day: at(0, 0), freeMin: 60, leftMin: 60 })
     expect(days[1]).toMatchObject({ leftMin: 30 })
-    expect(days[2]).toMatchObject({ freeMin: 14 * 60, leftMin: 120 })
+    expect(days[2]).toMatchObject({ freeMin: 13 * 60, leftMin: 120 })
   })
 })
 
 describe('draftPlan', () => {
-  const layout = weekLayout([item({ id: 'accepted', kind: 'task', starts_at: iso(0, 8), ends_at: iso(0, 9) })], week, { timeZone: tz })
+  const layout = weekLayout([item({ id: 'accepted', kind: 'task', starts_at: iso(0, 9), ends_at: iso(0, 10) })], week, { timeZone: tz })
 
   it('places in the order given, within the budget and with a gap, around fixed and pinned blocks', () => {
     const r = draftPlan(
       [task({ id: 'b', durationMin: 60 }), task({ id: 'a', durationMin: 60 }), task({ id: 'long', durationMin: 180 })],
       layout,
-      { now: at(0, 0), pinned: [{ taskId: 'p', start: at(1, 8), end: at(1, 10) }] },
+      { now: at(0, 0), pinned: [{ taskId: 'p', start: at(1, 9), end: at(1, 11) }] },
     )
     expect(r.placements).toEqual([
-      // Monday has 1h left after the accepted block; 10-minute gap -> 09:15.
-      { taskId: 'b', start: at(0, 9, 15), end: at(0, 10, 15) },
+      // Monday has 1h left after the accepted block; 10-minute gap -> 10:15.
+      { taskId: 'b', start: at(0, 10, 15), end: at(0, 11, 15) },
       // Tuesday is spent by the pinned ghost.
-      { taskId: 'a', start: at(2, 8), end: at(2, 9) },
+      { taskId: 'a', start: at(2, 9), end: at(2, 10) },
     ])
     expect(r.unplaced).toEqual([{ taskId: 'long', reason: 'over-daily-budget' }])
   })
 
   it('suggests slots on days with budget left', () => {
     const s = suggestTaskSlots(task({ id: 'x', durationMin: 90 }), layout, { now: at(0, 0) })
-    expect(s.map((p) => p.start)).toEqual([at(1, 8), at(2, 8), at(3, 8)])
+    expect(s.map((p) => p.start)).toEqual([at(1, 9), at(2, 9), at(3, 9)])
   })
 })
 
@@ -239,5 +241,53 @@ describe('planAutofillInput', () => {
     expect(planAutofillInput.safeParse({ ...base, to: iso(14, 0) }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, studyMinPerDay: 0 }).success).toBe(false)
+  })
+})
+
+describe('placeReviews', () => {
+  const range = { start: at(0, 0), end: at(4, 0) }
+  const review = (id: string, over: { markedAt?: number; latest?: number; durationMin?: number } = {}) =>
+    ({ id, durationMin: 20, markedAt: at(0, 11), latest: at(3, 0), ...over })
+  const shift = (day: number) => item({ id: `shift-${day}`, kind: 'commitment', starts_at: iso(day, 17), ends_at: iso(day, 22) })
+
+  it('goes in the earliest free time in its window, an hour after the mark at the soonest', () => {
+    const slots = placeReviews([], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+  })
+
+  it('starts the day at 09:00', () => {
+    const slots = placeReviews([], [review('r', { markedAt: at(0, 5) })], range, { now: at(0, 5), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(0, 9), end: at(0, 9, 20) })
+  })
+
+  it('avoids shifts (with their buffer) and keeps a 10-minute gap from accepted blocks', () => {
+    const slots = placeReviews([
+      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 12), ends_at: iso(0, 13) }),
+      item({ id: 'accepted', kind: 'task', starts_at: iso(0, 13, 10), ends_at: iso(0, 14) }),
+    ], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    // 12:00-13:10 is the lecture and its buffer, 13:10-14:00 the block; +10m gap.
+    expect(slots.get('r')).toEqual({ start: at(0, 14, 15), end: at(0, 14, 35) })
+  })
+
+  it('skips a day already at its study budget', () => {
+    const slots = placeReviews([
+      item({ id: 'autofill', kind: 'task', starts_at: iso(0, 13), ends_at: iso(0, 15) }),
+      shift(1),
+    ], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(1, 9), end: at(1, 9, 20) })
+  })
+
+  it('stays unscheduled when no day in the window has room', () => {
+    const full = [0, 1, 2].map((d) => item({ id: `full-${d}`, kind: 'task', starts_at: iso(d, 15), ends_at: iso(d, 17) }))
+    const slots = placeReviews(full, [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ reason: 'no-free-slot' })
+  })
+
+  it('places several in order, each clear of the last, and moves the ones being placed', () => {
+    const slots = placeReviews([
+      item({ id: 'a', kind: 'task', subtype: 'review', starts_at: iso(2, 19), ends_at: iso(2, 19, 20) }),
+    ], [review('a'), review('b')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('a')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+    expect(slots.get('b')).toEqual({ start: at(0, 12, 30), end: at(0, 12, 50) })
   })
 })

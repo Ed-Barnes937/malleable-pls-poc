@@ -23,6 +23,8 @@ export interface CourseTone {
   ink: string
   /** Tint as an inset outline (`ring-`), for soft fills that need an edge. */
   ring: string
+  /** The solid colour as a CSS value, for effects classes can't name (e.g. `--glow`). */
+  solid: string
 }
 
 export const COURSE_TONES: Record<string, CourseTone> = {
@@ -33,6 +35,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-biology-soft',
     ink: 'text-course-biology-ink',
     ring: 'ring-course-biology-tint',
+    solid: 'var(--color-course-biology)',
   },
   chemistry: {
     stripe: 'bg-course-chemistry',
@@ -41,6 +44,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-chemistry-soft',
     ink: 'text-course-chemistry-ink',
     ring: 'ring-course-chemistry-tint',
+    solid: 'var(--color-course-chemistry)',
   },
   physics: {
     stripe: 'bg-course-physics',
@@ -49,6 +53,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-physics-soft',
     ink: 'text-course-physics-ink',
     ring: 'ring-course-physics-tint',
+    solid: 'var(--color-course-physics)',
   },
 }
 
@@ -60,6 +65,7 @@ export const NEUTRAL_TONE: CourseTone = {
   soft: 'bg-surface-inset',
   ink: 'text-text-secondary',
   ring: 'ring-border-subtle',
+  solid: 'var(--color-accent)',
 }
 
 export function courseTone(course: string | null | undefined): CourseTone {

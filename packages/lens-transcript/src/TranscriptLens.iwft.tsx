@@ -63,16 +63,25 @@ test('shows the lecture summary at the top and the review a confused moment beca
     </TestProviders>,
   )
 
+  // One line until opened.
   const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await expect(summary.getByTestId('summary-line')).toHaveText('Mitochondria carry their own DNA.')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  const more = summary.getByRole('button', { name: 'More' })
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await more.click()
   await expect(summary.getByRole('listitem')).toHaveText([
     'Mitochondria carry their own DNA.',
     'It is passed down the maternal line.',
     'Know two mitochondrial diseases.',
   ])
+  await summary.getByRole('button', { name: 'Less' }).click()
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+
   const chip = page.getByTestId('review-chip')
   await expect(chip).toHaveCount(1)
   // 24-hour en-GB times, like every other widget.
-  await expect(chip).toHaveText('Review planned Wed 22 Apr 19:40 · 20 min')
+  await expect(chip).toHaveText('Review planned · Wed 22 Apr 19:40 · 20 min')
   await expect(chip).toHaveAttribute('title', 'Review: maternal inheritance')
 })
 
@@ -91,7 +100,9 @@ test('a long summary in a short widget leaves the transcript room to take clicks
     </TestProviders>,
   )
 
-  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(6)
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await summary.getByRole('button', { name: 'More' }).click()
+  await expect(summary.getByRole('listitem')).toHaveCount(6)
   // Nothing covers the first moment: it can take a click.
   await page.getByText(/continuing our discussion of mitochondria/).click({ trial: true, timeout: 3000 })
 })

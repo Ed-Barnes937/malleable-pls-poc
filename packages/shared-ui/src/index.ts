@@ -1,4 +1,4 @@
-export { cn, formatTime } from './utils'
+export { cn, formatTime, fromMomentLabel } from './utils'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
 export { ProgressBar, type ProgressBarProps } from './ProgressBar'
 export { TagPill, TAG_STYLES } from './TagPill'

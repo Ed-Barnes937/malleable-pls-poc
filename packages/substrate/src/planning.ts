@@ -33,10 +33,11 @@ import { REVIEW_SUBTYPE } from './workflows/review-automation'
 const MINUTE_MS = 60_000
 
 /**
- * The study day study time is placed in: 08:00-22:00 local, with 10 minutes
- * of breathing room around every class and shift.
+ * The study day study time is placed in: 09:00-22:00 local, with 10 minutes
+ * of breathing room around every class and shift. Help me plan and the
+ * confusion automation both place inside it.
  */
-export const STUDY_DAY = { dayStart: '08:00', dayEnd: '22:00', bufferMin: 10 } as const
+export const STUDY_DAY = { dayStart: '09:00', dayEnd: '22:00', bufferMin: 10 } as const
 
 /** Gap kept between two study blocks, so a draft never runs them back to back. */
 export const STUDY_BLOCK_GAP_MIN = 10
@@ -44,7 +45,7 @@ export const STUDY_BLOCK_GAP_MIN = 10
 /**
  * Default "study time per day": the most Help me plan fills into one day,
  * counting study blocks already there. A Calendar setting (1h to 6h), so a
- * plan is one a student would follow, not every free minute 08:00-22:00.
+ * plan is one a student would follow, not every free minute 09:00-22:00.
  */
 export const DEFAULT_STUDY_MIN_PER_DAY = 120
 export const STUDY_PER_DAY_OPTIONS = [60, 90, 120, 180, 240, 300, 360] as const
@@ -268,6 +269,67 @@ export function suggestTaskSlots(
     opts.n ?? 3,
     { now: opts.now, existingPlacements: layout.busy, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget },
   )
+}
+
+// ---------------------------------------------------------------------------
+// Confusion reviews
+// ---------------------------------------------------------------------------
+
+/** A review is never placed within this long of the moment being marked. */
+export const REVIEW_LEAD_MIN = 60
+
+export interface ReviewToPlace {
+  id: string
+  durationMin: number
+  /** When the moment was marked (UTC ms): the review starts `REVIEW_LEAD_MIN` after it at the earliest. */
+  markedAt: number
+  /** Must end by (UTC ms). */
+  latest: number
+}
+
+export type ReviewSlot = { start: number; end: number } | { reason: UnplacedReason }
+
+/**
+ * Where the confusion automation puts each review: the earliest free time in
+ * its window, at least `REVIEW_LEAD_MIN` after the mark, inside the study day,
+ * around every commitment (all courses) and every other block, `STUDY_BLOCK_GAP_MIN`
+ * clear of other study blocks, and only on days with study time left
+ * (`studyMinPerDay`, Help me plan's budget). Earlier entries get first pick.
+ * `items` covers `range` (from the local start of today, recurrences expanded);
+ * the reviews being placed may all move, so their current blocks are ignored.
+ * Pure: the server and tests share it.
+ */
+export function placeReviews(
+  items: ReadonlyArray<Row>,
+  reviews: ReadonlyArray<ReviewToPlace>,
+  range: Interval,
+  opts: { now: number; timeZone: string; studyMinPerDay?: number },
+): Map<string, ReviewSlot> {
+  const slots = new Map<string, ReviewSlot>()
+  if (reviews.length === 0) return slots
+  // Unpadded: `gapMin` keeps the gap, and the budget counts real minutes.
+  const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)), { padReviews: false })
+  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
+  const result = place(
+    reviews.map((r) => ({
+      id: r.id,
+      durationMin: r.durationMin,
+      earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS,
+      latest: r.latest,
+    })),
+    free,
+    {
+      now: opts.now,
+      existingPlacements: busy,
+      policy: 'priority',
+      anchor: 'earliest',
+      gapMin: STUDY_BLOCK_GAP_MIN,
+      dailyBudget: { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone },
+    },
+  )
+  for (const p of result.placements) slots.set(p.taskId, { start: p.start, end: p.end })
+  for (const u of result.unplaced) slots.set(u.taskId, { reason: u.reason })
+  return slots
 }
 
 // ---------------------------------------------------------------------------

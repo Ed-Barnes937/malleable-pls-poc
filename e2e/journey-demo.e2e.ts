@@ -140,7 +140,7 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const markedAt = Date.now()
     expect(Date.parse(review.ends_at!)).toBeLessThanOrEqual(startOfLocalDay(markedAt, SEED_TIME_ZONE, 4))
     const todo = grid.panelByLabel('To-do')
-    await expect(todo.getByRole('button', { name: `from: ${LECTURE}, 1:18` })).toBeVisible()
+    await expect(todo.getByRole('button', { name: `From ${LECTURE} · 1:18` })).toBeVisible()
 
     // Click the block: land on that transcript moment.
     const weeksAhead = Math.max(0, Math.round((weekStart(Date.parse(review.starts_at!)) - weekStart(NOW)) / WEEK_MS))

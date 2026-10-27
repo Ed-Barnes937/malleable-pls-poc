@@ -56,7 +56,7 @@ The calendar asks about every course's missed blocks (it shows every course; its
 - Accepting (all, or one ghost with Enter or its button) writes through `planItems.refit` (`saveTogether`), never per-item updates, so the server's atomic, stale-preview check applies. If it refuses (the week changed), every block of the preview the student hasn't answered for and that is still missed gets the fresh preview's time ("Your week changed, so here are fresh times."), including one whose ghost was just taken out because a commitment landed on it. A ghost whose to-do is no longer a missed block, or whose time has started, is taken out.
 - When the preview ends: "Moved 2 blocks. They're in your calendar." (plus any that didn't fit). "Keep my plan" moves nothing.
 - One draft at a time: while Auto-fill's ghosts are waiting, **Re-fit** waits ("Accept or keep the suggested blocks first - one draft at a time."), and Auto-fill likewise waits for re-fit ghosts.
-- The re-fit preview does not apply Help me plan's study time per day (the server places missed blocks in the earliest free time, 08:00-22:00).
+- The re-fit preview does not apply Help me plan's study time per day (the server places missed blocks in the earliest free time, 09:00-22:00).
 
 ## Scope
 

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, XCircle, X } from 'lucide-react'
+import { ArrowRight, CheckCircle2, XCircle, X } from 'lucide-react'
 import { cn } from '@pls/shared-ui'
 
 export type ToastTone = 'success' | 'error'
@@ -14,7 +14,13 @@ export interface Toast {
    * "Transcript added" toast while a student adds several widgets in a row.
    */
   key?: string
+  /** One follow-up, e.g. "See it" on "Review added to your plan". Clicking it also dismisses the toast. */
+  action?: { label: string; onClick: () => void }
 }
+
+/** Long enough to read the message; a toast with an action stays longer, so there is time to reach it. */
+const TOAST_MS = 4000
+const TOAST_WITH_ACTION_MS = 8000
 
 interface ToastState {
   toasts: Toast[]
@@ -33,7 +39,7 @@ export const useToastStore = create<ToastState>((set) => ({
     }))
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-    }, 4000)
+    }, toast.action ? TOAST_WITH_ACTION_MS : TOAST_MS)
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }))
@@ -64,6 +70,19 @@ export function ToastHost() {
             <XCircle className="h-4 w-4 shrink-0" />
           )}
           <span className="text-body">{toast.message}</span>
+          {toast.action && (
+            <button
+              type="button"
+              onClick={() => {
+                dismiss(toast.id)
+                toast.action!.onClick()
+              }}
+              className="ml-1 inline-flex items-center gap-1 rounded-item px-1 text-body font-semibold text-inverse-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inverse-accent"
+            >
+              {toast.action.label}
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => dismiss(toast.id)}
