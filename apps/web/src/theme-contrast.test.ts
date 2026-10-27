@@ -159,6 +159,8 @@ const TEXT_PAIRS: [string, string][] = [
   ['accent', 'accent-soft'],
   ['accent-foreground', 'accent'],
   ['attn', 'surface-raised'],
+  // Help me plan's capacity card: "3h short".
+  ['attn', 'surface-inset'],
   ['attn', 'attn-soft'],
   ['text-primary', 'attn-soft'],
   ['confused', 'surface-raised'],
@@ -184,6 +186,8 @@ const GRAPHIC_PAIRS: [string, string][] = [
   ['accent', 'surface-raised'],
   // Icon buttons that tint on hover (e.g. To-do's add button).
   ['accent', 'accent-line'],
+  // Help me plan's capacity bar: the hatched shortfall on the bar's track.
+  ['attn', 'surface-overlay'],
   ...COURSES.flatMap((c): [string, string][] => [
     [`course-${c}`, 'surface-raised'],
     [`course-${c}`, `course-${c}-soft`],

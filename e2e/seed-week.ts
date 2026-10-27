@@ -20,7 +20,7 @@ import { REVIEW_SUBTYPE } from '../packages/substrate/src/workflows/review-autom
  *   (3h) is longer than the default 2h of study time a day, so it is
  *   Auto-fill's only trim: "Shrink it to 2h?".
  * - Study Priya already planned, sized at reseed time so that Help me plan
- *   reads "About 9 hours of study time left this week. Your to-dos need 12."
+ *   reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."
  *   (`STEP2_STUDY_LEFT_MIN`): on later days of the week only (Sat, Sun, then
  *   Fri), each up to a day's budget. With 9 hours or less left in the week
  *   (from Thursday, at 2h a day), none is planned and the copy honestly

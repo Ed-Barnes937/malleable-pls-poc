@@ -2,6 +2,7 @@ import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
+import type { PlanItemQuery } from '@pls/substrate'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
@@ -124,6 +125,14 @@ export function useRecordings(courseTag?: string) {
  */
 export function useFocusedRecording(recordingId: string | undefined) {
   return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
+}
+
+/**
+ * Plan items for shell chrome (the top bar's today line), outside any widget.
+ * Shares the `planItems` cache, so every plan item change refreshes it.
+ */
+export function usePlanItemList(query: PlanItemQuery) {
+  return trpc.planItems.list.useQuery(query)
 }
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {

@@ -6,6 +6,7 @@ import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { useBoardScopeDims } from './useBoardScopeDims'
+import { TodayLine } from './TodayLine'
 import { BackgroundPicker } from '@pls/panel-system'
 import { COURSES } from '@pls/shared-ui'
 
@@ -120,6 +121,9 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
           {scopeSummary}
         </button>
       )}
+
+      {/* Today at a glance (wide screens only) */}
+      <TodayLine workspaceId={activeWorkspaceId} />
 
       {/* Spacer */}
       <div className="hidden flex-1 sm:block" />

@@ -24,7 +24,8 @@ test.describe('Journey: Upload a lecture recording', () => {
     // The new recording becomes the workspace focus, so the Transcript lens
     // follows it and fills in once the (mock) transcription job completes.
     await expect(transcript.getByText('Uploaded: Enzyme Kinetics')).toBeVisible({ timeout: 10000 })
-    await expect(transcript.getByText(/Today we're looking at mitochondrial DNA/)).toBeVisible({ timeout: 20000 })
+    // The segment, not the summary: the (mock) summary quotes the same line once its job finishes.
+    await expect(transcript.getByRole('button', { name: /Today we're looking at mitochondrial DNA/ })).toBeVisible({ timeout: 20000 })
     await expect(transcript.getByText('6 segments')).toBeVisible()
 
     await topBar.openDrawer()

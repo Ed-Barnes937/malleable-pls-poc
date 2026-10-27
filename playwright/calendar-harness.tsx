@@ -15,8 +15,11 @@ export function CalendarHarness({
   highlight,
   result = 'shown',
   reveal = [],
+  width = 1000,
 }: {
   highlight?: Scope
+  /** The Calendar panel's width (the demo board's is about 900). */
+  width?: number
   /** `fail` makes the stub reject, like a failed scope update. */
   result?: ShowMomentResult | 'fail'
   reveal?: PlanItemRef[]
@@ -27,7 +30,7 @@ export function CalendarHarness({
   const [nextRequest, setNextRequest] = useState(1)
   return (
     <TestProviders>
-      <div className="flex flex-col bg-surface p-3" style={{ width: 1000, height: 640 }}>
+      <div className="flex flex-col bg-surface p-3" style={{ width, height: 640 }}>
         <CalendarLens
           panelId="calendar-test"
           scope={{}}

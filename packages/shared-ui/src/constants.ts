@@ -25,6 +25,8 @@ export interface CourseTone {
   ring: string
   /** The solid colour as a CSS value, for effects classes can't name (e.g. `--glow`). */
   solid: string
+  /** Diagonal hatching in the soft tint (`hatch-`, see index.css): drafted, unsaved blocks. */
+  hatch: string
 }
 
 export const COURSE_TONES: Record<string, CourseTone> = {
@@ -36,6 +38,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     ink: 'text-course-biology-ink',
     ring: 'ring-course-biology-tint',
     solid: 'var(--color-course-biology)',
+    hatch: 'hatch-course-biology-soft',
   },
   chemistry: {
     stripe: 'bg-course-chemistry',
@@ -45,6 +48,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     ink: 'text-course-chemistry-ink',
     ring: 'ring-course-chemistry-tint',
     solid: 'var(--color-course-chemistry)',
+    hatch: 'hatch-course-chemistry-soft',
   },
   physics: {
     stripe: 'bg-course-physics',
@@ -54,6 +58,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     ink: 'text-course-physics-ink',
     ring: 'ring-course-physics-tint',
     solid: 'var(--color-course-physics)',
+    hatch: 'hatch-course-physics-soft',
   },
 }
 
@@ -66,6 +71,7 @@ export const NEUTRAL_TONE: CourseTone = {
   ink: 'text-text-secondary',
   ring: 'ring-border-subtle',
   solid: 'var(--color-accent)',
+  hatch: 'hatch-surface-overlay',
 }
 
 export function courseTone(course: string | null | undefined): CourseTone {
