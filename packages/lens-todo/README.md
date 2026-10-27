@@ -8,6 +8,7 @@ To-do widget: a view over `task` plan items.
 - Tick done (stays visible under "Done today", untick to restore) or dismiss ("Not doing this")
 - Shows the scheduled time when a to-do is placed in the calendar, or its due day
 - Calm wording for anything that slipped: "Still to do from Monday", never "overdue"
+- "2 blocks didn't happen. Re-fit them?": a calm offer to re-place study blocks that passed without being ticked off, previewing the new times in the widget (`src/RefitBanner.tsx`, over `useMissedBlocks` from `lens-framework`, shared with the Calendar, which shows them as ghosts). Answering in either widget answers both, until the page is reloaded. The To-do asks only about its board's course; the Calendar asks about every course, so answering there also covers this widget's blocks.
 - Source link for to-dos made from a lecture moment ("from: Mitochondrial DNA, 9:00"); clicking focuses that lecture on the board
 
 ## Scope

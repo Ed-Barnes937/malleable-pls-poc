@@ -23,7 +23,7 @@ import { CalendarClock, ChevronsRight, GripVertical, Scissors, Sparkles, Undo2, 
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
-import { formatClock, formatWeekday, startOfDay } from './time'
+import { firstFreeStart, formatClock, formatWeekday, startOfDay } from './time'
 
 /** The Help me plan toggle in the week view header. */
 export function HelpMePlanButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
@@ -200,12 +200,10 @@ export function HelpMePlanPanel({
     }
   }
 
-  // "Pick a time" starts at the first free study time ahead (15-minute aligned), not "now".
-  const firstOpenStart = useMemo(() => {
-    const first = openTime(layout, now).find((f) => f.end - f.start >= 15 * 60_000)
-    const start = first ? Math.ceil(first.start / 900_000) * 900_000 : layout.week.start + 9 * 3_600_000
-    return start
-  }, [layout, now])
+  // "Pick a time" starts at the first free gap ahead long enough for the to-do
+  // (else the first free moment), 15-minute aligned, not "now".
+  const open = useMemo(() => openTime(layout, now), [layout, now])
+  const pickDefaultFor = (durationMin: number) => firstFreeStart(open, durationMin) ?? layout.week.start + 9 * 3_600_000
 
   const ghostFor = (id: string) => layer.proposals.find((p) => p.taskId === id)
 
@@ -317,7 +315,7 @@ export function HelpMePlanPanel({
                   onEstimate={(min) => void saveEstimate(todo, min)}
                   onPick={(start) => void schedule(todo, start, task.durationMin)}
                   onDragTodo={onDragTodo}
-                  pickDefault={firstOpenStart}
+                  pickDefault={pickDefaultFor(task.durationMin)}
                 />
               )
             })}
@@ -482,7 +480,7 @@ function TodoRow({
   todo: PlanItemOccurrence
   task: PlanTask
   now: number
-  /** Where "Pick a time" starts: the first free study time ahead. */
+  /** Where "Pick a time" starts: the first free gap that fits it. */
   pickDefault: number
   /** Where its draft ghost is, if it has one. */
   ghost?: string

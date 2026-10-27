@@ -13,6 +13,7 @@ Ideation for a Personal Learning System built on malleable software principles. 
 | [technical-constraints.md](technical-constraints.md) | Mobile browser limitations, delivery model (web + Capacitor). |
 | [monetisation.md](monetisation.md) | Revenue models (D2C, B2B, private lenses), flywheel, phasing. |
 | [open-questions.md](open-questions.md) | Unresolved design questions to explore later. |
+| [demo-runbook.md](demo-runbook.md) | Running the student planning demo: setup, the script click by click, fallbacks, hazards. |
 
 ## Key Decisions Made
 

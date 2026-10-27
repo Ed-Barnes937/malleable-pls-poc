@@ -8,7 +8,7 @@ import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { resolve } from 'path'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
-import { priyaWeek, type SeedPlanItem } from './seed-week'
+import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 
 const pgPort = process.env.PG_PORT ?? '5433'
 // PG_DB isolates parallel checkouts/agents (see e2e/README.md).
@@ -63,7 +63,7 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
       await sql.unsafe(seedSql)
     }
 
-    await insertPlanItems(sql, priyaWeek(now))
+    await insertPlanItems(sql, [...priyaWeek(now), ...seededReviews()])
   } finally {
     await sql.end()
   }
@@ -75,7 +75,7 @@ type Sql = any
 
 /** Inserts plan items for dev-user-1 with their course as a 'plan_item' tag, as the server stores them. */
 export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
-  for (const { id, course, ...item } of items) {
+  for (const { id, course, created_at, updated_at, ...item } of items) {
     const invalid = validatePlanItem(item)
     if (invalid) throw new Error(`Seed plan item ${id}: ${invalid}`)
     await sql`
@@ -94,6 +94,8 @@ export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
         source_type: item.source_type ?? null,
         source_id: item.source_id ?? null,
         source_offset_ms: item.source_offset_ms ?? null,
+        ...(created_at ? { created_at } : {}),
+        ...(updated_at ? { updated_at } : {}),
       })}
     `
     if (course) {

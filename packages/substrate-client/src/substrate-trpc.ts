@@ -1,5 +1,6 @@
+import { useCallback } from 'react'
 import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
-import type { PlanItemQuery } from '@pls/substrate'
+import type { PlanItemQuery, RefitPreview } from '@pls/substrate'
 import { trpc } from './trpc'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,7 +94,15 @@ export const substrateTrpc: SubstrateWriter = {
 
   useRefitPreview(timeZone: string) {
     // Blocks become "missed" as time passes, not only when data changes.
-    return adapt(trpc.planItems.refitPreview.useQuery({ timeZone }, { refetchInterval: 60_000 }))
+    const query = trpc.planItems.refitPreview.useQuery({ timeZone }, { refetchInterval: 60_000 })
+    const { refetch } = query
+    return {
+      ...adapt<RefitPreview>(query),
+      refetch: useCallback(async () => {
+        const result = await refetch({ throwOnError: true })
+        return (result.data ?? []) as RefitPreview
+      }, [refetch]),
+    }
   },
 
   useCreateTag() {

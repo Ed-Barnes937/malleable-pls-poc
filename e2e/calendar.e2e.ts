@@ -109,8 +109,11 @@ test.describe('Calendar', () => {
     const calendar = new CalendarPom(page)
     await expect(calendar.block('Revise respiration')).toBeVisible()
 
+    // The block moves at once (optimistically); reload only once the save is back.
+    const saved = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
     await calendar.drag({ dayIndex: 2, hours: 16.25 }, { dayIndex: 4, hours: 10.25 })
     await expect(calendar.block('Revise respiration')).toHaveAttribute('aria-label', /10:00 - 11:00/)
+    expect((await saved).ok()).toBe(true)
 
     await page.reload()
     await new TopBarPom(page).switchToWorkspace('Week plan')

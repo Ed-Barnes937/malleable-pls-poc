@@ -48,3 +48,13 @@ export {
   useSubstrateMutations,
   useBoardId,
 } from './substrate-context'
+export {
+  useMissedBlocks,
+  markMissedBlocksHandled,
+  missedBlockSignature,
+  missedQuestion,
+  refitAsk,
+  movedNote,
+  noFitLabel,
+  type MissedBlocks,
+} from './missed-blocks'
