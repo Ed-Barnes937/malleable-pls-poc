@@ -4,6 +4,10 @@
 
 `pnpm test:e2e` boots Postgres (if needed), migrates, starts the API (`e2e:server`, always `AI_MODE=mock`) and the web app, reseeds `dev-user-1` (`global-setup.ts`), then runs the `*.e2e.ts` journeys.
 
+## Seed data
+
+`reseed()` (`e2e/reseed.ts`, also `pnpm db:reseed`) restores `dev-user-1`: the SQL seeds (lectures, tags, study boards, automations) plus Priya's week from `e2e/seed-week.ts`, built around the current date in London time: weekly Biology and Chemistry lectures, two cafe shifts (Tue and Thu evening), a Biology quiz on Thursday, a Chemistry lab report on Friday and 12 hours of unscheduled to-dos. From Friday on, the deadlines move to next week so they are always ahead. Pin the date with `reseed({ now })` in a test, or `SEED_NOW=2026-10-28T09:00:00Z pnpm db:reseed` to rehearse a given day. The CT backend simulator deliberately starts with no plan items.
+
 ## Cost guardrail
 
 Playwright reuses any server already listening on its ports. The e2e defaults differ from the dev defaults (3001 / 5173) so a running `dev:server` is not picked up, and `global-setup.ts` fails the run unless the API's `/health` reports `aiMode: "mock"`. `scripts/browse.mts` checks the same.

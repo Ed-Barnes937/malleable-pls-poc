@@ -34,14 +34,6 @@ async function createBoard(request: APIRequestContext, name: string, course: str
   return board
 }
 
-function daysFromNow(days: number, hour: number): string {
-  // Calendar arithmetic (not 24h steps) so a DST change can't shift the day.
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  d.setHours(hour, 0, 0, 0)
-  return d.toISOString()
-}
-
 test.describe('Plan widgets: To-do and Coming up', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
@@ -49,8 +41,7 @@ test.describe('Plan widgets: To-do and Coming up', () => {
   test('a to-do added on a Biology board appears on an unscoped board', async ({ page, request }) => {
     await createBoard(request, 'Biology week', 'biology', ['todo', 'coming-up'])
     await createBoard(request, 'Everything', null, ['todo', 'coming-up'])
-    await call(request, 'planItems.create', { kind: 'deadline', title: 'Biology quiz', course: 'biology', due_at: daysFromNow(3, 10) })
-    await call(request, 'planItems.create', { kind: 'deadline', title: 'Chemistry lab report', course: 'chemistry', due_at: daysFromNow(4, 17) })
+    // The deadlines are Priya's seeded week (e2e/seed-week.ts): a Biology quiz and a Chemistry lab report, both ahead.
 
     await page.goto('/')
     const topBar = new TopBarPom(page)
