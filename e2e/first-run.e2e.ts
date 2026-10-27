@@ -148,30 +148,44 @@ test.describe('The today line', () => {
     const topBar = new TopBarPom(page)
     await expect(topBar.todayLine).toHaveAttribute('title', /^Tuesday · /)
 
-    /** What the line shows now; it is never clipped. */
+    /**
+     * What the line shows once the bar has settled, and that it is not
+     * clipped. Each read waits for a painted frame (layout, the line's
+     * ResizeObserver and paint done), so it never lands between a DOM change
+     * and the frame that lays it out; two reads in a row must agree.
+     */
     const state = async (): Promise<'full' | 'no-weekday' | 'hidden'> => {
-      if (!(await topBar.todayLine.isVisible())) return 'hidden'
-      const clipped = await topBar.todayLine.evaluate((el) => el.offsetWidth > el.parentElement!.clientWidth)
-      expect(clipped).toBe(false)
-      const text = (await topBar.todayLine.textContent()) ?? ''
-      expect(text).toContain('Chemistry 14:00')
-      expect(text).toContain('2h to study')
-      return text.includes('Tuesday') ? 'full' : 'no-weekday'
+      const seen = await topBar.todayLine.evaluate(async (el) => {
+        const painted = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+        const read = () => {
+          const box = el.parentElement!
+          const visible = box.offsetWidth > 0 && getComputedStyle(el).visibility !== 'hidden'
+          return JSON.stringify({ visible, clipped: visible && el.offsetWidth > box.clientWidth, text: el.textContent ?? '' })
+        }
+        let last = ''
+        for (let i = 0; i < 20; i++) {
+          await painted()
+          const now = read()
+          if (now === last) return JSON.parse(now) as { visible: boolean; clipped: boolean; text: string }
+          last = now
+        }
+        throw new Error('the today line never settled')
+      })
+      if (!seen.visible) return 'hidden'
+      expect(seen.clipped).toBe(false)
+      expect(seen.text).toContain('Chemistry 14:00')
+      expect(seen.text).toContain('2h to study')
+      return seen.text.includes('Tuesday') ? 'full' : 'no-weekday'
     }
-
-    // Let the bar settle (ResizeObserver) before reading it.
-    const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
 
     // Crowd the bar at the narrowest width the line shows at, with boards
     // until it steps aside (however wide tabs and chip happen to be).
     const narrowest = 1280
     await page.setViewportSize({ width: narrowest, height: 900 })
-    await settle()
     for (let i = 0; i < 8 && (await state()) !== 'hidden'; i++) {
       await topBar.openCreateWorkspaceDialog()
       await new CreateWorkspaceDialogPom(page).createWorkspace(`Extra board ${i + 1}`)
       await topBar.expectActiveWorkspace(`Extra board ${i + 1}`)
-      await settle()
     }
     expect(await state()).toBe('hidden')
 
@@ -180,7 +194,6 @@ test.describe('The today line', () => {
     const seen: string[] = []
     for (let width = narrowest; width <= 3200; width += 16) {
       await page.setViewportSize({ width, height: 900 })
-      await settle()
       seen.push(await state())
       if (seen.at(-1) === 'full') break
     }
