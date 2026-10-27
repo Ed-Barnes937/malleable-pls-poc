@@ -114,13 +114,6 @@ export interface ExecutorMeta {
    * that call a paid provider, where a retry after a timeout can bill twice.
    */
   maxRetries?: number
-  /**
-   * The scope a claimed job runs and cascades in. Defaults to `scopeId` for
-   * every job; the server reads back the board stored at enqueue time, so a
-   * board's own automations (e.g. one switched off there) apply to events the
-   * job raises.
-   */
-  scopeForJob?: (job: JobRun) => string | null
 }
 
 export interface ExecutorRegistry {

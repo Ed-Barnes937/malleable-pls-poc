@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineLlmTask } from '../llm'
-import { keyPhrase } from './text'
+import { keyPhrase } from '@pls/substrate'
 
 export interface ReviewTaskInput {
   lectureTitle: string

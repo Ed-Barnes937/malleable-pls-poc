@@ -1,6 +1,6 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, ProgressBar, COURSE_COLORS } from '@pls/shared-ui'
-import { AlertTriangle, BarChart3 } from 'lucide-react'
+import { BarChart3, CircleHelp } from 'lucide-react'
 
 export default function GapAnalysisLens({ highlight }: LensProps) {
   const substrate = useSubstrate()
@@ -22,7 +22,7 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
       <div className="flex flex-1 flex-col justify-center gap-4">
         {sorted.map((course) => {
           const barColor = COURSE_COLORS[course.course] ?? 'bg-neutral-500'
-          const isWeak = course.percentage < 60
+          const toReview = course.reviewMoments > 0
           // Highlight, never hide: the board course stands out, the rest dim.
           const highlighted = highlight?.courseTag === course.course
           const dimmed = Boolean(highlight?.courseTag) && !highlighted
@@ -43,7 +43,7 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
                 {course.course}
               </span>
               <div className="flex flex-1 items-center gap-3">
-                <div className="relative flex-1">
+                <div className="relative flex-1" title={`You feel sure about ${course.solidMoments} of ${course.totalMoments} moments`}>
                   <ProgressBar value={course.percentage} color={barColor} />
                   <span className={cn(
                     'absolute right-2 top-1/2 -translate-y-1/2 font-mono text-[11px] font-bold tabular-nums',
@@ -54,10 +54,10 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
                 </div>
                 <span className={cn(
                   'flex w-28 shrink-0 items-center gap-1 text-[11px]',
-                  isWeak ? 'text-tag-confused' : 'text-neutral-500'
+                  toReview ? 'text-tag-confused' : 'text-neutral-500'
                 )}>
-                  {course.weakAreaCount > 0 && <AlertTriangle className="h-3 w-3" />}
-                  {course.weakAreaCount} weak area{course.weakAreaCount !== 1 ? 's' : ''}
+                  {toReview && <CircleHelp className="h-3 w-3" />}
+                  {toReview ? `${course.reviewMoments} to review` : 'Nothing to review'}
                 </span>
               </div>
             </div>

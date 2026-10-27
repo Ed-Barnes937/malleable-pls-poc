@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { defineLlmTask } from '../llm'
-import { extractiveSummary } from './text'
+import { extractiveSummary } from '@pls/substrate'
 
 export interface LectureSummaryInput {
   lectureTitle: string

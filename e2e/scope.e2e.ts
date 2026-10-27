@@ -103,8 +103,9 @@ test.describe('Course scope filters every widget', () => {
     await expect(topBar.scopeChip).toHaveText('Showing: Biology')
 
     // Filtered widgets show only Biology and say what they leave out.
-    await expect(weakest.getByText('chemistry')).toHaveCount(0, { timeout: 10000 })
-    await expect(weakest.getByText('biology').first()).toBeVisible()
+    // No course pills on a course board: Chemistry's lecture is simply gone.
+    await expect(weakest.getByText(/Organic Reactions/)).toHaveCount(0, { timeout: 10000 })
+    await expect(weakest.getByTestId('weak-topic')).toHaveCount(5)
     await expect(weakest.getByText('+1 in other courses')).toBeVisible()
     await expect(testMe.getByText('1/13')).toBeVisible()
     await expect(testMe.getByText('+2 in other courses')).toBeVisible()
@@ -115,13 +116,13 @@ test.describe('Course scope filters every widget', () => {
     await expect(allCourses.locator('[data-course="chemistry"]')).not.toHaveAttribute('data-highlighted')
   })
 
-  test('the Biology Evening Review board filters This Week and follows its lecture', async ({ page }) => {
+  test('the Biology Evening Review board filters Your Progress and follows its lecture', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await topBar.switchToWorkspace('Evening Review')
 
-    const thisWeek = grid.panelByLabel('This Week')
+    const thisWeek = grid.panelByLabel('Your Progress')
     await expect(thisWeek.getByText('biology')).toBeVisible({ timeout: 10000 })
     await expect(thisWeek.getByText('chemistry')).toHaveCount(0)
     await expect(thisWeek.getByText('+1 in other courses')).toBeVisible()

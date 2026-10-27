@@ -157,3 +157,65 @@ test('a focused lecture highlights the to-dos made from it', async ({ mount, pag
   await expect(page.getByTestId('todo-item').filter({ hasText: 'Review: maternal inheritance' })).toHaveAttribute('data-highlighted', 'true')
   await expect(page.getByTestId('todo-item').filter({ hasText: 'Something else' })).not.toHaveAttribute('data-highlighted')
 })
+
+test.describe('blocks that did not happen', () => {
+  const seedMissed = (simulator: Parameters<typeof seedPlanItem>[0]) => {
+    seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: daysFromNow(-2, 10), ends_at: daysFromNow(-2, 11), course: 'biology' })
+    seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', starts_at: daysFromNow(-1, 19), ends_at: daysFromNow(-1, 20), course: 'chemistry' })
+    // Never re-fit: a missed class, and a block ticked off.
+    seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: daysFromNow(-1, 9), ends_at: daysFromNow(-1, 10) })
+    seedPlanItem(simulator, { id: 'done', kind: 'task', title: 'Done block', status: 'done', starts_at: daysFromNow(-1, 15), ends_at: daysFromNow(-1, 16) })
+  }
+
+  test('asks calmly, previews new times and moves them on accept', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    await mount(
+      <TestProviders>
+        <TodoLens {...defaultProps} />
+      </TestProviders>,
+    )
+
+    const banner = page.getByTestId('refit-banner')
+    await expect(banner).toContainText("2 blocks didn't happen. Re-fit them?")
+    await expect(page.getByText(/overdue|missed/i)).toHaveCount(0)
+
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    const proposals = banner.getByTestId('refit-proposal')
+    await expect(proposals).toHaveCount(2)
+    await expect(proposals.first()).toContainText('Read chapter 5')
+
+    await banner.getByRole('button', { name: 'Move them' }).click()
+    await expect(page.getByRole('status')).toHaveText("Moved 2 blocks. They're in your calendar.")
+    await expect(page.getByTestId('refit-banner')).toHaveCount(0)
+    const moved = simulator.db.planItems.find((p) => p.id === 'missed-1')!
+    expect(Date.parse(moved.starts_at!)).toBeGreaterThan(Date.now() - 60_000)
+    expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * 60_000)
+    expect(simulator.db.planItems.find((p) => p.id === 'class')!.starts_at).toBe(daysFromNow(-1, 9))
+  })
+
+  test('keep my plan leaves everything where it is', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    await mount(
+      <TestProviders>
+        <TodoLens {...defaultProps} />
+      </TestProviders>,
+    )
+
+    const banner = page.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    await banner.getByRole('button', { name: 'Keep my plan' }).click()
+    await expect(page.getByTestId('refit-banner')).toHaveCount(0)
+    expect(simulator.db.planItems.find((p) => p.id === 'missed-1')!.starts_at).toBe(daysFromNow(-2, 10))
+  })
+
+  test('a course board offers only its own course', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    await mount(
+      <TestProviders>
+        <TodoLens {...defaultProps} scope={{ courseTag: 'biology' }} />
+      </TestProviders>,
+    )
+
+    await expect(page.getByTestId('refit-banner')).toContainText("1 block didn't happen. Re-fit it?")
+  })
+})

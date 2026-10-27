@@ -4,6 +4,7 @@ import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pl
 import { Plus } from 'lucide-react'
 import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
+import { RefitBanner } from './RefitBanner'
 
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
@@ -64,6 +65,8 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
         </span>
         {hidden}
       </div>
+
+      <RefitBanner course={course} />
 
       <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto" aria-label="To-dos">
         {open.map((item) => (
