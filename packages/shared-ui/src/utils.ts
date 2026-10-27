@@ -1,5 +1,21 @@
 import { type ClassValue, clsx } from 'clsx'
-import { twMerge } from 'tailwind-merge'
+import { extendTailwindMerge } from 'tailwind-merge'
+
+/**
+ * tailwind-merge taught the design tokens in apps/web/src/index.css, so it
+ * knows `text-meta` is a size (not a colour that would knock out
+ * `text-text-muted`) and `rounded-item` / `shadow-pop` are a radius and a
+ * shadow.
+ */
+const twMerge = extendTailwindMerge({
+  extend: {
+    theme: {
+      text: ['meta', 'body', 'title', 'heading'],
+      radius: ['widget', 'control', 'item', 'panel'],
+      shadow: ['panel', 'panel-focused', 'pop'],
+    },
+  },
+})
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))

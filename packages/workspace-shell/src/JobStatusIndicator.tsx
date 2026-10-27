@@ -227,14 +227,14 @@ export function JobStatusIndicator() {
         aria-label={label}
         aria-expanded={showDrawer}
         className={cn(
-          'flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] transition-colors',
+          'flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-control px-2 text-meta transition-colors',
           isActive
-            ? 'text-accent hover:bg-accent/10'
-            : 'text-neutral-600 hover:bg-surface-overlay hover:text-neutral-400',
+            ? 'text-accent hover:bg-accent-soft'
+            : 'text-text-secondary hover:bg-surface-overlay hover:text-text-primary',
         )}
         title={label}
       >
-        <Zap className={cn('h-3 w-3', isActive && 'animate-pulse')} />
+        <Zap className={cn('h-[18px] w-[18px]', isActive && 'animate-pulse')} />
         {isActive && <span>{count} running</span>}
       </button>
       {showDrawer && <ActivityDrawer onClose={() => setShowDrawer(false)} />}

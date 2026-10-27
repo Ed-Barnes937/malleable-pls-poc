@@ -32,11 +32,11 @@ export function LensAutomationsButton({ panelId, lensType, workspaceId }: LensAu
           e.stopPropagation()
           setOpen(true)
         }}
-        className="flex shrink-0 items-center justify-center rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         aria-label={`Automations for ${manifest.label}`}
         title="Automations"
       >
-        <Zap size={14} />
+        <Zap size={16} />
       </button>
 
       {open && (

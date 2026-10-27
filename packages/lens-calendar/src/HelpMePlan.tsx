@@ -36,13 +36,13 @@ export function HelpMePlanButton({ open, onToggle }: { open: boolean; onToggle: 
       data-testid="help-me-plan"
       onClick={onToggle}
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[11px] font-medium ring-1 transition-colors',
+        'inline-flex h-9 shrink-0 items-center gap-2 rounded-control border px-3.5 text-body font-medium whitespace-nowrap transition-opacity hover:opacity-90',
         open
-          ? 'bg-accent text-accent-foreground ring-accent hover:bg-accent/90'
-          : 'bg-accent/12 text-accent ring-accent/25 hover:bg-accent/18',
+          ? 'border-transparent bg-accent text-accent-foreground'
+          : 'border-accent-line bg-accent-soft text-accent',
       )}
     >
-      <Sparkles className="h-3 w-3" />
+      <Sparkles className="h-4 w-4" />
       Help me plan
     </button>
   )
@@ -211,34 +211,34 @@ export function HelpMePlanPanel({
     <aside
       data-testid="help-me-plan-panel"
       aria-label="Help me plan"
-      className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-raised"
+      className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
-      <div className="flex items-start gap-2 border-b border-border-subtle px-3 py-2.5">
+      <div className="flex items-start gap-2 border-b border-border-subtle py-3 pl-4 pr-2.5">
         <div className="min-w-0 flex-1">
-          <h3 className="text-[13px] font-semibold text-text-primary">Plan {weekLabel}</h3>
-          <p className="text-[11px] leading-snug text-text-muted">Drag a to-do onto the calendar, pick a suggested time, or let Auto-fill draft the rest.</p>
+          <h3 className="text-title font-semibold text-text-primary">Plan {weekLabel}</h3>
+          <p className="mt-0.5 text-meta text-text-secondary">Drag a to-do onto the calendar, pick a suggested time, or let Auto-fill draft the rest.</p>
         </div>
         <button
           type="button"
           onClick={onCollapse}
           aria-label="Hide the plan to see the calendar"
           title="Hide to see the calendar"
-          className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary @[760px]/cal:hidden"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary @[760px]/cal:hidden"
         >
-          <ChevronsRight className="h-3.5 w-3.5" />
+          <ChevronsRight className="h-4 w-4" />
         </button>
         <button
           type="button"
           onClick={onClose}
           aria-label="Close Help me plan"
           title="Close"
-          className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3.5">
         <CapacityBar freeMin={cap.freeMin} neededMin={cap.neededMin} copy={capacityCopy(cap, weekLabel)} assumed={missing.length} />
 
         {draftHere && drafted ? (
@@ -257,17 +257,17 @@ export function HelpMePlanPanel({
         ) : (
           <div className="flex flex-col gap-2">
             {otherDraft && (
-              <p className="rounded-lg bg-surface-overlay/70 px-2.5 py-2 text-[11px] text-text-secondary">
+              <p className="rounded-item bg-surface-inset px-3 py-2 text-meta text-text-secondary">
                 There are suggested blocks waiting in the calendar. Accept them or keep your plan first.
               </p>
             )}
             {autofill.state === 'confirm-estimates' ? (
-              <div data-testid="estimate-prompt" className="flex flex-col gap-2 rounded-xl bg-accent/8 px-3 py-2.5 ring-1 ring-accent/20">
-                <p className="text-[11px] leading-snug text-text-primary">
+              <div data-testid="estimate-prompt" className="flex flex-col gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3 py-2.5">
+                <p className="text-body text-text-primary">
                   {missing.length === 1 ? '1 to-do has' : `${missing.length} to-dos have`} no estimate yet. Add one below, or
                   I'll assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} each.
                 </p>
-                <div className="flex gap-1.5">
+                <div className="flex flex-wrap gap-1.5">
                   <button type="button" onClick={assumeAndRun} className={primaryButton}>
                     Assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} and Auto-fill
                   </button>
@@ -280,28 +280,28 @@ export function HelpMePlanPanel({
                 data-testid="autofill"
                 onClick={startAutofill}
                 disabled={over || tasks.length === 0 || autofill.state === 'loading' || otherDraft}
-                className={cn(primaryButton, 'justify-center py-1.5 text-[12px]')}
+                className={cn(primaryButton, 'justify-center')}
               >
-                <Sparkles className={cn('h-3.5 w-3.5', autofill.state === 'loading' && 'animate-pulse')} />
+                <Sparkles className={cn('h-4 w-4', autofill.state === 'loading' && 'animate-pulse')} />
                 {autofill.state === 'loading' ? 'Drafting your week...' : 'Auto-fill'}
               </button>
             )}
             {autofill.state === 'error' && (
-              <p role="status" className="text-[11px] text-text-secondary">{autofill.message}</p>
+              <p role="status" className="text-meta text-text-secondary">{autofill.message}</p>
             )}
           </div>
         )}
 
-        <section className="flex flex-col gap-1.5">
+        <section className="flex flex-col gap-2">
           <h4 className={sectionLabel}>To-dos without a time</h4>
-          {rowError && <p role="status" className="text-[11px] text-text-secondary">{rowError}</p>}
-          {isLoading && <p className="text-[11px] text-text-muted">Loading your to-dos...</p>}
+          {rowError && <p role="status" className="text-meta text-text-secondary">{rowError}</p>}
+          {isLoading && <p className="text-meta text-text-muted">Loading your to-dos...</p>}
           {!isLoading && todos.length === 0 && (
-            <p data-testid="plan-empty" className="rounded-lg bg-surface-overlay/50 px-2.5 py-2 text-[11px] text-text-muted">
+            <p data-testid="plan-empty" className="rounded-item bg-surface-inset px-3 py-2 text-meta text-text-muted">
               No to-dos waiting for a time. Add one in the To-do widget and it shows up here.
             </p>
           )}
-          <ul className="flex flex-col gap-1.5">
+          <ul className="flex flex-col gap-2">
             {tasks.map((task) => {
               const todo = todos.find((t) => t.id === task.id)!
               return (
@@ -328,34 +328,34 @@ export function HelpMePlanPanel({
   )
 }
 
-const primaryButton = 'inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-medium text-accent-foreground transition-colors hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50'
-const quietButton = 'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium text-text-secondary ring-1 ring-border-subtle transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-50'
-const sectionLabel = 'text-[10px] font-semibold uppercase tracking-wider text-text-muted'
+const primaryButton = 'inline-flex h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
+const quietButton = 'inline-flex h-8 items-center gap-1.5 rounded-item border border-border bg-surface-raised px-2.5 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'
+const sectionLabel = 'text-meta font-semibold text-text-muted'
 
 function CapacityBar({ freeMin, neededMin, copy, assumed }: { freeMin: number; neededMin: number; copy: string; assumed: number }) {
   const scale = Math.max(freeMin, neededMin, 1)
   const fitting = Math.min(freeMin, neededMin)
   const overflow = Math.max(0, neededMin - freeMin)
   return (
-    <div data-testid="plan-capacity" className="flex flex-col gap-1.5">
-      <p className="text-[12px] font-medium leading-snug text-text-primary">{copy}</p>
+    <div data-testid="plan-capacity" className="flex flex-col gap-2 rounded-item border border-border-subtle bg-surface-inset px-3.5 py-3">
+      <p className="text-body font-semibold text-text-primary">{copy}</p>
       <div
         role="img"
         aria-label={`${formatMinutes(freeMin)} of study time left, ${formatMinutes(neededMin)} needed`}
-        className="relative flex h-2 overflow-hidden rounded-full bg-sky-400/15"
+        className="relative flex h-2 overflow-hidden rounded-full bg-accent-soft ring-1 ring-inset ring-accent-line"
       >
-        <span className="h-full bg-accent/80 transition-[width] duration-300" style={{ width: `${(fitting / scale) * 100}%` }} />
+        <span className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${(fitting / scale) * 100}%` }} />
         {overflow > 0 && (
-          <span className="h-full bg-amber-400/70 transition-[width] duration-300" style={{ width: `${(overflow / scale) * 100}%` }} />
+          <span className="h-full bg-attn transition-[width] duration-300" style={{ width: `${(overflow / scale) * 100}%` }} />
         )}
       </div>
-      <div className="flex items-center gap-3 text-[10px] text-text-muted">
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-sky-400/60" />Study time {formatMinutes(freeMin)}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-accent/80" />To-dos {formatMinutes(neededMin)}</span>
-        {overflow > 0 && <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-amber-400/70" />{formatMinutes(overflow)} over</span>}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-muted">
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-accent-soft ring-1 ring-inset ring-accent-line" />Study time {formatMinutes(freeMin)}</span>
+        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-accent" />To-dos {formatMinutes(neededMin)}</span>
+        {overflow > 0 && <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-attn" />{formatMinutes(overflow)} over</span>}
       </div>
       {assumed > 0 && (
-        <p className="text-[10px] text-text-muted">
+        <p className="text-meta text-text-muted">
           Counting {formatMinutes(ASSUMED_ESTIMATE_MIN)} for {assumed === 1 ? 'the to-do' : `the ${assumed} to-dos`} with no estimate.
         </p>
       )}
@@ -397,37 +397,37 @@ function DraftSummary({
   const summary = draftCopy(proposalMinutes(layer.proposals), unplacedMin)
 
   return (
-    <div data-testid="autofill-draft" className="flex flex-col gap-2 rounded-xl bg-accent/[0.07] px-3 py-2.5 ring-1 ring-accent/20">
-      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-accent">
-        <Sparkles className="h-3 w-3" />
+    <div data-testid="autofill-draft" className="flex flex-col gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3 py-3">
+      <div className="flex items-center gap-1.5 text-meta font-semibold text-accent">
+        <Sparkles className="h-3.5 w-3.5" />
         Draft: {open === 1 ? '1 block' : `${open} blocks`} to look over
       </div>
-      <p data-testid="autofill-summary" className="text-[11px] font-medium leading-snug text-text-primary">{summary}</p>
-      {advice.note && <p data-testid="autofill-note" className="text-[11px] leading-snug text-text-secondary">{advice.note}</p>}
+      <p data-testid="autofill-summary" className="text-body font-semibold text-text-primary">{summary}</p>
+      {advice.note && <p data-testid="autofill-note" className="text-meta text-text-secondary">{advice.note}</p>}
 
       {shown.map((trim) => {
         const applied = trims.has(trim.taskId)
         const task = originalTasks.find((t) => t.id === trim.taskId)
         return (
-          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-1 rounded-lg bg-surface-raised/80 px-2.5 py-2 ring-1 ring-border-subtle">
+          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3 py-2.5">
             {applied ? (
-              <div className="flex items-center gap-2 text-[11px] text-text-secondary">
-                <Scissors className="h-3 w-3 shrink-0 text-accent" />
+              <div className="flex items-center gap-2 text-meta text-text-primary">
+                <Scissors className="h-3.5 w-3.5 shrink-0 text-attn" />
                 <span className="min-w-0 flex-1">Shrunk "{title(trim.taskId)}" to {formatMinutes(trims.get(trim.taskId)!)}.</span>
                 <button type="button" onClick={() => onTrim(trim.taskId, null)} className={quietButton}>
-                  <Undo2 className="h-3 w-3" />
+                  <Undo2 className="h-3.5 w-3.5" />
                   Undo
                 </button>
               </div>
             ) : (
               <>
-                <p className="text-[11px] font-medium leading-snug text-text-primary">
+                <p className="text-body text-text-primary">
                   Shrink "{title(trim.taskId)}" to {formatMinutes(trim.durationMin)}?
-                  {task && <span className="font-normal text-text-muted"> (now {formatMinutes(task.durationMin)})</span>}
+                  {task && <span className="text-text-secondary"> (now {formatMinutes(task.durationMin)})</span>}
                 </p>
-                {trim.reason && <p className="text-[10px] leading-snug text-text-muted">{trim.reason}</p>}
+                {trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
                 <button type="button" onClick={() => onTrim(trim.taskId, trim.durationMin)} className={cn(quietButton, 'self-start')}>
-                  <Scissors className="h-3 w-3" />
+                  <Scissors className="h-3.5 w-3.5" />
                   Shrink to {formatMinutes(trim.durationMin)}
                 </button>
               </>
@@ -437,8 +437,8 @@ function DraftSummary({
       })}
 
       {draft.unplaced.length > 0 && (
-        <div data-testid="autofill-unplaced" className="flex flex-col gap-0.5 text-[11px] text-text-secondary">
-          <span className="font-medium">Didn't fit this time:</span>
+        <div data-testid="autofill-unplaced" className="flex flex-col gap-0.5 text-meta text-text-secondary">
+          <span className="font-semibold">Didn't fit this time:</span>
           {draft.unplaced.map((u) => (
             <span key={u.taskId}>
               {u.task.title} ({formatMinutes(u.task.durationMin)}) - {unplacedReason(u.reason, minutesPerDay)}
@@ -447,12 +447,12 @@ function DraftSummary({
         </div>
       )}
       {assumed.length > 0 && (
-        <p className="text-[10px] leading-snug text-text-muted">
+        <p className="text-meta text-text-muted">
           Assumed {formatMinutes(ASSUMED_ESTIMATE_MIN)} for {assumed.join(', ')}, which had no estimate. Drag a block's edge to change it.
         </p>
       )}
 
-      {layer.error && <p role="status" className="text-[11px] text-text-secondary">{layer.error}</p>}
+      {layer.error && <p role="status" className="text-meta text-text-secondary">{layer.error}</p>}
       <div className="flex flex-wrap gap-1.5 pt-0.5">
         <button type="button" onClick={() => void layer.acceptAll()} disabled={layer.saving || open === 0} className={primaryButton}>
           Accept all
@@ -461,7 +461,7 @@ function DraftSummary({
           Keep my plan
         </button>
       </div>
-      <p className="text-[10px] text-text-muted">Nothing is saved until you accept. Drag a suggested block to adjust it.</p>
+      <p className="text-meta text-text-muted">Nothing is saved until you accept. Drag a suggested block to adjust it.</p>
     </div>
   )
 }
@@ -503,35 +503,35 @@ function TodoRow({
       draggable
       onDragStart={handleDragStart}
       onDragEnd={() => onDragTodo(null)}
-      className="group flex cursor-grab flex-col gap-1.5 rounded-lg bg-surface/60 px-2 py-2 ring-1 ring-border-subtle transition-colors hover:ring-accent/30 active:cursor-grabbing"
+      className="group flex cursor-grab flex-col gap-2 rounded-item border border-border-subtle bg-surface-raised px-2.5 py-2.5 transition-colors hover:border-accent-line active:cursor-grabbing"
     >
       <div className="flex min-w-0 items-start gap-1.5">
-        <GripVertical className="mt-0.5 h-3 w-3 shrink-0 text-text-muted/60 group-hover:text-text-muted" aria-hidden />
-        <span className={cn('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', tone.bar)} aria-hidden />
+        <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
+        <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', tone.bar)} aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[12px] font-medium leading-snug text-text-primary" title={todo.title}>{todo.title}</p>
-          <p className="text-[10px] text-text-muted">
+          <p className="truncate text-body font-semibold text-text-primary" title={todo.title}>{todo.title}</p>
+          <p className="text-meta text-text-muted">
             {todo.due_at ? `Due ${dayLabel(todo.due_at, now)}` : 'No due date'}
             {task.weakTopic && ' · from a confusing moment'}
           </p>
         </div>
         {todo.duration_min != null && (
-          <span className="shrink-0 rounded-md bg-surface-overlay px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary">
+          <span className="shrink-0 rounded-full bg-surface-overlay px-2 py-0.5 text-meta font-semibold tabular-nums text-text-secondary">
             {formatMinutes(todo.duration_min)}
           </span>
         )}
       </div>
 
       {todo.duration_min == null && (
-        <div data-testid="plan-estimate" className="flex flex-wrap items-center gap-1 pl-[18px]">
-          <span className="text-[10px] text-text-muted">How long?</span>
+        <div data-testid="plan-estimate" className="flex flex-wrap items-center gap-1.5 pl-[22px]">
+          <span className="text-meta text-text-muted">How long?</span>
           {ESTIMATE_OPTIONS.map((min) => (
             <button
               key={min}
               type="button"
               onClick={() => onEstimate(min)}
               aria-label={`Estimate ${formatMinutes(min)} for ${todo.title}`}
-              className="rounded-md px-1.5 py-0.5 text-[10px] font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/12"
+              className="h-7 rounded-item border border-accent-line bg-accent-soft px-2 text-meta font-semibold text-accent transition-opacity hover:opacity-85"
             >
               {formatMinutes(min)}
             </button>
@@ -540,13 +540,13 @@ function TodoRow({
       )}
 
       {ghost ? (
-        <p className="flex items-center gap-1 pl-[18px] text-[10px] text-accent">
-          <Sparkles className="h-2.5 w-2.5" />
+        <p className="flex items-center gap-1 pl-[22px] text-meta font-semibold text-accent">
+          <Sparkles className="h-3 w-3" />
           Suggested {dayLabel(ghost, now)} {formatClock(new Date(ghost))}
         </p>
       ) : suggestions.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1 pl-[18px]">
-          <CalendarClock className="h-3 w-3 text-text-muted" aria-hidden />
+        <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
+          <CalendarClock className="h-3.5 w-3.5 text-text-muted" aria-hidden />
           {suggestions.map((s) => (
             <button
               key={s.start}
@@ -555,7 +555,7 @@ function TodoRow({
               onClick={() => onPick(new Date(s.start))}
               aria-label={`Schedule ${todo.title} ${slotLabel(s.start, now)}`}
               title={`Add to the calendar ${slotLabel(s.start, now)}`}
-              className="rounded-md bg-surface-overlay/70 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-text-secondary transition-colors hover:bg-accent/15 hover:text-accent"
+              className="h-7 rounded-item bg-surface-overlay px-2 text-meta font-semibold tabular-nums text-text-primary transition-colors hover:bg-accent-soft hover:text-accent"
             >
               {slotLabel(s.start, now)}
             </button>
@@ -563,9 +563,9 @@ function TodoRow({
           <button type="button" onClick={() => setPicking((v) => !v)} className={pickButton}>Other time</button>
         </div>
       ) : (
-        <div className="flex flex-wrap items-center gap-1 pl-[18px]">
-          <CalendarClock className="h-3 w-3 text-text-muted" aria-hidden />
-          <span className="text-[10px] text-text-muted">No free slot fits as it is.</span>
+        <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
+          <CalendarClock className="h-3.5 w-3.5 text-text-muted" aria-hidden />
+          <span className="text-meta text-text-muted">No free slot fits as it is.</span>
           <button type="button" onClick={() => setPicking((v) => !v)} className={pickButton}>Pick a time</button>
         </div>
       )}
@@ -584,7 +584,7 @@ function TodoRow({
   )
 }
 
-const pickButton = 'rounded-md px-1.5 py-0.5 text-[10px] font-medium text-text-secondary ring-1 ring-border-subtle transition-colors hover:bg-surface-overlay hover:text-text-primary'
+const pickButton = 'h-7 rounded-item border border-border bg-surface-raised px-2 text-meta font-semibold text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 function toLocalInput(ms: number): string {
@@ -601,7 +601,7 @@ function PickTime({ title, defaultStart, onPick, onCancel }: { title: string; de
     if (!Number.isNaN(start.getTime())) onPick(start)
   }
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-1 pl-[18px]" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-1.5 pl-[22px]" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
       <input
         type="datetime-local"
         step={900}
@@ -609,9 +609,9 @@ function PickTime({ title, defaultStart, onPick, onCancel }: { title: string; de
         onChange={(e) => setValue(e.target.value)}
         aria-label={`Start time for ${title}`}
         autoFocus
-        className="rounded-md bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-primary ring-1 ring-border-subtle [color-scheme:dark]"
+        className="h-7 rounded-item border border-border bg-surface-inset px-2 text-meta text-text-primary"
       />
-      <button type="submit" className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground hover:bg-accent/90">Add</button>
+      <button type="submit" className="h-7 rounded-item bg-accent px-2.5 text-meta font-semibold text-accent-foreground hover:opacity-90">Add</button>
       <button type="button" onClick={onCancel} className={pickButton}>Cancel</button>
     </form>
   )
@@ -645,33 +645,33 @@ function FreeTime({
   const options = (STUDY_PER_DAY_OPTIONS as readonly number[]).includes(perDay) ? STUDY_PER_DAY_OPTIONS : [...STUDY_PER_DAY_OPTIONS, perDay].sort((a, b) => a - b)
 
   return (
-    <section data-testid="plan-free-time" className="flex flex-col gap-1.5">
+    <section data-testid="plan-free-time" className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <h4 className={sectionLabel}>Study time left</h4>
-        <label className="flex items-center gap-1 text-[10px] text-text-muted">
+        <label className="flex items-center gap-1.5 text-meta text-text-muted">
           Up to
           <select
             aria-label="Study time per day"
             value={perDay}
             disabled={!onStudyMinPerDayChange}
             onChange={(e) => onStudyMinPerDayChange?.(Number(e.target.value))}
-            className="rounded-md bg-surface-overlay px-1 py-0.5 text-[10px] font-medium text-text-primary ring-1 ring-border-subtle disabled:opacity-60"
+            className="h-7 rounded-item border border-border bg-surface-inset px-1.5 text-meta font-semibold text-text-primary disabled:opacity-60"
           >
             {options.map((min) => <option key={min} value={min}>{formatMinutes(min)}</option>)}
           </select>
           a day
         </label>
       </div>
-      <ul className="flex flex-col gap-1">
+      <ul className="flex flex-col gap-1.5">
         {days.map((d) => (
           <li
             key={d.day}
             title={d.past ? undefined : `${formatMinutes(d.leftMin)} of study time left (${formatMinutes(d.freeMin)} free)`}
-            className={cn('flex items-center gap-2 text-[10px]', d.past && 'opacity-50')}
+            className={cn('flex items-center gap-2 text-meta', d.past && 'opacity-50')}
           >
-            <span className="w-7 shrink-0 font-medium text-text-secondary">{d.label}</span>
-            <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-surface-overlay/70">
-              <span className="absolute inset-y-0 left-0 rounded-full bg-sky-400/55" style={{ width: `${Math.min(1, d.leftMin / perDay) * 100}%` }} />
+            <span className="w-8 shrink-0 font-medium text-text-secondary">{d.label}</span>
+            <span className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-surface-overlay">
+              <span className="absolute inset-y-0 left-0 rounded-full bg-accent" style={{ width: `${Math.min(1, d.leftMin / perDay) * 100}%` }} />
             </span>
             <span className="w-12 shrink-0 text-right tabular-nums text-text-muted">
               {d.past ? '-' : d.leftMin > 0 ? formatMinutes(d.leftMin) : d.freeMin > 0 ? 'full' : 'busy'}

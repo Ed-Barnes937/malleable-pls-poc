@@ -17,7 +17,7 @@ export interface TopBarProps {
 }
 
 const ICON_BUTTON =
-  'flex shrink-0 items-center justify-center rounded-[var(--radius-panel)] p-2 text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
+  'flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
 
 /**
  * Summarises the board scope as "Showing: ..." chip text, limited to the
@@ -81,10 +81,9 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       data-testid="top-bar"
       // Wraps on narrow screens: the "Showing" chip drops to its own row
       // and the board tabs scroll sideways instead of pushing things off-screen.
-      className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-2 py-2 sm:px-4 sm:py-2.5"
+      className="flex shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-border-subtle px-3 py-2.5 sm:min-h-16 sm:flex-nowrap sm:px-5"
       style={{
         background: 'var(--color-surface-raised)',
-        boxShadow: 'var(--shadow-panel)',
         transition: 'var(--transition-panel)',
         zIndex: 9999,
         position: 'relative',
@@ -100,7 +99,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
         title="Board menu: add widgets, choose what's shown"
         className={ICON_BUTTON}
       >
-        <Menu size={18} />
+        <Menu size={20} />
       </button>
 
       {/* Board tabs */}
@@ -115,10 +114,9 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
           data-testid="scope-chip"
           onClick={onMenuClick}
           title={`Showing: ${scopeSummary}. Click to change.`}
-          className="order-last min-w-0 max-w-full basis-full truncate rounded-full px-2.5 py-0.5 text-left text-xs text-text-secondary transition-colors hover:text-text-primary sm:order-none sm:basis-auto sm:max-w-[40ch]"
-          style={{ background: 'var(--color-surface-overlay)' }}
+          className="order-last min-w-0 max-w-full truncate rounded-full bg-surface-overlay px-3 py-1.5 text-left text-body font-semibold text-text-primary transition-colors hover:bg-border-subtle sm:order-none sm:max-w-[40ch]"
         >
-          <span className="text-text-muted">Showing: </span>
+          <span className="font-normal text-text-secondary">Showing: </span>
           {scopeSummary}
         </button>
       )}
@@ -145,16 +143,16 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
             title="Board appearance"
             className={ICON_BUTTON}
           >
-            <Settings size={16} />
+            <Settings size={18} />
           </button>
           {settingsOpen && (
             <div
               ref={settingsRef}
               data-testid="settings-popover"
-              className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-16px)] rounded-[var(--radius-panel)] border border-border-subtle p-4"
+              className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-16px)] rounded-widget border border-border-subtle p-4"
               style={{
                 background: 'var(--color-surface-raised)',
-                boxShadow: 'var(--shadow-panel-focused)',
+                boxShadow: 'var(--shadow-pop)',
                 zIndex: 10002,
               }}
             >
@@ -163,10 +161,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
                 <button
                   type="button"
                   onClick={() => window.location.reload()}
-                  className="flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-400"
+                  className="flex items-center gap-1.5 rounded-item px-2 py-1 text-meta text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
                   title="Reload the page"
                 >
-                  <RotateCcw className="h-3 w-3" />
+                  <RotateCcw className="h-3.5 w-3.5" />
                   Reload
                 </button>
               </div>
@@ -184,7 +182,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
             title="Tidy up widgets"
             className={ICON_BUTTON}
           >
-            <LayoutGrid size={16} />
+            <LayoutGrid size={18} />
           </button>
         )}
       </div>

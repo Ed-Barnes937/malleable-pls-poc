@@ -465,9 +465,9 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
   const shadow = isGesturing
-    ? 'var(--shadow-panel-focused), inset 0 0 0 2px oklch(0.623 0.214 259.815 / 0.5)'
+    ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 50%, transparent)'
     : isSelected
-      ? 'var(--shadow-panel-focused), inset 0 0 0 2px oklch(0.623 0.214 259.815 / 0.7)'
+      ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 70%, transparent)'
       : (isFocused || isHovered)
         ? 'var(--shadow-panel-focused)'
         : 'var(--shadow-panel)'
@@ -485,6 +485,9 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
       data-testid={`panel-${panel.id}`}
       data-panel-id={panel.id}
       data-stack-order={stacked ? stackOrder : undefined}
+      // Where the panel is headed, not where a transition has it now (see reveal.ts).
+      data-layout-top={stacked ? undefined : panel.pos_y}
+      data-layout-height={stacked ? undefined : panel.height}
       drag={!isFullscreen && !stacked}
       dragControls={dragControls}
       dragListener={false}
@@ -519,7 +522,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
       onPointerDown={handlePointerDown}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="rounded-[var(--radius-panel)] border border-border"
+      className="rounded-widget border border-border-subtle"
       initial={{ scale: 0.95 }}
       animate={{ scale: isGesturing ? 1.015 : 1 }}
       transition={{ type: 'tween', duration: 0.2 }}

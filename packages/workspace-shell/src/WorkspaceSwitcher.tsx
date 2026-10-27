@@ -110,7 +110,7 @@ export function WorkspaceSwitcher() {
         ref={containerRef}
         role="group"
         aria-label="Boards"
-        className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-surface p-1 touch-none [scrollbar-width:none]"
+        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-[14px] bg-surface-overlay p-1 touch-none [scrollbar-width:none]"
       >
         {workspaces.map((ws, idx) => {
           const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
@@ -123,8 +123,8 @@ export function WorkspaceSwitcher() {
               key={ws.id}
               data-testid="workspace-tab"
               className={cn(
-                'relative flex shrink-0 items-center rounded-md transition-all duration-150',
-                isActive && 'bg-surface-raised shadow-sm shadow-black/20',
+                'relative flex shrink-0 items-center rounded-[11px] transition-all duration-150',
+                isActive && 'bg-surface-raised shadow-sm',
               )}
             >
               {showDropBefore && (
@@ -138,15 +138,15 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex items-center gap-1.5 whitespace-nowrap rounded-md py-1.5 text-xs font-medium transition-all duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-[11px] text-body transition-all duration-150 select-none',
                   isActive
-                    ? 'pl-3 pr-1 text-neutral-100'
-                    : 'px-3 text-neutral-500 hover:bg-surface-overlay/30 hover:text-neutral-300',
+                    ? 'pl-3.5 pr-1 font-semibold text-text-primary'
+                    : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
                   isDragging && 'opacity-40',
                   dragging && 'cursor-grabbing',
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
+                <Icon className="h-4 w-4" />
                 {ws.name}
               </button>
               {/* Only the open board can be deleted, so the button sits inside
@@ -160,9 +160,9 @@ export function WorkspaceSwitcher() {
                   }}
                   aria-label={`Delete ${ws.name}`}
                   title="Delete board"
-                  className="mr-1 rounded p-1 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  className="mr-1.5 rounded-item p-1.5 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
               {dragging && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
@@ -176,9 +176,9 @@ export function WorkspaceSwitcher() {
           onClick={() => setCreateDialogOpen(true)}
           aria-label="New board"
           title="New board"
-          className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-surface-overlay/30 hover:text-neutral-400"
+          className="flex h-9 shrink-0 items-center justify-center rounded-[11px] px-2.5 text-text-muted transition-colors hover:bg-surface-raised/60 hover:text-text-primary"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </div>
       <CreateWorkspaceDialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} />

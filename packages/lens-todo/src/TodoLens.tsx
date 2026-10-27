@@ -58,9 +58,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex min-h-3.5 items-center justify-between gap-2">
+      <div className="flex min-h-4 items-center justify-between gap-2">
         {/* The panel title already says "To-do"; only add the count. */}
-        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
+        <span className="text-meta font-semibold text-text-muted">
           {open.length > 0 && `${open.length} to do`}
         </span>
         {hidden}
@@ -68,7 +68,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
       <RefitBanner course={course} />
 
-      <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto" aria-label="To-dos">
+      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {open.map((item) => (
           <TodoRow
             key={item.occurrence_key}
@@ -83,7 +83,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           />
         ))}
         {done.length > 0 && (
-          <li className="pt-2 text-[10px] font-medium uppercase tracking-widest text-neutral-700">Done today</li>
+          <li className="pb-1 pt-4 text-meta font-semibold text-text-muted">Done today</li>
         )}
         {done.map((item) => (
           <TodoRow
@@ -98,13 +98,13 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           />
         ))}
         {!isLoading && open.length === 0 && done.length === 0 && (
-          <li className="flex flex-1 items-center justify-center text-xs text-neutral-600">
+          <li className="flex flex-1 items-center justify-center text-body text-text-muted">
             Nothing to do yet. Add something below.
           </li>
         )}
       </ul>
 
-      <form onSubmit={submit} className="flex items-center gap-1.5">
+      <form onSubmit={submit} className="flex items-center gap-2">
         <TextField
           aria-label="New to-do"
           className="min-w-0"
@@ -116,7 +116,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
         <Select
           aria-label="Time estimate"
           title="Time estimate (optional)"
-          wrapperClassName="w-[4.75rem] shrink-0"
+          wrapperClassName="w-24 shrink-0"
           value={estimate}
           onChange={(e) => setEstimate(e.target.value)}
         >
@@ -132,9 +132,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           aria-label="Add to-do"
           title="Add to-do"
           disabled={!title.trim()}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent transition-colors hover:bg-accent/25 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-control bg-accent-soft text-accent transition-colors hover:bg-accent-line disabled:cursor-not-allowed disabled:opacity-40"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </form>
     </div>

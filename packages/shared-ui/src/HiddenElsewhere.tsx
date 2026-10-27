@@ -46,7 +46,7 @@ export function HiddenElsewhere({ scopedCount, unscopedCount, noCourseCount, cla
     noCourse > 0 && `${noCourse} with no course`,
   ].filter(Boolean)
   return (
-    <span data-testid="hidden-elsewhere" className={cn('text-[10px] text-neutral-500', className)}>
+    <span data-testid="hidden-elsewhere" className={cn('text-meta text-text-muted', className)}>
       +{parts.join(' · ')}
     </span>
   )

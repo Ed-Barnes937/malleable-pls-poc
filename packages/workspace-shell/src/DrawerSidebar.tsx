@@ -51,7 +51,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
     <div className="flex flex-col gap-2.5">
       {activeDims.has('courseTag') && (
         <div>
-          <label htmlFor="scope-course" className="mb-1 block text-[11px] text-neutral-400">
+          <label htmlFor="scope-course" className="mb-1 block text-meta font-semibold text-text-secondary">
             Course
           </label>
           <Select
@@ -70,7 +70,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
 
       {activeDims.has('recordingId') && (
         <div>
-          <label htmlFor="scope-lecture" className="mb-1 block text-[11px] text-neutral-400">
+          <label htmlFor="scope-lecture" className="mb-1 block text-meta font-semibold text-text-secondary">
             Lecture
           </label>
           <Select
@@ -115,7 +115,7 @@ function WidgetPalette({
     <div className="flex flex-col gap-3">
       {groupWidgets(manifests).map((group) => (
         <div key={group.id} data-testid={`widget-group-${group.id}`} role="group" aria-label={group.label}>
-          <div className="mb-1 px-1 text-[11px] font-medium text-neutral-400">{group.label}</div>
+          <div className="mb-1.5 px-1 text-meta font-semibold text-text-muted">{group.label}</div>
           <div className="flex flex-col gap-1">
             {group.widgets.map((m) => {
               const Icon = m.icon
@@ -129,16 +129,16 @@ function WidgetPalette({
                   onClick={() => onAdd(m.id)}
                   aria-label={`Add ${m.label}`}
                   title={`Add ${m.label} to this board`}
-                  className="group flex w-full items-center gap-2.5 rounded-lg bg-surface-overlay/40 px-2 py-1.5 text-left ring-1 ring-border-subtle transition-all hover:bg-surface-overlay/70 hover:ring-accent/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 active:scale-[0.98]"
+                  className="group flex w-full items-center gap-3 rounded-item bg-surface-raised px-2.5 py-2 text-left ring-1 ring-border-subtle transition-all hover:bg-surface-inset hover:ring-accent-line focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent active:scale-[0.98]"
                 >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-surface-overlay/80 text-neutral-500 ring-1 ring-border-subtle transition-colors group-hover:text-accent group-hover:ring-accent/30">
-                    <Icon className="h-3.5 w-3.5" />
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-item bg-surface-overlay text-text-secondary transition-colors group-hover:bg-accent-soft group-hover:text-accent">
+                    <Icon className="h-4 w-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-xs font-medium text-neutral-300 group-hover:text-neutral-100">
+                    <span className="block truncate text-body font-semibold text-text-primary">
                       {m.label}
                     </span>
-                    <span className="block truncate text-[10px] text-neutral-500">{m.description}</span>
+                    <span className="block truncate text-meta text-text-muted">{m.description}</span>
                   </span>
                 </button>
               )
@@ -206,7 +206,7 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
             position: 'fixed',
             inset: 0,
             zIndex: 10000,
-            background: 'oklch(0 0 0 / 0.4)',
+            background: 'color-mix(in oklab, var(--color-text-primary) 25%, transparent)',
             transition: 'var(--transition-panel)',
           }}
         />
@@ -228,33 +228,33 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
           width: 'min(300px, calc(100vw - 48px))',
           zIndex: 10001,
           background: 'var(--color-surface-raised)',
-          boxShadow: open ? 'var(--shadow-panel-focused)' : 'none',
+          boxShadow: open ? 'var(--shadow-pop)' : 'none',
           transform: open ? 'translateX(0)' : 'translateX(-100%)',
           transition: `transform var(--transition-panel), box-shadow var(--transition-panel)`,
-          borderRadius: '0 var(--radius-panel) var(--radius-panel) 0',
+          borderRadius: '0 var(--radius-widget) var(--radius-widget) 0',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
         }}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 py-2.5">
-          <h2 className="text-sm font-semibold text-neutral-200">Board menu</h2>
+        <div className="flex shrink-0 items-center justify-between px-5 pt-4 pb-2">
+          <h2 className="text-title font-semibold text-text-primary">Board menu</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close board menu"
             title="Close board menu"
-            className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
+            className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="flex flex-col gap-5 px-3 py-4">
+          <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
             {/* Widgets */}
             <section data-testid="widget-palette">
               <SectionLabel className="mb-1 px-1">Add widgets</SectionLabel>
-              <p className="mb-2.5 px-1 text-[11px] text-neutral-500">Click to add, or drag onto your board.</p>
+              <p className="mb-3 px-1 text-meta text-text-muted">Click to add, or drag onto your board.</p>
               <WidgetPalette onAdd={onAddWidget} onDragStart={handleWidgetDragStart} />
             </section>
 
@@ -262,7 +262,7 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
             {activeScopeDims.size > 0 && (
               <section data-testid="scope-section">
                 <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
-                <p className="mb-2.5 px-1 text-[11px] text-neutral-500">Choose what the widgets on this board focus on.</p>
+                <p className="mb-3 px-1 text-meta text-text-muted">Choose what the widgets on this board focus on.</p>
                 <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
               </section>
             )}

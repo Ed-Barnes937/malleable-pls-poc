@@ -12,7 +12,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(function T
     <input
       ref={ref}
       className={cn(
-        'w-full rounded-md border border-border-subtle bg-surface px-2.5 py-1.5 text-xs text-neutral-200 placeholder:text-neutral-700 focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/20',
+        'h-10 w-full rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line',
         className,
       )}
       {...rest}

@@ -1,6 +1,6 @@
 import type { LensProps } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { COURSE_PILL_COLORS, cn, dayAndTime, dayLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
+import { cn, courseTone, dayAndTime, dayLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
 import { CalendarClock, Check, Clock, Hourglass, X } from 'lucide-react'
 import { slippedAt } from './todo-items'
 import { SourceLink } from './SourceLink'
@@ -28,8 +28,8 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
       data-testid="todo-item"
       data-highlighted={highlighted || undefined}
       className={cn(
-        'group flex items-start gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-neutral-800/40',
-        highlighted && 'bg-accent/5 ring-1 ring-accent/30',
+        'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-colors last:border-b-0 hover:bg-surface-inset',
+        highlighted && 'rounded-item bg-accent-soft ring-1 ring-accent-line',
       )}
     >
       <button
@@ -40,29 +40,29 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
         title={done ? 'Mark as not done' : 'Mark as done'}
         onClick={onToggle}
         className={cn(
-          'mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition-colors',
+          'mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors',
           done
-            ? 'border-emerald-500/60 bg-emerald-500/20 text-emerald-400'
-            : 'border-neutral-600 text-transparent hover:border-emerald-500/60 hover:text-emerald-500/60',
+            ? 'border-good bg-good text-white'
+            : 'border-border text-transparent hover:border-good hover:text-good',
         )}
       >
-        <Check className="h-2.5 w-2.5" />
+        <Check className="h-3.5 w-3.5" strokeWidth={3} />
       </button>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className={cn('text-xs leading-snug', done ? 'text-neutral-600 line-through' : 'text-neutral-200')}>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className={cn('text-body font-semibold', done ? 'text-text-muted line-through' : 'text-text-primary')}>
           {item.title}
         </span>
         {!done && (
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-neutral-500">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-meta text-text-muted">
             {slipped ? (
-              <span className="flex items-center gap-1 text-attention">
-                <Hourglass className="h-2.5 w-2.5" />
+              <span className="flex items-center gap-1 text-attn">
+                <Hourglass className="h-3.5 w-3.5" />
                 {stillToDoLabel(slipped, now)}
               </span>
             ) : item.starts_at ? (
               <span className="flex items-center gap-1" title="Scheduled">
-                <CalendarClock className="h-2.5 w-2.5" />
+                <CalendarClock className="h-3.5 w-3.5" />
                 {dayAndTime(item.starts_at, now)}
               </span>
             ) : item.due_at ? (
@@ -70,15 +70,16 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
             ) : null}
             {item.duration_min != null && (
               <span className="flex items-center gap-1" title="Time estimate">
-                <Clock className="h-2.5 w-2.5" />
+                <Clock className="h-3.5 w-3.5" />
                 {formatDuration(item.duration_min)}
               </span>
             )}
             {showCourse && item.course && (
               <span
                 className={cn(
-                  'rounded-full px-1.5 capitalize ring-1',
-                  COURSE_PILL_COLORS[item.course] ?? 'bg-neutral-800 text-neutral-400 ring-neutral-700',
+                  'inline-flex h-[22px] items-center rounded-full px-2 font-semibold capitalize',
+                  courseTone(item.course).tint,
+                  courseTone(item.course).ink,
                 )}
               >
                 {item.course}
@@ -96,9 +97,9 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
           title="Not doing this"
           onClick={onDismiss}
           // Always visible (faint at rest, full on touch) so it can be found without hover.
-          className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-neutral-500 opacity-50 transition-opacity hover:text-neutral-300 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100"
+          className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-text-muted opacity-50 transition-opacity hover:bg-surface-overlay hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100"
         >
-          <X className="h-3 w-3" />
+          <X className="h-3.5 w-3.5" />
         </button>
       )}
     </li>
