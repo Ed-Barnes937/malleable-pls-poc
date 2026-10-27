@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dayLabel, daysFromToday, dueEnd, formatDuration, isAllDay, localDayKey, stillToDoLabel, dayAndTime, dayMonthAndTime } from './plan-dates'
+import { dayLabel, daysFromToday, doByLabel, dueEnd, formatDuration, isAllDay, localDayKey, stillToDoLabel, dayAndTime, dayMonthAndTime } from './plan-dates'
 
 // Monday 26 Oct 2026, midday local time. Built from local parts so the tests
 // hold in any time zone.
@@ -27,6 +27,17 @@ describe('dayLabel', () => {
 
   it('uses a short date otherwise', () => {
     expect(dayLabel(at(29), now)).toBe('Thu 29 Oct')
+  })
+})
+
+describe('doByLabel', () => {
+  it('says when a to-do should be done, in sentence case', () => {
+    expect(doByLabel(at(26), now)).toBe('Do by today')
+    expect(doByLabel(at(27), now)).toBe('Do by tomorrow')
+    expect(doByLabel(at(30), now)).toBe('Do by Fri 30 Oct')
+    // A day already gone reads calmly, never "Do by yesterday" or "overdue".
+    expect(doByLabel(at(25), now)).toBe('Still to do from yesterday')
+    expect(doByLabel(at(22), now)).toBe('Still to do from Thursday')
   })
 })
 

@@ -67,6 +67,31 @@ test('renders the week: fixed commitments, study time and what is due', async ({
   }
 })
 
+test('block language: a class is a solid course tint, a shift neutral with a cup, study time a soft tint with a bar and a grab handle', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+
+  const lecture = block(page, 'Biology lecture')
+  await expect(lecture).toHaveAttribute('data-look', 'class')
+  await expect(lecture).toHaveClass(/bg-course-biology-tint/)
+  await expect(lecture.getByTestId('calendar-grip')).toHaveCount(0)
+
+  const shift = block(page, 'Cafe shift')
+  await expect(shift).toHaveAttribute('data-look', 'shift')
+  await expect(shift).toHaveClass(/bg-shift/)
+  await expect(shift.getByTestId('calendar-shift-icon')).toBeVisible()
+  await expect(shift.getByTestId('calendar-grip')).toHaveCount(0)
+
+  const study = block(page, 'Revise respiration')
+  await expect(study).toHaveAttribute('data-look', 'study')
+  await expect(study).toHaveClass(/bg-course-biology-soft/)
+  await expect(study.getByTestId('calendar-grip')).toBeVisible()
+  await expect(study.getByTestId('calendar-shift-icon')).toHaveCount(0)
+
+  // Free time is only outlined while planning.
+  await expect(page.getByTestId('calendar-free')).toHaveCount(0)
+})
+
 test('a weekly class repeats next week; one-off items do not', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)

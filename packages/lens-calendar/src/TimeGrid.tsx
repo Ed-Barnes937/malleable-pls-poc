@@ -1,9 +1,9 @@
 import { useLayoutEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import type { PlanItemOccurrence } from '@pls/substrate'
+import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn } from '@pls/shared-ui'
-import { AudioLines, Check, Repeat, Sparkles, X } from 'lucide-react'
+import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
-import { toneFor } from './colors'
+import { blockLook, toneFor } from './colors'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
@@ -40,7 +40,7 @@ export interface TimeGridProps {
   onProposalNudge?: (id: string, minutes: number, days: number) => void
   onProposalAccept?: (id: string) => void
   onProposalDismiss?: (id: string) => void
-  /** Free study time to shade (UTC ms intervals), e.g. while planning. */
+  /** Free study time to outline and label with its length (UTC ms intervals), e.g. while planning. */
   freeTime?: ReadonlyArray<{ start: number; end: number }>
   /** A to-do being dragged in from outside the grid (Help me plan), to preview where it lands. */
   incoming?: { title: string; durationMin: number; course: string | null } | null
@@ -53,6 +53,12 @@ const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
 /** Smallest block height: enough for one line of title. */
 const MIN_BLOCK_PX = 22
+/** Tall enough for a two-line title and the time under it. */
+const TWO_LINE_TITLE_PX = 56
+/** Tall enough for a free gap's "1h 30m free" label. */
+const FREE_LABEL_PX = 28
+/** A drafted block's accept and dismiss row, under its title and time. */
+const GHOST_BUTTONS_PX = 18
 
 /** One opacity for both reasons to fade, so "done" never un-dims another course. */
 function opacityFor(dimmed: boolean | undefined, done: boolean): string | false {
@@ -384,15 +390,20 @@ export function TimeGrid({
                   data-date={day.toISOString()}
                   className={cn('relative border-l border-border-subtle', startOfDay(day) < startOfDay(now) && 'bg-past')}
                 >
-                  {freeSegments?.[dayIndex].map((f) => (
-                    <div
-                      key={f.key}
-                      data-testid="calendar-free"
-                      aria-hidden
-                      className="pointer-events-none absolute inset-x-0.5 rounded-item border-[1.5px] border-dotted border-free-line"
-                      style={{ top: (f.startMin / 60) * hourPx, height: ((f.endMin - f.startMin) / 60) * hourPx }}
-                    />
-                  ))}
+                  {freeSegments?.[dayIndex].map((f) => {
+                    const height = ((f.endMin - f.startMin) / 60) * hourPx - 4
+                    return (
+                      <div
+                        key={f.key}
+                        data-testid="calendar-free"
+                        aria-hidden
+                        className="pointer-events-none absolute inset-x-1 flex items-center justify-center overflow-hidden rounded-item border-[1.5px] border-dotted border-free-line text-meta text-text-muted"
+                        style={{ top: (f.startMin / 60) * hourPx + 2, height: Math.max(0, height) }}
+                      >
+                        {height >= FREE_LABEL_PX && `${formatMinutes(f.endMin - f.startMin)} free`}
+                      </div>
+                    )
+                  })}
 
                   {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
                     <GhostBlock
@@ -509,6 +520,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
   const end = new Date(item.ends_at!)
   const fromMoment = item.source_type === 'recording' && item.source_id != null
   const kindLabel = isCommitment ? (item.subtype ?? 'Fixed') : 'Study time'
+  const look = blockLook(item)
+  const twoLines = height >= TWO_LINE_TITLE_PX
 
   return (
     <div
@@ -517,6 +530,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
       data-block={item.kind}
       data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
       data-kind={item.kind}
+      data-look={look}
       data-dimmed={dimmed || undefined}
       data-linked={linked || undefined}
       aria-label={`${item.title}, ${kindLabel.toLowerCase()}, ${formatSpan(start, end)}${done ? ', done' : ''}`}
@@ -550,16 +564,21 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
     >
       {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar)} />}
       <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
-        <div className="flex min-w-0 items-center gap-1">
-          {done && <Check className="h-3 w-3 shrink-0" />}
-          <span className={cn('truncate text-meta font-semibold leading-tight', done && 'line-through')}>
+        <div className="flex min-w-0 shrink-0 items-start gap-1">
+          {done && <Check className="mt-px h-3 w-3 shrink-0" />}
+          {item.subtype === 'shift' && <Coffee data-testid="calendar-shift-icon" className="mt-px h-3 w-3 shrink-0" aria-hidden />}
+          <span className={cn('min-w-0 flex-1 text-meta font-semibold leading-tight', twoLines ? 'line-clamp-2' : 'truncate', done && 'line-through')}>
             {item.title}
           </span>
-          {fromMoment && <AudioLines className="h-3 w-3 shrink-0" aria-hidden />}
-          {item.recurrence && <Repeat className="h-3 w-3 shrink-0 opacity-85" aria-hidden />}
+          {fromMoment && <AudioLines className="mt-px h-3 w-3 shrink-0" aria-hidden />}
+          {item.recurrence && <Repeat className="mt-px h-3 w-3 shrink-0 opacity-85" aria-hidden />}
+          {movable && !done && !preview && (
+            // Study time can move: a grab handle says so.
+            <GripVertical data-testid="calendar-grip" className="mt-px h-3 w-3 shrink-0 opacity-60 transition-opacity group-hover:opacity-100" aria-hidden />
+          )}
         </div>
         {roomy && (
-          <span className="truncate text-meta tabular-nums leading-tight opacity-85">
+          <span className="shrink-0 truncate text-meta tabular-nums leading-tight opacity-85">
             {formatSpan(start, end)}
           </span>
         )}
@@ -610,7 +629,7 @@ interface GhostBlockProps {
 }
 
 /**
- * A drafted, unsaved block. Visibly not real yet (dashed edge, sparkle), draggable to adjust, with its own accept and dismiss.
+ * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
 function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
   const { item } = seg
@@ -628,6 +647,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
     <div
       data-block="ghost"
       data-testid="calendar-ghost"
+      data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
       aria-description={saved ? undefined : 'Arrow keys move it, Enter accepts, Delete dismisses'}
@@ -667,12 +687,9 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       }}
     >
       <div className={cn('relative flex h-full min-w-0 flex-col pl-2 pr-1', roomy ? 'py-1' : 'justify-center')}>
-        <div className="flex min-w-0 items-center gap-1">
-          <Sparkles className="h-3 w-3 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1 truncate text-meta font-semibold leading-tight">{item.title}</span>
-        </div>
+        <span className={cn('min-w-0 shrink-0 text-meta font-semibold leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
         {roomy && (
-          <span className="truncate text-meta tabular-nums leading-tight opacity-85">
+          <span className="shrink-0 truncate text-meta tabular-nums leading-tight opacity-85">
             {saved ? 'Saving...' : span}
           </span>
         )}

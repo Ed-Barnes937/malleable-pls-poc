@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
@@ -7,10 +7,12 @@ import {
   completeTrims,
   draftCopy,
   formatMinutes,
+  longestBlockMin,
   openTime,
   planCapacity,
   planTasks,
   rankForPlan,
+  shortGapMinutes,
   studyDays,
   suggestTaskSlots,
   type PlanItemOccurrence,
@@ -18,17 +20,22 @@ import {
   type WeekLayout,
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
-import { cn, dayLabel } from '@pls/shared-ui'
-import { CalendarClock, ChevronsRight, GripVertical, Scissors, Sparkles, Undo2, X } from 'lucide-react'
+import { cn, doByLabel } from '@pls/shared-ui'
+import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, Undo2, X } from 'lucide-react'
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
 import { firstFreeStart, formatClock, formatWeekday, startOfDay } from './time'
 
 /** The Help me plan toggle in the week view header. */
-export function HelpMePlanButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function HelpMePlanButton({ open, onToggle, buttonRef }: {
+  open: boolean
+  onToggle: () => void
+  buttonRef?: RefObject<HTMLButtonElement | null>
+}) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-pressed={open}
       aria-label="Help me plan"
@@ -201,29 +208,69 @@ export function HelpMePlanPanel({
   }
 
   // "Pick a time" starts at the first free gap ahead long enough for the to-do
-  // (else the first free moment), 15-minute aligned, not "now".
-  const open = useMemo(() => openTime(layout, now), [layout, now])
+  // (else the first free moment), 15-minute aligned, not "now", and never on
+  // a time the draft has already given another to-do.
+  const draftBlocks = useMemo(
+    () => layer.proposals.filter((p) => !layer.savedIds.has(p.id)).map((p) => ({ start: Date.parse(p.startsAt), end: Date.parse(p.endsAt) })),
+    [layer.proposals, layer.savedIds],
+  )
+  const open = useMemo(() => openTime(layout, now, draftBlocks), [layout, now, draftBlocks])
   const pickDefaultFor = (durationMin: number) => firstFreeStart(open, durationMin) ?? layout.week.start + 9 * 3_600_000
 
   const ghostFor = (id: string) => layer.proposals.find((p) => p.taskId === id)
+  const showDraft = draftHere && drafted ? drafted : null
+  const keepPlan = () => {
+    layer.dismissAll()
+    setAutofill({ state: 'idle' })
+  }
+  const openDraftBlocks = draftBlocks.length
+
+  // Focus follows the panel: into it when it opens (or is shown again), to the
+  // draft when Auto-fill finishes, and back to Auto-fill when the draft ends,
+  // so keyboard users never land on the page body.
+  const headingId = useId()
+  const panelRef = useRef<HTMLElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const draftHeadingRef = useRef<HTMLHeadingElement>(null)
+  const autofillRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+  const prevState = useRef(autofill.state)
+  useEffect(() => {
+    const prev = prevState.current
+    prevState.current = autofill.state
+    if (prev === autofill.state) return
+    const active = document.activeElement
+    const focusIsOurs = !active || active === document.body || !!panelRef.current?.contains(active)
+    if (!focusIsOurs) return
+    if (autofill.state === 'drafted') draftHeadingRef.current?.focus()
+    else if (autofill.state === 'idle' || autofill.state === 'error') autofillRef.current?.focus()
+  }, [autofill.state])
 
   return (
     <aside
+      ref={panelRef}
       data-testid="help-me-plan-panel"
-      aria-label="Help me plan"
-      className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
+      aria-labelledby={headingId}
+      className="flex h-full min-h-0 w-[280px] max-w-full shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
-      <div className="flex items-start gap-2 border-b border-border-subtle py-3 pl-4 pr-2.5">
-        <div className="min-w-0 flex-1">
-          <h3 className="text-title font-semibold text-text-primary">Plan {weekLabel}</h3>
-          <p className="mt-0.5 text-meta text-text-secondary">Drag a to-do onto the calendar, pick a suggested time, or let Auto-fill draft the rest.</p>
-        </div>
+      <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5">
+        <h3
+          ref={headingRef}
+          id={headingId}
+          tabIndex={-1}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-item text-heading font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <Sparkles className="h-[18px] w-[18px] shrink-0 text-accent" aria-hidden />
+          Plan your time
+        </h3>
         <button
           type="button"
           onClick={onCollapse}
           aria-label="Hide the plan to see the calendar"
           title="Hide to see the calendar"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary @[760px]/cal:hidden"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
           <ChevronsRight className="h-4 w-4" />
         </button>
@@ -238,58 +285,60 @@ export function HelpMePlanPanel({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-3.5">
-        <CapacityBar freeMin={cap.freeMin} neededMin={cap.neededMin} copy={capacityCopy(cap, weekLabel)} assumed={missing.length} />
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 pt-1">
+        <p className="text-body text-text-secondary">
+          Drag a to-do onto a free gap, or let Auto-fill draft the rest. Nothing is saved until you accept.
+        </p>
+        <CapacityBar
+          freeMin={cap.freeMin}
+          neededMin={cap.neededMin}
+          copy={capacityCopy(cap, weekLabel, layout.budget.minutesPerDay)}
+          assumed={missing.length}
+        />
 
-        {draftHere && drafted ? (
+        {showDraft ? (
           <DraftSummary
-            autofill={drafted}
+            autofill={showDraft}
             layer={layer}
+            now={now}
+            todos={todos}
             minutesPerDay={layout.budget.minutesPerDay}
-            overCapacity={!planCapacity(layout, planTasks(todos, layout.week, { now, estimates: drafted.estimates }), now).fits}
-            originalTasks={planTasks(todos, layout.week, { now, estimates: drafted.estimates })}
+            overCapacity={!planCapacity(layout, planTasks(todos, layout.week, { now, estimates: showDraft.estimates }), now).fits}
+            originalTasks={planTasks(todos, layout.week, { now, estimates: showDraft.estimates })}
             onTrim={setTrim}
-            onKeepPlan={() => {
-              layer.dismissAll()
-              setAutofill({ state: 'idle' })
-            }}
+            pickDefaultFor={pickDefaultFor}
+            onPick={(todo, start, durationMin) => void schedule(todo, start, durationMin)}
+            freeMin={cap.freeMin}
+            headingRef={draftHeadingRef}
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            {otherDraft && (
-              <p className="rounded-item bg-surface-inset px-3 py-2 text-meta text-text-secondary">
-                There are suggested blocks waiting in the calendar. Accept them or keep your plan first.
-              </p>
-            )}
-            {autofill.state === 'confirm-estimates' ? (
-              <div data-testid="estimate-prompt" className="flex flex-col gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3 py-2.5">
-                <p className="text-body text-text-primary">
-                  {missing.length === 1 ? '1 to-do has' : `${missing.length} to-dos have`} no estimate yet. Add one below, or
-                  I'll assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} each.
+          (otherDraft || autofill.state === 'confirm-estimates' || autofill.state === 'error') && (
+            <div className="flex flex-col gap-2">
+              {otherDraft && (
+                <p className="rounded-item bg-surface-inset px-3 py-2 text-meta text-text-secondary">
+                  There are suggested blocks waiting in the calendar. Accept them or keep your plan first.
                 </p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button type="button" onClick={assumeAndRun} className={primaryButton}>
-                    Assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} and Auto-fill
-                  </button>
-                  <button type="button" onClick={() => setAutofill({ state: 'idle' })} className={quietButton}>Cancel</button>
+              )}
+              {autofill.state === 'confirm-estimates' && (
+                <div data-testid="estimate-prompt" className="flex flex-col gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3 py-2.5">
+                  <p className="text-body text-text-primary">
+                    {missing.length === 1 ? '1 to-do has' : `${missing.length} to-dos have`} no estimate yet. Add one below, or
+                    I'll assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} each.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {/* The Auto-fill button that asked has gone: focus the answer. */}
+                    <button type="button" onClick={assumeAndRun} autoFocus className={primaryButton}>
+                      Assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} and Auto-fill
+                    </button>
+                    <button type="button" onClick={() => setAutofill({ state: 'idle' })} className={quietButton}>Cancel</button>
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <button
-                type="button"
-                data-testid="autofill"
-                onClick={startAutofill}
-                disabled={over || tasks.length === 0 || autofill.state === 'loading' || otherDraft}
-                className={cn(primaryButton, 'justify-center')}
-              >
-                <Sparkles className={cn('h-4 w-4', autofill.state === 'loading' && 'animate-pulse')} />
-                {autofill.state === 'loading' ? 'Drafting your week...' : 'Auto-fill'}
-              </button>
-            )}
-            {autofill.state === 'error' && (
-              <p role="status" className="text-meta text-text-secondary">{autofill.message}</p>
-            )}
-          </div>
+              )}
+              {autofill.state === 'error' && (
+                <p role="status" className="text-meta text-text-secondary">{autofill.message}</p>
+              )}
+            </div>
+          )
         )}
 
         <section className="flex flex-col gap-2">
@@ -324,36 +373,73 @@ export function HelpMePlanPanel({
 
         <FreeTime layout={layout} now={now} onStudyMinPerDayChange={onStudyMinPerDayChange} />
       </div>
+
+      {showDraft ? (
+        <div className="flex shrink-0 items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
+          <button
+            type="button"
+            onClick={() => void layer.acceptAll()}
+            disabled={layer.saving || openDraftBlocks === 0}
+            className={cn(primaryButton, 'flex-1 justify-center gap-1.5 whitespace-nowrap px-3')}
+          >
+            <Check className="h-4 w-4" />
+            Accept draft
+          </button>
+          <button type="button" onClick={keepPlan} disabled={layer.saving} className={ghostButton}>
+            Keep my plan
+          </button>
+        </div>
+      ) : autofill.state !== 'confirm-estimates' && (
+        <div className="flex shrink-0 border-t border-border-subtle px-4 pb-4 pt-3">
+          <button
+            ref={autofillRef}
+            type="button"
+            data-testid="autofill"
+            onClick={startAutofill}
+            disabled={over || tasks.length === 0 || autofill.state === 'loading' || otherDraft}
+            className={cn(primaryButton, 'flex-1 justify-center')}
+          >
+            <Sparkles className={cn('h-4 w-4', autofill.state === 'loading' && 'animate-pulse')} />
+            {autofill.state === 'loading' ? 'Drafting your week...' : 'Auto-fill'}
+          </button>
+        </div>
+      )}
     </aside>
   )
 }
 
-const primaryButton = 'inline-flex h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
+const primaryButton = 'inline-flex h-10 items-center gap-2 rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
 const quietButton = 'inline-flex h-8 items-center gap-1.5 rounded-item border border-border bg-surface-raised px-2.5 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'
+const ghostButton = 'inline-flex h-10 items-center rounded-control px-2 text-body whitespace-nowrap font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-50'
+const linkButton = 'font-semibold text-accent hover:underline'
 const sectionLabel = 'text-meta font-semibold text-text-muted'
 
+/**
+ * The capacity headline (naming the daily cap Auto-fill drafts with) and a
+ * bar: study time left in the accent, any shortfall hatched in amber.
+ */
 function CapacityBar({ freeMin, neededMin, copy, assumed }: { freeMin: number; neededMin: number; copy: string; assumed: number }) {
   const scale = Math.max(freeMin, neededMin, 1)
   const fitting = Math.min(freeMin, neededMin)
-  const overflow = Math.max(0, neededMin - freeMin)
+  const short = Math.max(0, neededMin - freeMin)
   return (
-    <div data-testid="plan-capacity" className="flex flex-col gap-2 rounded-item border border-border-subtle bg-surface-inset px-3.5 py-3">
-      <p className="text-body font-semibold text-text-primary">{copy}</p>
+    <div data-testid="plan-capacity" className="flex flex-col gap-2.5 rounded-item border border-border-subtle bg-surface-inset px-3.5 py-3">
+      <p className="text-title font-semibold text-text-primary">{copy}</p>
       <div
         role="img"
         aria-label={`${formatMinutes(freeMin)} of study time left, ${formatMinutes(neededMin)} needed`}
-        className="relative flex h-2 overflow-hidden rounded-full bg-accent-soft ring-1 ring-inset ring-accent-line"
+        className="relative flex h-2 overflow-hidden rounded-full bg-surface-overlay"
       >
         <span className="h-full rounded-full bg-accent transition-[width] duration-300" style={{ width: `${(fitting / scale) * 100}%` }} />
-        {overflow > 0 && (
-          <span className="h-full bg-attn transition-[width] duration-300" style={{ width: `${(overflow / scale) * 100}%` }} />
+        {short > 0 && (
+          <span data-testid="plan-shortfall" className="h-full hatch-attn transition-[width] duration-300" style={{ width: `${(short / scale) * 100}%` }} />
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-muted">
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-accent-soft ring-1 ring-inset ring-accent-line" />Study time {formatMinutes(freeMin)}</span>
-        <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-accent" />To-dos {formatMinutes(neededMin)}</span>
-        {overflow > 0 && <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-attn" />{formatMinutes(overflow)} over</span>}
-      </div>
+      <p data-testid="plan-capacity-numbers" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-muted">
+        <span><span className="font-semibold text-text-secondary">{formatMinutes(freeMin)}</span> free</span>
+        <span><span className="font-semibold text-text-secondary">{formatMinutes(neededMin)}</span> to do</span>
+        {short > 0 && <span className="font-semibold text-attn">{formatMinutes(short)} short</span>}
+      </p>
       {assumed > 0 && (
         <p className="text-meta text-text-muted">
           Counting {formatMinutes(ASSUMED_ESTIMATE_MIN)} for {assumed === 1 ? 'the to-do' : `the ${assumed} to-dos`} with no estimate.
@@ -363,57 +449,79 @@ function CapacityBar({ freeMin, neededMin, copy, assumed }: { freeMin: number; n
   )
 }
 
+/**
+ * Auto-fill's draft: its note, a Shrink offer for anything too long (no
+ * splitting: one to-do is one block), the drafted blocks in time order, and
+ * what didn't fit, each with "Pick a time". Accept draft and Keep my plan
+ * sit in the panel's footer.
+ */
 function DraftSummary({
   autofill,
   layer,
+  now,
+  todos,
   onTrim,
-  onKeepPlan,
   minutesPerDay,
   overCapacity,
   originalTasks,
+  pickDefaultFor,
+  onPick,
+  freeMin,
+  headingRef,
 }: {
+  /** Study time left, as the capacity headline counts it. */
+  freeMin: number
+  /** Focused when Auto-fill finishes. */
+  headingRef: RefObject<HTMLHeadingElement | null>
   minutesPerDay: number
   overCapacity: boolean
+  now: number
+  /** Open to-dos with no time yet: one picked by hand leaves "didn't fit". */
+  todos: PlanItemOccurrence[]
   /** The to-dos as they are (before any trim the student applied). */
   originalTasks: PlanTask[]
   autofill: Drafted
   layer: ProposalLayer
   onTrim: (taskId: string, durationMin: number | null) => void
-  onKeepPlan: () => void
+  pickDefaultFor: (durationMin: number) => number
+  onPick: (todo: PlanItemOccurrence, start: Date, durationMin: number) => void
 }) {
   const { advice, draft, trims, estimates } = autofill
+  const [picking, setPicking] = useState<string | null>(null)
   const title = (id: string) => draft.tasks.find((t) => t.id === id)?.title ?? 'a to-do'
   const assumed = Object.keys(estimates).map(title)
-  const open = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
+  const blocks = layer.proposals.filter((p) => !layer.savedIds.has(p.id))
   // Every to-do too long for one day gets a trim offer, at the current budget.
-  const offers = completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay })
+  // With no study time left nothing can fit, however short: no Shrink offers.
+  const offers = freeMin > 0 ? completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay }) : []
   const shown = [
     ...offers,
     // Applied trims stay listed (with Undo) even if the offer moved on.
     ...[...trims].filter(([id]) => !offers.some((t) => t.taskId === id)).map(([taskId, durationMin]) => ({ taskId, durationMin, reason: '' })),
   ]
+  const longest = longestBlockMin(minutesPerDay)
+  const unplaced = draft.unplaced.filter((u) => todos.some((t) => t.id === u.taskId))
   // The numbers come from the draft itself, so they always match the ghosts.
-  const unplacedMin = draft.unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
-  const summary = draftCopy(proposalMinutes(layer.proposals), unplacedMin)
+  const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
+  const placedMin = proposalMinutes(layer.proposals)
+  // Study time the headline counts that the draft left in gaps too short for what is left.
+  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)))
 
   return (
-    <div data-testid="autofill-draft" className="flex flex-col gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3 py-3">
-      <div className="flex items-center gap-1.5 text-meta font-semibold text-accent">
-        <Sparkles className="h-3.5 w-3.5" />
-        Draft: {open === 1 ? '1 block' : `${open} blocks`} to look over
-      </div>
-      <p data-testid="autofill-summary" className="text-body font-semibold text-text-primary">{summary}</p>
-      {advice.note && <p data-testid="autofill-note" className="text-meta text-text-secondary">{advice.note}</p>}
+    <div data-testid="autofill-draft" className="flex flex-col gap-3.5">
 
       {shown.map((trim) => {
         const applied = trims.has(trim.taskId)
         const task = originalTasks.find((t) => t.id === trim.taskId)
+        const tooLong = !!task && task.durationMin > longest
         return (
-          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3 py-2.5">
+          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-3">
             {applied ? (
-              <div className="flex items-center gap-2 text-meta text-text-primary">
-                <Scissors className="h-3.5 w-3.5 shrink-0 text-attn" />
-                <span className="min-w-0 flex-1">Shrunk "{title(trim.taskId)}" to {formatMinutes(trims.get(trim.taskId)!)}.</span>
+              <div className="flex flex-wrap items-center gap-2 text-body text-text-primary">
+                <Scissors className="h-4 w-4 shrink-0 text-attn" aria-hidden />
+                <span className="min-w-0 flex-1 basis-40">
+                  Shrunk <span className="font-semibold">{title(trim.taskId)}</span> to {formatMinutes(trims.get(trim.taskId)!)}.
+                </span>
                 <button type="button" onClick={() => onTrim(trim.taskId, null)} className={quietButton}>
                   <Undo2 className="h-3.5 w-3.5" />
                   Undo
@@ -422,10 +530,11 @@ function DraftSummary({
             ) : (
               <>
                 <p className="text-body text-text-primary">
-                  Shrink "{title(trim.taskId)}" to {formatMinutes(trim.durationMin)}?
-                  {task && <span className="text-text-secondary"> (now {formatMinutes(task.durationMin)})</span>}
+                  <span className="font-semibold">{title(trim.taskId)}</span>
+                  {task && ` (${formatMinutes(task.durationMin)})`}
+                  {tooLong ? ' is too long for one day.' : ' could be shorter, so more fits.'}
                 </p>
-                {trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
+                {!tooLong && trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
                 <button type="button" onClick={() => onTrim(trim.taskId, trim.durationMin)} className={cn(quietButton, 'self-start')}>
                   <Scissors className="h-3.5 w-3.5" />
                   Shrink to {formatMinutes(trim.durationMin)}
@@ -436,14 +545,60 @@ function DraftSummary({
         )
       })}
 
-      {draft.unplaced.length > 0 && (
-        <div data-testid="autofill-unplaced" className="flex flex-col gap-0.5 text-meta text-text-secondary">
-          <span className="font-semibold">Didn't fit this time:</span>
-          {draft.unplaced.map((u) => (
-            <span key={u.taskId}>
-              {u.task.title} ({formatMinutes(u.task.durationMin)}) - {unplacedReason(u.reason, minutesPerDay)}
-            </span>
+      <section className="flex flex-col gap-1.5">
+        <h4 ref={headingRef} tabIndex={-1} className={cn(sectionLabel, 'rounded-item outline-none focus-visible:ring-2 focus-visible:ring-accent')}>
+          {blocks.length === 0 ? 'Draft' : `Draft · ${blocks.length === 1 ? '1 block' : `${blocks.length} blocks`}`}
+        </h4>
+        <p data-testid="autofill-summary" className="text-meta text-text-secondary">{summary}</p>
+        <ul className={cn('flex flex-col gap-1.5', blocks.length === 0 && 'hidden')}>
+          {blocks.map((p) => (
+            <li
+              key={p.id}
+              data-testid="autofill-block"
+              className="flex items-center gap-2.5 rounded-item border-[1.5px] border-dashed border-border px-2.5 py-1.5"
+            >
+              <span className={cn('h-2 w-2 shrink-0 rounded-full', toneFor(p.course ?? null).bar)} aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-body font-semibold text-text-primary" title={p.title}>{p.title}</span>
+              <span className="shrink-0 text-meta tabular-nums text-text-muted">{slotLabel(Date.parse(p.startsAt), now)}</span>
+            </li>
           ))}
+        </ul>
+      </section>
+
+      {advice.note && <p data-testid="autofill-note" className="text-meta text-text-secondary">{advice.note}</p>}
+
+      {unplaced.length > 0 && (
+        <div data-testid="autofill-unplaced" className="flex flex-col gap-1.5 text-meta text-text-secondary">
+          {unplaced.map((u) => {
+            const todo = todos.find((t) => t.id === u.taskId)!
+            return (
+              <div key={u.taskId} className="flex flex-col gap-1.5">
+                <p>
+                  {u.task.title} ({formatMinutes(u.task.durationMin)}) didn't fit: {unplacedReason(u.reason, minutesPerDay)}.{' '}
+                  <button
+                    type="button"
+                    onClick={() => setPicking((id) => (id === u.taskId ? null : u.taskId))}
+                    aria-label={`Pick a time for ${u.task.title}`}
+                    className={linkButton}
+                  >
+                    Pick a time
+                  </button>
+                </p>
+                {picking === u.taskId && (
+                  <PickTime
+                    title={u.task.title}
+                    defaultStart={pickDefaultFor(u.task.durationMin)}
+                    onPick={(start) => {
+                      setPicking(null)
+                      onPick(todo, start, u.task.durationMin)
+                    }}
+                    onCancel={() => setPicking(null)}
+                    className=""
+                  />
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
       {assumed.length > 0 && (
@@ -453,15 +608,6 @@ function DraftSummary({
       )}
 
       {layer.error && <p role="status" className="text-meta text-text-secondary">{layer.error}</p>}
-      <div className="flex flex-wrap gap-1.5 pt-0.5">
-        <button type="button" onClick={() => void layer.acceptAll()} disabled={layer.saving || open === 0} className={primaryButton}>
-          Accept all
-        </button>
-        <button type="button" onClick={onKeepPlan} disabled={layer.saving} className={quietButton}>
-          Keep my plan
-        </button>
-      </div>
-      <p className="text-meta text-text-muted">Nothing is saved until you accept. Drag a suggested block to adjust it.</p>
     </div>
   )
 }
@@ -511,7 +657,7 @@ function TodoRow({
         <div className="min-w-0 flex-1">
           <p className="truncate text-body font-semibold text-text-primary" title={todo.title}>{todo.title}</p>
           <p className="text-meta text-text-muted">
-            {todo.due_at ? `Due ${dayLabel(todo.due_at, now)}` : 'No due date'}
+            {todo.due_at ? doByLabel(todo.due_at, now) : 'No due date'}
             {task.weakTopic && ' · from a confusing moment'}
           </p>
         </div>
@@ -542,7 +688,7 @@ function TodoRow({
       {ghost ? (
         <p className="flex items-center gap-1 pl-[22px] text-meta font-semibold text-accent">
           <Sparkles className="h-3 w-3" />
-          Suggested {dayLabel(ghost, now)} {formatClock(new Date(ghost))}
+          Suggested {slotLabel(Date.parse(ghost), now)}
         </p>
       ) : suggestions.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
@@ -593,15 +739,29 @@ function toLocalInput(ms: number): string {
 }
 
 /** Keyboard-friendly way to give a to-do a time without dragging. */
-function PickTime({ title, defaultStart, onPick, onCancel }: { title: string; defaultStart: number; onPick: (start: Date) => void; onCancel: () => void }) {
+function PickTime({ title, defaultStart, onPick, onCancel, className = 'pl-[22px]' }: {
+  title: string
+  defaultStart: number
+  onPick: (start: Date) => void
+  onCancel: () => void
+  className?: string
+}) {
   const [value, setValue] = useState(() => toLocalInput(defaultStart))
+  // The button that opened it (focused when this first renders): cancelling hands focus back.
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null))
+  const cancel = () => {
+    onCancel()
+    requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus()
+    })
+  }
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const start = new Date(value)
     if (!Number.isNaN(start.getTime())) onPick(start)
   }
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-1.5 pl-[22px]" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+    <form onSubmit={submit} className={cn('flex flex-wrap items-center gap-1.5', className)} onKeyDown={(e) => e.key === 'Escape' && cancel()}>
       <input
         type="datetime-local"
         step={900}
@@ -612,7 +772,7 @@ function PickTime({ title, defaultStart, onPick, onCancel }: { title: string; de
         className="h-7 rounded-item border border-border bg-surface-inset px-2 text-meta text-text-primary"
       />
       <button type="submit" className="h-7 rounded-item bg-accent px-2.5 text-meta font-semibold text-accent-foreground hover:opacity-90">Add</button>
-      <button type="button" onClick={onCancel} className={pickButton}>Cancel</button>
+      <button type="button" onClick={cancel} className={pickButton}>Cancel</button>
     </form>
   )
 }

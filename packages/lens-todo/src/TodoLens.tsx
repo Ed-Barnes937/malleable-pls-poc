@@ -116,11 +116,11 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
         <Select
           aria-label="Time estimate"
           title="Time estimate (optional)"
-          wrapperClassName="w-24 shrink-0"
+          wrapperClassName="w-28 shrink-0"
           value={estimate}
           onChange={(e) => setEstimate(e.target.value)}
         >
-          <option value="">Est.</option>
+          <option value="">How long?</option>
           {ESTIMATES.map((min) => (
             <option key={min} value={min}>
               {formatDuration(min)}
