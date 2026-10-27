@@ -3,6 +3,7 @@ import { test, expect } from '@playwright/test'
 import { AudioCapturePom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'lecture-tone.wav')
+const DEMO_LECTURE = path.join(__dirname, '..', 'demo', 'lecture-mitochondrial-dna.wav')
 
 test.describe('Journey: Upload a lecture recording', () => {
   test('uploaded recording becomes the focus and its transcript appears', async ({ page }) => {
@@ -31,6 +32,30 @@ test.describe('Journey: Upload a lecture recording', () => {
     await expect(sidebar.recordingSelect.locator('option:checked')).toHaveText('Uploaded: Enzyme Kinetics')
 
     // Restore the seeded focus so later tests see clean state.
+    await sidebar.selectRecording('Biology Lecture: Mitochondrial DNA')
+    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+  })
+
+  test('the prepared demo lecture transcribes to its real script in mock mode', async ({ page }) => {
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+
+    await topBar.switchToWorkspace('In Lecture')
+    const audio = new AudioCapturePom(grid.panelByLabel('Audio Capture'))
+    const transcript = grid.panelByLabel('Transcript')
+
+    await audio.pickFile(DEMO_LECTURE)
+    await audio.submitUpload({ title: 'Uploaded: Demo lecture', course: 'Biology' })
+
+    // Matched by file hash (apps/server/src/ai/demo-lecture.ts): one moment per script paragraph.
+    await expect(transcript.getByText('Uploaded: Demo lecture')).toBeVisible({ timeout: 10000 })
+    await expect(transcript.getByText(/let me try to explain maternal inheritance/)).toBeVisible({ timeout: 20000 })
+    await expect(transcript.getByText('17 segments')).toBeVisible()
+    await expect(transcript.getByText(/Welcome to today's lecture/)).toHaveCount(0)
+
+    const sidebar = new SidebarPom(page)
+    await topBar.openDrawer()
     await sidebar.selectRecording('Biology Lecture: Mitochondrial DNA')
     await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
   })

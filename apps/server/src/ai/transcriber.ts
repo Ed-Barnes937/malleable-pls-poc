@@ -17,7 +17,7 @@ export interface Transcriber {
 }
 
 // Long enough for the UI to show the "transcribing" state, short enough for e2e.
-const MOCK_TRANSCRIBE_DELAY_MS = 1500
+export const MOCK_TRANSCRIBE_DELAY_MS = 1500
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))

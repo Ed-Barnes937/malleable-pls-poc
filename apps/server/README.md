@@ -12,7 +12,7 @@ provider client.
 | `AI_MODE` | `OPENROUTER_API_KEY` | Result |
 |---|---|---|
 | `live` | set | OpenRouter Whisper transcription + OpenRouter LLM (`OPENROUTER_LLM_MODEL`, default in `src/ai/openrouter.ts`) |
-| anything else, or unset (default `mock`) | any | Deterministic fakes: canned transcript, `fakeLlmFixtures` |
+| anything else, or unset (default `mock`) | any | Deterministic fakes: canned transcript (the real script for the demo wav, see below), `fakeLlmFixtures` |
 | `live` | missing or empty | Fakes (a startup line says why) |
 
 The server logs which mode it is in at startup.
@@ -46,3 +46,22 @@ Then call it through the injected client: `const { title } = await ai.llm.run(re
 - The schema must suit strict structured output: an object root, every field required (use `.nullable()`, not `.optional()`), and no `default`, length or format constraints. `defineLlmTask` throws at definition time otherwise, so a bad schema fails the first test that imports it instead of only failing live.
 - Live and fake replies both go through JSON parsing and `schema` validation.
 - In tests, `createFakeLlmClient()` records `.calls` (task, input, built prompt) for assertions.
+- Register it in `src/ai/tasks/index.ts` with a sample input (`llmTaskSample(task, (lecture) => input)`), so the live smoke test covers it. `src/ai/tasks/index.test.ts` fails until you do.
+
+## Demo lecture and the live smoke test
+
+The prepared demo lecture lives in `demo/` at the repo root: the script text (`lecture-mitochondrial-dna.md`), the audio (`.wav`, 16 kHz mono) and its transcript fixture (`.segments.json`: one segment per paragraph with exact timings, plus the wav's sha256). Regenerate the audio and fixture together after editing the script, on macOS:
+
+```sh
+pnpm demo:make-lecture            # or: scripts/demo/make-lecture.sh Daniel
+```
+
+**Mock mode** returns that fixture, the real lecture text with its real timings, when an uploaded file's bytes hash to the demo wav (`src/ai/demo-lecture.ts`); any other upload gets the canned mock transcript. This is also the demo's fallback if live transcription is unavailable: run in mock mode and upload the demo wav.
+
+**Live smoke test (Ed only, costs money):** checks every live AI call the demo makes before a demo. It transcribes the demo wav with OpenRouter Whisper, then runs each task registered in `src/ai/tasks/index.ts` once on that transcript, printing each result, the cost of each call and the total.
+
+```sh
+AI_MODE=live pnpm demo:live-smoke
+```
+
+It refuses to run unless `AI_MODE=live` is set on the command line (it checks before loading `apps/server/.env`, which is where it reads `OPENROUTER_API_KEY` and `OPENROUTER_LLM_MODEL` from). Agents and CI must never run it.

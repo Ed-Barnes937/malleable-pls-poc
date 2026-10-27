@@ -1,7 +1,8 @@
 import { createFakeLlmClient } from './fake-llm'
 import type { LlmClient } from './llm'
 import { createOpenRouterLlmClient, createOpenRouterWhisperTranscriber } from './openrouter'
-import { mockTranscriber, type Transcriber } from './transcriber'
+import { withDemoLectureCache } from './demo-lecture'
+import { MOCK_TRANSCRIBE_DELAY_MS, mockTranscriber, type Transcriber } from './transcriber'
 
 export type AiMode = 'live' | 'mock'
 
@@ -30,7 +31,12 @@ export function createAiDeps(env: NodeJS.ProcessEnv = process.env): AiDeps {
       llm: createOpenRouterLlmClient({ apiKey, model: env.OPENROUTER_LLM_MODEL?.trim() || undefined }),
     }
   }
-  return { mode: 'mock', transcriber: mockTranscriber, llm: createFakeLlmClient() }
+  return {
+    mode: 'mock',
+    // The demo wav gets its real script (see ./demo-lecture.ts); other uploads the canned lecture.
+    transcriber: withDemoLectureCache(mockTranscriber, { delayMs: MOCK_TRANSCRIBE_DELAY_MS }),
+    llm: createFakeLlmClient(),
+  }
 }
 
 /** One startup line so it is obvious whether a run can spend money. */
