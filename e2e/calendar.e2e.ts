@@ -81,15 +81,16 @@ test.describe('Calendar', () => {
 
   test('keyboard: Tab reaches a block, Enter opens it, Escape returns focus', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
-    await call(request, 'planItems.create', { kind: 'commitment', title: 'Cafe shift', starts_at: at(3, 18), ends_at: at(3, 22) })
+    // Saturday, clear of the seeded week's blocks (which come first in tab order).
+    await call(request, 'planItems.create', { kind: 'commitment', title: 'Extra shift', starts_at: at(5, 18), ends_at: at(5, 22) })
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('Week plan')
     const calendar = new CalendarPom(page)
-    const shift = calendar.block('Cafe shift')
+    const shift = calendar.block('Extra shift')
     await expect(shift).toBeVisible()
 
     await calendar.root.getByRole('button', { name: 'Add to calendar' }).focus()
-    for (let i = 0; i < 10 && !(await shift.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab')
+    for (let i = 0; i < 30 && !(await shift.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab')
     await expect(shift).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(calendar.popover.getByLabel('Title')).toBeFocused()

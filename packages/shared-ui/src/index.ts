@@ -20,6 +20,7 @@ export {
   dayLabel,
   clockTime,
   dayAndTime,
+  dayMonthAndTime,
   stillToDoLabel,
   formatDuration,
   isAllDay,
