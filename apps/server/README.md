@@ -62,7 +62,7 @@ Editing the params (`workflows.patch`, or `workflows.update`) re-places the open
 
 **Boards:** writes made from a board (marks, notes, uploads, plan item changes) send its id, and automations are dispatched on that board, so a board copy (e.g. one switched off there) wins over the built-in one. The pg adapter stores the board with each job as `input._workspaceId` (next to `_userId`), and the runner cascades events a job raises on the same board (`scopeForJob`), so switching the summary off on a board works too.
 
-The LLM only writes words (a review topic, summary lines); the fakes (`src/ai/tasks/text.ts`) derive them from the transcript so mock mode looks real. DB-backed tests: `TEST_DATABASE_URL=... pnpm test review-automation.db`.
+The LLM only writes words (a review topic, summary lines); the fakes (via `keyPhrase` / `extractiveSummary` in `packages/substrate/src/text.ts`) derive them from the transcript so mock mode looks real. DB-backed tests: `TEST_DATABASE_URL=... pnpm test review-automation.db`.
 
 ## Demo lecture and the live smoke test
 

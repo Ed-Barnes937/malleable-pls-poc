@@ -40,10 +40,13 @@ export const DEFAULT_REVIEW_PARAMS: ReviewTaskParams = {
 export const REVIEW_DURATION_OPTIONS = [10, 15, 20, 30, 45, 60] as const
 export const REVIEW_WINDOW_OPTIONS = [1, 2, 3, 5, 7] as const
 
+/** An IANA time zone name the runtime knows, e.g. "Europe/London". */
+export const timeZoneInput = z.string().min(1).max(100).refine((tz) => isValidTimeZone(tz), { message: 'Unknown time zone' })
+
 export const reviewTaskParamsInput = z.object({
   durationMin: z.number().int().min(5).max(240),
   windowDays: z.number().int().min(1).max(14),
-  timeZone: z.string().min(1).max(100).refine(isValidTimeZone, { message: 'Unknown time zone' }),
+  timeZone: timeZoneInput,
 })
 
 function safeJson(text: string): unknown {

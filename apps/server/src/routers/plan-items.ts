@@ -8,9 +8,12 @@ import {
   newPlanItemOnBoardInput,
   planItemOnBoardInput,
   planItemIdInput as id,
+  refitAcceptInput,
+  refitPreviewInput,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { acceptRefit, previewRefit } from '../planning/refit'
 import {
   assertValid,
   columns,
@@ -135,6 +138,32 @@ export const planItemsRouter = router({
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
+    }),
+
+  /**
+   * To-dos whose time block ended without being done ("2 blocks didn't
+   * happen"), each with where re-fit would put it now, or why it doesn't fit.
+   * Empty when nothing was missed. Never includes commitments.
+   */
+  refitPreview: publicProcedure
+    .input(refitPreviewInput)
+    .query(async ({ ctx, input }) => {
+      return withUser(ctx.userId, (tx) => previewRefit(tx, ctx.userId, { now: Date.now(), timeZone: input.timeZone }))
+    }),
+
+  /**
+   * Accept re-fit blocks as previewed. CONFLICT (nothing written) when the
+   * week changed since the preview; fetch a fresh one.
+   */
+  refit: publicProcedure
+    .input(refitAcceptInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, (tx) => acceptRefit(tx, ctx.userId, {
+        now: Date.now(),
+        timeZone: input.timeZone,
+        blocks: input.blocks,
+        workspaceId: input.workspaceId ?? null,
+      }))
     }),
 
   /** Hard delete (no workflow event). NOT_FOUND for a missing or another user's id. */

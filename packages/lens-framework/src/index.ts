@@ -32,6 +32,7 @@ export type {
   PanelManifest,
   WidgetGroup,
 } from './substrate-contract'
+export { isConflictError } from './substrate-contract'
 export {
   ManifestRegistryProvider,
   LensRegistryProvider,

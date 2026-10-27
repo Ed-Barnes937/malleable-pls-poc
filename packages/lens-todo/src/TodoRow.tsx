@@ -16,9 +16,10 @@ export interface TodoRowProps {
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
   onScopeChange: LensProps['onScopeChange']
+  onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismiss, onScopeChange }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
   const done = item.status === 'done'
   const slipped = done ? null : slippedAt(item, now)
 
@@ -83,7 +84,7 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
                 {item.course}
               </span>
             )}
-            <SourceLink item={item} onScopeChange={onScopeChange} />
+            <SourceLink item={item} onScopeChange={onScopeChange} onShowMoment={onShowMoment} />
           </div>
         )}
       </div>

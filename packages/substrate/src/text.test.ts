@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
-import { extractiveSummary, keyPhrase, sentences } from './text'
-import { mockTranscriptSegments } from '../transcriber'
+import { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
+
+// A short lecture in the shape of the mock transcriber's.
+const LECTURE = [
+  'Welcome back. Today we\'re looking at mitochondrial DNA and why it behaves so differently from the DNA in the nucleus.',
+  'Mitochondria carry their own small circular genome, about sixteen and a half thousand base pairs, coding for thirty-seven genes.',
+  'Here\'s the part people find tricky. You inherit your mitochondria only from your mother. This is what we call maternal inheritance.',
+  'Sperm mitochondria are tagged and destroyed after fertilisation, so the father\'s mitochondrial DNA almost never reaches the embryo.',
+  'Because mitochondrial DNA skips recombination, it changes only by mutation, which makes it a useful clock for tracing ancestry.',
+  'For Thursday\'s quiz, be ready to explain why mitochondrial diseases pass from a mother to all of her children.',
+].join(' ')
 
 // Lines from the seeded Mitochondrial DNA lecture (002_seed.sql, rec-bio-4).
 const SEG_04 = 'Here\'s the critical point: mitochondrial DNA is inherited exclusively from the maternal line. The egg cell contributes all the mitochondria.'
@@ -29,11 +38,34 @@ describe('keyPhrase', () => {
   it('never returns an empty topic', () => {
     expect(keyPhrase('Okay, so, um, right.')).toBe('this moment')
   })
+
+  it('never picks a contraction', () => {
+    expect(keyPhrase("Harmful mutations can't be diluted.")).toBe('harmful mutations')
+  })
+})
+
+describe('topicLabel', () => {
+  it('capitalises the label and keeps the casing the lecture used', () => {
+    expect(topicLabel('maternal inheritance', SEG_05)).toBe('Maternal inheritance')
+    expect(topicLabel('drives atp synthase', 'This gradient drives ATP synthase.')).toBe('Drives ATP synthase')
+    expect(topicLabel('krebs cycle', 'This is known as the Krebs cycle.')).toBe('Krebs cycle')
+  })
+
+  it('keeps a name capitalised anywhere in the label, once the lecture uses it mid-sentence', () => {
+    expect(topicLabel('gradient mitchell', 'This gradient was shown by Mitchell.')).toBe('Gradient Mitchell')
+    expect(topicLabel('chemiosmosis peter mitchell', 'Peter Mitchell won a Nobel Prize. This is chemiosmosis, as Peter Mitchell showed.'))
+      .toBe('Chemiosmosis Peter Mitchell')
+  })
+
+  it('ignores capitals that only start a sentence', () => {
+    expect(topicLabel('mitochondrial diseases', 'Mitochondrial diseases are rare. Mitochondrial DNA is small.')).toBe('Mitochondrial diseases')
+    expect(topicLabel('cell membrane', 'The cell membrane. Cell walls too.')).toBe('Cell membrane')
+  })
 })
 
 describe('extractiveSummary', () => {
   it('picks three content sentences in lecture order, skipping greetings', () => {
-    const text = mockTranscriptSegments.map((s) => s.text).join(' ')
+    const text = LECTURE
     const lines = extractiveSummary(text, 3)
     expect(lines).toHaveLength(3)
     expect(lines.some((l) => /^welcome/i.test(l))).toBe(false)

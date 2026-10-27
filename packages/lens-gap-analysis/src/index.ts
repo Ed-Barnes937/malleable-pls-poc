@@ -7,7 +7,7 @@ export const manifest: PanelManifest = {
   id: 'gap-analysis',
   label: 'All Courses',
   icon: PieChart,
-  description: 'Coverage across your courses',
+  description: 'How sure you feel across your courses',
   group: 'review',
   scope: { courseTag: 'highlight', recordingId: 'ignore' },
   reads: ['gap_analysis'],

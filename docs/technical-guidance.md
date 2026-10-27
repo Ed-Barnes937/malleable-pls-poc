@@ -152,7 +152,7 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | Transcript | `filter` (narrows picker) | `target` | "pick a lecture" |
 | Connections | `filter` | `target` | prompt to focus a lecture |
 | Test me | `filter` | `ignore` | all material |
-| This week | `filter` | `ignore` | all courses |
+| Your progress (weekly-overview) | `filter` | `ignore` | all courses |
 | All courses (gap analysis) | `highlight` | `ignore` | all courses |
 | Weakest topics | `filter` | `ignore` | all |
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |

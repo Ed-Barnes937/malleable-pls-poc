@@ -6,8 +6,7 @@ import type {
   Annotation,
   ConfidenceSignal,
   ConnectionResult,
-  CourseOverview,
-  CourseGap,
+  CourseProgress,
   WeakTopic,
   NewTag,
   NewAnnotation,
@@ -17,6 +16,9 @@ import type {
   PlanItemQuery,
   NewPlanItem,
   PlanItemUpdate,
+  RefitAccept,
+  RefitPreview,
+  RefitResult,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -79,14 +81,31 @@ export interface SubstrateReader {
   useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
   /** Links out of a targeted lecture; never course-filtered (the target wins). */
   useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
-  useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
-  useGapAnalysis: () => QueryResult<CourseGap[]>
+  useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseProgress[]>
+  useGapAnalysis: () => QueryResult<CourseProgress[]>
   useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
   /**
    * Plan items (commitments, deadlines, to-dos). Pass `from`/`to` to get one
    * row per occurrence in that range, with weekly recurrences expanded.
    */
   usePlanItems: (query?: PlanItemQuery) => QueryResult<PlanItemOccurrence[]>
+  /**
+   * To-dos whose time block ended without being done, each with where re-fit
+   * would put it now (or why it doesn't fit). Empty when nothing was missed.
+   * Always across every course: scope never changes where things go. Refreshed
+   * every minute, as blocks end.
+   */
+  useRefitPreview: (timeZone: string) => QueryResult<RefitPreview>
+}
+
+/**
+ * A mutation refused because the data changed since the widget last read it
+ * (the server's CONFLICT, e.g. a stale re-fit preview), as opposed to a
+ * network or server failure worth retrying as is.
+ */
+export function isConflictError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'CONFLICT'
 }
 
 // ---------------------------------------------------------------------------
@@ -109,6 +128,12 @@ export interface SubstrateWriter extends SubstrateReader {
   /** Marks dismissed ("not doing this"). Takes the plan item id. */
   useDismissPlanItem: () => MutationHandle<string, PlanItem>
   useDeletePlanItem: () => MutationHandle<string, void>
+  /**
+   * Moves missed blocks to their previewed times. Fails with a CONFLICT
+   * (nothing moved) if the week changed since the preview; the preview then
+   * refreshes.
+   */
+  useAcceptRefit: () => MutationHandle<Omit<RefitAccept, 'workspaceId'>, RefitResult>
 }
 
 // ---------------------------------------------------------------------------
