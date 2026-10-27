@@ -73,7 +73,7 @@ describe('proposals', () => {
     })
     let rows: { id: string; starts_at: string | null }[] = []
     const { result, rerender } = renderHook(() => useProposalLayer({ save, rows }))
-    act(() => result.current.propose('autofill', [ghost, { ...ghost, id: 'bad', taskId: 'tb', title: 'Bad one' }]))
+    act(() => result.current.propose('autofill', [ghost, { ...ghost, id: 'bad', taskId: 'tb', title: 'Bad one', startsAt: iso(1, 8), endsAt: iso(1, 9) }]))
     await act(() => result.current.acceptAll())
     expect(save).toHaveBeenCalledTimes(2)
     expect(result.current.savedIds.has('g1')).toBe(true)
@@ -86,5 +86,45 @@ describe('proposals', () => {
     // Accepting an already-saved one does nothing.
     await act(() => result.current.accept('g1'))
     expect(save).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-checks each ghost: takes out ones that no longer hold and refuses bad moves', async () => {
+    const save = vi.fn(async () => {})
+    let blocked = new Set<string>()
+    let clash: string | null = null
+    const validate = (p: Proposal) => (blocked.has(p.taskId) ? 'it already has a time' : clash && p.startsAt === iso(1, 9) ? `that time overlaps ${clash}` : null)
+    const { result, rerender } = renderHook(() => useProposalLayer({ save, rows: [], validate }))
+    const g2: Proposal = { ...ghost, id: 'g2', taskId: 't2', title: 'Reading', startsAt: iso(1, 8), endsAt: iso(1, 9) }
+    act(() => result.current.propose('autofill', [ghost, g2]))
+
+    // The to-do got a time by hand: its ghost goes, and the layer says so.
+    blocked = new Set(['t1'])
+    rerender()
+    expect(result.current.proposals.map((p) => p.id)).toEqual(['g2'])
+    expect(result.current.notice).toBe('Took "Quiz prep" out of the suggestions: it already has a time.')
+    act(() => result.current.clearNotice())
+
+    // A move onto something is refused.
+    clash = 'Biology lecture'
+    act(() => result.current.move('g2', iso(1, 9), iso(1, 10)))
+    expect(result.current.notice).toBe("Can't move \"Reading\" there: that time overlaps Biology lecture.")
+    expect(result.current.proposals).toEqual([g2])
+  })
+
+  it('never saves a ghost that fails the check at accept time, or one overlapping a ghost accepted before it', async () => {
+    const save = vi.fn(async () => {})
+    let bad = false
+    const validate = (p: Proposal) => (bad && p.id === 'g3' ? 'that time overlaps Cafe shift' : null)
+    const { result } = renderHook(() => useProposalLayer({ save, rows: [], validate }))
+    const g2: Proposal = { ...ghost, id: 'g2', taskId: 't2', title: 'Overlapping' }
+    const g3: Proposal = { ...ghost, id: 'g3', taskId: 't3', title: 'Shifted', startsAt: iso(2, 8), endsAt: iso(2, 9) }
+    act(() => result.current.propose('autofill', [ghost, g2, g3]))
+    // The check fails between rendering and accepting (e.g. a shift was just added).
+    bad = true
+    await act(() => result.current.acceptAll())
+    expect(save).toHaveBeenCalledTimes(1)
+    expect(save).toHaveBeenCalledWith(ghost)
+    expect(result.current.notice).toContain('Didn\'t save "Overlapping": that time overlaps "Quiz prep".')
+    expect(result.current.notice).toContain('Didn\'t save "Shifted": that time overlaps Cafe shift.')
   })
 })

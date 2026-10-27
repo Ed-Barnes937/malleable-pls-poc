@@ -1,24 +1,25 @@
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
   STUDY_PER_DAY_OPTIONS,
   capacityCopy,
+  completeTrims,
+  draftCopy,
   formatMinutes,
   planCapacity,
   planTasks,
   rankForPlan,
   studyDays,
   suggestTaskSlots,
-  type PlanAdvice,
   type PlanItemOccurrence,
   type PlanTask,
   type WeekLayout,
 } from '@pls/substrate'
-import { useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { useSubstrateMutations } from '@pls/lens-framework'
 import { cn, dayLabel } from '@pls/shared-ui'
-import { CalendarClock, GripVertical, Scissors, Sparkles, Undo2, X } from 'lucide-react'
-import { buildAutofillDraft, unplacedReason, type AutofillDraft } from './autofill'
+import { CalendarClock, ChevronsRight, GripVertical, Scissors, Sparkles, Undo2, X } from 'lucide-react'
+import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
 import { formatClock, formatWeekday, startOfDay } from './time'
@@ -46,6 +47,9 @@ export function HelpMePlanButton({ open, onToggle }: { open: boolean; onToggle: 
   )
 }
 
+/** Assigning a to-do was refused because the time overlaps something; `message` is for the student. */
+export class ScheduleClash extends Error {}
+
 /** A to-do being dragged from the panel onto the grid. */
 export interface DraggedTodo {
   id: string
@@ -60,28 +64,25 @@ export interface HelpMePlanPanelProps {
   weekLabel: string
   now: number
   layer: ProposalLayer
+  /** Open to-dos with no time yet (null while loading). */
+  todos: PlanItemOccurrence[] | null
+  /** Auto-fill's state, owned by the Calendar so it survives closing the panel. */
+  autofill: AutofillState
+  onAutofillChange: (next: AutofillState) => void
   onClose: () => void
-  /** Assign a to-do by hand: saves its block straight away. */
+  /** Tuck the panel away (it overlays the grid in a narrow calendar). */
+  onCollapse: () => void
+  /**
+   * Assign a to-do by hand: saves its block straight away. Rejects with a
+   * student-facing message when the time overlaps something.
+   */
   onSchedule: (todo: PlanItemOccurrence, start: Date, durationMin: number) => Promise<unknown>
   onDragTodo: (todo: DraggedTodo | null) => void
   /** The "study time per day" setting changed. */
   onStudyMinPerDayChange: (minutes: number) => void
 }
 
-type Autofill =
-  | { state: 'idle' }
-  | { state: 'confirm-estimates' }
-  | { state: 'loading' }
-  | { state: 'error'; message: string }
-  | {
-      state: 'drafted'
-      /** The week the draft is for (layout.week.start). */
-      week: number
-      advice: PlanAdvice
-      estimates: Record<string, number>
-      trims: Map<string, number>
-      draft: AutofillDraft
-    }
+type Drafted = Extract<AutofillState, { state: 'drafted' }>
 
 const SOURCE = 'autofill'
 
@@ -93,16 +94,16 @@ const SOURCE = 'autofill'
  * note, and its draft is ghost blocks in the calendar's proposal layer until
  * the student accepts them.
  */
-export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSchedule, onDragTodo, onStudyMinPerDayChange }: HelpMePlanPanelProps) {
-  const substrate = useSubstrate()
+export function HelpMePlanPanel({
+  layout, weekLabel, now, layer, todos: loaded, autofill, onAutofillChange: setAutofill,
+  onClose, onCollapse, onSchedule, onDragTodo, onStudyMinPerDayChange,
+}: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
   const updateItem = mutations.useUpdatePlanItem()
   const autofillPlan = mutations.useAutofillPlan()
-  const { data, isLoading } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
-  const [autofill, setAutofill] = useState<Autofill>({ state: 'idle' })
   const [rowError, setRowError] = useState<string | null>(null)
-
-  const todos = useMemo(() => (data ?? []) as PlanItemOccurrence[], [data])
+  const isLoading = loaded === null
+  const todos = useMemo(() => loaded ?? [], [loaded])
   const advisedOrder = autofill.state === 'drafted' ? autofill.advice.order : null
   // Most important first: the draft's order once there is one, else soonest due.
   const tasks = useMemo(() => {
@@ -120,7 +121,28 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
   // The draft ends when its ghosts are all accepted or dismissed.
   useEffect(() => {
     if (drafted && drafted.draft.proposals.length > 0 && layer.proposals.length === 0) setAutofill({ state: 'idle' })
-  }, [drafted, layer.proposals.length])
+  }, [drafted, layer.proposals.length, setAutofill])
+
+  /** Re-draft (after a trim, or a new study time per day), keeping ghosts the student dragged. */
+  const redraft = (from: Drafted, trims: Map<string, number>, keepAdjusted = true) => {
+    const pinned = keepAdjusted ? layer.proposals.filter((p) => p.adjusted && !trims.has(p.taskId) && !layer.savedIds.has(p.id)) : []
+    const draft = buildAutofillDraft({ todos, layout, now, advice: from.advice, trims, estimates: from.estimates, pinned })
+    layer.propose(SOURCE, draft.proposals)
+    setAutofill({ ...from, minutesPerDay: layout.budget.minutesPerDay, trims, draft })
+  }
+
+  // Changing study time per day during a draft re-drafts it with the new
+  // budget; applied trims that no longer fit in a day are dropped.
+  const budgetRef = useRef(layout.budget.minutesPerDay)
+  useEffect(() => {
+    const perDay = layout.budget.minutesPerDay
+    if (budgetRef.current === perDay) return
+    budgetRef.current = perDay
+    if (!drafted || !draftHere) return
+    const trims = new Map([...drafted.trims].filter(([, min]) => min <= perDay))
+    redraft(drafted, trims, false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout.budget.minutesPerDay])
 
   const runAutofill = async (estimates: Record<string, number>) => {
     setAutofill({ state: 'loading' })
@@ -135,7 +157,7 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
       const trims = new Map<string, number>()
       const draft = buildAutofillDraft({ todos, layout, now, advice, trims, estimates })
       layer.propose(SOURCE, draft.proposals)
-      setAutofill({ state: 'drafted', week: layout.week.start, advice, estimates, trims, draft })
+      setAutofill({ state: 'drafted', week: layout.week.start, minutesPerDay: layout.budget.minutesPerDay, advice, estimates, trims, draft })
     } catch {
       setAutofill({ state: 'error', message: "Auto-fill didn't work just now. Nothing changed - try again?" })
     }
@@ -156,10 +178,7 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
     const trims = new Map(drafted.trims)
     if (durationMin == null) trims.delete(taskId)
     else trims.set(taskId, durationMin)
-    const pinned = layer.proposals.filter((p) => p.adjusted && p.taskId !== taskId && !layer.savedIds.has(p.id))
-    const draft = buildAutofillDraft({ todos, layout, now, advice: drafted.advice, trims, estimates: drafted.estimates, pinned })
-    layer.propose(SOURCE, draft.proposals)
-    setAutofill({ ...drafted, trims, draft })
+    redraft(drafted, trims)
   }
 
   const saveEstimate = async (todo: PlanItemOccurrence, durationMin: number) => {
@@ -175,8 +194,8 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
     setRowError(null)
     try {
       await onSchedule(todo, start, durationMin)
-    } catch {
-      setRowError(`Couldn't add "${todo.title}" to the calendar. Try again?`)
+    } catch (e) {
+      setRowError(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar. Try again?`)
     }
   }
 
@@ -193,6 +212,15 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
           <h3 className="text-[13px] font-semibold text-text-primary">Plan {weekLabel}</h3>
           <p className="text-[11px] leading-snug text-text-muted">Drag a to-do onto the calendar, pick a suggested time, or let Auto-fill draft the rest.</p>
         </div>
+        <button
+          type="button"
+          onClick={onCollapse}
+          aria-label="Hide the plan to see the calendar"
+          title="Hide to see the calendar"
+          className="rounded-md p-1 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary @[760px]/cal:hidden"
+        >
+          <ChevronsRight className="h-3.5 w-3.5" />
+        </button>
         <button
           type="button"
           onClick={onClose}
@@ -212,6 +240,8 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
             autofill={drafted}
             layer={layer}
             minutesPerDay={layout.budget.minutesPerDay}
+            overCapacity={!planCapacity(layout, planTasks(todos, layout.week, { now, estimates: drafted.estimates }), now).fits}
+            originalTasks={planTasks(todos, layout.week, { now, estimates: drafted.estimates })}
             onTrim={setTrim}
             onKeepPlan={() => {
               layer.dismissAll()
@@ -261,8 +291,8 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
           {rowError && <p role="status" className="text-[11px] text-text-secondary">{rowError}</p>}
           {isLoading && <p className="text-[11px] text-text-muted">Loading your to-dos...</p>}
           {!isLoading && todos.length === 0 && (
-            <p className="rounded-lg bg-surface-overlay/50 px-2.5 py-2 text-[11px] text-text-muted">
-              Every to-do has a time. Nice. Add one from the To-do widget and it will show up here.
+            <p data-testid="plan-empty" className="rounded-lg bg-surface-overlay/50 px-2.5 py-2 text-[11px] text-text-muted">
+              No to-dos waiting for a time. Add one in the To-do widget and it shows up here.
             </p>
           )}
           <ul className="flex flex-col gap-1.5">
@@ -279,13 +309,14 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
                   onEstimate={(min) => void saveEstimate(todo, min)}
                   onPick={(start) => void schedule(todo, start, task.durationMin)}
                   onDragTodo={onDragTodo}
+                  weekStart={layout.week.start}
                 />
               )
             })}
           </ul>
         </section>
 
-        <FreeTime layout={layout} now={now} onStudyMinPerDayChange={drafted ? undefined : onStudyMinPerDayChange} />
+        <FreeTime layout={layout} now={now} onStudyMinPerDayChange={onStudyMinPerDayChange} />
       </div>
     </aside>
   )
@@ -332,9 +363,14 @@ function DraftSummary({
   onTrim,
   onKeepPlan,
   minutesPerDay,
+  overCapacity,
+  originalTasks,
 }: {
   minutesPerDay: number
-  autofill: Extract<Autofill, { state: 'drafted' }>
+  overCapacity: boolean
+  /** The to-dos as they are (before any trim the student applied). */
+  originalTasks: PlanTask[]
+  autofill: Drafted
   layer: ProposalLayer
   onTrim: (taskId: string, durationMin: number | null) => void
   onKeepPlan: () => void
@@ -343,6 +379,16 @@ function DraftSummary({
   const title = (id: string) => draft.tasks.find((t) => t.id === id)?.title ?? 'a to-do'
   const assumed = Object.keys(estimates).map(title)
   const open = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
+  // Every to-do too long for one day gets a trim offer, at the current budget.
+  const offers = completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay })
+  const shown = [
+    ...offers,
+    // Applied trims stay listed (with Undo) even if the offer moved on.
+    ...[...trims].filter(([id]) => !offers.some((t) => t.taskId === id)).map(([taskId, durationMin]) => ({ taskId, durationMin, reason: '' })),
+  ]
+  // The numbers come from the draft itself, so they always match the ghosts.
+  const unplacedMin = draft.unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
+  const summary = draftCopy(proposalMinutes(layer.proposals), unplacedMin)
 
   return (
     <div data-testid="autofill-draft" className="flex flex-col gap-2 rounded-xl bg-accent/[0.07] px-3 py-2.5 ring-1 ring-accent/20">
@@ -350,17 +396,18 @@ function DraftSummary({
         <Sparkles className="h-3 w-3" />
         Draft: {open === 1 ? '1 block' : `${open} blocks`} to look over
       </div>
-      {advice.note && <p data-testid="autofill-note" className="text-[11px] leading-snug text-text-primary">{advice.note}</p>}
+      <p data-testid="autofill-summary" className="text-[11px] font-medium leading-snug text-text-primary">{summary}</p>
+      {advice.note && <p data-testid="autofill-note" className="text-[11px] leading-snug text-text-secondary">{advice.note}</p>}
 
-      {advice.trims.map((trim) => {
+      {shown.map((trim) => {
         const applied = trims.has(trim.taskId)
-        const task = draft.tasks.find((t) => t.id === trim.taskId)
+        const task = originalTasks.find((t) => t.id === trim.taskId)
         return (
           <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-1 rounded-lg bg-surface-raised/80 px-2.5 py-2 ring-1 ring-border-subtle">
             {applied ? (
               <div className="flex items-center gap-2 text-[11px] text-text-secondary">
                 <Scissors className="h-3 w-3 shrink-0 text-accent" />
-                <span className="min-w-0 flex-1">Shrunk "{title(trim.taskId)}" to {formatMinutes(trim.durationMin)}.</span>
+                <span className="min-w-0 flex-1">Shrunk "{title(trim.taskId)}" to {formatMinutes(trims.get(trim.taskId)!)}.</span>
                 <button type="button" onClick={() => onTrim(trim.taskId, null)} className={quietButton}>
                   <Undo2 className="h-3 w-3" />
                   Undo
@@ -422,10 +469,13 @@ function TodoRow({
   onEstimate,
   onPick,
   onDragTodo,
+  weekStart,
 }: {
   todo: PlanItemOccurrence
   task: PlanTask
   now: number
+  /** Default day for "Pick a time". */
+  weekStart: number
   /** Where its draft ghost is, if it has one. */
   ghost?: string
   suggestions: { start: number }[]
@@ -434,6 +484,7 @@ function TodoRow({
   onDragTodo: (todo: DraggedTodo | null) => void
 }) {
   const tone = toneFor(todo.course)
+  const [picking, setPicking] = useState(false)
   const handleDragStart = (e: DragEvent) => {
     e.dataTransfer.setData('text/plain', todo.title)
     e.dataTransfer.effectAllowed = 'move'
@@ -503,9 +554,60 @@ function TodoRow({
               {slotLabel(s.start, now)}
             </button>
           ))}
+          <button type="button" onClick={() => setPicking((v) => !v)} className={pickButton}>Other time</button>
         </div>
-      ) : null}
+      ) : (
+        <div className="flex flex-wrap items-center gap-1 pl-[18px]">
+          <CalendarClock className="h-3 w-3 text-text-muted" aria-hidden />
+          <span className="text-[10px] text-text-muted">No free slot fits as it is.</span>
+          <button type="button" onClick={() => setPicking((v) => !v)} className={pickButton}>Pick a time</button>
+        </div>
+      )}
+      {picking && !ghost && (
+        <PickTime
+          title={todo.title}
+          defaultStart={Math.max(weekStart + 9 * 3_600_000, Math.ceil(now / 1_800_000) * 1_800_000)}
+          onPick={(start) => {
+            setPicking(false)
+            onPick(start)
+          }}
+          onCancel={() => setPicking(false)}
+        />
+      )}
     </li>
+  )
+}
+
+const pickButton = 'rounded-md px-1.5 py-0.5 text-[10px] font-medium text-text-secondary ring-1 ring-border-subtle transition-colors hover:bg-surface-overlay hover:text-text-primary'
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+function toLocalInput(ms: number): string {
+  const d = new Date(ms)
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
+/** Keyboard-friendly way to give a to-do a time without dragging. */
+function PickTime({ title, defaultStart, onPick, onCancel }: { title: string; defaultStart: number; onPick: (start: Date) => void; onCancel: () => void }) {
+  const [value, setValue] = useState(() => toLocalInput(defaultStart))
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    const start = new Date(value)
+    if (!Number.isNaN(start.getTime())) onPick(start)
+  }
+  return (
+    <form onSubmit={submit} className="flex flex-wrap items-center gap-1 pl-[18px]" onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+      <input
+        type="datetime-local"
+        step={900}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        aria-label={`Start time for ${title}`}
+        autoFocus
+        className="rounded-md bg-surface-overlay px-1.5 py-0.5 text-[10px] text-text-primary ring-1 ring-border-subtle [color-scheme:dark]"
+      />
+      <button type="submit" className="rounded-md bg-accent px-1.5 py-0.5 text-[10px] font-medium text-accent-foreground hover:bg-accent/90">Add</button>
+      <button type="button" onClick={onCancel} className={pickButton}>Cancel</button>
+    </form>
   )
 }
 

@@ -17,17 +17,23 @@ describe('plan-autofill (mock)', () => {
     const llm = createFakeLlmClient()
     const advice = await llm.run(planAutofillTask, { tasks, freeMin: 540, neededMin: 720, minutesPerDay: 180, weakTopics: [], timeZone: 'Europe/London' })
     expect(advice.order).toEqual(['quiz', 'lab', 'reading'])
-    expect(advice.trims).toEqual([expect.objectContaining({ taskId: 'lab', durationMin: 120 })])
-    expect(advice.note).toBe("Biology quiz prep is due soonest, so it goes first. About 3h of to-dos won't fit as they are.")
+    expect(advice.trims).toEqual([expect.objectContaining({ taskId: 'lab', durationMin: 180 })])
+    // Priorities only: what fits and how much comes from code.
+    expect(advice.note).toBe('Biology quiz prep is due soonest, so it gets first pick of your study time.')
     // The prompt carries the code's numbers and the to-dos in the student's words.
     const [{ prompt }] = llm.calls
     expect(prompt).toContain('Study time left this week: 9h (at most 3h a day). The to-dos need: 12h.')
     expect(prompt).toContain('- id=quiz: "Biology quiz prep", 120 min (guessed), due Thu 5 Nov, 09:00')
+    expect(planAutofillTask.system).toContain('Never mention amounts of time')
   })
 
   it('says it fits, without trims, when there is room', async () => {
     const advice = planAutofillTask.fake({ tasks: [tasks[0]], freeMin: 900, neededMin: 180, minutesPerDay: 240, weakTopics: [], timeZone: 'UTC' })
-    expect(advice).toEqual({ order: ['reading'], trims: [], note: 'The rest fits, with time to spare.' })
+    expect(advice).toEqual({
+      order: ['reading'],
+      trims: [],
+      note: 'Starting with Chemistry reading, the quickest to tick off.',
+    })
     expect(planAutofillTask.fake({ tasks: [], freeMin: 0, neededMin: 0, minutesPerDay: 120, weakTopics: [], timeZone: 'UTC' }))
       .toEqual({ order: [], trims: [], note: null })
   })

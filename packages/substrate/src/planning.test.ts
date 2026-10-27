@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   ASSUMED_ESTIMATE_MIN,
   capacityCopy,
+  completeTrims,
   defaultTrims,
+  draftCopy,
+  longestBlockMin,
+  noteWithoutAmounts,
   draftPlan,
   formatMinutes,
   matchesWeakTopic,
@@ -94,7 +98,12 @@ describe('capacity and copy', () => {
     expect(capacityCopy({ freeMin: 540, neededMin: 720 })).toBe('About 9 hours of study time left this week. Your to-dos need 12.')
     expect(capacityCopy({ freeMin: 60, neededMin: 45 }, 'next week')).toBe('About 1 hour of study time left next week. Your to-dos need 45 minutes.')
     expect(capacityCopy({ freeMin: 0, neededMin: 90 })).toBe('No study time left this week. Your to-dos need 1.5 hours.')
-    expect(capacityCopy({ freeMin: 200, neededMin: 0 })).toBe('About 3.5 hours of study time left this week. Nothing left to plan.')
+    expect(capacityCopy({ freeMin: 200, neededMin: 0 })).toBe('About 3 hours of study time left this week. Nothing left to plan.')
+    // Free rounds down and needed rounds up, so a 10-minute gap never reads as "fits".
+    expect(capacityCopy({ freeMin: 530, neededMin: 540 })).toBe('About 8.5 hours of study time left this week. Your to-dos need 9.')
+    expect(draftCopy(360, 150)).toBe("Drafted 6h of study time. 2h 30m didn't fit.")
+    expect(draftCopy(90, 0)).toBe('Drafted 1h 30m of study time. Everything fits.')
+    expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
     expect(formatMinutes(90)).toBe('1h 30m')
     expect(formatMinutes(45)).toBe('45m')
     expect(formatMinutes(120)).toBe('2h')
@@ -147,8 +156,10 @@ describe('ranking and trims', () => {
     expect(rankForPlan(tasks)).toEqual(['review', 'quiz', 'lab', 'cards', 'reading'])
   })
 
-  it('trims what is longer than a day, longest first, and shrinks towards a shortfall', () => {
+  it('trims every to-do longer than a day, longest first, and shrinks towards a shortfall', () => {
     expect(defaultTrims(tasks, 0, 120).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
+    // Three too long for a 1h day: all three get a way forward.
+    expect(defaultTrims(tasks, 0, 60).map((t) => t.taskId)).toEqual(['lab', 'reading', 'quiz'])
     // Shortfall only (budget not binding): the longest shrinks, not below half.
     expect(defaultTrims(tasks, 60, 600).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 180]])
     expect(defaultTrims(tasks, 0, 600)).toEqual([])
@@ -171,6 +182,7 @@ describe('ranking and trims', () => {
       note: `  ${'word '.repeat(80)} `,
     }, tasks, over, 600)
     expect(advice.order).toEqual(['lab', 'quiz', 'review', 'cards', 'reading'])
+    // Capacity trims (none of these is longer than a 10h day): at most two.
     expect(advice.trims).toEqual([
       { taskId: 'lab', durationMin: 120, reason: 'Draft it first' },
       { taskId: 'reading', durationMin: 90, reason: 'ok' },
@@ -181,8 +193,28 @@ describe('ranking and trims', () => {
     // When everything fits, only to-dos longer than a day may be trimmed.
     const fits = { ...over, fits: true, shortfallMin: 0 }
     const relaxed = sanitizeAdvice({ order: [], trims: [{ taskId: 'lab', durationMin: 120, reason: '' }, { taskId: 'quiz', durationMin: 60, reason: '' }], note: '  ' }, tasks, fits, 120)
-    expect(relaxed.trims.map((t) => t.taskId)).toEqual(['lab'])
+    expect(relaxed.trims.map((t) => t.taskId)).toEqual(['lab', 'reading'])
     expect(relaxed.note).toBeNull()
+  })
+
+  it('clamps trims to one day, and gives every too-long to-do one', () => {
+    const fits = { freeMin: 900, neededMin: 600, shortfallMin: 0, spareMin: 300, fits: true }
+    const advice = sanitizeAdvice({
+      order: [],
+      // 4h -> 3h still does not fit a 2h day: clamped to 2h.
+      trims: [{ taskId: 'lab', durationMin: 180, reason: 'shorter' }],
+      note: null,
+    }, tasks, fits, 120)
+    expect(advice.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
+    expect(completeTrims([], tasks, { overCapacity: true, minutesPerDay: 100 }).map((t) => t.durationMin)).toEqual([90, 90, 90])
+    expect(longestBlockMin(100)).toBe(90)
+  })
+
+  it('drops sentences with amounts of time from the note (code says the numbers)', () => {
+    expect(noteWithoutAmounts('Quiz prep goes first. About 4h 30m will not fit! Problem sheet 3 can wait.'))
+      .toBe('Quiz prep goes first. Problem sheet 3 can wait.')
+    const cap = { freeMin: 0, neededMin: 60, shortfallMin: 60, spareMin: 0, fits: false }
+    expect(sanitizeAdvice({ order: [], trims: [], note: 'You need 3 hours more.' }, tasks, cap, 600).note).toBeNull()
   })
 })
 

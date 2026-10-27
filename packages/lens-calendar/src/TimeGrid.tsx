@@ -399,6 +399,15 @@ export function TimeGrid({
                       onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
+                      onNudge={(minutes, dayShift) => {
+                        const start = new Date(seg.item.starts_at!)
+                        const end = new Date(seg.item.ends_at!)
+                        for (const d of [start, end]) {
+                          d.setDate(d.getDate() + dayShift)
+                          d.setMinutes(d.getMinutes() + minutes)
+                        }
+                        onProposalMove?.(ghostId(seg.item)!, start, end)
+                      }}
                     />
                   ) : (
                     <Block
@@ -601,13 +610,15 @@ interface GhostBlockProps {
   onPointerDown: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onAccept: () => void
   onDismiss: () => void
+  /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
+  onNudge: (minutes: number, days: number) => void
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (accent stripes, dashed
  * edge, sparkle), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
@@ -625,10 +636,28 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       data-testid="calendar-ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
+      aria-description={saved ? undefined : 'Arrow keys move it, Enter accepts, Delete dismisses'}
+      tabIndex={saved ? undefined : 0}
+      onKeyDown={saved ? undefined : (e) => {
+        if (e.target !== e.currentTarget) return
+        const keys: Record<string, () => void> = {
+          ArrowUp: () => onNudge(-SNAP_MIN, 0),
+          ArrowDown: () => onNudge(SNAP_MIN, 0),
+          ArrowLeft: () => onNudge(0, -1),
+          ArrowRight: () => onNudge(0, 1),
+          Enter: onAccept,
+          Delete: onDismiss,
+          Backspace: onDismiss,
+        }
+        const action = keys[e.key]
+        if (!action) return
+        e.preventDefault()
+        action()
+      }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
       className={cn(
-        'group absolute z-10 overflow-hidden rounded-lg text-left',
+        'group absolute z-10 overflow-hidden rounded-lg text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
         'bg-surface-raised/85 shadow-[0_0_0_3px_rgba(99,102,241,0.10)]',
         'border border-dashed border-accent/70 transition-[opacity,box-shadow] duration-200',
         saved ? 'cursor-default opacity-70' : 'cursor-grab hover:shadow-[0_0_0_4px_rgba(99,102,241,0.18)] active:cursor-grabbing',

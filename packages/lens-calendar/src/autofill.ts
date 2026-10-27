@@ -77,6 +77,34 @@ export function buildAutofillDraft(args: {
   }
 }
 
+/**
+ * Where Help me plan's Auto-fill is. Owned by the Calendar (next to the
+ * proposal layer), so closing and reopening the panel keeps the draft's
+ * note, trims and "didn't fit" list.
+ */
+export type AutofillState =
+  | { state: 'idle' }
+  | { state: 'confirm-estimates' }
+  | { state: 'loading' }
+  | { state: 'error'; message: string }
+  | {
+      state: 'drafted'
+      /** The week the draft is for (layout.week.start). */
+      week: number
+      /** The study time per day it was drafted with. */
+      minutesPerDay: number
+      advice: PlanAdvice
+      estimates: Record<string, number>
+      /** Trims the student applied: task id -> length. */
+      trims: Map<string, number>
+      draft: AutofillDraft
+    }
+
+/** Planned minutes of a set of proposals. */
+export function proposalMinutes(proposals: ReadonlyArray<Proposal>): number {
+  return proposals.reduce((sum, p) => sum + (Date.parse(p.endsAt) - Date.parse(p.startsAt)) / 60_000, 0)
+}
+
 /** Calm words for why a to-do didn't fit. */
 export function unplacedReason(reason: Unplaced['reason'], minutesPerDay: number): string {
   switch (reason) {

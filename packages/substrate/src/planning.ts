@@ -280,49 +280,99 @@ export interface PlanAdvice {
 }
 
 const ceil15 = (min: number) => Math.ceil(min / 15) * 15
-const MAX_TRIMS = 2
-
 const floor15 = (min: number) => Math.floor(min / 15) * 15
+/** Trims that only help an over-capacity week (to-dos that could fit as they are). */
+const MAX_CAPACITY_TRIMS = 2
+
+/** The longest a single block can be on one day: the budget, rounded down to 15 minutes. */
+export function longestBlockMin(minutesPerDay: number): number {
+  return Math.max(15, floor15(minutesPerDay))
+}
+
+function overBudgetTrim(task: PlanTask, perDay: number): PlanTrim {
+  return {
+    taskId: task.id,
+    durationMin: perDay,
+    reason: `Longer than your ${formatMinutes(perDay)} a day - a focused first pass fits, and you can finish it later.`,
+  }
+}
 
 /**
- * The default trims: when over capacity, shrink the longest to-do (an hour
- * or more) towards the shortfall, never below half its length or 30
- * minutes; and any to-do longer than a day's study time to fit in one day.
- * At most two, longest first.
+ * The default trims: every to-do longer than a day's study time gets one
+ * (it can never fit as it is), and when the week is short the longest other
+ * to-do (an hour or more) shrinks towards the shortfall, never below half
+ * its length or 30 minutes.
  */
 export function defaultTrims(tasks: ReadonlyArray<PlanTask>, shortfallMin: number, minutesPerDay: number): PlanTrim[] {
-  const perDay = Math.max(15, floor15(minutesPerDay))
+  const perDay = longestBlockMin(minutesPerDay)
   const longest = [...tasks].sort((a, b) => b.durationMin - a.durationMin || a.title.localeCompare(b.title))
-  const trims: PlanTrim[] = []
-  for (const task of longest) {
-    if (trims.length === MAX_TRIMS) break
-    const tooLong = task.durationMin > perDay
-    const shrink = shortfallMin > 0 && trims.length === 0 && task.durationMin >= 60
-    if (!tooLong && !shrink) continue
-    let durationMin = task.durationMin
-    if (shrink) durationMin = Math.max(ceil15(task.durationMin - shortfallMin), ceil15(task.durationMin / 2), 30)
-    durationMin = Math.min(durationMin, perDay)
-    if (durationMin >= task.durationMin) continue
-    trims.push({
-      taskId: task.id,
-      durationMin,
-      reason: tooLong
-        ? `Longer than your ${formatMinutes(perDay)} a day - a focused first pass fits, and you can finish it later.`
-        : 'A focused first pass fits the time you have; finish it once the week frees up.',
-    })
+  const trims = longest.filter((t) => t.durationMin > perDay).map((t) => overBudgetTrim(t, perDay))
+  if (shortfallMin > 0 && trims.length === 0) {
+    const task = longest.find((t) => t.durationMin >= 60)
+    if (task) {
+      const durationMin = Math.max(ceil15(task.durationMin - shortfallMin), ceil15(task.durationMin / 2), 30)
+      if (durationMin < task.durationMin) {
+        trims.push({ taskId: task.id, durationMin, reason: 'A focused first pass fits the time you have; finish it once the week frees up.' })
+      }
+    }
   }
   return trims
+}
+
+/**
+ * Makes a set of trims safe for this budget: rounded to 15 minutes and
+ * clamped to fit in one day; dropped unless shorter than now and at least 15
+ * minutes; and every to-do longer than a day's study time is guaranteed one
+ * (so none is left with no way forward). Trims for to-dos that could fit as
+ * they are only count when over capacity, at most two.
+ */
+export function completeTrims(
+  trims: ReadonlyArray<PlanTrim>,
+  tasks: ReadonlyArray<PlanTask>,
+  opts: { overCapacity: boolean; minutesPerDay: number },
+): PlanTrim[] {
+  const perDay = longestBlockMin(opts.minutesPerDay)
+  const byId = new Map(tasks.map((t) => [t.id, t]))
+  const out: PlanTrim[] = []
+  let capacityTrims = 0
+  for (const trim of trims) {
+    const task = byId.get(trim.taskId)
+    if (!task || out.some((t) => t.taskId === task.id)) continue
+    const durationMin = Math.min(Math.round(trim.durationMin / 15) * 15, perDay)
+    if (!(durationMin >= 15 && durationMin < task.durationMin)) continue
+    const tooLong = task.durationMin > perDay
+    if (!tooLong && (!opts.overCapacity || capacityTrims === MAX_CAPACITY_TRIMS)) continue
+    if (!tooLong) capacityTrims++
+    out.push({ taskId: task.id, durationMin, reason: clip(trim.reason, MAX_REASON_CHARS) })
+  }
+  for (const task of tasks) {
+    if (task.durationMin > perDay && !out.some((t) => t.taskId === task.id)) out.push(overBudgetTrim(task, perDay))
+  }
+  return out
 }
 
 const MAX_NOTE_CHARS = 220
 const MAX_REASON_CHARS = 160
 
+/** An amount of time, e.g. "3h", "4 hours", "90 min", "1.5 hrs". */
+const AMOUNT = /\b\d+(?:[.,]\d+)?\s*(?:h|hrs?|hours?|m|mins?|minutes?)\b/i
+
+/**
+ * The note may name priorities and suggestions, never amounts of time: the
+ * numbers shown come from code, so any sentence carrying one is dropped.
+ */
+export function noteWithoutAmounts(note: string): string {
+  return (note.match(/[^.!?]+[.!?]*/g) ?? [])
+    .filter((sentence) => !AMOUNT.test(sentence))
+    .join('')
+    .trim()
+}
+
 /**
  * Makes advice (from a live model or a fake) safe to act on: the order holds
  * every task exactly once (unknown ids dropped, missing ones added in
- * `rankForPlan` order); trims only for known tasks, only when over capacity
- * or for a to-do longer than a day's study time, shorter than now, at least
- * 15 minutes and rounded to 15; text trimmed.
+ * `rankForPlan` order); trims via `completeTrims`; the note without amounts
+ * of time, clipped.
  */
 export function sanitizeAdvice(
   raw: PlanAdvice,
@@ -335,17 +385,8 @@ export function sanitizeAdvice(
   for (const id of [...raw.order, ...rankForPlan(tasks)]) {
     if (byId.has(id) && !order.includes(id)) order.push(id)
   }
-  const trims: PlanTrim[] = []
-  for (const trim of raw.trims) {
-    const task = byId.get(trim.taskId)
-    const durationMin = Math.round(trim.durationMin / 15) * 15
-    if (!task || trims.some((t) => t.taskId === trim.taskId)) continue
-    if (cap.fits && task.durationMin <= minutesPerDay) continue
-    if (!(durationMin >= 15 && durationMin < task.durationMin)) continue
-    trims.push({ taskId: task.id, durationMin, reason: clip(trim.reason, MAX_REASON_CHARS) })
-    if (trims.length === MAX_TRIMS) break
-  }
-  const note = raw.note ? clip(raw.note, MAX_NOTE_CHARS) : ''
+  const trims = completeTrims(raw.trims, tasks, { overCapacity: !cap.fits, minutesPerDay })
+  const note = raw.note ? clip(noteWithoutAmounts(raw.note), MAX_NOTE_CHARS) : ''
   return { order, trims, note: note || null }
 }
 
@@ -358,9 +399,11 @@ function clip(text: string, max: number): string {
 // Copy (code, not the LLM, says the numbers)
 // ---------------------------------------------------------------------------
 
-function amount(min: number): { n: string; unit: 'hour' | 'minute' } {
-  if (min < 60) return { n: String(Math.max(5, Math.round(min / 5) * 5)), unit: 'minute' }
-  const hours = Math.round((min / 60) * 2) / 2
+/** Rounded to 5 minutes / half hours, `down` for what is free and `up` for what is needed, so copy never hides a gap. */
+function amount(min: number, round: 'down' | 'up'): { n: string; unit: 'hour' | 'minute' } {
+  const r = round === 'down' ? Math.floor : Math.ceil
+  if (min < 60) return { n: String(Math.max(5, r(min / 5) * 5)), unit: 'minute' }
+  const hours = r((min / 60) * 2) / 2
   return { n: String(hours), unit: 'hour' }
 }
 
@@ -371,12 +414,12 @@ const plural = (n: string, unit: string) => `${unit}${n === '1' ? '' : 's'}`
  * names the week ("this week", "next week", "that week").
  */
 export function capacityCopy(cap: Pick<Capacity, 'freeMin' | 'neededMin'>, when = 'this week'): string {
-  const free = amount(cap.freeMin)
+  const free = amount(cap.freeMin, 'down')
   const freePart = cap.freeMin <= 0
     ? `No study time left ${when}.`
     : `About ${free.n} ${plural(free.n, free.unit)} of study time left ${when}.`
   if (cap.neededMin <= 0) return `${freePart} Nothing left to plan.`
-  const need = amount(cap.neededMin)
+  const need = amount(cap.neededMin, 'up')
   const needPart = need.unit === free.unit && cap.freeMin > 0 ? need.n : `${need.n} ${plural(need.n, need.unit)}`
   return `${freePart} Your to-dos need ${needPart}.`
 }
@@ -420,3 +463,13 @@ function isTimeZone(timeZone: string): boolean {
 }
 
 export { totalMinutes, type Capacity, type Interval, type Placement, type Unplaced }
+
+/**
+ * The draft's own numbers, from what was actually placed: "Drafted 6h of
+ * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
+ * contradict the ghosts beside it.
+ */
+export function draftCopy(placedMin: number, unplacedMin: number): string {
+  const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
+  return unplacedMin > 0 ? `${drafted} ${formatMinutes(unplacedMin)} didn't fit.` : `${drafted} Everything fits.`
+}

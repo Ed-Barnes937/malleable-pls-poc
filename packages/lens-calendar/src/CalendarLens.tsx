@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } fr
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, type ShowMomentResult, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, formatTime } from '@pls/shared-ui'
-import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
+import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
-import { HelpMePlanButton, HelpMePlanPanel, type DraggedTodo } from './HelpMePlan'
+import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
-import { acceptPatch, useProposalLayer } from './proposals'
+import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposals'
+import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
 import { addDays, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
@@ -57,6 +58,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
   const [planOpen, setPlanOpen] = useState(false)
+  /** In a narrow calendar the panel overlays the grid: the student can tuck it away to see the ghosts. */
+  const [planCollapsed, setPlanCollapsed] = useState(false)
+  /** Auto-fill's draft (note, trims, what didn't fit), kept here so closing the panel keeps it. */
+  const [autofill, setAutofill] = useState<AutofillState>({ state: 'idle' })
   // Layer-2 knob: how much study Help me plan fills into a day.
   const [studyMinPerDay, setStudyMinPerDay] = useState(() =>
     typeof config.studyMinPerDay === 'number' && config.studyMinPerDay > 0 ? config.studyMinPerDay : DEFAULT_STUDY_MIN_PER_DAY,
@@ -133,12 +138,40 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     })
   }, [data, pending])
 
+  // Open to-dos with no time yet: what Help me plan offers, and what an
+  // Auto-fill ghost's to-do must still be when it is accepted.
+  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
+  const todos = useMemo(() => (todoData ? (todoData as PlanItemOccurrence[]) : null), [todoData])
+
+  /** The block a study block for `taskId` at [start, end) would overlap (commitments and other study time). */
+  const clashAt = useCallback(
+    (taskId: string, start: number, end: number) =>
+      items.find((r) =>
+        r.id !== taskId && r.status !== 'dismissed' && r.kind !== 'deadline' && r.starts_at && r.ends_at
+        && Date.parse(r.starts_at) < end && start < Date.parse(r.ends_at)) ?? null,
+    [items],
+  )
+
+  const validateProposal: ProposalValidator = useCallback((p, source) => {
+    if (source === 'autofill' && todos && !todos.some((t) => t.id === p.taskId)) return 'it already has a time'
+    const clash = clashAt(p.taskId, Date.parse(p.startsAt), Date.parse(p.endsAt))
+    return clash ? `that time overlaps ${clash.title}` : null
+  }, [todos, clashAt])
+
   // Ghost blocks (Auto-fill drafts and any other proposals): client state
-  // until accepted, which saves the block like a drag would.
+  // until accepted, which saves the block like a drag would. Each is checked
+  // against the calendar as it is now, so a ghost never lands on something.
   const layer = useProposalLayer({
     save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
     rows: items,
+    validate: validateProposal,
   })
+  // The layer's notes ("Took ... out", "Didn't save ...") show in the header like any other.
+  useEffect(() => {
+    if (!layer.notice) return
+    setNotice(layer.notice)
+    layer.clearNotice()
+  }, [layer])
 
   // Help me plan works on the week shown, around every course's commitments.
   const timeZone = useMemo(() => localTimeZone(), [])
@@ -153,12 +186,20 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const weekLabel = days[0].getTime() === thisWeek ? 'this week'
     : days[0].getTime() === addDays(new Date(thisWeek), 7).getTime() ? 'next week' : 'that week'
 
-  /** Assigning a to-do by hand (suggested slot or drop) saves its block straight away. */
-  const scheduleTodo = (id: string, start: Date, durationMin: number) =>
-    updateItem.mutateAsync({
-      id,
-      patch: { starts_at: start.toISOString(), ends_at: new Date(start.getTime() + durationMin * 60_000).toISOString(), duration_min: durationMin },
+  /**
+   * Assigning a to-do by hand (suggested slot, drop, or a picked time) saves
+   * its block straight away, unless it would land on a commitment or other
+   * study time: then nothing is saved and the promise rejects saying why.
+   */
+  const scheduleTodo = async (todo: { id: string; title: string }, start: Date, durationMin: number) => {
+    const end = start.getTime() + durationMin * 60_000
+    const clash = clashAt(todo.id, start.getTime(), end)
+    if (clash) throw new ScheduleClash(`"${todo.title}" would overlap ${clash.title} there. Pick a free time.`)
+    await updateItem.mutateAsync({
+      id: todo.id,
+      patch: { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin },
     })
+  }
 
   const isDimmed = useCallback(
     // Only other courses dim: items with no course (a shift) stay as they are.
@@ -341,11 +382,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             <Plus className="h-3 w-3" />
             Add
           </button>
-          {view === 'week' && <HelpMePlanButton open={planOpen} onToggle={() => setPlanOpen((o) => !o)} />}
+          {view === 'week' && (
+            <HelpMePlanButton
+              open={planOpen}
+              onToggle={() => {
+                setPlanCollapsed(false)
+                setPlanOpen((o) => !o)
+              }}
+            />
+          )}
         </div>
       </header>
 
-      {(!planOpen || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+      {(!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
       <div className="@container/cal relative flex min-h-0 flex-1 gap-2.5">
         <TimeGrid
@@ -369,12 +418,22 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             const todo = incoming
             setIncoming(null)
             if (!todo) return
-            scheduleTodo(todo.id, start, todo.durationMin).catch(() =>
-              setNotice(`Couldn't add "${todo.title}" to the calendar - try again?`),
+            scheduleTodo(todo, start, todo.durationMin).catch((e: unknown) =>
+              setNotice(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar - try again?`),
             )
           }}
         />
-        {planLayout && (
+        {planLayout && planCollapsed && (
+          <button
+            type="button"
+            onClick={() => setPlanCollapsed(false)}
+            className="absolute right-2 top-2 z-30 inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground shadow-lg transition-colors hover:bg-accent/90"
+          >
+            <Sparkles className="h-3 w-3" />
+            Show plan
+          </button>
+        )}
+        {planLayout && !planCollapsed && (
           // Beside the grid when there is room; over it in a narrow panel.
           <div className="absolute inset-y-0 right-0 z-30 flex shadow-2xl @[760px]/cal:static @[760px]/cal:shadow-none">
             <HelpMePlanPanel
@@ -382,8 +441,12 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               weekLabel={weekLabel}
               now={now.getTime()}
               layer={layer}
+              todos={todos}
+              autofill={autofill}
+              onAutofillChange={setAutofill}
               onClose={() => setPlanOpen(false)}
-              onSchedule={(todo, start, durationMin) => scheduleTodo(todo.id, start, durationMin)}
+              onCollapse={() => setPlanCollapsed(true)}
+              onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
               onDragTodo={setIncoming}
               onStudyMinPerDayChange={(min) => {
                 setStudyMinPerDay(min)

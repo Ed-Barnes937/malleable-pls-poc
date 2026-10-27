@@ -36,7 +36,8 @@ export const planAutofillTask = defineLlmTask({
     'Rank every to-do id from most to least important: sooner due dates first, then weak topics, then quick wins.',
     'Only if the to-dos need more time than is left, or one is longer than a day\'s study time, suggest shrinking one or two of them',
     '(new length in minutes, a multiple of 15, shorter than now and no longer than a day\'s study time) with a short reason; otherwise return no trims.',
-    'Write one short sentence (under 25 words) about the plan, without repeating the hour totals. Use the student\'s to-do names.',
+    'Write one short sentence (under 25 words) about priorities or a suggestion, using the student\'s to-do names.',
+    'Never mention amounts of time and never say what will or will not fit: the app places the blocks and shows those numbers itself.',
   ].join(' '),
   buildPrompt: (input: PlanAutofillTaskInput) => [
     `Study time left this week: ${formatMinutes(input.freeMin)} (at most ${formatMinutes(input.minutesPerDay)} a day). The to-dos need: ${formatMinutes(input.neededMin)}.`,
@@ -60,11 +61,11 @@ export const planAutofillTask = defineLlmTask({
     const shortfall = Math.max(0, input.neededMin - input.freeMin)
     const first = input.tasks.find((t) => t.id === order[0])
     if (!first) return { order, trims: [], note: null }
-    const lead = `${first.title} is due soonest, so it goes first.`
-    const rest = shortfall > 0
-      ? ` About ${formatMinutes(shortfall)} of to-dos won't fit as they are.`
-      : ' The rest fits, with time to spare.'
-    return { order, trims: defaultTrims(input.tasks, shortfall, input.minutesPerDay), note: first.dueAt ? lead + rest : rest.trim() }
+    // Priorities only: what fits, and how much, comes from code.
+    const note = first.dueAt
+      ? `${first.title} is due soonest, so it gets first pick of your study time.`
+      : `Starting with ${first.title}, the quickest to tick off.`
+    return { order, trims: defaultTrims(input.tasks, shortfall, input.minutesPerDay), note }
   },
   maxTokens: 400,
 })

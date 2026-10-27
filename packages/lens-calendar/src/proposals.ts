@@ -35,9 +35,18 @@ export interface ProposalLayer {
   /** A save is in flight. */
   saving: boolean
   error: string | null
+  /**
+   * A calm line about ghosts the layer took out or left unsaved because
+   * `validate` said they no longer hold (e.g. the to-do got a time by hand).
+   */
+  notice: string | null
+  clearNotice: () => void
   /** Replaces the layer's proposals. An empty list clears it. */
   propose: (source: string, proposals: Proposal[]) => void
-  /** Drag-to-adjust: moves or resizes one and marks it `adjusted`. */
+  /**
+   * Drag-to-adjust: moves or resizes one and marks it `adjusted`. Refused
+   * (with a notice) if the new time fails `validate` or overlaps another ghost.
+   */
   move: (id: string, startsAt: string, endsAt: string) => void
   dismiss: (id: string) => void
   /** "Keep my plan": drops every proposal, writes nothing. */
@@ -52,25 +61,46 @@ const GHOST_PREFIX = 'ghost:'
 const LAND_TIMEOUT_MS = 4000
 
 /**
+ * Why a proposal no longer holds, as a clause ("it already has a time",
+ * "that time overlaps Biology lecture"), or null when it is fine. Checked
+ * against the caller's current data on every render, before a move, and
+ * again for each proposal at the moment it is accepted.
+ */
+export type ProposalValidator = (proposal: Proposal, source: string) => string | null
+
+const overlaps = (a: Proposal, b: Proposal) =>
+  Date.parse(a.startsAt) < Date.parse(b.endsAt) && Date.parse(b.startsAt) < Date.parse(a.endsAt)
+
+/**
  * State and actions for one proposal layer. `save` writes an accepted
  * proposal (the calendar passes a plan item update). `rows` are the
  * calendar's current rows: an accepted ghost stays on screen until its saved
- * block arrives in them, so accepting never flickers.
+ * block arrives in them, so accepting never flickers. `validate` keeps the
+ * draft honest as the calendar changes underneath it: a ghost that fails it
+ * is taken out (and never saved), with a notice saying why.
  */
 export function useProposalLayer({
   save,
   rows,
+  validate,
 }: {
   save: (proposal: Proposal) => Promise<unknown>
   rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at'>>
+  validate?: ProposalValidator
 }): ProposalLayer {
   const [proposals, setProposals] = useState<Proposal[]>([])
   const [source, setSource] = useState<string | null>(null)
   const [saved, setSaved] = useState<Map<string, number>>(new Map())
   const [saving, setSaving] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const latest = useRef(proposals)
   latest.current = proposals
+  const sourceRef = useRef(source)
+  sourceRef.current = source
+  const validateRef = useRef(validate)
+  validateRef.current = validate
+  const check = useCallback((p: Proposal) => validateRef.current?.(p, sourceRef.current ?? '') ?? null, [])
 
   const drop = useCallback((ids: ReadonlySet<string>) => {
     setProposals((prev) => {
@@ -96,6 +126,19 @@ export function useProposalLayer({
     return ids
   }, [saved, proposals, rows])
 
+  // Ghosts that no longer hold (their to-do got a time, a commitment landed on them).
+  const invalid = proposals
+    .filter((p) => !saved.has(p.id))
+    .map((p) => ({ p, reason: check(p) }))
+    .filter((x): x is { p: Proposal; reason: string } => x.reason !== null)
+  const invalidKey = invalid.map((x) => x.p.id).join('|')
+  useEffect(() => {
+    if (invalid.length === 0) return
+    drop(new Set(invalid.map((x) => x.p.id)))
+    setNotice(invalid.map(({ p, reason }) => `Took "${p.title}" out of the suggestions: ${reason}.`).join(' '))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invalidKey, drop])
+
   // Forget landed ghosts (and, after a while, ones whose rows never came).
   useEffect(() => {
     if (saved.size === 0) return
@@ -107,14 +150,25 @@ export function useProposalLayer({
 
   const propose = useCallback((from: string, next: Proposal[]) => {
     setError(null)
+    setNotice(null)
     setSaved(new Map())
     setProposals(next)
     setSource(next.length > 0 ? from : null)
   }, [])
 
   const move = useCallback((id: string, startsAt: string, endsAt: string) => {
-    setProposals((prev) => prev.map((p) => (p.id === id ? { ...p, startsAt, endsAt, adjusted: true } : p)))
-  }, [])
+    const current = latest.current.find((p) => p.id === id)
+    if (!current) return
+    const next = { ...current, startsAt, endsAt, adjusted: true }
+    const other = latest.current.find((p) => p.id !== id && overlaps(p, next))
+    const reason = check(next) ?? (other ? `that time overlaps "${other.title}"` : null)
+    if (reason) {
+      setNotice(`Can't move "${current.title}" there: ${reason}.`)
+      return
+    }
+    setNotice(null)
+    setProposals((prev) => prev.map((p) => (p.id === id ? next : p)))
+  }, [check])
 
   const dismiss = useCallback((id: string) => drop(new Set([id])), [drop])
   const dismissAll = useCallback(() => propose('', []), [propose])
@@ -123,13 +177,26 @@ export function useProposalLayer({
     const targets = latest.current.filter((p) => ids.includes(p.id) && !saved.has(p.id))
     if (targets.length === 0) return
     setError(null)
+    setNotice(null)
     setSaving((n) => n + 1)
     const failed: string[] = []
+    const skipped: string[] = []
+    const accepted: Proposal[] = []
     try {
-      // One at a time, in order: each is a normal plan item update.
+      // One at a time, in order: each is a normal plan item update. Each is
+      // checked again right before it is saved, against the latest data and
+      // the blocks accepted just before it in this batch.
       for (const p of targets) {
+        const earlier = accepted.find((a) => overlaps(a, p))
+        const reason = check(p) ?? (earlier ? `that time overlaps "${earlier.title}"` : null)
+        if (reason) {
+          skipped.push(`Didn't save "${p.title}": ${reason}.`)
+          drop(new Set([p.id]))
+          continue
+        }
         try {
           await save(p)
+          accepted.push(p)
           setSaved((prev) => new Map(prev).set(p.id, Date.now()))
         } catch {
           failed.push(p.title)
@@ -138,10 +205,11 @@ export function useProposalLayer({
     } finally {
       setSaving((n) => n - 1)
     }
+    if (skipped.length > 0) setNotice(skipped.join(' '))
     if (failed.length > 0) {
       setError(`Couldn't save ${failed.map((t) => `"${t}"`).join(', ')}. Still drafted - try again?`)
     }
-  }, [save, saved])
+  }, [save, saved, check, drop])
 
   const savedIds = useMemo(() => new Set(saved.keys()), [saved])
   const accept = useCallback((id: string) => acceptMany([id]), [acceptMany])
@@ -153,6 +221,8 @@ export function useProposalLayer({
     source,
     saving: saving > 0,
     error,
+    notice,
+    clearNotice: () => setNotice(null),
     propose,
     move,
     dismiss,
