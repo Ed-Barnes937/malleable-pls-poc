@@ -79,9 +79,14 @@ export const INTERRUPTED_ERROR = 'Interrupted: the server restarted while this w
  * counted as used up, so the student gets the retry button instead of an
  * automatic re-run (which could bill an AI provider twice).
  */
-export async function failInterruptedJobs(executors: ExecutorRegistry): Promise<number> {
+export async function failInterruptedJobs(
+  executors: ExecutorRegistry,
+  /** Tests only: limit to one user's runs, so a shared test database's other runs are untouched. */
+  options: { userId?: string } = {},
+): Promise<number> {
   const rows = await sql<{ id: string; job_type: string }[]>`
-    SELECT id, job_type FROM job_runs WHERE status = 'running'
+    SELECT id, job_type FROM job_runs
+    WHERE status = 'running' ${options.userId ? sql`AND user_id = ${options.userId}` : sql``}
   `
   for (const row of rows) {
     await sql`

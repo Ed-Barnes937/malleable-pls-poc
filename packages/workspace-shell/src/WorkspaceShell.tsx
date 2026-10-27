@@ -306,7 +306,12 @@ export function WorkspaceShell() {
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
-            onMomentShown={manifest?.showsMoments ? clearMoment : undefined}
+            onMomentShown={manifest?.showsMoments ? (id) => {
+              clearMoment(id)
+              // On a full board the widget may sit below the fold: bring it
+              // into view so the landed moment is seen.
+              scrollPanelIntoView(canvasRef.current, panel.id)
+            } : undefined}
           />
         </PanelContainer>
       )
