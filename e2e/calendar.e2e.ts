@@ -250,7 +250,8 @@ test.describe('Calendar', () => {
     const dialog = page.getByRole('dialog', { name: 'Automation' })
     const sentence = dialog.getByTestId('review-automation-sentence')
     await sentence.getByLabel('Review length in minutes').selectOption('30')
-    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
+    // Earliest placement: it keeps its start and gets longer, or moves if 30 minutes no longer fit.
+    await expect(sentence).toContainText(/Saved\. (Moved \d+ reviews? to fit|Your review is now 30 min|\d+ reviews are now 30 min)\./)
     await dialog.getByRole('button', { name: /close/i }).click()
     await expect(dialog).toBeHidden()
 

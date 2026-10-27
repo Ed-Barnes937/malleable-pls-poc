@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { TopBarPom, SidebarPom, CreateWorkspaceDialogPom, PanelGridPom } from './pom'
 import { reseed } from './reseed'
 
@@ -44,6 +44,18 @@ async function buildBiologyBoard(page: Page) {
   await expect(drawer).toHaveAttribute('aria-hidden', 'true')
   await expect(drawer).not.toBeInViewport()
   return { topBar, grid }
+}
+
+/** A widget's box once its scale-in animation has finished (two equal reads 100ms apart). */
+async function settledBox(panel: Locator) {
+  let last = ''
+  await expect.poll(async () => {
+    const box = JSON.stringify(await panel.boundingBox())
+    const settled = box === last
+    last = box
+    return settled
+  }, { intervals: [100] }).toBe(true)
+  return JSON.parse(last) as Box
 }
 
 test.describe('Building a board', () => {
@@ -164,7 +176,7 @@ test.describe('Building a board', () => {
     const sidebar = new SidebarPom(page)
     await sidebar.addWidget('To-do')
     await grid.expectPanelCount(1)
-    const first = await grid.panelByLabel('To-do').boundingBox()
+    const first = await settledBox(grid.panelByLabel('To-do'))
     await page.keyboard.press('Escape')
     await grid.panelByLabel('To-do').getByRole('button', { name: 'Remove To-do from board' }).click()
     await grid.expectPanelCount(0)
@@ -172,10 +184,10 @@ test.describe('Building a board', () => {
     await topBar.openDrawer()
     await sidebar.addWidget('Coming up')
     await grid.expectPanelCount(1)
-    const second = await grid.panelByLabel('Coming up').boundingBox()
-    // Same spot (widgets scale in, so allow a few pixels of animation).
-    expect(Math.abs(second!.x - first!.x)).toBeLessThan(4)
-    expect(Math.abs(second!.y - first!.y)).toBeLessThan(4)
+    const second = await settledBox(grid.panelByLabel('Coming up'))
+    // Same spot, measured once each has finished scaling in.
+    expect(Math.abs(second.x - first.x)).toBeLessThan(1)
+    expect(Math.abs(second.y - first.y)).toBeLessThan(1)
   })
 
   test('fullscreen sits above other widgets and does not survive a reload', async ({ page }) => {
