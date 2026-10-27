@@ -62,14 +62,41 @@ describe('zonedTimeToUtc', () => {
     expect(zonedTimeToUtc(2026, 11, 1, 120, 'America/New_York')).toBe(at('2026-11-01T07:00:00Z'))
   })
 
-  it('round-trips every hour of a year in several zones', () => {
-    for (const tz of ['Europe/London', 'America/New_York', 'Australia/Sydney', 'Asia/Kathmandu']) {
-      for (let t = at('2026-01-01T00:00:00Z'); t < at('2027-01-01T00:00:00Z'); t += HOUR) {
-        const w = wallClock(t, tz)
-        const back = zonedTimeToUtc(w.year, w.month, w.day, w.hour * 60 + w.minute, tz)
-        // Ambiguous readings resolve to the earlier instant, so `back` is t or an hour before it.
-        expect(back === t || back === t - HOUR).toBe(true)
-        expect(wallClock(back, tz)).toEqual(w)
+  it('round-trips the instants around every DST transition of a year in several zones', () => {
+    // Exhaustively walking every hour of every zone proves nothing extra and
+    // takes seconds, so walk the offset coarsely to find each transition and
+    // then check every hour in a window around it (covering both the gap and
+    // the repeated hour), plus a sparse sample of ordinary instants.
+    const YEAR_START = at('2026-01-01T00:00:00Z')
+    const YEAR_END = at('2027-01-01T00:00:00Z')
+    const SIX_HOURS = 6 * HOUR
+    const expectedTransitions = {
+      'Europe/London': 2,
+      'America/New_York': 2,
+      'Australia/Sydney': 2,
+      'Asia/Kathmandu': 0,
+    }
+    const check = (t: number, tz: string) => {
+      const w = wallClock(t, tz)
+      const back = zonedTimeToUtc(w.year, w.month, w.day, w.hour * 60 + w.minute, tz)
+      // Ambiguous readings resolve to the earlier instant, so `back` is t or an hour before it.
+      expect(back === t || back === t - HOUR).toBe(true)
+      expect(wallClock(back, tz)).toEqual(w)
+    }
+    for (const [tz, expected] of Object.entries(expectedTransitions)) {
+      const windows: number[] = []
+      let prev = offsetMs(YEAR_START, tz)
+      for (let t = YEAR_START + SIX_HOURS, i = 1; t < YEAR_END; t += SIX_HOURS, i++) {
+        const o = offsetMs(t, tz)
+        if (o !== prev) windows.push(t)
+        prev = o
+        if (i % 5 === 0) check(t, tz) // every 30 hours: drifts through every hour of the day
+      }
+      // Guards the sampling: a transition we failed to find would go untested.
+      expect(windows).toHaveLength(expected)
+      for (const found of windows) {
+        // The change lies within the six hours before `found`; test every hour two days either side.
+        for (let t = found - 48 * HOUR; t <= found + 48 * HOUR; t += HOUR) check(t, tz)
       }
     }
   })

@@ -41,7 +41,12 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
-    const ai = createAiDeps()
+    const { mockTranscriptSegments } = await import('../ai/transcriber')
+    // The same canned lecture as the mock transcriber, without its 1.5s demo
+    // delay: three tests transcribe, and the delay alone made them time out
+    // when the machine was loaded.
+    const instantTranscriber = { name: 'mock', transcribe: async () => mockTranscriptSegments.map((s) => ({ ...s })) }
+    const ai = { ...createAiDeps(), transcriber: instantTranscriber }
     executors = createServerExecutors(ai)
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
