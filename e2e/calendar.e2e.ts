@@ -79,6 +79,25 @@ test.describe('Calendar', () => {
     await expect(calendar.popover.getByLabel('Start time')).toHaveValue('15:00')
   })
 
+  test('keyboard: Tab reaches a block, Enter opens it, Escape returns focus', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await call(request, 'planItems.create', { kind: 'commitment', title: 'Cafe shift', starts_at: at(3, 18), ends_at: at(3, 22) })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const shift = calendar.block('Cafe shift')
+    await expect(shift).toBeVisible()
+
+    await calendar.root.getByRole('button', { name: 'Add to calendar' }).focus()
+    for (let i = 0; i < 10 && !(await shift.evaluate((el) => el === document.activeElement)); i++) await page.keyboard.press('Tab')
+    await expect(shift).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(calendar.popover.getByLabel('Title')).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(shift).toBeFocused()
+  })
+
   test('drag study time to a new slot', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     const task = await call(request, 'planItems.create', {
@@ -112,7 +131,7 @@ test.describe('Calendar', () => {
     await topBar.switchToWorkspace('Week plan')
     const calendar = new CalendarPom(page)
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
-    await expect(transcript.getByText('Select a recording to view transcript')).toBeVisible()
+    await expect(transcript.getByText('Pick a lecture to see its transcript')).toBeVisible()
 
     await calendar.block('Review: chloroplast DNA').click()
 

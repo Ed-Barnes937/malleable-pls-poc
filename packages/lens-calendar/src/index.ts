@@ -7,8 +7,9 @@ export { HelpMePlan, type HelpMePlanProps } from './HelpMePlan'
 export const manifest: PanelManifest = {
   id: 'calendar',
   label: 'Calendar',
+  group: 'plan',
   icon: CalendarDays,
-  description: 'Your week: classes, study time and deadlines',
+  description: 'Your week of classes and study time',
   // Shows every course and dims the others: scope controls what is
   // emphasised, never what is true (other courses' commitments still count).
   scope: { courseTag: 'highlight', recordingId: 'highlight' },

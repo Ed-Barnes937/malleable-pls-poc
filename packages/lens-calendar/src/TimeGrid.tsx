@@ -263,7 +263,7 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
                       <span className={cn('truncate font-medium', done && 'line-through opacity-70')}>{m.item.title}</span>
                       {!m.allDay && (
                         // The time gives way first in a narrow column; the title (and tooltip) stay.
-                        <span className="ml-auto hidden shrink-0 tabular-nums text-text-muted @[7.5rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
+                        <span className="ml-auto hidden shrink-0 tabular-nums text-text-muted @[6rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
                       )}
                     </button>
                   )
