@@ -94,7 +94,8 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
           aria-label={`Not doing: ${item.title}`}
           title="Not doing this"
           onClick={onDismiss}
-          className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-neutral-600 opacity-0 transition-opacity hover:text-neutral-300 focus-visible:opacity-100 group-hover:opacity-100"
+          // Always visible (faint at rest, full on touch) so it can be found without hover.
+          className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-neutral-500 opacity-50 transition-opacity hover:text-neutral-300 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100"
         >
           <X className="h-3 w-3" />
         </button>

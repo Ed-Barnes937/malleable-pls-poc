@@ -1,8 +1,8 @@
 import { useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
-import { doneToday, orderTodos } from './todo-items'
+import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 
 /** Estimates offered when adding a to-do, in minutes. */
@@ -45,13 +45,22 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
   }
 
   const courseLabel = COURSES.find((c) => c.value === course)?.label ?? course
-  const hidden = <HiddenElsewhere scopedCount={open.length} unscopedCount={allOpen?.length ?? 0} />
+  // Only once both lists are in, so the hint never flashes a wrong count.
+  const hidden = items && allOpen && (
+    <HiddenElsewhere
+      scopedCount={open.length}
+      unscopedCount={allOpen.length}
+      noCourseCount={allOpen.filter((item) => !item.course).length}
+      className="text-right"
+    />
+  )
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center justify-between">
+      <div className="flex min-h-3.5 items-center justify-between gap-2">
+        {/* The panel title already says "To-do"; only add the count. */}
         <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
-          {open.length > 0 ? `${open.length} to do` : 'To-do'}
+          {open.length > 0 && `${open.length} to do`}
         </span>
         {hidden}
       </div>
@@ -63,7 +72,7 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
             item={item}
             now={now}
             showCourse={!course}
-            highlighted={!!highlight?.recordingId && item.source_id === highlight.recordingId}
+            highlighted={isFromRecording(item, highlight?.recordingId)}
             onToggle={() => complete.mutate(item.id)}
             onDismiss={() => dismiss.mutate(item.id)}
             onScopeChange={onScopeChange}
@@ -93,6 +102,7 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
       <form onSubmit={submit} className="flex items-center gap-1.5">
         <TextField
           aria-label="New to-do"
+          className="min-w-0"
           placeholder={courseLabel ? `Add a ${courseLabel} to-do` : 'Add a to-do'}
           value={title}
           maxLength={500}
@@ -100,14 +110,15 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
         />
         <Select
           aria-label="Time estimate"
-          wrapperClassName="w-28 shrink-0"
+          title="Time estimate (optional)"
+          wrapperClassName="w-[4.75rem] shrink-0"
           value={estimate}
           onChange={(e) => setEstimate(e.target.value)}
         >
-          <option value="">No estimate</option>
+          <option value="">Est.</option>
           {ESTIMATES.map((min) => (
             <option key={min} value={min}>
-              {min < 60 ? `${min} min` : `${min / 60} h`}
+              {formatDuration(min)}
             </option>
           ))}
         </Select>

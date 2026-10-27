@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dayLabel, daysFromToday, formatDuration, localDayKey, stillToDoLabel, dayAndTime } from './plan-dates'
+import { dayLabel, daysFromToday, dueEnd, formatDuration, isAllDay, localDayKey, stillToDoLabel, dayAndTime } from './plan-dates'
 
 // Monday 26 Oct 2026, midday local time. Built from local parts so the tests
 // hold in any time zone.
@@ -57,5 +57,18 @@ describe('formatDuration', () => {
     expect(formatDuration(20)).toBe('20m')
     expect(formatDuration(60)).toBe('1h')
     expect(formatDuration(90)).toBe('1h 30m')
+  })
+})
+
+describe('all-day due dates', () => {
+  it('treats exactly local midnight as all day on that date', () => {
+    expect(isAllDay(at(30, 0))).toBe(true)
+    expect(isAllDay(new Date(2026, 9, 30, 0, 0, 1))).toBe(false)
+    expect(isAllDay(at(30, 17))).toBe(false)
+  })
+
+  it('passes at the end of an all-day date, or at a real due time', () => {
+    expect(dueEnd(at(30, 0))).toBe(at(31, 0).getTime())
+    expect(dueEnd(at(30, 17).toISOString())).toBe(at(30, 17).getTime())
   })
 })

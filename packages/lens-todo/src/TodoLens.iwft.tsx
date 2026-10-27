@@ -18,7 +18,7 @@ test('quick add on a Biology board files the to-do under Biology with its estima
 
   await expect(page.getByText('Nothing to do yet')).toBeVisible()
   await page.getByRole('textbox', { name: 'New to-do' }).fill('Review enzymes')
-  await page.getByRole('combobox', { name: 'Time estimate' }).selectOption({ label: '30 min' })
+  await page.getByRole('combobox', { name: 'Time estimate' }).selectOption({ label: '30m' })
   await page.getByRole('textbox', { name: 'New to-do' }).press('Enter')
 
   const row = page.getByTestId('todo-item').filter({ hasText: 'Review enzymes' })
@@ -44,6 +44,22 @@ test('a course-filtered board shows only its to-dos and says what it leaves out'
   await expect(page.getByText('Read chapter 4')).toBeVisible()
   await expect(page.getByText('Balance equations')).toHaveCount(0)
   await expect(page.getByText('+1 in other courses')).toBeVisible()
+})
+
+test('to-dos with no course are reported as such, not as in other courses', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-bio', kind: 'task', title: 'Read chapter 4', course: 'biology' })
+  seedPlanItem(simulator, { id: 'todo-chem', kind: 'task', title: 'Balance equations', course: 'chemistry' })
+  seedPlanItem(simulator, { id: 'todo-none', kind: 'task', title: 'Buy lab goggles' })
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} scope={{ courseTag: 'biology' }} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Read chapter 4')).toBeVisible()
+  await expect(page.getByText('Buy lab goggles')).toHaveCount(0)
+  await expect(page.getByTestId('hidden-elsewhere')).toHaveText('+1 in other courses · 1 with no course')
 })
 
 test('an unscoped board shows every course with its pill', async ({ mount, page, simulator }) => {

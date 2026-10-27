@@ -67,6 +67,30 @@ export function stillToDoLabel(t: number | string | Date, now: number | Date = D
   return `Still to do from ${dayMonth.format(date)}`
 }
 
+/**
+ * All-day convention for due dates, shared by every planning widget
+ * (To-do, Coming up, Calendar): a `due_at` at exactly local 00:00:00.000
+ * means "due on that date, all day", not "due at midnight". Show it with no
+ * time, on that date (never the evening before), and treat it as still to
+ * come until that day ends. Any other time is a real due time.
+ */
+export function isAllDay(dueAt: number | string | Date): boolean {
+  const d = new Date(typeof dueAt === 'string' ? Date.parse(dueAt) : dueAt)
+  return d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0
+}
+
+/**
+ * The instant a due date has passed: the due time itself, or for an all-day
+ * due date (see `isAllDay`) the local midnight that ends that day.
+ */
+export function dueEnd(dueAt: number | string | Date): number {
+  const t = typeof dueAt === 'string' ? Date.parse(dueAt) : new Date(dueAt).getTime()
+  if (!isAllDay(t)) return t
+  const end = new Date(t)
+  end.setDate(end.getDate() + 1)
+  return end.getTime()
+}
+
 /** "20m", "1h", "1h 30m". */
 export function formatDuration(minutes: number): string {
   const h = Math.floor(minutes / 60)

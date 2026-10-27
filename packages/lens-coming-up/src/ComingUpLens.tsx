@@ -1,13 +1,7 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, COURSE_COLORS, HiddenElsewhere, Select, clockTime, cn } from '@pls/shared-ui'
-import { comingUpQuery, groupByDay, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
-
-/** Deadlines due at local midnight-ish read as "end of day", not "23:59". */
-function dueTime(dueAt: string): string | null {
-  const time = clockTime(dueAt)
-  return time === '23:59' || time === '00:00' ? null : time
-}
+import { COURSES, COURSE_COLORS, HiddenElsewhere, Select, clockTime, cn, dayLabel, isAllDay } from '@pls/shared-ui'
+import { comingUpQuery, groupByDay, isFromRecording, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
 
 export default function ComingUpLens({ scope, highlight, config, onConfigChange, onScopeChange }: LensProps) {
   const reader = useSubstrate()
@@ -25,7 +19,7 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
         {onConfigChange ? (
           <Select
             aria-label="Look ahead"
-            wrapperClassName="w-32"
+            wrapperClassName="w-32 shrink-0"
             value={days}
             onChange={(e) => onConfigChange({ lookAheadDays: Number(e.target.value) })}
           >
@@ -36,7 +30,15 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
         ) : (
           <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">Next {days} days</span>
         )}
-        <HiddenElsewhere scopedCount={items?.length ?? 0} unscopedCount={all?.length ?? 0} />
+        {/* Only once both lists are in, so the hint never flashes a wrong count. */}
+        {items && all && (
+          <HiddenElsewhere
+            scopedCount={items.length}
+            unscopedCount={all.length}
+            noCourseCount={all.filter((item) => !item.course).length}
+            className="text-right"
+          />
+        )}
       </div>
 
       {!isLoading && groups.length === 0 ? (
@@ -61,7 +63,9 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
                     key={item.occurrence_key}
                     item={item}
                     showCourse={!scope.courseTag}
-                    highlighted={!!highlight?.recordingId && item.source_id === highlight.recordingId}
+                    highlighted={isFromRecording(item, highlight?.recordingId)}
+                    now={now}
+                    showDay={group.past}
                     onFocusCourse={
                       onScopeChange && item.course && item.course !== scope.courseTag
                         ? () => onScopeChange({ courseTag: item.course! })
@@ -82,12 +86,16 @@ interface DeadlineRowProps {
   item: PlanItemOccurrence
   showCourse: boolean
   highlighted: boolean
+  now: number
+  /** Show the due day instead of the time (rows in the "from earlier" group). */
+  showDay: boolean
   /** Focus the board on this deadline's course; omitted when there is nothing to focus. */
   onFocusCourse?: () => void
 }
 
-function DeadlineRow({ item, showCourse, highlighted, onFocusCourse }: DeadlineRowProps) {
-  const time = dueTime(item.due_at!)
+function DeadlineRow({ item, showCourse, highlighted, now, showDay, onFocusCourse }: DeadlineRowProps) {
+  // An all-day deadline (local 00:00) shows no time.
+  const time = showDay ? dayLabel(item.due_at!, now) : isAllDay(item.due_at!) ? null : clockTime(item.due_at!)
   const courseLabel = COURSES.find((c) => c.value === item.course)?.label ?? item.course
   const body = (
     <>

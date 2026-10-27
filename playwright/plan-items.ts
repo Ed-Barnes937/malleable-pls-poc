@@ -26,11 +26,11 @@ export function seedPlanItem(
   return { ...stored, course }
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000
-
 /** ISO time `days` from now (negative for the past), at `hour`:00 local time. */
 export function daysFromNow(days: number, hour = 12): string {
-  const d = new Date(Date.now() + days * DAY_MS)
+  // Calendar arithmetic (not 24h steps) so a DST change can't shift the day.
+  const d = new Date()
+  d.setDate(d.getDate() + days)
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()
 }

@@ -1,5 +1,5 @@
 import type { PlanItemOccurrence, PlanItemQuery } from '@pls/substrate'
-import { dayLabel, localDayKey, startOfLocalDay, stillToDoLabel } from '@pls/shared-ui'
+import { dayLabel, localDayKey, startOfLocalDay } from '@pls/shared-ui'
 
 export const DEFAULT_LOOK_AHEAD_DAYS = 14
 export const LOOK_AHEAD_OPTIONS = [7, 14, 30]
@@ -30,25 +30,44 @@ export function comingUpQuery(days: number, now: number, courseTag?: string): Pl
 export interface DayGroup {
   key: string
   heading: string
-  /** The day is before today: its deadlines are still to do. */
+  /** Deadlines from before today, still open: one calm group, not a pile of days. */
   past: boolean
   items: PlanItemOccurrence[]
 }
 
-/** Deadlines grouped by local due day, earliest first. */
+export const EARLIER_KEY = 'earlier'
+
+/**
+ * Deadlines grouped by local due day, soonest first. Open deadlines from
+ * before today share a single "Still to do from earlier (N)" group at the top,
+ * most recent first, rather than one heading per missed day. An all-day
+ * deadline (local 00:00, see `isAllDay`) belongs to its own date.
+ */
 export function groupByDay(items: PlanItemOccurrence[], now: number): DayGroup[] {
   const today = localDayKey(now)
-  const groups = new Map<string, DayGroup>()
-  const sorted = [...items].filter((item) => item.due_at).sort((a, b) => Date.parse(a.due_at!) - Date.parse(b.due_at!))
-  for (const item of sorted) {
+  const dated = items.filter((item) => item.due_at).sort((a, b) => Date.parse(a.due_at!) - Date.parse(b.due_at!))
+  const earlier = dated.filter((item) => localDayKey(item.due_at!) < today).reverse()
+
+  const groups: DayGroup[] = []
+  if (earlier.length > 0) {
+    groups.push({ key: EARLIER_KEY, past: true, heading: `Still to do from earlier (${earlier.length})`, items: earlier })
+  }
+  const byDay = new Map<string, DayGroup>()
+  for (const item of dated) {
     const key = localDayKey(item.due_at!)
-    let group = groups.get(key)
+    if (key < today) continue
+    let group = byDay.get(key)
     if (!group) {
-      const past = key < today
-      group = { key, past, heading: past ? stillToDoLabel(item.due_at!, now) : dayLabel(item.due_at!, now), items: [] }
-      groups.set(key, group)
+      group = { key, past: false, heading: dayLabel(item.due_at!, now), items: [] }
+      byDay.set(key, group)
+      groups.push(group)
     }
     group.items.push(item)
   }
-  return [...groups.values()]
+  return groups
+}
+
+/** Linked to the given lecture (provenance `source_type = 'recording'`). */
+export function isFromRecording(item: PlanItemOccurrence, recordingId: string | undefined): boolean {
+  return !!recordingId && item.source_type === 'recording' && item.source_id === recordingId
 }

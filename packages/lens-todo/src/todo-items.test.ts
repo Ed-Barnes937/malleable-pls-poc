@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { doneToday, orderTodos, slippedAt } from './todo-items'
+import { doneToday, isFromRecording, orderTodos, slippedAt } from './todo-items'
 
 const now = new Date(2026, 9, 26, 12, 0).getTime()
 const iso = (day: number, hour = 9) => new Date(2026, 9, day, hour).toISOString()
@@ -42,6 +42,11 @@ describe('slippedAt', () => {
     expect(slippedAt(todo('a', { due_at: iso(27) }), now)).toBeNull()
   })
 
+  it('treats a due date at local midnight as all day: it passes when that day ends', () => {
+    expect(slippedAt(todo('a', { due_at: new Date(2026, 9, 26).toISOString() }), now)).toBeNull()
+    expect(slippedAt(todo('a', { due_at: new Date(2026, 9, 25).toISOString() }), now)).toBe(new Date(2026, 9, 25).toISOString())
+  })
+
   it('is null for an undated to-do', () => {
     expect(slippedAt(todo('a'), now)).toBeNull()
   })
@@ -56,5 +61,18 @@ describe('doneToday', () => {
       todo('open', { updated_at: iso(26, 8) }),
     ]
     expect(doneToday(items, now).map((t) => t.id)).toEqual(['done-early', 'done-late'])
+  })
+
+  it('keeps only the latest few', () => {
+    const items = [8, 9, 10, 11].map((h) => todo(`done-${h}`, { status: 'done', updated_at: iso(26, h) }))
+    expect(doneToday(items, now, 2).map((t) => t.id)).toEqual(['done-10', 'done-11'])
+  })
+})
+
+describe('isFromRecording', () => {
+  it('matches lecture provenance only', () => {
+    expect(isFromRecording(todo('a', { source_type: 'recording', source_id: 'rec-1' }), 'rec-1')).toBe(true)
+    expect(isFromRecording(todo('a', { source_type: 'tag', source_id: 'rec-1' }), 'rec-1')).toBe(false)
+    expect(isFromRecording(todo('a', { source_type: 'recording', source_id: 'rec-1' }), undefined)).toBe(false)
   })
 })

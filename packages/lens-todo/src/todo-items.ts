@@ -1,5 +1,5 @@
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { localDayKey } from '@pls/shared-ui'
+import { dueEnd, localDayKey } from '@pls/shared-ui'
 
 /**
  * When a to-do is "for": its scheduled block if placed, else its due date.
@@ -34,14 +34,28 @@ export function slippedAt(item: PlanItemOccurrence, now: number): string | null 
     const end = item.ends_at ?? item.starts_at
     return Date.parse(end) < now ? item.starts_at : null
   }
-  if (item.due_at && Date.parse(item.due_at) < now) return item.due_at
+  // An all-day due date (local 00:00) only passes when that day ends.
+  if (item.due_at && dueEnd(item.due_at) <= now) return item.due_at
   return null
 }
 
-/** Done to-dos worth showing again: those ticked off today. */
-export function doneToday(items: PlanItemOccurrence[], now: number): PlanItemOccurrence[] {
+/** Made from a moment of the given lecture (provenance `source_type = 'recording'`). */
+export function isFromRecording(item: PlanItemOccurrence, recordingId: string | undefined): boolean {
+  return !!recordingId && item.source_type === 'recording' && item.source_id === recordingId
+}
+
+/** At most this many ticked-off to-dos stay visible under "Done today". */
+export const DONE_TODAY_LIMIT = 5
+
+/**
+ * Done to-dos worth showing again: the latest few ticked off today, in the
+ * order they were done. "Ticked off" is approximated by `updated_at` (there is
+ * no `completed_at` yet), so a later edit to a done to-do brings it back here.
+ */
+export function doneToday(items: PlanItemOccurrence[], now: number, limit = DONE_TODAY_LIMIT): PlanItemOccurrence[] {
   const today = localDayKey(now)
   return items
     .filter((item) => item.status === 'done' && localDayKey(item.updated_at) === today)
     .sort((a, b) => Date.parse(a.updated_at) - Date.parse(b.updated_at))
+    .slice(-limit)
 }

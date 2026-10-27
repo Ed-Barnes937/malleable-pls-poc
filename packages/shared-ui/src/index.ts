@@ -12,7 +12,7 @@ export { Dialog, type DialogProps } from './Dialog'
 export { Select, type SelectProps } from './Select'
 export { TextField, type TextFieldProps } from './TextField'
 export { COURSES, COURSE_COLORS, COURSE_PILL_COLORS } from './constants'
-export { HiddenElsewhere, hiddenElsewhereCount, type HiddenElsewhereProps } from './HiddenElsewhere'
+export { HiddenElsewhere, hiddenElsewhereCount, hiddenElsewhereParts, type HiddenElsewhereProps } from './HiddenElsewhere'
 export {
   startOfLocalDay,
   daysFromToday,
@@ -22,4 +22,6 @@ export {
   dayAndTime,
   stillToDoLabel,
   formatDuration,
+  isAllDay,
+  dueEnd,
 } from './plan-dates'

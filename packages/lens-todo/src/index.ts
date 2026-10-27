@@ -13,7 +13,8 @@ export const manifest: PanelManifest = {
   scope: { courseTag: 'filter', recordingId: 'highlight' },
   reads: ['plan_items', 'recordings'],
   writes: ['plan_items'],
-  emits: ['plan-item:created', 'plan-item:completed'],
+  // Unticking and dismissing are updates.
+  emits: ['plan-item:created', 'plan-item:completed', 'plan-item:updated'],
   load: () => import('./TodoLens'),
   minWidth: 280,
   minHeight: 220,

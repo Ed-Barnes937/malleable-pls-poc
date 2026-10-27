@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { comingUpQuery, groupByDay, lookAheadDays } from './coming-up'
+import { comingUpQuery, groupByDay, isFromRecording, lookAheadDays } from './coming-up'
 
 const now = new Date(2026, 9, 26, 12, 0).getTime()
 const iso = (day: number, hour = 9) => new Date(2026, 9, day, hour).toISOString()
@@ -48,16 +48,37 @@ describe('comingUpQuery', () => {
 })
 
 describe('groupByDay', () => {
-  it('groups by local day, earliest first, with calm headings for the past', () => {
+  it('groups by local day, soonest first, with one calm group for anything from earlier', () => {
     const groups = groupByDay(
-      [deadline('lab', iso(30, 17)), deadline('quiz', iso(29, 10)), deadline('essay', iso(23, 17)), deadline('quiz-2', iso(29, 14)), deadline('today', iso(26, 16))],
+      [
+        deadline('lab', iso(30, 17)), deadline('quiz', iso(29, 10)), deadline('essay', iso(23, 17)),
+        deadline('quiz-2', iso(29, 14)), deadline('today', iso(26, 16)), deadline('sheet', iso(20, 17)),
+      ],
       now,
     )
     expect(groups.map((g) => [g.heading, g.past, g.items.map((i) => i.id)])).toEqual([
-      ['Still to do from Friday', true, ['essay']],
+      ['Still to do from earlier (2)', true, ['essay', 'sheet']],
       ['Today', false, ['today']],
       ['Thu 29 Oct', false, ['quiz', 'quiz-2']],
       ['Fri 30 Oct', false, ['lab']],
     ])
+  })
+
+  it('files an all-day deadline (local midnight) under its own date', () => {
+    const groups = groupByDay([deadline('allday', new Date(2026, 9, 30).toISOString())], now)
+    expect(groups.map((g) => g.heading)).toEqual(['Fri 30 Oct'])
+  })
+
+  it('has no earlier group when nothing is missed', () => {
+    expect(groupByDay([deadline('quiz', iso(29))], now).map((g) => g.past)).toEqual([false])
+  })
+})
+
+describe('isFromRecording', () => {
+  it('matches lecture provenance only', () => {
+    const linked = { ...deadline('a', iso(29)), source_type: 'recording', source_id: 'rec-1' }
+    expect(isFromRecording(linked, 'rec-1')).toBe(true)
+    expect(isFromRecording({ ...linked, source_type: 'tag' }, 'rec-1')).toBe(false)
+    expect(isFromRecording(linked, undefined)).toBe(false)
   })
 })

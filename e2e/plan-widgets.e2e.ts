@@ -35,7 +35,9 @@ async function createBoard(request: APIRequestContext, name: string, course: str
 }
 
 function daysFromNow(days: number, hour: number): string {
-  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  // Calendar arithmetic (not 24h steps) so a DST change can't shift the day.
+  const d = new Date()
+  d.setDate(d.getDate() + days)
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()
 }
@@ -65,7 +67,7 @@ test.describe('Plan widgets: To-do and Coming up', () => {
     // Add a to-do with an estimate; it inherits the board course.
     const todo = grid.panelByLabel('To-do')
     await todo.getByRole('textbox', { name: 'New to-do' }).fill('Review enzymes')
-    await todo.getByRole('combobox', { name: 'Time estimate' }).selectOption({ label: '30 min' })
+    await todo.getByRole('combobox', { name: 'Time estimate' }).selectOption({ label: '30m' })
     await todo.getByRole('button', { name: 'Add to-do' }).click()
     await expect(todo.getByTestId('todo-item').filter({ hasText: 'Review enzymes' })).toBeVisible({ timeout: 10000 })
 

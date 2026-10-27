@@ -50,6 +50,24 @@ test('a course-filtered board says what it leaves out, and still shows its misse
   await expect(page.getByText('+2 in other courses')).toBeVisible()
 })
 
+test('missed deadlines share one calm group, and untagged ones are not counted as other courses', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seedPlanItem(simulator, { id: 'bio-missed', kind: 'deadline', title: 'Reading log', course: 'biology', due_at: daysFromNow(-5, 17) })
+  seedPlanItem(simulator, { id: 'bio-missed-2', kind: 'deadline', title: 'Worksheet', course: 'biology', due_at: daysFromNow(-1, 17) })
+  seedPlanItem(simulator, { id: 'untagged', kind: 'deadline', title: 'Library book', due_at: daysFromNow(2, 12) })
+
+  await mount(
+    <TestProviders>
+      <ComingUpLens {...defaultProps} scope={{ courseTag: 'biology' }} />
+    </TestProviders>,
+  )
+
+  const earlier = page.getByRole('region', { name: 'Still to do from earlier (2)' })
+  await expect(earlier.getByTestId('coming-up-item')).toHaveText([/Worksheet/, /Reading log/])
+  await expect(page.getByRole('heading', { name: /^Still to do/ })).toHaveCount(1)
+  await expect(page.getByTestId('hidden-elsewhere')).toHaveText('+2 in other courses · 1 with no course')
+})
+
 test('the look-ahead is a knob saved to the widget config', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   const patches: Record<string, unknown>[] = []
