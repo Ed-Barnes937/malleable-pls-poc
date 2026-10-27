@@ -176,6 +176,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const layer = useProposalLayer({
     save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
     saveTogether: { [REFIT_SOURCE]: refit.save },
+    onDismiss: refit.onDismiss,
     rows: items,
     validate: validateProposal,
   })

@@ -101,6 +101,66 @@ test('if the week changed since the preview, it shows fresh times instead', asyn
   await expect(page.getByTestId('refit-note')).toHaveText("Moved 1 block. It's in your calendar.")
 })
 
+test('if a commitment lands on a ghost meanwhile, that block gets a fresh time too, never dropped', async ({ mount, page, simulator }) => {
+  seedMissed(simulator)
+  await mount(<CalendarHarness />)
+
+  await banner(page).getByRole('button', { name: 'Re-fit' }).click()
+  const reading = ghosts(page).filter({ hasText: 'Read chapter 5' })
+  await expect(ghosts(page)).toHaveCount(2)
+  // Added in another tab: a dentist appointment right where the first ghost is.
+  const label = await reading.getAttribute('aria-label')
+  const [, from, to] = /(\d\d:\d\d) - (\d\d:\d\d)/.exec(label!)!
+  const tomorrowAt = (hhmm: string) => {
+    const d = new Date(daysFromNow(1, 0))
+    d.setHours(Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)))
+    return d.toISOString()
+  }
+  seedPlanItem(simulator, { id: 'dentist', kind: 'commitment', title: 'Dentist', starts_at: tomorrowAt(from), ends_at: tomorrowAt(to) })
+
+  await banner(page).getByRole('button', { name: 'Move them' }).click()
+  await expect(banner(page).getByText('Your week changed, so here are fresh times.')).toBeVisible()
+  await expect(ghosts(page)).toHaveCount(2)
+  await expect(reading).toBeVisible()
+  expect(stored(simulator, 'missed-1').starts_at).toBe(daysFromNow(-2, 10))
+
+  await banner(page).getByRole('button', { name: 'Move them' }).click()
+  await expect(page.getByTestId('refit-note')).toHaveText("Moved 2 blocks. They're in your calendar.")
+  const moved = stored(simulator, 'missed-1')
+  const dentist = stored(simulator, 'dentist')
+  expect(Date.parse(moved.starts_at!)).toBeGreaterThan(Date.now() - 60_000)
+  expect(Date.parse(moved.ends_at!) <= Date.parse(dentist.starts_at!) || Date.parse(dentist.ends_at!) <= Date.parse(moved.starts_at!)).toBe(true)
+})
+
+test('a ghost taken out because something now covers it is asked about again, not silenced', async ({ mount, page, simulator }) => {
+  seedMissed(simulator)
+  await mount(<CalendarHarness />)
+
+  await banner(page).getByRole('button', { name: 'Re-fit' }).click()
+  const reading = ghosts(page).filter({ hasText: 'Read chapter 5' })
+  await expect(ghosts(page)).toHaveCount(2)
+  const box = await reading.getAttribute('aria-label')
+  const [, from, to] = /(\d\d:\d\d) - (\d\d:\d\d)/.exec(box!)!
+  const tomorrowAt = (hhmm: string) => {
+    const d = new Date(daysFromNow(1, 0))
+    d.setHours(Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)))
+    return d.toISOString()
+  }
+  seedPlanItem(simulator, { id: 'dentist', kind: 'commitment', title: 'Dentist', starts_at: tomorrowAt(from), ends_at: tomorrowAt(to) })
+  // The calendar refreshes (here: away and back), and the covered ghost is taken out.
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await page.getByRole('button', { name: 'Previous week' }).click()
+  await expect(reading).toHaveCount(0)
+  await expect(page.getByTestId('calendar-notice')).toContainText('Took "Read chapter 5" out of the suggestions')
+
+  // Keep my plan answers for the one still shown; the other is asked about again.
+  await banner(page).getByRole('button', { name: 'Keep my plan' }).click()
+  await expect(banner(page)).toContainText("1 block didn't happen. Re-fit it?")
+  await banner(page).getByRole('button', { name: 'Re-fit' }).click()
+  await expect(reading).toBeVisible()
+  await expect(ghosts(page)).toHaveCount(1)
+})
+
 test('a block with no free time is named, and stays on the list', async ({ mount, page, simulator }) => {
   seedMissed(simulator)
   // Due in 5 minutes: no time left to fit an hour.

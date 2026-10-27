@@ -94,6 +94,7 @@ export function useProposalLayer({
   rows,
   validate,
   saveTogether,
+  onDismiss,
 }: {
   save: (proposal: Proposal) => Promise<unknown>
   /**
@@ -103,6 +104,12 @@ export function useProposalLayer({
    * leaves every one of them drafted.
    */
   saveTogether?: Partial<Record<string, (proposals: Proposal[]) => Promise<unknown>>>
+  /**
+   * The student dismissed these (one, or "Keep my plan" for all). Not
+   * called when the layer takes a ghost out itself because `validate` said
+   * it no longer holds: that is not the student's answer.
+   */
+  onDismiss?: (proposals: Proposal[], source: string) => void
   rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at'>>
   validate?: ProposalValidator
 }): ProposalLayer {
@@ -112,6 +119,7 @@ export function useProposalLayer({
   const [saving, setSaving] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const generationRef = useRef(0)
   const latest = useRef(proposals)
   latest.current = proposals
   const sourceRef = useRef(source)
@@ -149,9 +157,13 @@ export function useProposalLayer({
     .filter((p) => !saved.has(p.id))
     .map((p) => ({ p, reason: check(p) }))
     .filter((x): x is { p: Proposal; reason: string } => x.reason !== null)
-  const invalidKey = invalid.map((x) => x.p.id).join('|')
+  // Bumped by `propose`: a draft proposed since this render (e.g. by a child
+  // widget's effect, which runs before this one) is checked afresh on the
+  // next render, never dropped for what its predecessor with the same id did.
+  const generation = generationRef.current
+  const invalidKey = `${generation}:${invalid.map((x) => x.p.id).join('|')}`
   useEffect(() => {
-    if (invalid.length === 0) return
+    if (invalid.length === 0 || generationRef.current !== generation) return
     drop(new Set(invalid.map((x) => x.p.id)))
     setNotice(invalid.map(({ p, reason }) => `Took "${p.title}" out of the suggestions: ${reason}.`).join(' '))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,6 +179,7 @@ export function useProposalLayer({
   }, [saved, landed, drop])
 
   const propose = useCallback((from: string, next: Proposal[]) => {
+    generationRef.current++
     setError(null)
     setNotice(null)
     setSaved(new Map())
@@ -221,8 +234,20 @@ export function useProposalLayer({
     if (firstReason) setNotice(`Can't move "${current.title}" there: ${firstReason}.`)
   }, [moveProblem, place])
 
-  const dismiss = useCallback((id: string) => drop(new Set([id])), [drop])
-  const dismissAll = useCallback(() => propose('', []), [propose])
+  const onDismissRef = useRef(onDismiss)
+  onDismissRef.current = onDismiss
+  const dismissed = useCallback((ps: Proposal[]) => {
+    const open = ps.filter((p) => !saved.has(p.id))
+    if (open.length > 0) onDismissRef.current?.(open, sourceRef.current ?? '')
+  }, [saved])
+  const dismiss = useCallback((id: string) => {
+    dismissed(latest.current.filter((p) => p.id === id))
+    drop(new Set([id]))
+  }, [drop, dismissed])
+  const dismissAll = useCallback(() => {
+    dismissed(latest.current)
+    propose('', [])
+  }, [propose, dismissed])
 
   const acceptMany = useCallback(async (ids: string[]) => {
     const targets = latest.current.filter((p) => ids.includes(p.id) && !saved.has(p.id))

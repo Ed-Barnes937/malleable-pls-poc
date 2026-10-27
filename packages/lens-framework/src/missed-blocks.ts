@@ -10,8 +10,8 @@ import { useSubstrate, useSubstrateMutations } from './substrate-context'
  * the student-facing copy and which blocks the student already answered for.
  *
  * Answering ("Not now", "Keep my plan", moving them, or being told one
- * doesn't fit) holds for the rest of the browser session and in every
- * widget, so the question is never raised twice. Only a newly missed block
+ * doesn't fit) holds in every widget until the page is reloaded (it is
+ * module state), so the question is never raised twice. Only a newly missed block
  * (a new miss of the same to-do counts) brings it back.
  */
 
@@ -63,7 +63,7 @@ export function movedNote(moved: number, noFit: RefitProposal[]): string {
   return parts.join(' ')
 }
 
-// Answered blocks, shared by every widget for the browser session.
+// Answered blocks, shared by every widget until the page is reloaded.
 let handled: ReadonlySet<string> = new Set()
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => {
@@ -72,7 +72,7 @@ const subscribe = (listener: () => void) => {
 }
 const getHandled = () => handled
 
-/** Marks blocks as answered for: no widget asks about them again this session. */
+/** Marks blocks as answered for: no widget asks about them again until a reload. */
 export function markMissedBlocksHandled(ps: ReadonlyArray<RefitProposal>) {
   if (ps.every((p) => handled.has(missedBlockSignature(p)))) return
   handled = new Set([...handled, ...ps.map(missedBlockSignature)])
@@ -91,8 +91,16 @@ export interface MissedBlocks {
   proposals: RefitProposal[]
   /** Every missed block the server sees, answered or not (e.g. to check a ghost still is one). */
   all: RefitProposal[]
-  /** The preview's identity changes whenever it is refreshed. */
+  /** The latest preview as loaded (undefined until then); a new identity whenever it changes. */
   preview: RefitProposal[] | undefined
+  /**
+   * Asks the server for the preview now and resolves with it (every missed
+   * block, as `all`): times shown to the student should come from here, so
+   * they never lag behind a week that changed elsewhere.
+   */
+  refresh: () => Promise<RefitProposal[]>
+  /** Of `ps`, the ones this widget would ask about (its course, not answered for yet). */
+  toAsk: (ps: ReadonlyArray<RefitProposal>) => RefitProposal[]
   markHandled: (ps: ReadonlyArray<RefitProposal>) => void
   /**
    * Moves blocks to their new times in one atomic `planItems.refit`; the
@@ -110,13 +118,17 @@ export function useMissedBlocks({ course }: { course?: string | null } = {}): Mi
   const reader = useSubstrate()
   const acceptRefit = useSubstrateMutations().useAcceptRefit()
   const [timeZone] = useState(localTimeZone)
-  const { data } = reader.useRefitPreview(timeZone)
+  const { data, refetch } = reader.useRefitPreview(timeZone)
   const answered = useSyncExternalStore(subscribe, getHandled, getHandled)
   const all = data ?? []
+  const toAsk = useCallback(
+    (ps: ReadonlyArray<RefitProposal>) => ps.filter((p) => (!course || p.item.course === course) && !getHandled().has(missedBlockSignature(p))),
+    [course],
+  )
   const proposals = all.filter((p) => (!course || p.item.course === course) && !answered.has(missedBlockSignature(p)))
   const accept = useCallback(
     (blocks: { id: string; starts_at: string; ends_at: string }[]) => acceptRefit.mutateAsync({ timeZone, blocks }),
     [acceptRefit, timeZone],
   )
-  return { timeZone, proposals, all, preview: data ?? undefined, markHandled: markMissedBlocksHandled, accept }
+  return { timeZone, proposals, all, preview: data ?? undefined, refresh: refetch, toAsk, markHandled: markMissedBlocksHandled, accept }
 }

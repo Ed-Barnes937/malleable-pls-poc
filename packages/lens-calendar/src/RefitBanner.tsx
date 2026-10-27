@@ -29,13 +29,23 @@ export interface RefitDraft {
   save: (proposals: Proposal[]) => Promise<unknown>
   /** Blocks moved in this preview so far. */
   moved: number
-  resetMoved: () => void
   /**
-   * The server refused the last accept (the week changed): the preview it
-   * was based on, until fresh times have been shown; else null.
+   * The server refused the last accept (the week changed): `fresh` is the
+   * preview fetched straight after (null while it loads), until its times
+   * have been shown; else null.
    */
-  stale: RefitProposal[] | null
+  stale: { fresh: RefitProposal[] | null } | null
   clearStale: () => void
+  /**
+   * To-dos the student answered for in this preview: moved, or dismissed
+   * (one ghost, or "Keep my plan"). A ghost the layer took out by itself
+   * (something now covers its time) is not an answer.
+   */
+  answered: ReadonlySet<string>
+  /** The layer's `onDismiss`: the student dismissed these ghosts. */
+  onDismiss: (proposals: Proposal[], source: string) => void
+  /** A new preview starts: nothing answered or moved yet. */
+  reset: () => void
 }
 
 /**
@@ -46,26 +56,41 @@ export interface RefitDraft {
  */
 export function useRefitDraft(missed: MissedBlocks): RefitDraft {
   const [moved, setMoved] = useState(0)
-  const [stale, setStale] = useState<RefitProposal[] | null>(null)
+  const [stale, setStale] = useState<{ fresh: RefitProposal[] | null } | null>(null)
+  const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
+  const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
   const latest = useRef(missed)
   latest.current = missed
   const save = useCallback(async (proposals: Proposal[]) => {
-    const { accept, preview } = latest.current
+    const { accept, refresh } = latest.current
     try {
       const result = await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
       setMoved((n) => n + result.moved)
+      answer(proposals.map((p) => p.taskId))
     } catch (err) {
-      if (isConflictError(err)) setStale(preview ?? [])
+      if (isConflictError(err)) {
+        setStale({ fresh: null })
+        // No fresh times (the refresh failed): the blocks are simply asked about again.
+        refresh().then((fresh) => setStale({ fresh }), () => setStale({ fresh: [] }))
+      }
       throw err
     }
-  }, [])
+  }, [answer])
   return {
     missed,
     save,
     moved,
-    resetMoved: useCallback(() => setMoved(0), []),
     stale,
     clearStale: useCallback(() => setStale(null), []),
+    answered,
+    onDismiss: useCallback((proposals: Proposal[], source: string) => {
+      if (source === REFIT_SOURCE) answer(proposals.map((p) => p.taskId))
+    }, [answer]),
+    reset: useCallback(() => {
+      setMoved(0)
+      setStale(null)
+      setAnswered(new Set())
+    }, []),
   }
 }
 
@@ -88,11 +113,13 @@ export function RefitBanner({
   /** Bring a new time into view (e.g. switch to the week it is in). */
   onReveal: (startsAt: string) => void
 }) {
-  const { missed, moved, resetMoved, stale, clearStale } = refit
+  const { missed, moved, stale, clearStale, answered, reset } = refit
   /** The blocks this preview asked about, and the ones with no new time. */
   const [session, setSession] = useState<{ asked: RefitProposal[]; noFit: RefitProposal[] } | null>(null)
   const [note, setNote] = useState<string | null>(null)
   const [changed, setChanged] = useState(false)
+  /** Fetching fresh times for Re-fit. */
+  const [loading, setLoading] = useState(false)
 
   const previewing = layer.source === REFIT_SOURCE
   const otherDraft = layer.proposals.length > 0 && !previewing
@@ -104,47 +131,64 @@ export function RefitBanner({
     return () => clearTimeout(t)
   }, [note])
 
-  // The preview ends when its ghosts are all accepted or dismissed: those
-  // blocks are answered for, and the student hears what happened.
+  // The preview ends when its ghosts are all gone. Only the blocks the
+  // student answered for (moved, dismissed, or told they don't fit) are
+  // not asked about again; one whose ghost the layer took out by itself
+  // (something now covers that time) is asked about again, with a fresh
+  // time. A refused accept waits for its fresh times first.
   useEffect(() => {
-    if (!session || previewing) return
-    missed.markHandled(session.asked)
+    if (!session || previewing || stale) return
+    missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
     if (moved > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
     setSession(null)
     setChanged(false)
-    resetMoved()
-    clearStale()
-  }, [session, previewing, moved, missed, resetMoved, clearStale])
+    reset()
+  }, [session, previewing, stale, moved, answered, missed, reset])
 
   // The server refused an accept because the week changed: once the fresh
-  // preview is in, the blocks still drafted get their fresh times.
+  // preview is in, every block of this preview the student hasn't answered
+  // for and that is still missed gets its fresh time, including one whose
+  // ghost was just taken out because something now covers it.
   useEffect(() => {
-    if (!stale || !session || !missed.preview || missed.preview === stale) return
+    if (!stale?.fresh) return
     clearStale()
-    const drafted = new Set(layer.proposals.filter((p) => !layer.savedIds.has(p.id)).map((p) => p.taskId))
-    const fresh = missed.all.filter((p) => drafted.has(p.item.id))
-    setSession({ ...session, noFit: [...session.noFit, ...fresh.filter((p) => !hasTime(p))] })
+    if (!session) return
+    const askedIds = new Set(session.asked.map((p) => p.item.id))
+    const fresh = stale.fresh.filter((p) => askedIds.has(p.item.id) && !answered.has(p.item.id))
+    setSession({ ...session, noFit: fresh.filter((p) => !hasTime(p)) })
     setChanged(true)
     layer.propose(REFIT_SOURCE, fresh.filter(hasTime).map(toProposal))
-  }, [stale, missed.preview, missed.all, session, layer, clearStale])
+  }, [stale, session, answered, layer, clearStale])
 
   const asking = missed.proposals
   if (!previewing && asking.length === 0) {
     return note ? <p role="status" data-testid="refit-note" className="shrink-0 px-1 text-[11px] text-text-secondary">{note}</p> : null
   }
 
-  const startPreview = () => {
-    const fits = asking.filter(hasTime)
-    const noFit = asking.filter((p) => !hasTime(p))
+  // The times shown come from a preview fetched now, never one that may lag
+  // behind a week changed elsewhere.
+  const startPreview = async () => {
     setNote(null)
+    setLoading(true)
+    let current: RefitProposal[]
+    try {
+      current = missed.toAsk(await missed.refresh())
+    } catch {
+      current = asking
+    } finally {
+      setLoading(false)
+    }
+    if (current.length === 0) return
+    const fits = current.filter(hasTime)
+    const noFit = current.filter((p) => !hasTime(p))
     if (fits.length === 0) {
       // Nothing to show on the grid: say so once and leave them on the list.
-      missed.markHandled(asking)
+      missed.markHandled(current)
       setNote(movedNote(0, noFit))
       return
     }
-    resetMoved()
-    setSession({ asked: asking, noFit })
+    reset()
+    setSession({ asked: current, noFit })
     layer.propose(REFIT_SOURCE, fits.map(toProposal))
     onReveal(fits[0].starts_at!)
   }
@@ -183,7 +227,9 @@ export function RefitBanner({
             </>
           ) : (
             <>
-              <button type="button" onClick={startPreview} disabled={otherDraft} className={primary}>Re-fit</button>
+              <button type="button" onClick={() => void startPreview()} disabled={otherDraft || loading} className={primary}>
+                {loading ? 'Finding times...' : 'Re-fit'}
+              </button>
               <button type="button" onClick={notNow} className={secondary}>Not now</button>
             </>
           )}
