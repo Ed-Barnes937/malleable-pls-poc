@@ -20,7 +20,7 @@ export {
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
 
-export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
+export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
 export {
   newPlanItemInput,
   planItemUpdateInput,

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { expandPlanItems, matchesPlanItemFilters, validatePlanItem, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
+import { expandPlanItems, matchesPlanItemFilters, validatePlanItem, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
 import type { PlanItem } from './types'
 
 function item(overrides: Partial<PlanItem>): PlanItem {
@@ -244,5 +244,25 @@ describe('validatePlanItem', () => {
       kind: 'commitment', starts_at: '2026-10-19T09:00:00Z', ends_at: '2026-10-19T10:00:00Z',
       recurrence: { freq: 'weekly', timeZone: 'Mars/Olympus' },
     })).toMatch(/time zone/)
+  })
+})
+
+describe('shiftByWallClock', () => {
+  const t = (v: string) => Date.parse(v)
+  const iso = (n: number) => new Date(n).toISOString()
+
+  it('shifts by the local-time difference across a DST change', () => {
+    // Sat 24 Oct 10:00 BST -> Sun 25 Oct 10:00 GMT is 25h of real time, but one
+    // day later at the same local time; a September anchor moves to 10:00 BST.
+    const from = t('2026-10-24T09:00:00Z')
+    const to = t('2026-10-25T10:00:00Z')
+    expect(iso(shiftByWallClock(t('2026-09-05T09:00:00Z'), from, to, 'Europe/London'))).toBe('2026-09-06T09:00:00.000Z')
+  })
+
+  it('matches a plain ms shift when no clock change is involved', () => {
+    const from = t('2026-11-03T10:00:00Z')
+    const to = t('2026-11-03T11:30:00Z')
+    expect(iso(shiftByWallClock(t('2026-11-10T10:00:00Z'), from, to, 'Europe/London'))).toBe('2026-11-10T11:30:00.000Z')
+    expect(iso(shiftByWallClock(t('2026-09-07T09:00:00Z'), from, to, 'UTC'))).toBe('2026-09-07T10:30:00.000Z')
   })
 })
