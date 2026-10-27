@@ -45,6 +45,13 @@ function jobDoneMessage(jobType?: string): string {
   return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
 }
 
+interface PendingAdd {
+  workspaceId: string
+  box: { x: number; y: number; width: number; height: number; z: number }
+  /** Set once saved; the add stops counting once the canvas has this panel. */
+  panelId?: string
+}
+
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
@@ -153,6 +160,13 @@ export function WorkspaceShell() {
   }, [])
 
   /**
+   * Widgets added but not yet on the canvas: still saving, or saved and
+   * waiting for the panel list to refetch. Placement counts them as taken, so
+   * quick successive adds don't all pick the same free spot.
+   */
+  const pendingAddsRef = useRef<PendingAdd[]>([])
+
+  /**
    * Adds a widget at its default size. Without a position (a palette click)
    * it goes in the first free area of the visible board.
    */
@@ -162,28 +176,51 @@ export function WorkspaceShell() {
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
       const existing = useCanvasStore.getState().panels
-      const canvas = canvasRef.current
-      const spot = at ?? findFreeSpot(
-        existing.map((p) => ({ x: p.pos_x, y: p.pos_y, width: p.width, height: p.height })),
-        { width, height },
-        { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+      const onCanvas = new Set(existing.map((p) => p.id))
+      const pending = pendingAddsRef.current.filter(
+        (a) => a.workspaceId === activeWorkspaceId && !(a.panelId && onCanvas.has(a.panelId)),
       )
+      const taken = [
+        ...existing.map((p) => ({ x: p.pos_x, y: p.pos_y, width: p.width, height: p.height, z: p.z_index })),
+        ...pending.map((a) => a.box),
+      ]
+      const canvas = canvasRef.current
+      const spot = at ?? findFreeSpot(taken, { width, height }, {
+        width: canvas?.clientWidth ?? 0,
+        height: canvas?.clientHeight ?? 0,
+      })
+      const box = {
+        x: Math.round(spot.x),
+        y: Math.round(spot.y),
+        width,
+        height,
+        z: taken.length > 0 ? Math.max(...taken.map((t) => t.z)) + 1 : 1,
+      }
+      const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
+      pendingAddsRef.current = [...pending, add]
 
       addPanel.mutate(
         {
           workspaceId: activeWorkspaceId,
           lensType,
           slotName: `slot-${Date.now()}`,
-          pos_x: Math.round(spot.x),
-          pos_y: Math.round(spot.y),
+          pos_x: box.x,
+          pos_y: box.y,
           width,
           height,
-          z_index: existing.length > 0 ? Math.max(...existing.map((p) => p.z_index)) + 1 : 1,
+          z_index: box.z,
         },
         {
-          // One toast for a run of adds, not a stack of them.
-          onSuccess: () => pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' }),
-          onError: () => pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' }),
+          onSuccess: (row) => {
+            // Stays taken until the canvas shows the saved panel.
+            add.panelId = (row as { id?: string } | undefined)?.id
+            // One toast for a run of adds, not a stack of them.
+            pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
+          },
+          onError: () => {
+            pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
+            pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
+          },
         },
       )
     },

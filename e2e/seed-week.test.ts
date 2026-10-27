@@ -60,13 +60,22 @@ describe("Priya's seeded week", () => {
   })
 
   it.each([
-    ['Mon', '2026-10-26T08:00:00Z', '2026-10-29'],
-    ['Thu', '2026-10-29T20:00:00Z', '2026-10-29'],
-    ['Fri', '2026-10-30T08:00:00Z', '2026-11-05'],
-    ['Sun', '2026-11-01T23:30:00Z', '2026-11-05'], // still Sunday in London (GMT)
-  ])('on a %s the quiz is on %s, so the deadlines are never behind', (_day, now, quizDate) => {
-    const quiz = priyaWeek(at(now)).find((i) => i.id === 'seed-bio-quiz')!
-    expect(quiz.due_at!.slice(0, 10)).toBe(quizDate)
+    // now (UTC; London is GMT here), quiz due, lab report due
+    ['Mon morning', '2026-10-26T08:00:00Z', '2026-10-29T10:00', '2026-10-30T17:00'],
+    ['Thu 09:59', '2026-10-29T09:59:00Z', '2026-10-29T10:00', '2026-10-30T17:00'],
+    ['Thu 10:00, the quiz just started', '2026-10-29T10:00:00Z', '2026-11-05T10:00', '2026-10-30T17:00'],
+    ['Fri morning', '2026-10-30T08:00:00Z', '2026-11-05T10:00', '2026-10-30T17:00'],
+    ['Fri 17:30', '2026-10-30T17:30:00Z', '2026-11-05T10:00', '2026-11-06T17:00'],
+    ['Sun 23:30', '2026-11-01T23:30:00Z', '2026-11-05T10:00', '2026-11-06T17:00'],
+  ])('on %s every deadline, and the to-do due with it, is still ahead', (_when, nowIso, quizDue, labDue) => {
+    const now = at(nowIso)
+    const items = priyaWeek(now)
+    const due = (id: string) => items.find((i) => i.id === id)!.due_at!.slice(0, 16)
+    expect(due('seed-bio-quiz')).toBe(quizDue)
+    expect(due('seed-todo-quiz-revision')).toBe(quizDue)
+    expect(due('seed-chem-lab-report')).toBe(labDue)
+    expect(due('seed-todo-lab-write-up')).toBe(labDue)
+    for (const item of items) if (item.due_at) expect(Date.parse(item.due_at)).toBeGreaterThan(now)
   })
 
   it('has valid items, fixed unique ids, and 12 hours of unscheduled to-dos with estimates and courses', () => {

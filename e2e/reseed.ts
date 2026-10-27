@@ -24,6 +24,12 @@ const TABLES = [
   'transcript_segments', 'recordings',
 ]
 
+/** Where reseed writes, as "host:port/database" (never the credentials). */
+export function reseedTarget(): string {
+  const url = new URL(DATABASE_URL)
+  return `${url.host}${url.pathname}`
+}
+
 export interface ReseedOptions {
   /**
    * The instant Priya's week is built around (see ./seed-week.ts). Defaults

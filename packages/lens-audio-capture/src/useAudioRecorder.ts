@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useBoardId } from '@pls/lens-framework'
-import { clockTime } from '@pls/shared-ui'
+import { dayMonthAndTime } from '@pls/shared-ui'
 import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
@@ -146,8 +146,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
     await upload({
       audio: blob,
       contentType: 'audio/webm',
-      // e.g. "Lecture 27 Oct, 00:20"
-      title: `Lecture ${new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, ${clockTime(Date.now())}`,
+      title: recordingTitle(Date.now()),
       durationMs: elapsed,
       course,
     })
@@ -170,4 +169,9 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
   }, [stopTimer])
 
   return { state, elapsed, error, start, stop, uploadFile, reset, recordingId }
+}
+
+/** Title for a new capture, in house style: "Lecture 27 Oct, 00:20". */
+export function recordingTitle(now: number): string {
+  return `Lecture ${dayMonthAndTime(now)}`
 }

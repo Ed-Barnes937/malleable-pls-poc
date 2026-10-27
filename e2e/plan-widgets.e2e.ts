@@ -41,7 +41,12 @@ test.describe('Plan widgets: To-do and Coming up', () => {
   test('a to-do added on a Biology board appears on an unscoped board', async ({ page, request }) => {
     await createBoard(request, 'Biology week', 'biology', ['todo', 'coming-up'])
     await createBoard(request, 'Everything', null, ['todo', 'coming-up'])
-    // The deadlines are Priya's seeded week (e2e/seed-week.ts): a Biology quiz and a Chemistry lab report, both ahead.
+    // The deadlines are Priya's seeded week (e2e/seed-week.ts): a Biology quiz and a Chemistry lab report.
+    // This journey runs on the real clock: the server stamps a ticked to-do's
+    // updated_at with real time, and "Done today" compares it with the
+    // browser's day, so a frozen browser clock would hide it. That is safe
+    // because the seed puts both deadlines ahead of now, within 8 days, on any
+    // day (e2e/seed-week.test.ts); seed-week.e2e.ts pins the day end to end.
 
     await page.goto('/')
     const topBar = new TopBarPom(page)

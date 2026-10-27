@@ -13,8 +13,10 @@ import { wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
  * - Open to-dos with estimates, not yet scheduled. They add up to 12 hours,
  *   the "This needs 12." of demo step 2.
  *
- * The anchor week is the London week containing `now`, except from Friday on
- * it is next week, so the quiz and lab report are always still ahead.
+ * The weekly blocks are anchored on the London week containing `now`. Each
+ * deadline (and the to-do due with it) is this week's, unless that has
+ * already passed, then next week's: so the quiz and lab report are always
+ * still ahead, whatever the day and time.
  *
  * Kept pure (no DB) so other seeds and tests can build on it; ids are fixed
  * so they can be referred to.
@@ -32,17 +34,16 @@ type Day = (typeof DAY_NAMES)[number]
 /** Weeks of the series before the anchor week: the term is under way. */
 const SERIES_STARTED_WEEKS_AGO = 4
 
-/** Monday of the anchor week as a London calendar date (day may overflow; zonedTimeToUtc normalises). */
-export function anchorMonday(now: number): { year: number; month: number; day: number } {
+/** Monday of the London week containing `now`, as a calendar date (day may overflow; zonedTimeToUtc normalises). */
+export function weekMonday(now: number): { year: number; month: number; day: number } {
   const w = wallClock(now, SEED_TIME_ZONE)
   // 0 = Monday ... 6 = Sunday
   const weekday = (new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay() + 6) % 7
-  const rollForward = weekday >= DAY_NAMES.indexOf('Fri') ? 7 : 0
-  return { year: w.year, month: w.month, day: w.day - weekday + rollForward }
+  return { year: w.year, month: w.month, day: w.day - weekday }
 }
 
 export function priyaWeek(now: number = Date.now()): SeedPlanItem[] {
-  const monday = anchorMonday(now)
+  const monday = weekMonday(now)
   /** ISO instant for a London wall time on `day` of the anchor week (+ `weekOffset` weeks). */
   const at = (day: Day, time: string, weekOffset = 0) => {
     const [h, m] = time.split(':').map(Number)
@@ -57,8 +58,13 @@ export function priyaWeek(now: number = Date.now()): SeedPlanItem[] {
     recurrence: weekly,
   })
 
-  const quizDue = at('Thu', '10:00')
-  const labReportDue = at('Fri', '17:00')
+  /** This week's `day` at `time`, or next week's once that has passed. */
+  const nextDue = (day: Day, time: string) => {
+    const thisWeek = at(day, time)
+    return Date.parse(thisWeek) > now ? thisWeek : at(day, time, 1)
+  }
+  const quizDue = nextDue('Thu', '10:00')
+  const labReportDue = nextDue('Fri', '17:00')
 
   return [
     series('seed-bio-lecture-mon', 'Biology lecture', 'class', 'biology', 'Mon', '10:00', '12:00'),

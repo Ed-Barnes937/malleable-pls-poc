@@ -68,6 +68,37 @@ test.describe('Building a board', () => {
     }
   })
 
+  test('widgets clicked in quick succession still land in free space', async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.expectActiveWorkspace('My week')
+    await grid.expectEmpty()
+
+    // No waiting between clicks: each add is placed before the previous one is saved.
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    for (const label of ['Calendar', 'To-do', 'Coming up']) await sidebar.addWidget(label)
+    await page.keyboard.press('Escape')
+    await grid.expectPanelCount(3)
+
+    // Placement is final once saved: it survives a reload.
+    for (const reload of [false, true]) {
+      if (reload) {
+        await page.reload()
+        await topBar.switchToWorkspace('My week')
+        await grid.expectPanelCount(3)
+      }
+      const boxes = await panelBoxes(page)
+      expect(boxes).toHaveLength(3)
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i], boxes[j]), `widgets ${i} and ${j} overlap`).toBe(false)
+      }
+    }
+  })
+
   test('fullscreen sits above other widgets and does not survive a reload', async ({ page }) => {
     const { grid } = await buildBiologyBoard(page)
     const transcript = grid.panelByLabel('Transcript')

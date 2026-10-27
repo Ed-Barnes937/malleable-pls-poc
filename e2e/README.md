@@ -6,7 +6,7 @@
 
 ## Seed data
 
-`reseed()` (`e2e/reseed.ts`, also `pnpm db:reseed`) restores `dev-user-1`: the SQL seeds (lectures, tags, study boards, automations) plus Priya's week from `e2e/seed-week.ts`, built around the current date in London time: weekly Biology and Chemistry lectures, two cafe shifts (Tue and Thu evening), a Biology quiz on Thursday, a Chemistry lab report on Friday and 12 hours of unscheduled to-dos. From Friday on, the deadlines move to next week so they are always ahead. Pin the date with `reseed({ now })` in a test, or `SEED_NOW=2026-10-28T09:00:00Z pnpm db:reseed` to rehearse a given day. The CT backend simulator deliberately starts with no plan items.
+`reseed()` (`e2e/reseed.ts`, also `pnpm db:reseed`) restores `dev-user-1`: the SQL seeds (lectures, tags, study boards, automations) plus Priya's week from `e2e/seed-week.ts`, built around the current date in London time: weekly Biology and Chemistry lectures, two cafe shifts (Tue and Thu evening), a Biology quiz on Thursday, a Chemistry lab report on Friday and 12 hours of unscheduled to-dos. Once a deadline has passed it (and the to-do due with it) moves to next week, so both are always ahead. `reseed({ now })` builds the seed as if it were that instant; e2e journeys that depend on the day also freeze the browser clock (`page.clock.setFixedTime`) at the same instant. `SEED_NOW=2026-10-28T09:00:00Z pnpm db:reseed` does the same for the seed only: the app still runs on the real clock, so a `SEED_NOW` in another week puts the deadlines outside the week the calendar opens on. The CT backend simulator deliberately starts with no plan items.
 
 ## Cost guardrail
 
