@@ -87,6 +87,22 @@ describe('movePatch', () => {
   })
 })
 
+describe('movePatch across a DST change', () => {
+  it('keeps the series at the same local time', () => {
+    // Weekly Saturday 10:00 Europe/London, anchored in September (BST). The
+    // 24 Oct occurrence is moved to Sun 25 Oct 10:00, after clocks go back.
+    const series = row({
+      kind: 'commitment', occurrence_key: 'p1@2026-10-24',
+      starts_at: iso('2026-10-24T09:00:00Z'), ends_at: iso('2026-10-24T10:00:00Z'),
+      series_starts_at: iso('2026-09-05T09:00:00Z'), series_ends_at: iso('2026-09-05T10:00:00Z'),
+      recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+    })
+    expect(movePatch(series, new Date('2026-10-25T10:00:00Z'), new Date('2026-10-25T11:00:00Z'))).toEqual({
+      starts_at: '2026-09-06T09:00:00.000Z', ends_at: '2026-09-06T10:00:00.000Z',
+    })
+  })
+})
+
 describe('patchFromDraft', () => {
   const lecture = row({
     kind: 'commitment', title: 'Biology lecture', course: 'biology',

@@ -1,4 +1,5 @@
 import type { PlanItemOccurrence } from '@pls/substrate'
+import { isAllDay } from '@pls/shared-ui'
 import { MINUTES_PER_DAY, addDays, sameDay, startOfDay, wallMinutes } from './time'
 
 /** One day's slice of a timed block, laid out side by side with overlaps. */
@@ -24,7 +25,7 @@ export interface DueMarker {
   item: PlanItemOccurrence
   dayIndex: number
   minute: number
-  /** Due at local 00:00: the plan-item convention for "due that day", no time. */
+  /** Due at local 00:00: the shared convention for "due that day" (`isAllDay`), no time. */
   allDay: boolean
 }
 
@@ -113,7 +114,7 @@ export function dueMarkers(items: PlanItemOccurrence[], days: Date[]): DueMarker
     const dayIndex = days.findIndex((d) => sameDay(d, due))
     if (dayIndex === -1) continue
     const minute = wallMinutes(due)
-    perDay[dayIndex].push({ key: item.occurrence_key, item, dayIndex, minute, allDay: minute === 0 })
+    perDay[dayIndex].push({ key: item.occurrence_key, item, dayIndex, minute, allDay: isAllDay(due) })
   }
   for (const markers of perDay) markers.sort((a, b) => a.minute - b.minute)
   return perDay

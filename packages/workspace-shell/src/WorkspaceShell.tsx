@@ -46,6 +46,7 @@ export function WorkspaceShell() {
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
+  const clearMoment = useWorkspaceStore((s) => s.clearMoment)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
     onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
@@ -212,11 +213,12 @@ export function WorkspaceShell() {
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
+            onMomentShown={manifest?.showsMoments ? clearMoment : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment],
   )
 
   // Icon resolver: look up icon from the manifest registry

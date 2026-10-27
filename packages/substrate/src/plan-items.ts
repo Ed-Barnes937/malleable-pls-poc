@@ -174,6 +174,17 @@ function isValidTimeZone(tz: string): boolean {
   }
 }
 
+/**
+ * Moves `instant` by the wall-clock difference between `from` and `to` in
+ * `tz`, e.g. to shift a weekly series by how far one of its occurrences was
+ * moved. Unlike adding `to - from` in ms, a move across a DST change keeps
+ * the series at the intended local time (Sat 10:00 BST to Sun 10:00 GMT is
+ * "one day later, same time", not 25 hours).
+ */
+export function shiftByWallClock(instant: number, from: number, to: number, tz: string): number {
+  return fromWallClock(wallClock(instant, tz) + (wallClock(to, tz) - wallClock(from, tz)), tz)
+}
+
 /** The local wall-clock time of `instant` in `tz`, encoded as if it were UTC. */
 function wallClock(instant: number, tz: string): number {
   const parts: Record<string, number> = {}

@@ -95,7 +95,8 @@ test('a course highlight dims other courses but never hides them', async ({ moun
   await expect(page.getByTestId('calendar-highlight')).toHaveText('Biology highlighted')
   await expect(block(page, 'Chemistry lecture')).toBeVisible()
   await expect(block(page, 'Chemistry lecture')).toHaveAttribute('data-dimmed', 'true')
-  await expect(block(page, 'Cafe shift')).toHaveAttribute('data-dimmed', 'true')
+  // No course (a shift) is not "another course": it stays undimmed.
+  await expect(block(page, 'Cafe shift')).not.toHaveAttribute('data-dimmed')
   await expect(block(page, 'Biology lecture')).not.toHaveAttribute('data-dimmed')
   // Linked to the focused lecture.
   await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('data-linked', 'true')
@@ -269,4 +270,100 @@ test('the next and previous weeks are fetched by date range', async ({ mount, pa
   await expect(block(page, 'Field trip')).toBeVisible()
   await page.getByRole('button', { name: 'Previous week' }).click()
   await expect(block(page, 'Field trip')).toHaveCount(0)
+})
+
+test('a move that does not save says so and puts the block back', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await expect(block(page, 'Revise respiration')).toBeVisible()
+  // Registered after the simulator's route, so it wins for updates only.
+  await page.route('**/planItems.update**', (route) => route.fulfill({ status: 500, body: '{}' }))
+
+  const grab = await point(page, 2, 16.25)
+  const drop = await point(page, 4, 10.25)
+  await page.mouse.move(grab.x, grab.y)
+  await page.mouse.down()
+  await page.mouse.move(drop.x, drop.y, { steps: 8 })
+  await page.mouse.up()
+
+  await expect(page.getByTestId('calendar-notice')).toContainText(`Couldn't move "Revise respiration"`)
+  await expect(block(page, 'Revise respiration')).toHaveAttribute('aria-label', /16:00 - 17:00/)
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')?.starts_at).toBe(iso(2, 16))
+})
+
+test('a moment that fails to open offers to try again', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness result="fail" />)
+  await block(page, 'Review: maternal inheritance').click()
+  const moment = page.getByTestId('calendar-moment')
+  await expect(moment).toContainText("Couldn't open the moment just now.")
+  await expect(moment).not.toContainText('Opening the moment')
+  await moment.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByTestId('moment-calls').locator('li')).toHaveCount(2)
+})
+
+test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add creates', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const shift = block(page, 'Cafe shift')
+  await shift.focus()
+  await page.keyboard.press('Enter')
+  const popover = page.getByTestId('calendar-popover')
+  await expect(popover.getByLabel('Title')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(shift).toBeFocused()
+
+  const add = page.getByRole('button', { name: 'Add to calendar' })
+  await add.focus()
+  await page.keyboard.press('Enter')
+  await expect(popover.getByLabel('Title')).toBeFocused()
+  await page.keyboard.type('Reading week plan')
+  await page.keyboard.press('Enter')
+  await expect(block(page, 'Reading week plan')).toBeVisible()
+  await expect(add).toBeFocused()
+})
+
+test('a 20-minute block keeps a legible title and its time in the tooltip', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])
+  await mount(<CalendarHarness />)
+  const short = block(page, 'Quick review')
+  expect((await short.boundingBox())!.height).toBeGreaterThanOrEqual(22)
+  await expect(short).toHaveAttribute('title', /19:00 - 19:20/)
+  await expect(short.getByText('Quick review')).toBeVisible()
+})
+
+test("resizing stays within the block's own day", async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.hover()
+  const handle = await revise.getByTestId('calendar-block-resize').boundingBox()
+  const into = await point(page, 3, 10)
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(into.x, into.y, { steps: 6 })
+  await page.mouse.up()
+  // Dragged into Thursday: the end stops at Wednesday midnight.
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(3, 0))
+})
+
+test('a September weekly class stays at its local time through the clock-change week', async ({ mount, page, simulator }) => {
+  // Mondays 10:00 Europe/London, first on 7 Sep 2026 (BST); clocks go back on Sun 25 Oct.
+  seed(simulator, [{
+    id: 'sept', kind: 'commitment', title: 'Autumn lecture', starts_at: '2026-09-07T09:00:00.000Z', ends_at: '2026-09-07T10:00:00.000Z',
+    recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+  }])
+  await mount(<CalendarHarness />)
+  // Navigate to the week of Mon 19 Oct 2026 from wherever "today" is.
+  const weeks = Math.round((new Date(2026, 9, 19).getTime() - monday.getTime()) / (7 * 24 * 3600 * 1000))
+  for (let i = 0; i < Math.abs(weeks); i++) {
+    await page.getByRole('button', { name: weeks < 0 ? 'Previous week' : 'Next week' }).click()
+  }
+  await expect(page.getByTestId('calendar-title')).toHaveText('19 - 25 Oct 2026')
+  await expect(block(page, 'Autumn lecture')).toHaveAttribute('aria-label', /10:00 - 11:00/)
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await expect(page.getByTestId('calendar-title')).toHaveText('26 Oct - 1 Nov 2026')
+  await expect(block(page, 'Autumn lecture')).toHaveAttribute('aria-label', /10:00 - 11:00/)
 })

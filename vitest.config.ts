@@ -7,6 +7,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // Date and DST tests assume the demo's zone, whatever the host's (e.g. a UTC CI box).
+    env: { TZ: 'Europe/London' },
     include: [
       'packages/**/src/**/*.test.{ts,tsx}',
       'apps/**/src/**/*.test.{ts,tsx}',

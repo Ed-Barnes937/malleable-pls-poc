@@ -127,7 +127,11 @@ export interface LensProps {
   /**
    * For widgets that declare `showsMoments`: the moment last asked to be
    * shown, on any board. Scroll to and highlight it once it belongs to the
-   * recording the widget shows; act once per `id`.
+   * recording the widget shows; act once per `id`, then call
+   * `onMomentShown(id)` so the shell drops it (a later remount, e.g. on
+   * another board, then doesn't jump there again).
    */
   focusedMoment?: FocusedMoment
+  /** For `showsMoments` widgets: the moment with this `id` has been shown. */
+  onMomentShown?: (id: number) => void
 }

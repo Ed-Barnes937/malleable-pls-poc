@@ -15,6 +15,8 @@ interface WorkspaceUIState {
    */
   focusedMoment: FocusedMoment | null
   focusMoment: (moment: Moment) => void
+  /** A viewer has shown the moment: drop it, unless a newer one replaced it. */
+  clearMoment: (id: number) => void
 }
 
 let nextMomentId = 0
@@ -28,4 +30,5 @@ export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
 
   focusedMoment: null,
   focusMoment: (moment) => set({ focusedMoment: { ...moment, id: ++nextMomentId } }),
+  clearMoment: (id) => set((s) => (s.focusedMoment?.id === id ? { focusedMoment: null } : s)),
 }))

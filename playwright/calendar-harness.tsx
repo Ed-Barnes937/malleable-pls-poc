@@ -13,7 +13,8 @@ export function CalendarHarness({
   result = 'shown',
 }: {
   highlight?: Scope
-  result?: ShowMomentResult
+  /** `fail` makes the stub reject, like a failed scope update. */
+  result?: ShowMomentResult | 'fail'
 }) {
   const [calls, setCalls] = useState<string[]>([])
   return (
@@ -26,6 +27,7 @@ export function CalendarHarness({
           config={{}}
           onShowMoment={async (moment, options) => {
             setCalls((c) => [...c, `${moment.recordingId}@${moment.offsetMs}${options?.elsewhere ? ' elsewhere' : ''}`])
+            if (result === 'fail') throw new Error('setScope failed')
             return options?.elsewhere ? 'no-viewer' : result
           }}
         />

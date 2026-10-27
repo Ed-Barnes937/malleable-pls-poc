@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, type ShowMomentResult, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, formatTime } from '@pls/shared-ui'
-import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowUpRight, AudioLines, ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import { HelpMePlan } from './HelpMePlan'
@@ -17,7 +17,7 @@ type Popover =
   | { mode: 'edit'; x: number; y: number; key: string; moment?: MomentState }
 
 /** Where a block's lecture moment went after clicking it. */
-type MomentState = 'opening' | ShowMomentResult | 'nowhere'
+type MomentState = 'opening' | ShowMomentResult | 'nowhere' | 'failed'
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -54,7 +54,31 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const [popover, setPopover] = useState<Popover | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
+  /** A calm note in the header, e.g. a move that didn't save. */
+  const [notice, setNotice] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  /** What had focus when the popover opened, to return focus to on close. */
+  const openerRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), 6000)
+    return () => clearTimeout(timer)
+  }, [notice])
+
+  const openPopover = (next: Popover) => {
+    const active = document.activeElement
+    openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
+    setError(null)
+    setNotice(null)
+    setPopover(next)
+  }
+  const closePopover = useCallback(() => {
+    setPopover(null)
+    const opener = openerRef.current
+    openerRef.current = null
+    if (opener?.isConnected) requestAnimationFrame(() => opener.focus())
+  }, [])
 
   const setView = (next: View) => {
     setViewState(next)
@@ -100,7 +124,8 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }, [data, pending])
 
   const isDimmed = useCallback(
-    (item: PlanItemOccurrence) => !!highlight?.courseTag && item.course !== highlight.courseTag,
+    // Only other courses dim: items with no course (a shift) stay as they are.
+    (item: PlanItemOccurrence) => !!highlight?.courseTag && item.course != null && item.course !== highlight.courseTag,
     [highlight?.courseTag],
   )
   const isLinked = useCallback(
@@ -117,24 +142,27 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const showMoment = async (item: PlanItemOccurrence, key: string, elsewhere = false) => {
     if (!onShowMoment || item.source_id == null) return
     setPopover((p) => (p?.mode === 'edit' && p.key === key ? { ...p, moment: 'opening' } : p))
-    const result = await onShowMoment(
-      { recordingId: item.source_id, offsetMs: item.source_offset_ms ?? 0 },
-      elsewhere ? { elsewhere: true } : undefined,
-    )
-    const moment: MomentState = elsewhere && result === 'no-viewer' ? 'nowhere' : result
+    let moment: MomentState
+    try {
+      const result = await onShowMoment(
+        { recordingId: item.source_id, offsetMs: item.source_offset_ms ?? 0 },
+        elsewhere ? { elsewhere: true } : undefined,
+      )
+      moment = elsewhere && result === 'no-viewer' ? 'nowhere' : result
+    } catch {
+      moment = 'failed'
+    }
     setPopover((p) => (p?.mode === 'edit' && p.key === key ? { ...p, moment } : p))
   }
 
   const handleOpen = (item: PlanItemOccurrence, anchor: Anchor) => {
-    setError(null)
-    setPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
+    openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
     // Clicking a block that came from a lecture moment lands on that moment.
     if (item.source_type === 'recording' && item.source_id) void showMoment(item, item.occurrence_key)
   }
 
   const handleCreate = (start: Date, end: Date, anchor: Anchor) => {
-    setError(null)
-    setPopover({
+    openPopover({
       mode: 'create',
       ...relative(anchor),
       draft: { kind: 'commitment', title: '', start, end, course: highlight?.courseTag ?? null, repeatsWeekly: false },
@@ -147,7 +175,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     setPending((prev) => new Map(prev).set(item.occurrence_key, {
       starts_at: start.toISOString(), ends_at: end.toISOString(), basis: item.updated_at,
     }))
+    setNotice(null)
     updateItem.mutateAsync({ id: item.id, patch }).catch(() => {
+      // Never snap back silently: say the move didn't stick.
+      setNotice(`Couldn't move "${item.title}" - it's back where it was. Try again?`)
       setPending((prev) => {
         const next = new Map(prev)
         next.delete(item.occurrence_key)
@@ -160,7 +191,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     setError(null)
     try {
       await action()
-      setPopover(null)
+      closePopover()
     } catch (e) {
       setError(e instanceof Error && e.message ? `Couldn't save: ${e.message}` : "Couldn't save - try again")
     }
@@ -177,6 +208,20 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const showingToday = days.some((d) => d.getTime() === today.getTime())
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
   const bounds = { width: rootRef.current?.clientWidth ?? 800, height: rootRef.current?.clientHeight ?? 600 }
+
+  /** Keyboard (and pointer) way to add: an hour from the next half hour today, or 09:00 on the first day shown. */
+  const handleAddButton = (e: MouseEvent<HTMLButtonElement>) => {
+    const day = showingToday ? today : days[0]
+    const start = new Date(day)
+    if (showingToday) {
+      const next = Math.ceil((now.getHours() * 60 + now.getMinutes() + 1) / 30) * 30
+      start.setMinutes(Math.min(next, 23 * 60))
+    } else {
+      start.setHours(9)
+    }
+    const rect = e.currentTarget.getBoundingClientRect()
+    handleCreate(start, new Date(start.getTime() + 60 * 60_000), { clientX: rect.right, clientY: rect.bottom + 8 })
+  }
 
   return (
     <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-2.5 pt-1">
@@ -224,7 +269,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           </span>
         )}
 
-        {!isLoading && items.length === 0 && (
+        {notice && (
+          <span role="status" data-testid="calendar-notice" className="text-[11px] text-text-secondary">{notice}</span>
+        )}
+        {!notice && !isLoading && items.length === 0 && (
           <span className="text-[11px] text-text-muted">Nothing planned. Click or drag on the grid to add something.</span>
         )}
 
@@ -246,6 +294,16 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               </button>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={handleAddButton}
+            aria-label="Add to calendar"
+            title="Add to calendar"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-text-secondary ring-1 ring-border-subtle transition-colors hover:bg-surface-overlay hover:text-text-primary"
+          >
+            <Plus className="h-3 w-3" />
+            Add
+          </button>
           {view === 'week' && <HelpMePlan week={range} items={items} />}
         </div>
       </header>
@@ -264,7 +322,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
       {popover && (
         // Click-away layer: closes the popover without starting a new block.
-        <div className="absolute inset-0 z-40" onPointerDown={() => setPopover(null)} />
+        <div className="absolute inset-0 z-40" onPointerDown={closePopover} />
       )}
       {popover?.mode === 'create' && (
         <EventPopover
@@ -276,7 +334,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           canEdit
           busy={busy}
           error={error}
-          onClose={() => setPopover(null)}
+          onClose={closePopover}
           onSubmit={(draft) => run(() => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
         />
       )}
@@ -291,10 +349,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           canEdit
           busy={busy}
           error={error}
-          onClose={() => setPopover(null)}
+          onClose={closePopover}
           onSubmit={(draft) => {
             const patch = patchFromDraft(editing, draft, localTimeZone())
-            if (Object.keys(patch).length === 0) return setPopover(null)
+            if (Object.keys(patch).length === 0) return closePopover()
             void run(() => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
           onDelete={() => run(() => deleteItem.mutateAsync(editing.id))}
@@ -348,6 +406,15 @@ function MomentLink({ recordingId, offsetMs, state, canShow, onShow, onShowElsew
         </span>
       </div>
       {state === 'opening' && <span className="text-[11px] text-text-muted">Opening the moment...</span>}
+      {state === 'failed' && (
+        <div className="flex flex-col gap-1">
+          <span className="text-[11px] text-text-muted">Couldn't open the moment just now.</span>
+          <button type="button" onClick={onShow} className={cn(linkButton, 'self-start')}>
+            Try again
+            <ArrowUpRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
       {state === 'shown' && <span className="text-[11px] text-text-muted">Showing this moment in the Transcript.</span>}
       {state === 'no-viewer' && (
         <div className="flex flex-col gap-1">

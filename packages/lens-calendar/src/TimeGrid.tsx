@@ -6,7 +6,7 @@ import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { toneFor } from './colors'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
-  atMinutes, clamp, formatClock, formatHour, formatSpan, formatWeekday,
+  addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
   sameDay, snap, snapDown, wallMinutes,
 } from './time'
 
@@ -35,6 +35,14 @@ export interface TimeGridProps {
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
+/** Smallest block height: enough for one line of title. */
+const MIN_BLOCK_PX = 22
+
+/** One opacity for both reasons to fade, so "done" never un-dims another course. */
+function opacityFor(dimmed: boolean | undefined, done: boolean): string | false {
+  if (dimmed) return done ? 'opacity-30' : 'opacity-40'
+  return done && 'opacity-55'
+}
 const DRAG_THRESHOLD_PX = 4
 const GUTTER = 'w-12'
 
@@ -151,10 +159,13 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
       const end = new Date(start.getTime() + (original.end.getTime() - original.start.getTime()))
       setDrag({ ...drag, moved, start, end })
     } else {
-      const day = days[dayIndex]
-      const snapped = atMinutes(day, snap(minute))
+      // Resizing stays on the block's own day, whichever column the pointer is over.
+      const day = startOfDay(original.start)
+      const dayEnd = addDays(day, 1).getTime()
+      const pointerDay = startOfDay(days[dayIndex]).getTime()
+      const snapped = pointerDay > day.getTime() ? dayEnd : pointerDay < day.getTime() ? 0 : atMinutes(day, snap(minute)).getTime()
       const minEnd = original.start.getTime() + SNAP_MIN * 60_000
-      setDrag({ ...drag, moved, start: original.start, end: new Date(Math.max(minEnd, snapped.getTime())) })
+      setDrag({ ...drag, moved, start: original.start, end: new Date(clamp(snapped, minEnd, Math.max(minEnd, dayEnd))) })
     }
   }
 
@@ -241,9 +252,9 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
                       onClick={(e) => onOpen(m.item, { clientX: e.clientX, clientY: e.clientY })}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
-                        'flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] transition-opacity',
+                        '@container flex min-w-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-left text-[10px] transition-opacity',
                         tone.due,
-                        isDimmed(m.item) && 'opacity-40',
+                        opacityFor(isDimmed(m.item), m.item.status === 'done'),
                         isLinked(m.item) && 'ring-2 ring-accent',
                         activeKey === m.key && 'ring-2 ring-accent/70',
                       )}
@@ -251,7 +262,8 @@ export function TimeGrid({ days, items, now, isDimmed, isLinked, activeKey, onCr
                       {done ? <Check className="h-2.5 w-2.5 shrink-0" /> : <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone.bar)} />}
                       <span className={cn('truncate font-medium', done && 'line-through opacity-70')}>{m.item.title}</span>
                       {!m.allDay && (
-                        <span className="ml-auto shrink-0 tabular-nums text-text-muted">{formatClock(new Date(m.item.due_at!))}</span>
+                        // The time gives way first in a narrow column; the title (and tooltip) stay.
+                        <span className="ml-auto hidden shrink-0 tabular-nums text-text-muted @[7.5rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
                       )}
                     </button>
                   )
@@ -386,7 +398,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
   const movable = isMovable(item)
   const done = item.status === 'done'
   const top = (seg.startMin / 60) * hourPx
-  const height = Math.max(18, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  // Short blocks (a 20-minute review) keep a legible title; the time is in
+  // the tooltip and the accessible name.
+  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
   const roomy = height >= 30
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
@@ -403,7 +417,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
       data-dimmed={dimmed || undefined}
       data-linked={linked || undefined}
       aria-label={`${item.title}, ${kindLabel.toLowerCase()}, ${formatSpan(start, end)}${done ? ', done' : ''}`}
-      title={isCommitment ? `${item.title} - fixed, open to edit` : movable ? `${item.title} - drag to move` : item.title}
+      title={`${item.title}, ${formatSpan(start, end)}${isCommitment ? ' - fixed, open to edit' : movable ? ' - drag to move' : ''}`}
       onPointerDown={preview ? undefined : (e) => onPointerDown?.(e, 'move')}
       onKeyDown={(e) => {
         if (e.key !== 'Enter' && e.key !== ' ') return
@@ -419,8 +433,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, onPointer
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
         seg.continuesBefore && 'rounded-t-none',
         seg.continuesAfter && 'rounded-b-none',
-        dimmed && 'opacity-40',
-        done && 'opacity-55',
+        opacityFor(dimmed, done),
         linked && 'ring-2 ring-accent shadow-[0_0_0_4px_rgba(99,102,241,0.12)]',
         active && 'ring-2 ring-accent/70',
         lifted && 'opacity-30',

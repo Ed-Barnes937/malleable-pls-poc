@@ -50,11 +50,18 @@ export function EventPopover({
     })
   }, [x, y, bounds.width, bounds.height])
 
+  // One listener for the popover's lifetime: re-subscribing on every render
+  // (onClose is often a fresh function) could drop an Escape mid-dispatch when
+  // the shell's own Escape handling re-renders the board.
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCloseRef.current()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [])
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
   const setDate = (value: string) => {
@@ -91,7 +98,8 @@ export function EventPopover({
     >
       <div className="flex items-start gap-2">
         <TextField
-          autoFocus={isCreate}
+          // Focus moves into the popover however it was opened (click or Enter).
+          autoFocus
           aria-label="Title"
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}

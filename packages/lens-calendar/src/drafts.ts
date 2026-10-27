@@ -1,3 +1,4 @@
+import { shiftByWallClock } from '@pls/substrate'
 import type { NewPlanItem, PlanItemKind, PlanItemOccurrence, PlanItemPatch } from '@pls/substrate'
 
 /**
@@ -50,19 +51,28 @@ export function draftFromRow(row: PlanItemOccurrence): Draft {
   }
 }
 
-const shift = (series: string | null, from: string | null, to: Date) =>
-  new Date(Date.parse(series ?? from!) + (to.getTime() - Date.parse(from!))).toISOString()
+/**
+ * The stored series value moved as far as this occurrence moved (`from` to
+ * `to`). A weekly series moves by the wall-clock difference in its own time
+ * zone, so a move across a DST change keeps the intended local time.
+ */
+function shift(row: PlanItemOccurrence, series: string | null, from: string | null, to: Date): string {
+  const anchor = Date.parse(series ?? from!)
+  const tz = row.recurrence?.timeZone
+  if (!row.recurrence || series == null) return new Date(anchor + (to.getTime() - Date.parse(from!))).toISOString()
+  return new Date(shiftByWallClock(anchor, Date.parse(from!), to.getTime(), tz ?? 'UTC')).toISOString()
+}
 
 /**
  * Patch that moves / resizes a row to `start`-`end`. Updates apply to the
- * whole series, so the stored series times shift by the same delta as this
- * occurrence (see PlanItemOccurrence). A study block keeps `duration_min` in
+ * whole series, so the stored series times shift as far as this occurrence
+ * did (see PlanItemOccurrence and `shift`). A study block keeps `duration_min` in
  * step with its length.
  */
 export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): PlanItemPatch {
   const patch: PlanItemPatch = {}
-  if (start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row.series_starts_at, row.starts_at, start)
-  if (end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row.series_ends_at, row.ends_at, end)
+  if (start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row, row.series_starts_at, row.starts_at, start)
+  if (end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row, row.series_ends_at, row.ends_at, end)
   // validatePlanItem needs both ends together.
   if (patch.starts_at && !patch.ends_at) patch.ends_at = row.series_ends_at ?? row.ends_at
   if (patch.ends_at && !patch.starts_at) patch.starts_at = row.series_starts_at ?? row.starts_at
@@ -79,7 +89,7 @@ export function patchFromDraft(row: PlanItemOccurrence, d: Draft, timeZone: stri
   if (d.course !== row.course) patch.course = d.course
 
   if (row.kind === 'deadline') {
-    if (d.start.getTime() !== Date.parse(row.due_at!)) patch.due_at = shift(row.series_due_at, row.due_at, d.start)
+    if (d.start.getTime() !== Date.parse(row.due_at!)) patch.due_at = shift(row, row.series_due_at, row.due_at, d.start)
     return patch
   }
 

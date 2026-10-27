@@ -147,7 +147,7 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | Weakest topics | `filter` | `ignore` | all |
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
 | To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
-| Calendar | `highlight` (dim other courses, never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
+| Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
 
 ### Showing a Moment ("click a study block, land on the lecture moment")
 
@@ -165,7 +165,8 @@ gesture, not lens-to-lens messaging, and it works like scope:
    receive it as `LensProps.focusedMoment`. The Transcript waits until the
    focused lecture's segments have loaded, then scrolls its list to the
    segment containing the offset and highlights it (`aria-current="location"`),
-   once per `id`.
+   then reports `onMomentShown(id)` and the shell drops the moment, so
+   revisiting a board later doesn't jump there again.
 
 `onShowMoment` resolves `no-viewer` when the board has no moment viewer (the
 recording is still focused). The caller can then offer "Open in a board with

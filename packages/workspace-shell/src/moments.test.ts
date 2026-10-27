@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { chooseMomentBoard, hasMomentViewer } from './moments'
+import { useWorkspaceStore } from './store'
 
 const manifests = [
   { id: 'transcript', showsMoments: true },
@@ -37,5 +38,18 @@ describe('chooseMomentBoard', () => {
 
   it('returns undefined when no board can show a moment', () => {
     expect(chooseMomentBoard([{ id: 'plan', lensTypes: ['calendar'] }], manifests, 'rec-1')).toBeUndefined()
+  })
+})
+
+describe('focused moment', () => {
+  it('is dropped once shown, unless a newer one replaced it', () => {
+    const { focusMoment, clearMoment } = useWorkspaceStore.getState()
+    focusMoment({ recordingId: 'rec-1', offsetMs: 1000 })
+    const first = useWorkspaceStore.getState().focusedMoment!
+    focusMoment({ recordingId: 'rec-1', offsetMs: 2000 })
+    clearMoment(first.id)
+    expect(useWorkspaceStore.getState().focusedMoment?.offsetMs).toBe(2000)
+    clearMoment(useWorkspaceStore.getState().focusedMoment!.id)
+    expect(useWorkspaceStore.getState().focusedMoment).toBeNull()
   })
 })

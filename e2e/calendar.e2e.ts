@@ -64,6 +64,21 @@ test.describe('Calendar', () => {
     await expect(calendar.block('Genetics seminar')).toBeVisible()
   })
 
+  test('one Escape closes the popover, even with the panel selected', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+
+    await calendar.clickAt(2, 14.1)
+    await expect(calendar.popover).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
+    // The next click on the grid starts a new item straight away.
+    await calendar.clickAt(3, 15.1)
+    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('15:00')
+  })
+
   test('drag study time to a new slot', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     const task = await call(request, 'planItems.create', {

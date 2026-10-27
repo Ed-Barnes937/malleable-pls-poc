@@ -5,7 +5,7 @@ import { cn, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
 import { MessageSquare } from 'lucide-react'
 import { segmentAtOffset } from './moments'
 
-export default function TranscriptLens({ scope, config, focusedMoment }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -38,7 +38,8 @@ export default function TranscriptLens({ scope, config, focusedMoment }: LensPro
     handledMomentId.current = focusedMoment.id
     setMomentSegmentId(segmentAtOffset(own, focusedMoment.offsetMs)?.id ?? null)
     setSelectedSegmentId(null)
-  }, [focusedMoment, recordingId, segments, tags, annotations])
+    onMomentShown?.(focusedMoment.id)
+  }, [focusedMoment, recordingId, segments, tags, annotations, onMomentShown])
   useEffect(() => {
     const list = listRef.current
     const el = momentSegmentId ? list?.querySelector<HTMLElement>(`[data-segment-id="${momentSegmentId}"]`) : null
