@@ -28,6 +28,7 @@ import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
+import { AutomationDialog } from './AutomationDialog'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
@@ -66,6 +67,8 @@ export function WorkspaceShell() {
   // Read when a job finishes, so the toast offers "See it" only on a board that can show the block.
   const showPlanItemRef = useRef<(item: PlanItemRef) => boolean>(() => false)
   const canShowPlanItemRef = useRef(false)
+  const activeBoardRef = useRef(activeWorkspaceId)
+  activeBoardRef.current = activeWorkspaceId
   useServerEvents({
     onJobCompleted: (event) => {
       if (event.quiet) return
@@ -73,9 +76,10 @@ export function WorkspaceShell() {
       pushToast({
         message: jobDoneMessage(event.jobType, event.unplaced),
         tone: 'success',
-        action: block && canShowPlanItemRef.current
-          ? { label: 'See it', onClick: () => showPlanItemRef.current(block) }
-          : undefined,
+        // "See it" reveals the block on the board in view, so it goes if the student leaves it.
+        ...(block && canShowPlanItemRef.current
+          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current }
+          : {}),
       })
     },
     // Intermediate attempts retry on their own; only the final failure needs the student.
@@ -97,6 +101,8 @@ export function WorkspaceShell() {
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** An automation a widget asked to open (`LensProps.onEditAutomation`). */
+  const [automationId, setAutomationId] = useState<string | null>(null)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -363,6 +369,7 @@ export function WorkspaceShell() {
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
+            onEditAutomation={setAutomationId}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -471,6 +478,9 @@ export function WorkspaceShell() {
           </div>
         )}
       </main>
+      {automationId && (
+        <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
+      )}
       <ToastHost />
     </div>
   )

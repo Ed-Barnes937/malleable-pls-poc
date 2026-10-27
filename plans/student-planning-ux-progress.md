@@ -31,3 +31,6 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U4 fixes pushed (2d497c2); re-review running.
 - U5 follow-up: `first-run.e2e.ts` crowded today line test flaky under load; U5 implementer fixing on `fix/u5-first-run-flake`.
 - Queued: U6b phone top bar + today line on phone (decision 13).
+- U4 merged into `feat/student-planning-ux` (7ae5fae, PR #81) after re-review PASS. "Go to moment" order: review-mode Transcript, then a board already showing the lecture, then tab order (middle tiebreaker added by the implementer; same result on seed data). Nits for later: rail marks overlap past ~11 tags, `aria-controls` dangling while collapsed, the no-timeout toast covers the bottom of the board on a phone (fold into U6b).
+- U3 told to adopt U4's toast API and summary toggle.
+- New flake ticket (Sonnet): scheduler `time.test.ts` timeouts and an unidentified `expected 4 to be 3` unit failure under load.

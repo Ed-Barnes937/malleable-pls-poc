@@ -1,12 +1,15 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
+import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
+import { trpcQuery } from './api'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
 
 /**
- * Calendar widget journeys (plan ticket T5): a weekly class repeats, study
- * time drags, and a study block from a lecture moment lands on that moment
- * in the Transcript, on this board or on another one.
+ * Calendar widget journeys (plan tickets T5, U4): a weekly class repeats,
+ * study time drags, and a study block from a lecture moment leads with where
+ * it came from, goes to that moment in the Transcript (on this board or on
+ * another one, with a way back) and names the automation that made it.
  */
 
 const headers = { 'x-user-id': 'dev-user-1' }
@@ -34,6 +37,8 @@ const monday = (() => {
 })()
 const at = (day: number, h: number, m = 0) =>
   new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m).toISOString()
+/** "19:30": a time as the app shows it (24-hour, local). */
+const hhmm = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
 test.describe('Calendar', () => {
   test.beforeEach(async () => { await reseed() })
@@ -123,7 +128,7 @@ test.describe('Calendar', () => {
     expect(stored).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60 })
   })
 
-  test('click a study block from a lecture moment and land on the transcript moment', async ({ page, request }) => {
+  test('a study block from a lecture moment: "Go to moment" lands on the transcript moment', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar', 'transcript'])
     // 2,200,000 ms is in the chloroplast DNA segment near the end of the lecture.
     await call(request, 'planItems.create', {
@@ -138,6 +143,11 @@ test.describe('Calendar', () => {
     await expect(transcript.getByText('Pick a lecture to see its transcript')).toBeVisible()
 
     await calendar.block('Review: chloroplast DNA').click()
+    // The popover leads with where the block came from; nothing moves until asked.
+    await expect(calendar.popover.getByTestId('calendar-moment-source')).toHaveText('From Biology Lecture: Mitochondrial DNA · 36:40')
+    await expect(calendar.popover.getByTestId('calendar-moment-quote')).toContainText('chloroplast DNA')
+    await expect(transcript.getByText('Pick a lecture to see its transcript')).toBeVisible()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
 
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('chloroplast DNA', { timeout: 10000 })
@@ -148,7 +158,49 @@ test.describe('Calendar', () => {
     await expect(calendar.block('Review: chloroplast DNA')).toHaveAttribute('data-linked', 'true')
   })
 
-  test('from a board without a Transcript, open the moment in one that has it', async ({ page, request }) => {
+  test('from a board without a Transcript, "Go to moment" opens it on one that has it, with a way back', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await call(request, 'planItems.create', {
+      kind: 'task', title: 'Review: chloroplast DNA', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      course: 'biology', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    // A controllable clock, to show the toast outlasting the usual 8s.
+    await page.clock.install()
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+
+    // The toasts' live region is there before anything is said, so the first toast is announced.
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toBeAttached()
+    await expect(toast).toHaveAttribute('aria-live', 'polite')
+
+    await calendar.block('Review: chloroplast DNA').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+
+    // A board with a Transcript set up for reviewing (In Lecture's captures),
+    // first in tab order: Evening Review.
+    await topBar.expectActiveWorkspace('Evening Review')
+    const transcript = new PanelGridPom(page).panelByLabel('Transcript')
+    const moment = transcript.locator('[data-moment]')
+    await expect(moment).toContainText('chloroplast DNA', { timeout: 10000 })
+    await expect(moment).toBeInViewport()
+    // Keyboard focus lands on the moment too.
+    await expect(moment.getByRole('button').first()).toBeFocused()
+
+    // The toast says where it went and offers the way back; it stays while
+    // the student is on this board, so the way back is there whenever they reach it.
+    await expect(toast).toContainText('Opened 36:40 in Evening Review')
+    await page.clock.runFor(10_000)
+    await expect(toast.getByRole('button', { name: 'Back to Week plan' })).toBeVisible()
+    await toast.getByRole('button', { name: 'Back to Week plan' }).click()
+    await topBar.expectActiveWorkspace('Week plan')
+    await expect(calendar.block('Review: chloroplast DNA')).toBeVisible()
+    await expect(toast).not.toContainText('Opened')
+  })
+
+  test('leaving the board a moment opened on dismisses its "Back to ..." toast', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     await call(request, 'planItems.create', {
       kind: 'task', title: 'Review: chloroplast DNA', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
@@ -158,16 +210,54 @@ test.describe('Calendar', () => {
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Week plan')
     const calendar = new CalendarPom(page)
-
     await calendar.block('Review: chloroplast DNA').click()
-    const moment = calendar.root.getByTestId('calendar-moment')
-    await expect(moment).toContainText('This board has no Transcript.')
-    await moment.getByRole('button', { name: 'Open in a board with Transcript' }).click()
-
-    // The first board (in tab order) with a Transcript focused on that lecture.
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
     await topBar.expectActiveWorkspace('Evening Review')
-    const transcript = new PanelGridPom(page).panelByLabel('Transcript')
-    await expect(transcript.locator('[data-moment]')).toContainText('chloroplast DNA', { timeout: 10000 })
-    await expect(transcript.locator('[data-moment]')).toBeInViewport()
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Opened 36:40 in Evening Review')
+
+    await topBar.switchToWorkspace('Exam Prep')
+    await expect(toast).not.toContainText('Opened')
+  })
+
+  test('the automation that made a block: the footer names it, Edit opens it, and the open popover follows the change', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    // Mark a moment of the seeded Mitochondrial DNA lecture confusing: the
+    // seeded confusion automation makes and places a 20-min review.
+    await call(request, 'tags.create', { target_type: 'transcript_segment', target_id: 'seg-bio4-05', label: 'confused' })
+    let review: PlanItemOccurrence | undefined
+    await expect.poll(async () => {
+      const items = await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', { sourceType: 'recording', sourceId: 'rec-bio-4', statuses: ['open'] })
+      review = items.find((i) => i.source_offset_ms === 724000 && i.starts_at)
+      return !!review
+    }, { timeout: 15000 }).toBe(true)
+    expect(review).toMatchObject({ duration_min: 20, created_by_workflow_id: 'wf-confused-review' })
+
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const weeksAhead = Math.floor((Date.parse(review!.starts_at!) - monday.getTime()) / (7 * 24 * 3600_000))
+    for (let i = 0; i < weeksAhead; i++) await calendar.nextWeek()
+    await calendar.block(review!.title).click()
+
+    const popover = calendar.popover
+    await expect(popover.getByTestId('calendar-moment-quote')).toContainText('You marked this confusing')
+    await expect(popover).toContainText('20 min')
+    const madeBy = popover.getByTestId('calendar-made-by')
+    await expect(madeBy).toContainText('Made by "When I mark something confusing, add a 20-min review within 3 days".')
+
+    await madeBy.getByRole('button', { name: 'Edit automation' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Automation' })
+    const sentence = dialog.getByTestId('review-automation-sentence')
+    await sentence.getByLabel('Review length in minutes').selectOption('30')
+    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
+    await dialog.getByRole('button', { name: /close/i }).click()
+    await expect(dialog).toBeHidden()
+
+    // The popover left open follows the automation's change (it used to keep the old times).
+    await expect(popover).toContainText('30 min')
+    await expect(madeBy).toContainText('add a 30-min review within 3 days')
+    const moved = await trpcQuery<PlanItemOccurrence>(request, 'planItems.byId', review!.id)
+    await expect(popover).toContainText(`${hhmm(moved.starts_at!)}-${hhmm(moved.ends_at!)}`)
   })
 })

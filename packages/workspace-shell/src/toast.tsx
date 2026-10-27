@@ -1,7 +1,9 @@
+import { useEffect } from 'react'
 import { create } from 'zustand'
 import { createPortal } from 'react-dom'
-import { ArrowRight, CheckCircle2, XCircle, X } from 'lucide-react'
+import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn } from '@pls/shared-ui'
+import { useWorkspaceStore } from './store'
 
 export type ToastTone = 'success' | 'error'
 
@@ -14,87 +16,152 @@ export interface Toast {
    * "Transcript added" toast while a student adds several widgets in a row.
    */
   key?: string
-  /** One follow-up, e.g. "See it" on "Review added to your plan". Clicking it also dismisses the toast. */
-  action?: { label: string; onClick: () => void }
+  /** Replaces the tone's icon, e.g. a lecture waveform for "Opened 1:18 in In Lecture". */
+  icon?: LucideIcon
+  /** One follow-up, e.g. "Back to My week". Clicking it also dismisses the toast. */
+  action?: ToastAction
+  /**
+   * How long it stays, in ms (paused while hovered or focused). Defaults to
+   * `TOAST_MS`, or `ACTION_TOAST_MS` with an action; `null` keeps it until
+   * dismissed (or until its `board` is left).
+   */
+  durationMs?: number | null
+  /** Only meaningful on this board: leaving it dismisses the toast. */
+  board?: string
 }
 
-/** Long enough to read the message; a toast with an action stays longer, so there is time to reach it. */
-const TOAST_MS = 4000
-const TOAST_WITH_ACTION_MS = 8000
+export interface ToastAction {
+  label: string
+  onClick: () => void
+  /** Shown before the label, e.g. a back chevron for "Back to My week". */
+  icon?: LucideIcon
+}
+
+/** How long a toast stays: longer when it offers an action, so there is time to take it. */
+export const TOAST_MS = 4000
+export const ACTION_TOAST_MS = 8000
 
 interface ToastState {
   toasts: Toast[]
   push: (toast: Omit<Toast, 'id'>) => void
   dismiss: (id: number) => void
+  /** Stops a toast's countdown (hover, focus). */
+  hold: (id: number) => void
+  /** Starts it again, from its full duration. */
+  release: (id: number) => void
 }
 
 let nextId = 0
+const timers = new Map<number, ReturnType<typeof setTimeout>>()
 
-export const useToastStore = create<ToastState>((set) => ({
-  toasts: [],
-  push: (toast) => {
-    const id = ++nextId
-    set((s) => ({
-      toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), { ...toast, id }],
-    }))
-    setTimeout(() => {
+function durationOf(toast: Omit<Toast, 'id'>): number | null {
+  if (toast.durationMs !== undefined) return toast.durationMs
+  return toast.action ? ACTION_TOAST_MS : TOAST_MS
+}
+
+export const useToastStore = create<ToastState>((set, get) => {
+  const clear = (id: number) => {
+    const timer = timers.get(id)
+    if (timer) clearTimeout(timer)
+    timers.delete(id)
+  }
+  const schedule = (toast: Toast) => {
+    clear(toast.id)
+    const ms = durationOf(toast)
+    if (ms === null) return
+    timers.set(toast.id, setTimeout(() => get().dismiss(toast.id), ms))
+  }
+  return {
+    toasts: [],
+    push: (toast) => {
+      const next = { ...toast, id: ++nextId }
+      const replaced = get().toasts.filter((t) => toast.key && t.key === toast.key)
+      for (const t of replaced) clear(t.id)
+      set((s) => ({ toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), next] }))
+      schedule(next)
+    },
+    dismiss: (id) => {
+      clear(id)
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
-    }, toast.action ? TOAST_WITH_ACTION_MS : TOAST_MS)
-  },
-  dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
-}))
+    },
+    hold: (id) => clear(id),
+    release: (id) => {
+      const toast = get().toasts.find((t) => t.id === id)
+      if (toast) schedule(toast)
+    },
+  }
+})
 
+/**
+ * Toasts, bottom right. The live region is always mounted (empty when there
+ * is nothing to say), so a screen reader announces the first toast too. A
+ * toast stops counting down while the pointer or focus is on it.
+ */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
-  const dismiss = useToastStore((s) => s.dismiss)
+  const { dismiss, hold, release } = useToastStore.getState()
+  const activeBoard = useWorkspaceStore((s) => s.activeWorkspaceId)
 
-  if (toasts.length === 0) return null
+  // A toast about one board (e.g. "Back to My week" after opening a moment
+  // there) goes once the student leaves it.
+  useEffect(() => {
+    for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
+  }, [toasts, activeBoard, dismiss])
 
   return createPortal(
-    <div
-      role="status"
-      aria-live="polite"
-      data-testid="toast-host"
-      className="fixed bottom-4 left-4 right-4 z-[20000] flex flex-col items-end gap-2 sm:left-auto"
-    >
-      {toasts.map((toast) => (
-        <div
-          key={toast.id}
-          className={cn(
-            'flex items-center gap-3 rounded-[14px] bg-inverse py-3 pr-3 pl-4 text-inverse-foreground shadow-pop',
-          )}
-        >
-          {toast.tone === 'success' ? (
-            <CheckCircle2 className="h-4 w-4 shrink-0" />
-          ) : (
-            <XCircle className="h-4 w-4 shrink-0" />
-          )}
-          <span className="text-body">{toast.message}</span>
-          {toast.action && (
-            <button
-              type="button"
-              onClick={() => {
-                dismiss(toast.id)
-                toast.action!.onClick()
+    <section aria-label="Notifications" className="contents">
+      <div
+        role="status"
+        aria-live="polite"
+        data-testid="toast-host"
+        className="fixed bottom-4 left-4 right-4 z-[20000] flex flex-col items-end gap-2 sm:left-auto"
+      >
+        {toasts.map((toast) => {
+          const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
+          const ActionIcon = toast.action?.icon
+          return (
+            <div
+              key={toast.id}
+              data-testid="toast"
+              onMouseEnter={() => hold(toast.id)}
+              onMouseLeave={() => release(toast.id)}
+              onFocus={() => hold(toast.id)}
+              onBlur={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) release(toast.id)
               }}
-              className="ml-1 inline-flex items-center gap-1 rounded-item px-1 text-body font-semibold text-inverse-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inverse-accent"
+              className={cn(
+                'flex items-center gap-3 rounded-[14px] bg-inverse py-3 pr-3 pl-4 text-inverse-foreground shadow-pop',
+              )}
             >
-              {toast.action.label}
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => dismiss(toast.id)}
-            aria-label="Dismiss"
-            title="Dismiss"
-            className="ml-1 rounded-item p-1 text-inverse-foreground/70 transition-colors hover:text-inverse-foreground"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-    </div>,
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="text-body">{toast.message}</span>
+              {toast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    dismiss(toast.id)
+                    toast.action?.onClick()
+                  }}
+                  className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-item px-1.5 py-1 text-body font-semibold text-inverse-accent transition-colors hover:underline"
+                >
+                  {ActionIcon && <ActionIcon className="h-4 w-4" />}
+                  {toast.action.label}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => dismiss(toast.id)}
+                aria-label="Dismiss"
+                title="Dismiss"
+                className="ml-1 rounded-item p-1 text-inverse-foreground/70 transition-colors hover:text-inverse-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </section>,
     document.body,
   )
 }

@@ -14,7 +14,8 @@ interface WorkspaceUIState {
    * to a board that has a Transcript.
    */
   focusedMoment: FocusedMoment | null
-  focusMoment: (moment: Moment) => void
+  /** `takeFocus`: the viewer also moves keyboard focus to the moment (e.g. after a board switch). */
+  focusMoment: (moment: Moment, options?: { takeFocus?: boolean }) => void
   /** A viewer has shown the moment: drop it, unless a newer one replaced it. */
   clearMoment: (id: number) => void
 
@@ -36,7 +37,7 @@ export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
   setFocusedPanelId: (id) => set({ focusedPanelId: id }),
 
   focusedMoment: null,
-  focusMoment: (moment) => set({ focusedMoment: { ...moment, id: ++nextMomentId } }),
+  focusMoment: (moment, options) => set({ focusedMoment: { ...moment, id: ++nextMomentId, ...(options?.takeFocus ? { takeFocus: true } : {}) } }),
   clearMoment: (id) => set((s) => (s.focusedMoment?.id === id ? { focusedMoment: null } : s)),
 
   focusedPlanItem: null,

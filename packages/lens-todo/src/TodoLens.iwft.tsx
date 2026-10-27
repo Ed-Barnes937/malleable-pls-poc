@@ -145,18 +145,17 @@ test('a to-do from a lecture moment links back to it and focuses the lecture', a
   await expect.poll(() => focused).toEqual(['rec-bio-4'])
 })
 
-test('a to-do from a lecture moment jumps to that moment, or offers a board with a Transcript', async ({ mount, page, simulator }) => {
+test('a to-do from a lecture moment jumps to that moment, or says no board has a Transcript', async ({ mount, page, simulator }) => {
   seedPlanItem(simulator, {
     id: 'todo-review', kind: 'task', title: 'Review: maternal inheritance', course: 'biology',
     source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
   })
+  // `no-viewer`: the shell found no board with a Transcript to open it on.
   await mount(<MomentHarness lens="todo" result="no-viewer" />)
 
   await page.getByRole('button', { name: 'From Biology Lecture: Mitochondrial DNA · 9:00' }).click()
-  await expect(page.getByTestId('todo-moment')).toContainText('This board has no Transcript.')
-  await page.getByRole('button', { name: 'Open in a board with Transcript' }).click()
-  await expect(page.getByTestId('moment-calls').getByRole('listitem')).toHaveText(['rec-bio-4@540000', 'rec-bio-4@540000 elsewhere'])
-  await expect(page.getByTestId('todo-moment')).toHaveCount(0)
+  await expect(page.getByTestId('moment-calls').getByRole('listitem')).toHaveText(['rec-bio-4@540000'])
+  await expect(page.getByTestId('todo-moment')).toHaveText('None of your boards has a Transcript yet.')
 })
 
 test('a focused lecture highlights the to-dos made from it', async ({ mount, page, simulator }) => {

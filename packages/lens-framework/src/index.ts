@@ -12,7 +12,6 @@ export type {
   FocusedPlanItem,
   PlanItemRef,
   ShowMomentResult,
-  ShowMomentOptions,
 } from './types'
 export {
   usesScopeDim,

@@ -122,8 +122,13 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       source_type: 'recording',
       source_id: rec,
       source_offset_ms: 60000,
+      created_by_workflow_id: workflowId,
       course: 'biology',
       status: 'open',
+    })
+    // The automation that made it, for "Made by ... Edit".
+    expect(await api.workflows.byId(workflowId)).toMatchObject({
+      id: workflowId, condition_value: 'confused', jobs: [expect.objectContaining({ job_type: REVIEW_TASK_JOB })],
     })
     expect(result.events).toEqual([expect.objectContaining({ type: 'plan-item:created', payload: expect.objectContaining({ id: review!.id }) })])
 
@@ -325,5 +330,29 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const jobRun = { id: randomUUID(), workflow_id: 'wf', workflow_job_id: 'wfj' } as JobRun
     const result = await executors.execute('ai:transcribe', { recording_id: other, _userId: alice }, { scopeId: null, depth: 1, jobRun })
     expect(result.events).toEqual([{ type: 'recording:transcribed', payload: { recording_id: other } }])
+  })
+
+  it('forgets which automation made a review once that automation is deleted, and keeps the review', async () => {
+    const api = caller(alice)
+    const [wf] = await db.withUser(alice, (tx) => tx`
+      INSERT INTO workflows (user_id, source_lens, trigger_event, condition_field, condition_value)
+      VALUES (${alice}, 'transcript', 'tag:created', 'label', 'question') RETURNING id
+    `)
+    const [item] = await db.withUser(alice, (tx) => tx`
+      INSERT INTO plan_items (user_id, kind, title, created_by_workflow_id)
+      VALUES (${alice}, 'task', 'Review: a question', ${wf.id}) RETURNING id
+    `)
+    expect(await api.planItems.byId(item.id as string)).toMatchObject({ created_by_workflow_id: wf.id })
+    await api.workflows.delete({ workflowId: wf.id as string })
+    expect(await api.workflows.byId(wf.id as string)).toBeNull()
+    expect(await api.planItems.byId(item.id as string)).toMatchObject({ title: 'Review: a question', created_by_workflow_id: null })
+  })
+
+  it('never takes the automation from a client, on create or update', async () => {
+    const api = caller(alice)
+    const created = await api.planItems.create({ kind: 'task', title: 'Review: by hand', created_by_workflow_id: workflowId } as never)
+    expect(created.created_by_workflow_id).toBeNull()
+    const updated = await api.planItems.update({ id: created.id, patch: { title: 'Review: still by hand', created_by_workflow_id: workflowId } as never })
+    expect(updated).toMatchObject({ title: 'Review: still by hand', created_by_workflow_id: null })
   })
 })

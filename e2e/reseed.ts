@@ -95,6 +95,7 @@ export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
         source_type: item.source_type ?? null,
         source_id: item.source_id ?? null,
         source_offset_ms: item.source_offset_ms ?? null,
+        created_by_workflow_id: item.created_by_workflow_id ?? null,
         ...(created_at ? { created_at } : {}),
         ...(updated_at ? { updated_at } : {}),
       })}

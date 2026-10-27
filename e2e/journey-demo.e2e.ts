@@ -120,10 +120,10 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const transcript = grid.panelByLabel('Transcript')
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
     await expect(summary.getByTestId('summary-line')).toBeVisible({ timeout: 30000 })
-    await summary.getByRole('button', { name: 'More' }).click()
+    await summary.getByRole('button', { name: 'Show summary' }).click()
     await expect(summary.getByRole('listitem')).toHaveCount(3)
     await expect(summary).toContainText(/mitochondrial DNA/i)
-    await summary.getByRole('button', { name: 'Less' }).click()
+    await summary.getByRole('button', { name: 'Hide summary' }).click()
     // Remove a widget with a click: frees the calendar's evenings.
     await page.getByRole('button', { name: 'Remove Audio Capture from board' }).click()
     await expect(grid.panelByLabel('Audio Capture')).toHaveCount(0)
@@ -184,6 +184,7 @@ test.describe('Journey: the demo script (mock AI)', () => {
     // Click the block: land on that transcript moment.
     const weeksAhead = Math.max(0, Math.round((weekStart(Date.parse(review.starts_at!)) - weekStart(NOW)) / WEEK_MS))
     await reviewBlock.click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
     await expect(calendar.root.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
     await expect(transcript.locator('[data-moment]')).toContainText('explain maternal inheritance')
     await page.keyboard.press('Escape')

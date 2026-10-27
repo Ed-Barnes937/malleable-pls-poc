@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
-import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
+import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, TagPill, TAG_STYLES, useArrivals } from '@pls/shared-ui'
+import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, TagPill, TAG_STYLES, useArrivals } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
-import { segmentAtOffset } from './moments'
+import { ScrollRail } from './ScrollRail'
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
 function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: () => void }) {
@@ -120,45 +120,31 @@ function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrenc
 
 const LIFT_OFF_WIDTH_PX = 256
 
-/** The lecture summary: one line until opened. */
-function Summary({ lines }: { lines: string[] }) {
-  const [open, setOpen] = useState(false)
-  const listId = useId()
-  return (
-    <section
-      aria-label="Lecture summary"
-      // Capped so a long summary in a short widget still leaves the
-      // transcript room to show and take clicks.
-      className="max-h-[40%] shrink-0 overflow-y-auto rounded-item border border-border-subtle bg-surface-inset px-3.5 py-2"
-    >
-      <div className="flex items-start gap-2">
-        <Sparkles className="mt-[3px] h-3.5 w-3.5 shrink-0 text-accent" aria-hidden />
-        {open ? (
-          <ul id={listId} className="min-w-0 flex-1 space-y-0.5">
-            {lines.map((line, i) => (
-              <li key={i} className="text-body text-text-secondary">{line}</li>
-            ))}
-          </ul>
-        ) : (
-          <p data-testid="summary-line" className="min-w-0 flex-1 truncate text-body text-text-secondary">{lines[0]}</p>
-        )}
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={open ? listId : undefined}
-          onClick={() => setOpen(!open)}
-          className="inline-flex shrink-0 items-center gap-0.5 rounded-item text-body font-semibold text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          {open ? 'Less' : 'More'}
-          <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open && '-rotate-90')} aria-hidden />
-        </button>
-      </div>
-    </section>
-  )
-}
-
 /** Space kept above a shown moment too tall to centre. */
 const MOMENT_TOP_GAP = 8
+
+/** Scrolls only the transcript list (scrollIntoView could also shift the board) to show a segment. */
+function scrollToSegment(list: HTMLElement, segmentId: string) {
+  const el = list.querySelector<HTMLElement>(`[data-segment-id="${segmentId}"]`)
+  if (!el) return
+  // Centre it, unless it is taller than the list: then show it from its first line.
+  const top = el.clientHeight > list.clientHeight
+    ? el.offsetTop - MOMENT_TOP_GAP
+    : el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
+  list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
+/** Moves keyboard focus to a segment's row without scrolling (the list scrolls itself). */
+function focusSegment(list: HTMLElement, segmentId: string) {
+  list.querySelector<HTMLElement>(`[data-segment-id="${segmentId}"] > button`)?.focus({ preventScroll: true })
+}
+
+/** The tag colours, named, so the gutter marks and rail don't rely on colour alone. */
+const TAG_LEGEND = [
+  { label: 'confused', text: 'Confused' },
+  { label: 'key-point', text: 'Key point' },
+  { label: 'question', text: 'Question' },
+]
 
 /** A calm note that the lecture's AI work is still under way. */
 function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; message: string; testId: string }) {
@@ -191,6 +177,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [annotationDraft, setAnnotationDraft] = useState('')
+  // The summary shows one line until opened; landing on a moment folds it
+  // again, so the moment has the room.
+  const [summaryOpen, setSummaryOpen] = useState(false)
 
   // A moment another widget asked to show (e.g. a calendar study block that
   // came from this lecture): scroll to its segment and highlight it, once per
@@ -198,6 +187,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // set the row heights the scroll position depends on).
   const [momentSegmentId, setMomentSegmentId] = useState<string | null>(null)
   const handledMomentId = useRef<number | null>(null)
+  /** The landed moment should also take keyboard focus (the shell switched boards). */
+  const focusLanded = useRef(false)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!focusedMoment || focusedMoment.id === handledMomentId.current) return
@@ -205,22 +196,25 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     const own = segments?.filter((s) => s.recording_id === recordingId)
     if (!own?.length || !tags || !annotations) return
     handledMomentId.current = focusedMoment.id
+    focusLanded.current = !!focusedMoment.takeFocus
     setMomentSegmentId(segmentAtOffset(own, focusedMoment.offsetMs)?.id ?? null)
     setSelectedSegmentId(null)
+    setSummaryOpen(false)
     onMomentShown?.(focusedMoment.id)
   }, [focusedMoment, recordingId, segments, tags, annotations, onMomentShown])
   useEffect(() => {
-    const list = listRef.current
-    const el = momentSegmentId ? list?.querySelector<HTMLElement>(`[data-segment-id="${momentSegmentId}"]`) : null
-    if (!list || !el) return
-    // Scroll only the transcript list (scrollIntoView could also shift the
-    // board). Centre the moment, unless it is taller than the list: then show
-    // it from its first line.
-    const top = el.clientHeight > list.clientHeight
-      ? el.offsetTop - MOMENT_TOP_GAP
-      : el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
-    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+    if (!listRef.current || !momentSegmentId) return
+    scrollToSegment(listRef.current, momentSegmentId)
+    if (focusLanded.current) focusSegment(listRef.current, momentSegmentId)
+    focusLanded.current = false
   }, [momentSegmentId])
+
+  /** A rail mark: show that moment and put focus on it. */
+  const goToSegment = (segmentId: string) => {
+    if (!listRef.current) return
+    scrollToSegment(listRef.current, segmentId)
+    focusSegment(listRef.current, segmentId)
+  }
 
   const tagsBySegment = useMemo(() => {
     const map = new Map<string, Tag[]>()
@@ -253,11 +247,30 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return summary ? summary.body.split('\n').filter(Boolean) : []
   }, [annotations, recordingId])
 
-  // The lecture's course: the board's course, else the one its reviews were
-  // filed under. Unknown: accent instead of course colours.
-  const course = scope.courseTag ?? reviews?.find((r) => r.course)?.course ?? null
+  // The lecture's course: its own, else (a lecture filed under none) the
+  // board's course, else the one its reviews were filed under. Unknown:
+  // accent instead of course colours.
+  const course = recording?.course ?? scope.courseTag ?? reviews?.find((r) => r.course)?.course ?? null
   const tone = course ? courseTone(course) : null
   const courseLabel = course ? (COURSES.find((c) => c.value === course)?.label ?? course) : null
+
+  // Every tagged moment, by its leading tag, for the gutter marks and the scroll rail.
+  const markBySegment = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const [segmentId, segTags] of tagsBySegment) {
+      const label = leadingTag(segTags.map((t) => t.label))
+      if (label) map.set(segmentId, label)
+    }
+    return map
+  }, [tagsBySegment])
+  const lectureEnd = useMemo(() => Math.max(1, ...(segments ?? []).map((s) => s.end_ms)), [segments])
+  const railMarks = useMemo(
+    () => [...(segments ?? [])].sort((a, b) => a.start_ms - b.start_ms).flatMap((s) => {
+      const label = markBySegment.get(s.id)
+      return label ? [{ segmentId: s.id, startMs: s.start_ms, label }] : []
+    }),
+    [segments, markBySegment],
+  )
 
   const reviewByOffset = useMemo(() => {
     const map = new Map<number, PlanItemOccurrence>()
@@ -321,6 +334,17 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         )}
       </div>
 
+      {railMarks.length > 0 && (
+        <ul aria-label="Tag colours" data-testid="tag-legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-secondary">
+          {TAG_LEGEND.map(({ label, text }) => (
+            <li key={label} className="inline-flex items-center gap-1.5">
+              <span aria-hidden className={cn('h-1 w-3 rounded-full', TAG_STYLES[label].mark)} />
+              {text}
+            </li>
+          ))}
+        </ul>
+      )}
+
       {transcribing && (
         <div className="flex flex-1 items-center justify-center">
           <InProgress icon={AudioLines} message="Transcribing your lecture..." testId="transcribing" />
@@ -333,15 +357,49 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         </section>
       )}
 
-      {summaryLines.length > 0 && <Summary lines={summaryLines} />}
+      {summaryLines.length > 0 && (
+        <section
+          aria-label="Lecture summary"
+          // Capped so a long summary in a short widget still leaves the
+          // transcript room to show and take clicks.
+          className={cn('shrink-0 rounded-item bg-surface-inset px-3.5', summaryOpen ? 'max-h-[40%] overflow-y-auto py-2.5' : 'py-2')}
+        >
+          {/* One row either way, so the toggle stays where it is (and keeps focus). */}
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+            {summaryOpen
+              ? <p className="min-w-0 flex-1 text-meta font-semibold text-text-muted">Summary</p>
+              : <p data-testid="summary-line" className="min-w-0 flex-1 truncate text-body text-text-secondary">{summaryLines[0]}</p>}
+            <button
+              type="button"
+              aria-expanded={summaryOpen}
+              aria-controls={`summary-${recordingId}`}
+              onClick={() => setSummaryOpen((open) => !open)}
+              className="inline-flex shrink-0 items-center gap-0.5 text-body font-semibold text-accent hover:underline"
+            >
+              {summaryOpen ? 'Hide summary' : 'Show summary'}
+              <ChevronRight className={cn('h-4 w-4 transition-transform', summaryOpen && 'rotate-90')} />
+            </button>
+          </div>
+          {summaryOpen && (
+            <ul id={`summary-${recordingId}`} className="mt-1 space-y-0.5">
+              {summaryLines.map((line, i) => (
+                <li key={i} className="text-body text-text-secondary">{line}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
 
-      <div ref={listRef} hidden={transcribing} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
+      <div hidden={transcribing} className="flex min-h-0 flex-1 gap-1.5">
+      <div ref={listRef} className="relative -ml-3 min-h-0 flex-1 space-y-px overflow-y-auto pl-3 pr-1">
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
           const isMoment = momentSegmentId === seg.id
+          const mark = markBySegment.get(seg.id)
 
           return (
             <div
@@ -365,10 +423,17 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                 }}
                 aria-current={isMoment ? 'location' : undefined}
                 className={cn(
-                  'group flex w-full gap-3 rounded-item px-2.5 py-2 text-left transition-colors',
+                  'group flex w-full gap-2.5 rounded-item px-2.5 py-2 text-left transition-colors',
                   !(isSelected || isMoment) && 'hover:bg-surface-inset',
                 )}
               >
+                {/* Gutter mark: the moment's leading tag, at a glance down the page. */}
+                <span
+                  aria-hidden
+                  data-testid={mark ? 'transcript-gutter-mark' : undefined}
+                  data-tag={mark}
+                  className={cn('w-1 shrink-0 self-stretch rounded-full', mark ? TAG_STYLES[mark].mark : 'bg-transparent')}
+                />
                 <span className={cn(
                   'min-w-9 shrink-0 pt-[3px] text-right font-mono text-meta tabular-nums',
                   isSelected || isMoment
@@ -395,7 +460,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
               </button>
 
               {(segTags.length > 0 || review) && (
-                <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[3.625rem] pr-2.5">
+                <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
                   {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
                   {review && (
                     <ReviewChip
@@ -412,7 +477,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
               )}
 
               {isSelected && isCapture && (
-                <div className="ml-[3.625rem] flex items-center gap-1 py-1.5">
+                <div className="ml-[4.375rem] flex items-center gap-1 py-1.5">
                   {(['confused', 'key-point', 'question'] as const).map((label) => {
                     const style = TAG_STYLES[label]
                     const Icon = style.icon
@@ -434,6 +499,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
             </div>
           )
         })}
+      </div>
+      {railMarks.length > 0 && <ScrollRail marks={railMarks} lectureEnd={lectureEnd} onGo={goToSegment} />}
       </div>
 
       {selectedSegmentId && !isCapture && (

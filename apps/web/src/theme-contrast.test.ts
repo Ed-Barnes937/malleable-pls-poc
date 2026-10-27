@@ -178,6 +178,13 @@ const TEXT_PAIRS: [string, string][] = [
     [`course-${c}-ink`, 'surface-raised'],
     // A to-do's "From <lecture> · m:ss" link on a hovered row.
     [`course-${c}-ink`, 'surface-inset'],
+    // A study block's quote of its lecture moment (Calendar popover) and a
+    // landed moment (Transcript): the line and the mark that made it, on the
+    // course's soft tint.
+    ['text-primary', `course-${c}-soft`],
+    ['confused', `course-${c}-soft`],
+    ['attn', `course-${c}-soft`],
+    ['accent', `course-${c}-soft`],
   ]),
 ]
 
@@ -191,7 +198,14 @@ const GRAPHIC_PAIRS: [string, string][] = [
   ...COURSES.flatMap((c): [string, string][] => [
     [`course-${c}`, 'surface-raised'],
     [`course-${c}`, `course-${c}-soft`],
+    // (Tag marks on a landed moment's soft tint: covered by the text pairs above.)
   ]),
+  ['confused', 'surface-raised'],
+  ['attn', 'surface-raised'],
+  // The scroll rail's marks sit on its track.
+  ['confused', 'surface-overlay'],
+  ['attn', 'surface-overlay'],
+  ['accent', 'surface-overlay'],
 ]
 
 describe('design token contrast', () => {

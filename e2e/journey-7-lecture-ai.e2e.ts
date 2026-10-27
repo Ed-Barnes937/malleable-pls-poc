@@ -74,7 +74,7 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     // The summary shows one line; More opens all three.
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
     await expect(summary.getByTestId('summary-line')).toBeVisible({ timeout: 20000 })
-    await summary.getByRole('button', { name: 'More' }).click()
+    await summary.getByRole('button', { name: 'Show summary' }).click()
     await expect(summary.getByRole('listitem')).toHaveCount(3)
     await expect(summary).toContainText(/mitochondrial DNA/i)
     // The summary job waits for the job runner's next pass, so its note always

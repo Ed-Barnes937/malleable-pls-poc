@@ -57,6 +57,7 @@ export function toPlanItem(row: Row): PlanItem {
     source_type: (row.source_type as string | null) ?? null,
     source_id: (row.source_id as string | null) ?? null,
     source_offset_ms: (row.source_offset_ms as number | null) ?? null,
+    created_by_workflow_id: (row.created_by_workflow_id as string | null) ?? null,
     course: (row.course as string | null) ?? null,
     created_at: iso(row.created_at)!,
     updated_at: iso(row.updated_at)!,
@@ -109,6 +110,7 @@ export function columns(tx: TransactionSql, item: Stored) {
     source_type: item.source_type ?? null,
     source_id: item.source_id ?? null,
     source_offset_ms: item.source_offset_ms ?? null,
+    created_by_workflow_id: item.created_by_workflow_id ?? null,
   }
 }
 
