@@ -70,22 +70,22 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
   return (
     <div
       className={cn(
-        'rounded-lg border p-3 transition-all',
-        isEnabled ? 'border-accent/20 bg-accent/5' : 'border-border-subtle bg-surface opacity-60',
+        'rounded-item border p-3.5 transition-all',
+        isEnabled ? 'border-accent-line bg-accent-soft' : 'border-border-subtle bg-surface-inset opacity-60',
       )}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           {reviewJob ? (
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+            <p className="text-meta font-semibold text-text-secondary">
               {REVIEW_HEADINGS[workflow.condition_value ?? ''] ?? 'Review what you marked'}
             </p>
           ) : (
             <>
-              <p className="text-[11px] font-medium text-neutral-300">{triggerLabel}</p>
+              <p className="text-body font-semibold text-text-primary">{triggerLabel}</p>
               {conditionLabel && (
-                <p className="mt-0.5 flex items-center gap-1 text-[10px] text-neutral-600">
-                  <ChevronRight className="h-2.5 w-2.5" />
+                <p className="mt-0.5 flex items-center gap-1 text-meta text-text-muted">
+                  <ChevronRight className="h-3 w-3" />
                   {conditionLabel}
                 </p>
               )}
@@ -100,18 +100,18 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
                 onClick={() => onEdit?.(workflow)}
                 aria-label="Edit automation"
                 title="Edit automation"
-                className="rounded p-1 text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
+                className="rounded-item p-1.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
               >
-                <Pencil className="h-3 w-3" />
+                <Pencil className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
                 onClick={() => deleteWorkflow.mutate({ workflowId: workflow.id })}
                 aria-label="Delete automation"
                 title="Delete automation"
-                className="rounded p-1 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                className="rounded-item p-1.5 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </>
           )}
@@ -136,25 +136,25 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
           return (
             <div
               key={job.id}
-              className="flex items-center gap-2 rounded-md bg-surface-overlay/50 px-2.5 py-1.5"
+              className="flex items-center gap-2 rounded-item bg-surface-raised px-2.5 py-2"
             >
               <span
                 className={cn(
-                  'rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase',
+                  'rounded-full px-2 py-0.5 text-meta font-semibold',
                   info?.category === 'AI'
-                    ? 'bg-purple-500/20 text-purple-400'
+                    ? 'bg-accent-soft text-accent'
                     : info?.category === 'Search'
-                      ? 'bg-blue-500/20 text-blue-400'
+                      ? 'bg-surface-overlay text-text-secondary'
                       : info?.category === 'Plan'
-                        ? 'bg-amber-500/20 text-amber-400'
-                        : 'bg-emerald-500/20 text-emerald-400',
+                        ? 'bg-attn-soft text-attn'
+                        : 'bg-good-soft text-good',
                 )}
               >
                 {info?.category ?? 'Job'}
               </span>
-              <span className="text-xs text-neutral-300">{info?.label ?? job.job_type}</span>
+              <span className="text-body text-text-primary">{info?.label ?? job.job_type}</span>
               {job.delay_ms > 0 && (
-                <span className="ml-auto text-[10px] text-neutral-600">
+                <span className="ml-auto text-meta text-text-muted">
                   {waitLabel(job.delay_ms)}
                 </span>
               )}
@@ -164,7 +164,7 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
       </div>
       )}
 
-      <p className="mt-2 text-[10px] text-neutral-500">
+      <p className="mt-2 text-meta text-text-muted">
         {isDefault
           ? 'Built-in automation. Turning it on or off only changes this board.'
           : 'Just for this board.'}

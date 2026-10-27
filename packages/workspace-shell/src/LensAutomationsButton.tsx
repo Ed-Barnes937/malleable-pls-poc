@@ -97,9 +97,9 @@ function AutomationsList({
       footer={
         <button
           onClick={onCreate}
-          className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium text-neutral-600 transition-all hover:bg-surface-overlay/50 hover:text-neutral-400"
+          className="flex items-center gap-2.5 rounded-item px-2.5 py-2 text-left text-body font-medium text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary"
         >
-          <Plus className="h-3.5 w-3.5 shrink-0" />
+          <Plus className="h-4 w-4 shrink-0" />
           New automation
         </button>
       }

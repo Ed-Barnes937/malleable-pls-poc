@@ -3,7 +3,7 @@
  *
  * - Every design-token text pair (ink on surfaces, accent, fixed amber,
  *   status, course ink on its tints, shifts) is checked against WCAG AA in
- *   the dark (`@theme`) and light (`[data-theme="light"]`) themes. Add a row
+ *   the light (`@theme`, the default) and dark (`[data-theme="dark"]`) themes. Add a row
  *   to TEXT_PAIRS for every new pair a widget uses.
  * - Amber ("needs another look") text: the light theme remaps the amber scale,
  *   so every `text-amber-*` / `text-attention*` / `text-attn` class the widgets
@@ -129,9 +129,10 @@ function amberTextUses(): { where: string; token: string; alpha: number; tint?: 
   return uses
 }
 
-const dark = new Map([...tokens(tailwindTheme, '@theme default'), ...tokens(indexCss, '@theme')])
-const light = new Map([...dark, ...tokens(indexCss, '[data-theme="light"]')])
-const themes = { dark, light }
+const stock = tokens(tailwindTheme, '@theme default')
+const light = new Map([...stock, ...tokens(indexCss, '@theme')])
+const dark = new Map([...light, ...tokens(indexCss, '[data-theme="dark"]')])
+const themes = { light, dark }
 
 /** The opaque colour a token paints over `bg` (a token with alpha composites over it). */
 function paint(t: Map<string, string>, token: string, bg: Rgb): Rgb {
@@ -177,6 +178,8 @@ const TEXT_PAIRS: [string, string][] = [
 /** [graphic token, background token]: non-text marks (stripes, dots, focus) need 3:1. */
 const GRAPHIC_PAIRS: [string, string][] = [
   ['accent', 'surface-raised'],
+  // Icon buttons that tint on hover (e.g. To-do's add button).
+  ['accent', 'accent-line'],
   ...COURSES.flatMap((c): [string, string][] => [
     [`course-${c}`, 'surface-raised'],
     [`course-${c}`, `course-${c}-soft`],
@@ -203,10 +206,13 @@ describe('design token contrast', () => {
   }
 
   it('defines every token in both themes', () => {
-    const lightOnly = tokens(indexCss, '[data-theme="light"]')
-    const darkOwn = tokens(indexCss, '@theme')
-    const missing = [...lightOnly.keys()].filter((k) => !darkOwn.has(k) && !k.startsWith('color-amber-') && !k.startsWith('color-emerald-'))
-    expect(missing).toEqual([])
+    const lightOwn = tokens(indexCss, '@theme')
+    const darkOwn = tokens(indexCss, '[data-theme="dark"]')
+    // Every literal colour has a dark value (aliases like var(--x) follow
+    // their target), and dark overrides nothing light lacks.
+    const literals = [...lightOwn].filter(([, v]) => !v.startsWith('var(')).map(([k]) => k)
+    expect(literals.filter((k) => !darkOwn.has(k))).toEqual([])
+    expect([...darkOwn.keys()].filter((k) => !lightOwn.has(k))).toEqual([])
   })
 })
 
@@ -218,7 +224,8 @@ describe('amber text contrast', () => {
   })
 
   it('leaves the dark theme on the stock amber scale', () => {
-    expect([...tokens(indexCss, '@theme').keys()].filter((k) => k.startsWith('color-amber-'))).toEqual([])
+    const ambers = [...stock.keys()].filter((k) => k.startsWith('color-amber-'))
+    expect(ambers.filter((k) => dark.get(k) !== stock.get(k))).toEqual([])
   })
 
   it('makes "attention" the same fixed, opaque amber as attn in both themes', () => {

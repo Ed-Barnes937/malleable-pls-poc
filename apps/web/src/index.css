@@ -11,8 +11,8 @@
  * Design tokens (student planning redesign; values from
  * plans/student-planning-demo-artifacts/mockups/base.css).
  *
- * `@theme` holds the dark theme (the default); `[data-theme="light"]` below
- * overrides the same names. Every colour pair used for text is checked in
+ * `@theme` holds the light theme (the default, and what renders with no
+ * `data-theme`); `[data-theme="dark"]` below overrides the same names. Every colour pair used for text is checked in
  * both themes by theme-contrast.test.ts: add new pairs there.
  *
  * Use these, not raw Tailwind palette classes or arbitrary sizes:
@@ -49,39 +49,39 @@
  */
 @theme {
   /* ── Surfaces and lines ── */
-  --color-surface: #191613;
-  --color-surface-raised: #231F1B;
-  --color-surface-inset: #2A2520;
-  --color-surface-overlay: #342E27;
-  --color-border: #463E36;
-  --color-border-subtle: #352F29;
+  --color-surface: #F6F1EA;
+  --color-surface-raised: #FFFCF8;
+  --color-surface-inset: #FAF5EE;
+  --color-surface-overlay: #EFE7DC;
+  --color-border: #DDD1C2;
+  --color-border-subtle: #ECE3D7;
 
   /* ── Ink ── */
-  --color-text-primary: #F2EDE6;
-  --color-text-secondary: #D2C9BF;
-  --color-text-muted: #ABA095;
+  --color-text-primary: #2B2520;
+  --color-text-secondary: #554C44;
+  --color-text-muted: #6F655B;
 
   /* ── Accent ── */
-  --color-accent: #93A9FF;
-  --color-accent-foreground: #141A33;
-  --color-accent-soft: #252C47;
-  --color-accent-line: #3A4673;
+  --color-accent: #3D5FD6;
+  --color-accent-foreground: #FFFFFF;
+  --color-accent-soft: #E8EDFC;
+  --color-accent-line: #C9D4F7;
 
   /* ── Fixed amber: "needs another look" ── */
-  --color-attn: #F2BC66;
-  --color-attn-soft: #3A2E1C;
-  --color-attn-line: #5A4524;
+  --color-attn: #8F5300;
+  --color-attn-soft: #FBEFD9;
+  --color-attn-line: #F0D7A8;
   /* Older names (T13), now the same fixed amber in both themes. */
   --color-attention-strong: var(--color-attn);
   --color-attention: var(--color-attn);
   --color-attention-soft: var(--color-attn);
 
   /* ── Status ── */
-  --color-confused: #FF9F6B;
-  --color-confused-soft: #3A2419;
-  --color-confused-line: #5C3524;
-  --color-good: #7FD3A2;
-  --color-good-soft: #1F3328;
+  --color-confused: #AA430F;
+  --color-confused-soft: #FCE8DC;
+  --color-confused-line: #F2C3A6;
+  --color-good: #23784A;
+  --color-good-soft: #E1F2E7;
 
   /* ── Transcript tags ── */
   --color-tag-confused: var(--color-confused);
@@ -89,43 +89,44 @@
   --color-tag-question: var(--color-accent);
 
   /* ── Courses: stripe, tint, soft, ink ── */
-  --color-course-biology: #5BC48A;
-  --color-course-biology-tint: #203A2B;
-  --color-course-biology-soft: #1E2C24;
-  --color-course-biology-ink: #B4E6C7;
-  --color-course-chemistry: #7FA2F2;
-  --color-course-chemistry-tint: #22304F;
-  --color-course-chemistry-soft: #1E2538;
-  --color-course-chemistry-ink: #C2D3FA;
-  --color-course-physics: #B99BF0;
-  --color-course-physics-tint: #33294A;
-  --color-course-physics-soft: #27213A;
-  --color-course-physics-ink: #DDD0FA;
+  --color-course-biology: #2F8A57;
+  --color-course-biology-tint: #D9EEDF;
+  --color-course-biology-soft: #EEF7F1;
+  --color-course-biology-ink: #1C5534;
+  --color-course-chemistry: #3D6CD4;
+  --color-course-chemistry-tint: #DCE6FA;
+  --color-course-chemistry-soft: #EEF3FD;
+  --color-course-chemistry-ink: #213F86;
+  --color-course-physics: #7C55C9;
+  --color-course-physics-tint: #E8DFF8;
+  --color-course-physics-soft: #F4F0FC;
+  --color-course-physics-ink: #48307E;
 
   /* ── Inverse: toasts (ink ground, panel text) ── */
-  --color-inverse: #F2EDE6;
-  --color-inverse-foreground: #231F1B;
-  --color-inverse-accent: #3D5FD6;
+  --color-inverse: #2B2520;
+  --color-inverse-foreground: #FFFCF8;
+  --color-inverse-accent: #B9C8FF;
 
   /* ── Calendar ── */
-  --color-shift: #2E2924;
-  --color-shift-line: #403830;
-  --color-shift-ink: #CFC5BA;
-  --color-free-line: #554B41;
-  --color-past: rgba(255, 255, 255, 0.025);
+  --color-shift: #F1EBE3;
+  --color-shift-line: #E0D5C7;
+  --color-shift-ink: #5A5047;
+  --color-free-line: #CFC2B1;
+  --color-past: rgba(120, 100, 80, 0.045);
 
-  /* ── Neutral scale, warmed to the paper hue (same lightness as stock) ── */
-  --color-neutral-50: oklch(0.985 0.004 60);
-  --color-neutral-100: oklch(0.97 0.005 60);
-  --color-neutral-200: oklch(0.922 0.006 60);
-  --color-neutral-300: oklch(0.87 0.007 60);
-  --color-neutral-400: oklch(0.708 0.009 60);
+  /* ── Neutral scale, warmed to the paper hue and inverted (dark ink on
+     light) for widgets not yet on the tokens; dark restores stock order ── */
+  --color-neutral-50: oklch(0.145 0.006 60);
+  --color-neutral-100: oklch(0.205 0.008 60);
+  --color-neutral-200: oklch(0.269 0.009 60);
+  --color-neutral-300: oklch(0.371 0.009 60);
+  --color-neutral-400: oklch(0.439 0.009 60);
   --color-neutral-500: oklch(0.556 0.009 60);
-  --color-neutral-600: oklch(0.439 0.009 60);
-  --color-neutral-700: oklch(0.371 0.009 60);
-  --color-neutral-800: oklch(0.269 0.009 60);
-  --color-neutral-900: oklch(0.205 0.008 60);
-  --color-neutral-950: oklch(0.145 0.006 60);
+  --color-neutral-600: oklch(0.708 0.009 60);
+  --color-neutral-700: oklch(0.82 0.007 60);
+  --color-neutral-800: oklch(0.922 0.006 60);
+  --color-neutral-900: oklch(0.96 0.005 60);
+  --color-neutral-950: oklch(0.985 0.004 60);
 
   /* ── Type: four steps ── */
   --text-meta: 12px;
@@ -146,14 +147,31 @@
   --radius-panel: var(--radius-widget);
 
   /* ── Shadows ── */
-  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.25);
-  --shadow-panel-focused: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 36px rgba(0, 0, 0, 0.32);
-  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 48px rgba(0, 0, 0, 0.45);
+  --shadow-panel: 0 1px 2px rgba(70, 45, 20, 0.04), 0 8px 28px rgba(70, 45, 20, 0.06);
+  --shadow-panel-focused: 0 2px 4px rgba(70, 45, 20, 0.06), 0 12px 36px rgba(70, 45, 20, 0.1);
+  --shadow-pop: 0 2px 6px rgba(70, 45, 20, 0.08), 0 18px 48px rgba(70, 45, 20, 0.16);
+
+  /* ── Stock palette remaps for widgets not yet on the tokens ── */
+  --color-emerald-400: oklch(0.5 0.17 160);
+  --color-emerald-500: oklch(0.45 0.16 160);
+
+  /* Amber marks "needs another look". Pale stock ambers vanish on a light
+     surface: text gets solid deep ambers (4.5:1, checked by
+     theme-contrast.test.ts) and tints a warm mid amber. The dark theme puts
+     the stock scale back. */
+  --color-amber-200: oklch(0.75 0.15 75);
+  --color-amber-300: oklch(0.48 0.11 60);
+  --color-amber-400: oklch(0.48 0.11 60);
+  --color-amber-500: oklch(0.72 0.15 70);
 
   --transition-panel: 200ms ease-out;
 
   --font-sans: 'DM Sans', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  color-scheme: light;
 }
 
 body {
@@ -164,86 +182,78 @@ body {
   color: var(--color-text-primary);
 }
 
-/* ── Light theme ── */
-[data-theme="light"] {
-  --color-surface: #F6F1EA;
-  --color-surface-raised: #FFFCF8;
-  --color-surface-inset: #FAF5EE;
-  --color-surface-overlay: #EFE7DC;
-  --color-border: #DDD1C2;
-  --color-border-subtle: #ECE3D7;
+/* ── Dark theme ── */
+[data-theme="dark"] {
+  /* Surfaces, lines, ink, accent, status, courses, calendar */
+  --color-surface: #191613;
+  --color-surface-raised: #231F1B;
+  --color-surface-inset: #2A2520;
+  --color-surface-overlay: #342E27;
+  --color-border: #463E36;
+  --color-border-subtle: #352F29;
+  --color-text-primary: #F2EDE6;
+  --color-text-secondary: #D2C9BF;
+  --color-text-muted: #ABA095;
+  --color-accent: #93A9FF;
+  --color-accent-foreground: #141A33;
+  --color-accent-soft: #252C47;
+  --color-accent-line: #3A4673;
+  --color-attn: #F2BC66;
+  --color-attn-soft: #3A2E1C;
+  --color-attn-line: #5A4524;
+  --color-confused: #FF9F6B;
+  --color-confused-soft: #3A2419;
+  --color-confused-line: #5C3524;
+  --color-good: #7FD3A2;
+  --color-good-soft: #1F3328;
+  --color-course-biology: #5BC48A;
+  --color-course-biology-tint: #203A2B;
+  --color-course-biology-soft: #1E2C24;
+  --color-course-biology-ink: #B4E6C7;
+  --color-course-chemistry: #7FA2F2;
+  --color-course-chemistry-tint: #22304F;
+  --color-course-chemistry-soft: #1E2538;
+  --color-course-chemistry-ink: #C2D3FA;
+  --color-course-physics: #B99BF0;
+  --color-course-physics-tint: #33294A;
+  --color-course-physics-soft: #27213A;
+  --color-course-physics-ink: #DDD0FA;
+  --color-inverse: #F2EDE6;
+  --color-inverse-foreground: #231F1B;
+  --color-inverse-accent: #3D5FD6;
+  --color-shift: #2E2924;
+  --color-shift-line: #403830;
+  --color-shift-ink: #CFC5BA;
+  --color-free-line: #554B41;
+  --color-past: rgba(255, 255, 255, 0.025);
 
-  --color-text-primary: #2B2520;
-  --color-text-secondary: #554C44;
-  --color-text-muted: #6F655B;
+  /* Shadows */
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.25);
+  --shadow-panel-focused: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 36px rgba(0, 0, 0, 0.32);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 48px rgba(0, 0, 0, 0.45);
 
-  --color-accent: #3D5FD6;
-  --color-accent-foreground: #FFFFFF;
-  --color-accent-soft: #E8EDFC;
-  --color-accent-line: #C9D4F7;
-
-  --color-attn: #8F5300;
-  --color-attn-soft: #FBEFD9;
-  --color-attn-line: #F0D7A8;
-
-  --color-confused: #AA430F;
-  --color-confused-soft: #FCE8DC;
-  --color-confused-line: #F2C3A6;
-  --color-good: #23784A;
-  --color-good-soft: #E1F2E7;
-
-  --color-course-biology: #2F8A57;
-  --color-course-biology-tint: #D9EEDF;
-  --color-course-biology-soft: #EEF7F1;
-  --color-course-biology-ink: #1C5534;
-  --color-course-chemistry: #3D6CD4;
-  --color-course-chemistry-tint: #DCE6FA;
-  --color-course-chemistry-soft: #EEF3FD;
-  --color-course-chemistry-ink: #213F86;
-  --color-course-physics: #7C55C9;
-  --color-course-physics-tint: #E8DFF8;
-  --color-course-physics-soft: #F4F0FC;
-  --color-course-physics-ink: #48307E;
-
-  --color-inverse: #2B2520;
-  --color-inverse-foreground: #FFFCF8;
-  --color-inverse-accent: #B9C8FF;
-
-  --color-shift: #F1EBE3;
-  --color-shift-line: #E0D5C7;
-  --color-shift-ink: #5A5047;
-  --color-free-line: #CFC2B1;
-  --color-past: rgba(120, 100, 80, 0.045);
-
-  --shadow-panel: 0 1px 2px rgba(70, 45, 20, 0.04), 0 8px 28px rgba(70, 45, 20, 0.06);
-  --shadow-panel-focused: 0 2px 4px rgba(70, 45, 20, 0.06), 0 12px 36px rgba(70, 45, 20, 0.1);
-  --shadow-pop: 0 2px 6px rgba(70, 45, 20, 0.08), 0 18px 48px rgba(70, 45, 20, 0.16);
-
-  /* Neutral scale, inverted for widgets not yet on the tokens above. */
-  --color-neutral-50: oklch(0.145 0.006 60);
-  --color-neutral-100: oklch(0.205 0.008 60);
-  --color-neutral-200: oklch(0.269 0.009 60);
-  --color-neutral-300: oklch(0.371 0.009 60);
-  --color-neutral-400: oklch(0.439 0.009 60);
+  /* Neutral scale, warmed, at stock lightness */
+  --color-neutral-50: oklch(0.985 0.004 60);
+  --color-neutral-100: oklch(0.97 0.005 60);
+  --color-neutral-200: oklch(0.922 0.006 60);
+  --color-neutral-300: oklch(0.87 0.007 60);
+  --color-neutral-400: oklch(0.708 0.009 60);
   --color-neutral-500: oklch(0.556 0.009 60);
-  --color-neutral-600: oklch(0.708 0.009 60);
-  --color-neutral-700: oklch(0.82 0.007 60);
-  --color-neutral-800: oklch(0.922 0.006 60);
-  --color-neutral-900: oklch(0.96 0.005 60);
-  --color-neutral-950: oklch(0.985 0.004 60);
+  --color-neutral-600: oklch(0.439 0.009 60);
+  --color-neutral-700: oklch(0.371 0.009 60);
+  --color-neutral-800: oklch(0.269 0.009 60);
+  --color-neutral-900: oklch(0.205 0.008 60);
+  --color-neutral-950: oklch(0.145 0.006 60);
 
-  --color-emerald-400: oklch(0.5 0.17 160);
-  --color-emerald-500: oklch(0.45 0.16 160);
+  /* Stock emerald and amber */
+  --color-emerald-400: oklch(76.5% 0.177 163.223);
+  --color-emerald-500: oklch(69.6% 0.17 162.48);
+  --color-amber-200: oklch(92.4% 0.12 95.746);
+  --color-amber-300: oklch(87.9% 0.169 91.605);
+  --color-amber-400: oklch(82.8% 0.189 84.429);
+  --color-amber-500: oklch(76.9% 0.188 70.08);
 
-  /* Amber marks "needs another look". Pale dark-theme ambers vanish on a
-     light surface: text gets solid deep ambers (4.5:1, checked by
-     theme-contrast.test.ts) and tints a warm mid amber. */
-  --color-amber-200: oklch(0.75 0.15 75);
-  --color-amber-300: oklch(0.48 0.11 60);
-  --color-amber-400: oklch(0.48 0.11 60);
-  --color-amber-500: oklch(0.72 0.15 70);
-
-  color-scheme: light;
+  color-scheme: dark;
 }
 
 ::selection {

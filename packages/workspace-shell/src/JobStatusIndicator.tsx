@@ -71,17 +71,17 @@ function JobItem({ job, now }: { job: JobRow; now: number }) {
   return (
     <div
       data-testid="job-item"
-      className="border-b border-border-subtle/50 px-3 py-2 last:border-0"
+      className="border-b border-border-subtle px-5 py-2.5 last:border-0"
     >
       <div className="flex items-center gap-2">
         <StatusDot status={statusDotStatus(job.status)} />
-        <span className="flex-1 truncate text-[11px] text-neutral-300">{jobLabel(job.job_type)}</span>
+        <span className="flex-1 truncate text-body text-text-primary">{jobLabel(job.job_type)}</span>
         {elapsed !== null ? (
-          <span className={cn('text-[10px] tabular-nums', isRunning ? 'text-accent' : 'text-neutral-600')}>
+          <span className={cn('text-meta tabular-nums', isRunning ? 'text-accent' : 'text-text-muted')}>
             {elapsed}
           </span>
         ) : (
-          <span className="text-[10px] text-neutral-600">{STATUS_LABELS[job.status] ?? job.status}</span>
+          <span className="text-meta text-text-muted">{STATUS_LABELS[job.status] ?? job.status}</span>
         )}
       </div>
       {job.status === 'failed' && <FailedJobDetails job={job} />}
@@ -100,7 +100,7 @@ function FailedJobDetails({ job }: { job: JobRow }) {
   return (
     <div className="mt-1 pl-4">
       <div className="flex items-center gap-2">
-        <p className="flex-1 text-[10px] text-neutral-500">
+        <p className="flex-1 text-meta text-text-secondary">
           {job.retryable
             ? 'This didn\'t finish. Give it another go.'
             : 'This attempt didn\'t finish, so it was retried automatically.'}
@@ -110,16 +110,16 @@ function FailedJobDetails({ job }: { job: JobRow }) {
             type="button"
             onClick={() => retry.mutate(job.id)}
             disabled={retry.isPending}
-            className="flex shrink-0 items-center gap-1 rounded-md bg-surface-overlay px-2 py-0.5 text-[10px] text-neutral-300 transition-colors hover:text-neutral-100 disabled:opacity-40"
+            className="flex h-8 shrink-0 items-center gap-1.5 rounded-item border border-border bg-surface-raised px-2.5 text-meta font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-40"
           >
-            <RotateCcw className="h-2.5 w-2.5" />
+            <RotateCcw className="h-3.5 w-3.5" />
             Retry
           </button>
         )}
       </div>
       {job.error && (
-        <details className="mt-0.5 text-[10px] text-neutral-600">
-          <summary className="cursor-pointer select-none hover:text-neutral-400">Details</summary>
+        <details className="mt-1 text-meta text-text-muted">
+          <summary className="cursor-pointer select-none hover:text-text-primary">Details</summary>
           <p className="mt-0.5 break-words font-mono">{job.error}</p>
         </details>
       )}
@@ -153,22 +153,22 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
   return createPortal(
     <>
       {/* Above the top bar (z 9999), like the board menu. */}
-      <div className="fixed inset-0 z-[10000] bg-black/30" onClick={onClose} />
+      <div className="fixed inset-0 z-[10000] bg-black/25" onClick={onClose} />
       <aside
-        className="fixed bottom-0 right-0 top-0 z-[10001] flex w-80 max-w-[calc(100vw-48px)] flex-col border-l border-border-subtle bg-surface-raised shadow-2xl"
+        className="fixed bottom-0 right-0 top-0 z-[10001] flex w-80 max-w-[calc(100vw-48px)] flex-col rounded-l-widget bg-surface-raised shadow-pop"
         aria-label="Activity"
       >
-        <div className="flex items-center justify-between border-b border-border-subtle px-4 py-3">
+        <div className="flex items-center justify-between px-5 pt-4 pb-2">
           <div className="flex items-center gap-2">
             <Zap className="h-4 w-4 text-accent" />
-            <h2 className="text-sm font-semibold text-neutral-200">Activity</h2>
+            <h2 className="text-title font-semibold text-text-primary">Activity</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close activity"
             title="Close activity"
-            className="flex h-6 w-6 items-center justify-center rounded text-neutral-500 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
+            className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
           >
             <X className="h-4 w-4" />
           </button>
@@ -176,14 +176,14 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {rows.length === 0 ? (
-            <div className="px-6 py-8 text-center text-[11px] text-neutral-500">
+            <div className="px-6 py-8 text-center text-body text-text-muted">
               Nothing here yet. When an automation runs, like transcribing a lecture, you can follow it here.
             </div>
           ) : (
             <>
               {running.length > 0 && (
                 <div>
-                  <div className="px-3 pt-3 pb-1">
+                  <div className="px-5 pt-3 pb-1">
                     <SectionLabel>In progress</SectionLabel>
                   </div>
                   {running.map((job) => (
@@ -193,7 +193,7 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
               )}
               {finished.length > 0 && (
                 <div>
-                  <div className="px-3 pt-3 pb-1">
+                  <div className="px-5 pt-3 pb-1">
                     <SectionLabel>Recent</SectionLabel>
                   </div>
                   {finished.map((job) => (

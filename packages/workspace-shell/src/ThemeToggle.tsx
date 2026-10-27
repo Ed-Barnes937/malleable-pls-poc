@@ -8,7 +8,8 @@ function getStoredTheme(): Theme {
     const stored = localStorage.getItem('pls-theme')
     if (stored === 'light' || stored === 'dark') return stored
   } catch {}
-  return 'dark'
+  // Light unless the student picked dark (the redesign leads with light).
+  return 'light'
 }
 
 function applyTheme(theme: Theme) {

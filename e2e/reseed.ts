@@ -54,8 +54,9 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
     // columns), since 006 replaced the grid columns 002 originally used;
     // 010 moves the seeded recording focus from panel config to the
     // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
-    // 013 swaps the stub automations for the lecture AI ones.
-    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql']) {
+    // 013 swaps the stub automations for the lecture AI ones; 014 resizes
+    // the seeded panels for the redesigned widget chrome.
+    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql']) {
       const seedSql = readFileSync(
         resolve(__dirname, `../packages/db/src/migrations/${file}`),
         'utf-8',

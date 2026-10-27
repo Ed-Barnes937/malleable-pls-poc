@@ -40,10 +40,10 @@ export function WorkflowList({
           <Spinner size="sm" />
         </div>
       ) : isError ? (
-        <div className="flex flex-col items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/5 py-6 text-center">
-          <AlertTriangle className="h-5 w-5 text-red-400" />
-          <p className="text-[11px] text-red-300">{errorLabel}</p>
-          <p className="px-3 text-[10px] text-neutral-600">{error?.message ?? 'Request failed'}</p>
+        <div className="flex flex-col items-center gap-1.5 rounded-item border border-confused-line bg-confused-soft py-6 text-center">
+          <AlertTriangle className="h-5 w-5 text-confused" />
+          <p className="text-body text-confused">{errorLabel}</p>
+          <p className="px-3 text-meta text-text-secondary">{error?.message ?? 'Request failed'}</p>
         </div>
       ) : workflows && workflows.length > 0 ? (
         workflows.map((wf) => (
@@ -57,8 +57,8 @@ export function WorkflowList({
         ))
       ) : (
         <div className="flex flex-col items-center gap-2 py-6 text-center">
-          <ZapOff className="h-5 w-5 text-neutral-700" />
-          <p className="text-[11px] text-neutral-600">{emptyLabel}</p>
+          <ZapOff className="h-5 w-5 text-text-muted" />
+          <p className="text-body text-text-muted">{emptyLabel}</p>
         </div>
       )}
       {footer}
