@@ -126,9 +126,12 @@ export function padded(block: Interval, minutes: number = STUDY_DAY.bufferMin): 
   return { start: block.start - pad, end: block.end + pad }
 }
 
-/** Free time still ahead of `now`, around busy blocks (the budget is not applied). */
-export function openTime(layout: WeekLayout, now: number): Interval[] {
-  return subtract(layout.free, [...layout.busy, { start: -Infinity, end: now }])
+/**
+ * Free time still ahead of `now`, around busy blocks (the budget is not
+ * applied) and anything in `alsoBusy` (e.g. drafted blocks not saved yet).
+ */
+export function openTime(layout: WeekLayout, now: number, alsoBusy: ReadonlyArray<Interval> = []): Interval[] {
+  return subtract(layout.free, [...layout.busy, ...alsoBusy, { start: -Infinity, end: now }])
 }
 
 export interface StudyDay {
@@ -443,14 +446,18 @@ function amount(min: number, round: 'down' | 'up'): { n: string; unit: 'hour' | 
 const plural = (n: string, unit: string) => `${unit}${n === '1' ? '' : 's'}`
 
 /**
- * "About 9 hours of study time left this week. Your to-dos need 12." `when`
- * names the week ("this week", "next week", "that week").
+ * "About 9 hours of study time left this week (2h a day). Your to-dos need
+ * 12." `when` names the week ("this week", "next week", "that week").
+ * `minutesPerDay` names the daily cap the free time is counted with, the
+ * same one Auto-fill drafts with, so a draft that leaves something out
+ * never contradicts the headline.
  */
-export function capacityCopy(cap: Pick<Capacity, 'freeMin' | 'neededMin'>, when = 'this week'): string {
+export function capacityCopy(cap: Pick<Capacity, 'freeMin' | 'neededMin'>, when = 'this week', minutesPerDay?: number): string {
   const free = amount(cap.freeMin, 'down')
+  const perDay = minutesPerDay ? ` (${formatMinutes(minutesPerDay)} a day)` : ''
   const freePart = cap.freeMin <= 0
-    ? `No study time left ${when}.`
-    : `About ${free.n} ${plural(free.n, free.unit)} of study time left ${when}.`
+    ? `No study time left ${when}${perDay}.`
+    : `About ${free.n} ${plural(free.n, free.unit)} of study time left ${when}${perDay}.`
   if (cap.neededMin <= 0) return `${freePart} Nothing left to plan.`
   const need = amount(cap.neededMin, 'up')
   const needPart = need.unit === free.unit && cap.freeMin > 0 ? need.n : `${need.n} ${plural(need.n, need.unit)}`
@@ -500,11 +507,17 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 /**
  * The draft's own numbers, from what was actually placed: "Drafted 6h of
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
- * contradict the ghosts beside it.
+ * contradict the ghosts beside it. `leftoverMin` is study time the headline
+ * counted that the draft could not use (free, but in gaps too short, or too
+ * late, for what didn't fit): named, so drafted + leftover adds up to the
+ * headline's free time and drafted + didn't fit to what the to-dos need.
  */
-export function draftCopy(placedMin: number, unplacedMin: number): string {
+export function draftCopy(placedMin: number, unplacedMin: number, leftoverMin = 0): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
-  return unplacedMin > 0 ? `${drafted} ${formatMinutes(unplacedMin)} didn't fit.` : `${drafted} Everything fits.`
+  if (unplacedMin <= 0) return `${drafted} Everything fits.`
+  const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
+  if (leftoverMin < 15) return missed
+  return `${missed} The other ${formatMinutes(leftoverMin)} of free time is in gaps too short for it.`
 }
 
 // ---------------------------------------------------------------------------

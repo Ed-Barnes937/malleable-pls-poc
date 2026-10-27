@@ -7,6 +7,7 @@ import {
   draftCopy,
   longestBlockMin,
   noteWithoutAmounts,
+  openTime,
   draftPlan,
   formatMinutes,
   matchesWeakTopic,
@@ -52,6 +53,18 @@ describe('weekLayout', () => {
     expect(layout.free[1]).toEqual({ start: at(0, 11, 10), end: at(0, 22) })
     expect(layout.busy).toEqual([{ start: at(0, 14), end: at(0, 15), taskId: 'study' }])
     expect(layout.budget).toEqual({ minutesPerDay: 120, timeZone: tz })
+  })
+
+  it('open time leaves out the past, study blocks and anything else busy (e.g. drafted blocks)', () => {
+    const layout = weekLayout([item({ id: 'study', kind: 'task', starts_at: iso(1, 12), ends_at: iso(1, 13) })], week, { timeZone: tz })
+    const open = openTime(layout, at(1, 11), [{ start: at(1, 14), end: at(1, 15) }])
+    const tuesday = open.filter((i) => i.start >= at(1, 0) && i.end <= at(2, 0))
+    expect(tuesday).toEqual([
+      { start: at(1, 11), end: at(1, 12) },
+      { start: at(1, 13), end: at(1, 14) },
+      { start: at(1, 15), end: tuesday[2].end },
+    ])
+    expect(open.every((i) => i.start >= at(1, 11))).toBe(true)
   })
 
   it('leaves out rows being re-placed', () => {
@@ -101,9 +114,16 @@ describe('capacity and copy', () => {
     expect(capacityCopy({ freeMin: 200, neededMin: 0 })).toBe('About 3 hours of study time left this week. Nothing left to plan.')
     // Free rounds down and needed rounds up, so a 10-minute gap never reads as "fits".
     expect(capacityCopy({ freeMin: 530, neededMin: 540 })).toBe('About 8.5 hours of study time left this week. Your to-dos need 9.')
+    // The daily cap Auto-fill drafts with, named in the headline.
+    expect(capacityCopy({ freeMin: 540, neededMin: 720 }, 'this week', 120)).toBe('About 9 hours of study time left this week (2h a day). Your to-dos need 12.')
+    expect(capacityCopy({ freeMin: 0, neededMin: 90 }, 'next week', 90)).toBe('No study time left next week (1h 30m a day). Your to-dos need 1.5 hours.')
     expect(draftCopy(360, 150)).toBe("Drafted 6h of study time. 2h 30m didn't fit.")
     expect(draftCopy(90, 0)).toBe('Drafted 1h 30m of study time. Everything fits.')
     expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
+    // Free time the draft couldn't use is named, so the numbers add up to the headline's.
+    expect(draftCopy(420, 300, 120)).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
+    expect(draftCopy(420, 300, 10)).toBe("Drafted 7h of study time. 5h didn't fit.")
+    expect(draftCopy(420, 0, 120)).toBe('Drafted 7h of study time. Everything fits.')
     expect(formatMinutes(90)).toBe('1h 30m')
     expect(formatMinutes(45)).toBe('45m')
     expect(formatMinutes(120)).toBe('2h')

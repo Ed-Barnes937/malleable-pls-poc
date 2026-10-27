@@ -7,6 +7,13 @@
   container-type: size;
 }
 
+/* Diagonal hatching in a colour token, e.g. hatch-course-biology-soft:
+   drafted (unsaved) blocks and the shortfall in Help me plan's capacity bar.
+   Layers over any bg- colour. */
+@utility hatch-* {
+  background-image: repeating-linear-gradient(135deg, --value(--color-*) 0 6px, transparent 6px 11px);
+}
+
 /*
  * Design tokens (student planning redesign; values from
  * plans/student-planning-demo-artifacts/mockups/base.css).
@@ -37,7 +44,9 @@
  *   Inverse    bg-inverse + text-inverse-foreground, links text-inverse-accent
  *              (toasts)
  *   Calendar   bg-shift + border-shift-line + text-shift-ink (work shifts),
- *              border-free-line (free gaps), bg-past (days gone by)
+ *              border-free-line (free gaps), bg-past (days gone by),
+ *              hatch-<colour> (drafted blocks, a shortfall: diagonal
+ *              stripes in any colour token, over a bg- colour)
  *   Type       text-meta 12 (meta, labels), text-body 14 (default),
  *              text-title 16 (item and widget titles), text-heading 20.
  *              Nothing smaller than text-meta. Sentence case labels; no

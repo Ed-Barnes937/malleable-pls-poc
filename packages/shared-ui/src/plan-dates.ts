@@ -43,6 +43,12 @@ export function dayLabel(t: number | string | Date, now: number | Date = Date.no
   return shortDate.format(new Date(typeof t === 'string' ? Date.parse(t) : t))
 }
 
+/** "Do by today", "Do by tomorrow", "Do by Fri 30 Oct": when a to-do should be done. */
+export function doByLabel(t: number | string | Date, now: number | Date = Date.now()): string {
+  const label = dayLabel(t, now)
+  return `Do by ${Math.abs(daysFromToday(t, now)) <= 1 ? label.toLowerCase() : label}`
+}
+
 /** "14:00". */
 export function clockTime(t: number | string | Date): string {
   return clock.format(new Date(typeof t === 'string' ? Date.parse(t) : t))
