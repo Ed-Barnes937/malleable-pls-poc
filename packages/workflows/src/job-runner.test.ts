@@ -109,6 +109,23 @@ describe('job runner', () => {
       )
     })
 
+    it('announces job:completed only once the follow-up jobs are queued', async () => {
+      const adapter = makeAdapter([makePendingJob()])
+      const executors = createExecutorRegistry()
+      executors.register('test:run', async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }), {
+        label: 'T', category: 'T',
+      })
+      const engine = createWorkflowEngine({ adapter })
+      const order: string[] = []
+      vi.spyOn(engine, 'dispatch').mockImplementation(async () => { order.push('dispatch'); return { enqueuedJobIds: [] } })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null })
+      runner.onEvent((e) => { order.push(e.type) })
+
+      await runner.processOnce()
+
+      expect(order).toEqual(['job:started', 'dispatch', 'job:completed'])
+    })
+
     it('runs and cascades each job in its own scope when scopeForJob is given', async () => {
       const adapter = makeAdapter([makePendingJob({ input: { target_id: 't1', board: 'ws-a' } })])
       const executors = createExecutorRegistry()

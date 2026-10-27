@@ -54,6 +54,17 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     const transcript = grid.panelByLabel('Transcript')
 
     // 1. Upload: the transcript, then a 3-line summary built from it, appear.
+    // Record what the transcript shows on the way, as the jobs run.
+    await transcript.evaluate((el) => {
+      const seen = new Set<string>()
+      ;(window as unknown as { transcriptStates: Set<string> }).transcriptStates = seen
+      new MutationObserver(() => {
+        const text = el.textContent ?? ''
+        if (text.includes('Transcribing your lecture...')) seen.add('transcribing')
+        if (text.includes('Writing your summary...')) seen.add('summarising')
+        if (/\b0 segments/.test(text)) seen.add('empty')
+      }).observe(el, { subtree: true, childList: true, characterData: true })
+    })
     await audio.pickFile(FIXTURE)
     await audio.submitUpload({ title, course: 'Biology' })
     await expect(transcript.getByText(title)).toBeVisible({ timeout: 10000 })
@@ -61,6 +72,12 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
     await expect(summary.getByRole('listitem')).toHaveCount(3, { timeout: 20000 })
     await expect(summary).toContainText(/mitochondrial DNA/i)
+    // The summary job waits for the job runner's next pass, so its note always
+    // shows; the transcript note can be too quick to catch. Never a blank "0 segments".
+    const states = await page.evaluate(() => [...(window as unknown as { transcriptStates: Set<string> }).transcriptStates])
+    expect(states).toContain('summarising')
+    expect(states).not.toContain('empty')
+    await expect(transcript.getByTestId('summarising')).toHaveCount(0)
 
     const recording = (await trpcQuery<Recording[]>(request, 'recordings.list')).find((r) => r.title === title)!
     const reviewsOf = async () => (await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', {
@@ -73,6 +90,8 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     const chip = transcript.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned', { timeout: 15000 })
     await expect(chip).toContainText('20 min')
+    // A 24-hour time, like the rest of the app ("Review planned Tomorrow 19:40").
+    await expect(chip).toHaveText(/^Review planned \S.* \d{2}:\d{2} · 20 min$/)
 
     const [review] = await reviewsOf()
     expect(review).toMatchObject({

@@ -51,12 +51,6 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
 
           await adapter.updateJobRunStatus(job.id, 'completed', result.output, undefined)
           await adapter.commit?.()
-          const completedJob = {
-            ...job,
-            status: 'completed' as const,
-            output: result.output,
-          }
-          emit({ type: 'job:completed', jobRun: completedJob, result })
 
           if (result.events) {
             for (const event of result.events) {
@@ -65,6 +59,16 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
               await engine.dispatch(event, { scopeId: jobScope, depth: job.depth })
             }
           }
+
+          // Announced once its follow-up jobs are queued, so a listener that
+          // re-reads on completion already sees them (e.g. a lecture's summary
+          // job after its transcript).
+          const completedJob = {
+            ...job,
+            status: 'completed' as const,
+            output: result.output,
+          }
+          emit({ type: 'job:completed', jobRun: completedJob, result })
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           await adapter.updateJobRunStatus(job.id, 'failed', undefined, message)

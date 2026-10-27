@@ -86,6 +86,7 @@ export {
 
 export type {
   Recording,
+  LectureProcessing,
   TranscriptSegment,
   Annotation,
   Tag,

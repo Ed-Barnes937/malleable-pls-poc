@@ -41,7 +41,11 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useRecording(id: string) {
-    return adapt(trpc.recordings.byId.useQuery(id, { enabled: !!id }))
+    return adapt(trpc.recordings.byId.useQuery(id, {
+      enabled: !!id,
+      // Job events refresh this too; the poll is a backstop while AI work runs.
+      refetchInterval: (query) => ((query.state.data as { processing?: unknown } | null | undefined)?.processing ? 3000 : false),
+    }))
   },
 
   useTranscript(recordingId: string) {

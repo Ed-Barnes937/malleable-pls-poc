@@ -231,6 +231,8 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
       if (event.type === 'job:started') {
         utils.jobs.recent.invalidate()
         utils.jobs.runningCount.invalidate()
+        // A lecture's `processing` follows its jobs (e.g. its summary starting).
+        utils.recordings.byId.invalidate()
         handlers?.onJobStarted?.(event)
       } else if (event.type === 'job:completed') {
         utils.jobs.recent.invalidate()
@@ -247,6 +249,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
       } else if (event.type === 'job:failed') {
         utils.jobs.recent.invalidate()
         utils.jobs.runningCount.invalidate()
+        utils.recordings.byId.invalidate()
         handlers?.onJobFailed?.(event)
       }
     },
