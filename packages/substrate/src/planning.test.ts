@@ -206,6 +206,8 @@ describe('ranking and trims', () => {
       note: null,
     }, tasks, fits, 120)
     expect(advice.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
+    // The wording follows the budget in force, whatever the model said.
+    expect(advice.trims[0].reason).toBe('Longer than your 2h a day - a focused first pass fits, and you can finish it later.')
     expect(completeTrims([], tasks, { overCapacity: true, minutesPerDay: 100 }).map((t) => t.durationMin)).toEqual([90, 90, 90])
     expect(longestBlockMin(100)).toBe(90)
   })

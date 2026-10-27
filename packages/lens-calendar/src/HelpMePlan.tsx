@@ -7,6 +7,7 @@ import {
   completeTrims,
   draftCopy,
   formatMinutes,
+  openTime,
   planCapacity,
   planTasks,
   rankForPlan,
@@ -199,6 +200,13 @@ export function HelpMePlanPanel({
     }
   }
 
+  // "Pick a time" starts at the first free study time ahead (15-minute aligned), not "now".
+  const firstOpenStart = useMemo(() => {
+    const first = openTime(layout, now).find((f) => f.end - f.start >= 15 * 60_000)
+    const start = first ? Math.ceil(first.start / 900_000) * 900_000 : layout.week.start + 9 * 3_600_000
+    return start
+  }, [layout, now])
+
   const ghostFor = (id: string) => layer.proposals.find((p) => p.taskId === id)
 
   return (
@@ -309,7 +317,7 @@ export function HelpMePlanPanel({
                   onEstimate={(min) => void saveEstimate(todo, min)}
                   onPick={(start) => void schedule(todo, start, task.durationMin)}
                   onDragTodo={onDragTodo}
-                  weekStart={layout.week.start}
+                  pickDefault={firstOpenStart}
                 />
               )
             })}
@@ -469,13 +477,13 @@ function TodoRow({
   onEstimate,
   onPick,
   onDragTodo,
-  weekStart,
+  pickDefault,
 }: {
   todo: PlanItemOccurrence
   task: PlanTask
   now: number
-  /** Default day for "Pick a time". */
-  weekStart: number
+  /** Where "Pick a time" starts: the first free study time ahead. */
+  pickDefault: number
   /** Where its draft ghost is, if it has one. */
   ghost?: string
   suggestions: { start: number }[]
@@ -566,7 +574,7 @@ function TodoRow({
       {picking && !ghost && (
         <PickTime
           title={todo.title}
-          defaultStart={Math.max(weekStart + 9 * 3_600_000, Math.ceil(now / 1_800_000) * 1_800_000)}
+          defaultStart={pickDefault}
           onPick={(start) => {
             setPicking(false)
             onPick(start)

@@ -257,6 +257,8 @@ test('keyboard: nudge a ghost with the arrows and accept it with Enter; pick a t
   await panel.getByRole('button', { name: 'Keep my plan' }).click()
   const lab = panel.getByTestId('plan-todo').filter({ hasText: 'Lab report write-up' })
   await lab.getByRole('button', { name: 'Pick a time' }).click()
+  // It starts at the first free study time ahead: Monday after the accepted quiz block.
+  await expect(lab.getByLabel('Start time for Lab report write-up')).toHaveValue(toLocalInput(at(0, 8, 30)))
   await lab.getByLabel('Start time for Lab report write-up').fill(toLocalInput(at(1, 9)))
   await lab.getByRole('button', { name: 'Add' }).click()
   // 09:00-13:00 on Tuesday runs into the 12:00 commitment: refused, nothing saved.

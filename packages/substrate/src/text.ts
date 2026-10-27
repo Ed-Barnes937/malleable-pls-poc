@@ -1,7 +1,8 @@
-// Small, deterministic text heuristics behind the mock-mode LLM fakes. They
+// Small, deterministic text heuristics. The mock-mode LLM fakes use them to
 // derive plausible output from whatever transcript they are given, so mock
 // screenshots read like the lecture on screen (and keep doing so when the
-// transcript changes). Not used on the live path.
+// transcript changes). `keyPhrase` + `topicLabel` also name weak topics on
+// the live path (no LLM call; see aggregates.weakestTopics).
 
 const STOPWORDS = new Set(`
 a about above after again against all almost also always am an and any are as at be because been before being
@@ -33,7 +34,9 @@ function words(text: string): string[] {
 }
 
 function isContent(word: string): boolean {
-  return word.length > 2 && !STOPWORDS.has(word.replace(/'s$/, ''))
+  const base = word.replace(/'s$/, '')
+  // Contractions ("can't", "it'll") are never the topic.
+  return word.length > 2 && !base.includes("'") && !STOPWORDS.has(base)
 }
 
 /** Runs of consecutive content words, split at stopwords and punctuation. */
@@ -133,4 +136,25 @@ export function extractiveSummary(text: string, count = 3): string[] {
     .filter((s) => s.size >= 6 && !s.sentence.endsWith('?') && !/^(welcome|hello|hi|good (morning|afternoon))\b/i.test(s.sentence))
   const chosen = [...scored].sort((a, b) => b.score - a.score || a.index - b.index).slice(0, count)
   return chosen.sort((a, b) => a.index - b.index).map((s) => clip(s.sentence))
+}
+
+/**
+ * A key phrase as a label for display: each word in the casing the lecture
+ * used for it ("atp" -> "ATP") and a capital first letter, e.g.
+ * "Maternal inheritance".
+ */
+export function topicLabel(phrase: string, source: string): string {
+  const cased = new Map<string, string>()
+  for (const match of source.matchAll(/[A-Za-z][A-Za-z'-]*/g)) {
+    const word = match[0]
+    const lower = word.toLowerCase()
+    if (word === lower || cased.has(lower)) continue
+    // An acronym ("ATP"), or a capitalised word mid-sentence, i.e. a name
+    // ("the Krebs cycle"). A capital that only starts a sentence doesn't count.
+    const before = source.slice(0, match.index).trimEnd()
+    const startsSentence = before === '' || /[.!?:]["')\]]*$/.test(before)
+    if (word.slice(1) !== lower.slice(1) || !startsSentence) cased.set(lower, word)
+  }
+  const label = phrase.split(' ').map((w) => cased.get(w) ?? w).join(' ')
+  return label.charAt(0).toUpperCase() + label.slice(1)
 }

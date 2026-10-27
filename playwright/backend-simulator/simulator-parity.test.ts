@@ -9,11 +9,6 @@
  *   - workspaces.updatePanelConfig → returns NOT_FOUND in simulator
  *
  * Known behaviour drift:
- *   - aggregates.weakestTopics: server uses COALESCE(avg_score, 100) so untagged
- *     segments sort last; simulator drops untagged segments entirely and
- *     defaults missing confidence to 0 — so ordering diverges.
- *   - aggregates.weeklyOverview: server counts 'confused' tags joined through
- *     course segments; simulator counts all 'confused' tags unconditionally.
  *   - workflows.dispatch: simulator always returns { enqueuedJobIds: [] } —
  *     no workflow engine is wired; server dispatches real jobs.
  */
@@ -195,6 +190,20 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(topics[0].rank).toBe(1)
   })
 
+  // Same numbers the server returns on the 002_seed.sql data.
+  it('progress, all courses and weak topics agree, as on the server', async () => {
+    const progress = await query(router, 'aggregates.weeklyOverview', {})
+    expect(progress).toEqual([
+      { course: 'biology', totalMoments: 54, solidMoments: 7, reviewMoments: 5, percentage: 13 },
+      { course: 'chemistry', totalMoments: 13, solidMoments: 3, reviewMoments: 1, percentage: 23 },
+    ])
+    expect(await query(router, 'aggregates.gapAnalysis')).toEqual(progress)
+    const topics = await query(router, 'aggregates.weakestTopics', {}) as { segmentId: string; label: string; confidence: number | null; confused: boolean }[]
+    expect(topics.map((t) => t.segmentId)).toEqual(['seg-bio4-08', 'seg-bio4-04', 'seg-bio4-10', 'seg-bio2-07', 'seg-bio3-07', 'seg-chem1-04'])
+    expect(topics[1]).toMatchObject({ label: 'Maternal inheritance', confidence: 25, confused: true })
+    expect(topics[3]).toMatchObject({ confidence: 40, confused: false })
+  })
+
   it('tags, confidence and annotations filter by their lecture course', async () => {
     const tags = await query(router, 'tags.list', { courseTag: 'chemistry' }) as { target_id: string }[]
     expect(tags.map((t) => t.target_id).sort()).toEqual(['rec-chem-1', 'seg-chem1-04', 'seg-chem1-09'])
@@ -283,6 +292,25 @@ describe('simulator parity - plan items behave like the server router', () => {
     const rows = await query(router, 'planItems.list', { from: '2026-10-19T00:00:00.000Z', to: '2026-11-02T00:00:00.000Z', courseTag: 'biology' }) as { starts_at: string }[]
     expect(rows.map((r) => r.starts_at)).toEqual(['2026-10-19T09:00:00.000Z', '2026-10-26T10:00:00.000Z'])
     expect(await query(router, 'planItems.list', { courseTag: 'chemistry' })).toEqual([])
+  })
+
+  it('previews and accepts a re-fit of a missed block, as the server does', async () => {
+    const hour = 60 * 60_000
+    const now = Date.now()
+    const missed = await call('planItems.create', {
+      kind: 'task', title: 'Read chapter 5', duration_min: 30,
+      starts_at: new Date(now - 26 * hour).toISOString(), ends_at: new Date(now - 25.5 * hour).toISOString(),
+    })
+    await call('planItems.create', { kind: 'commitment', title: 'Shift', starts_at: new Date(now - 3 * hour).toISOString(), ends_at: new Date(now - 2 * hour).toISOString() })
+
+    const preview = await call('planItems.refitPreview', { timeZone: 'Europe/London' }) as unknown as { item: { id: string }; starts_at: string; ends_at: string }[]
+    expect(preview.map((p) => p.item.id)).toEqual([missed.id])
+    const block = { id: missed.id, starts_at: preview[0].starts_at, ends_at: preview[0].ends_at }
+    expect(Date.parse(block.starts_at)).toBeGreaterThanOrEqual(now)
+
+    expect(await call('planItems.refit', { timeZone: 'Europe/London', blocks: [block] })).toEqual({ moved: 1 })
+    expect(await call('planItems.refitPreview', { timeZone: 'Europe/London' })).toEqual([])
+    await expect(call('planItems.refit', { timeZone: 'Europe/London', blocks: [block] })).rejects.toThrow(/already moved/)
   })
 
   it('updates, completes, dismisses and deletes, keeping course in tags', async () => {

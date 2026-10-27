@@ -14,6 +14,8 @@ import {
   freeSlots,
   minutesByDay,
   place,
+  refit,
+  startOfLocalDay,
   subtract,
   suggestSlots,
   totalMinutes,
@@ -23,8 +25,9 @@ import {
   type Interval,
   type Placement,
   type Unplaced,
+  type UnplacedReason,
 } from '@pls/scheduler'
-import type { PlanItem } from './types'
+import type { PlanItem, PlanItemOccurrence } from './types'
 import { REVIEW_SUBTYPE } from './workflows/review-automation'
 
 const MINUTE_MS = 60_000
@@ -56,7 +59,37 @@ export const ESTIMATE_OPTIONS = [30, 60, 120] as const
 // The week's shape: free time and what is already busy
 // ---------------------------------------------------------------------------
 
-type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at'>
+type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype'>
+
+/**
+ * The calendar's fixed time, from the items of a range (`listPlanItems` with
+ * `from`/`to`, so weekly classes are expanded): every commitment of every
+ * course, plus every other time block (open or done to-dos, accepted study
+ * time), which is busy but is not a commitment. Items in `moving` are the
+ * ones being placed, so their current blocks don't count. Reviews are padded
+ * by the study-day buffer (so two never run back to back) unless
+ * `padReviews` is false, for callers that keep a gap with the scheduler's
+ * `gapMin` instead.
+ */
+export function busyTime(
+  items: ReadonlyArray<Row>,
+  moving: ReadonlySet<string>,
+  opts: { padReviews?: boolean } = {},
+): { commitments: Interval[]; busy: ExistingPlacement[] } {
+  const padReviews = opts.padReviews ?? true
+  const commitments: Interval[] = []
+  const busy: ExistingPlacement[] = []
+  for (const item of items) {
+    if (!item.starts_at || !item.ends_at || moving.has(item.id)) continue
+    if (item.status === 'dismissed') continue
+    const block = { start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) }
+    if (item.kind === 'commitment') commitments.push(block)
+    else if (item.kind === 'task') {
+      busy.push({ ...(padReviews && item.subtype === REVIEW_SUBTYPE ? padded(block) : block), taskId: item.id })
+    }
+  }
+  return { commitments, busy }
+}
 
 export interface WeekLayout {
   week: Interval
@@ -80,20 +113,15 @@ export function weekLayout(
   week: Interval,
   opts: { timeZone: string; studyMinPerDay?: number; except?: ReadonlySet<string> },
 ): WeekLayout {
-  const commitments: Interval[] = []
-  const busy: ExistingPlacement[] = []
-  for (const row of rows) {
-    if (!row.starts_at || !row.ends_at || row.status === 'dismissed' || opts.except?.has(row.id)) continue
-    const block = { start: Date.parse(row.starts_at), end: Date.parse(row.ends_at) }
-    if (row.kind === 'commitment') commitments.push(block)
-    else if (row.kind === 'task') busy.push({ ...block, taskId: row.id })
-  }
+  // Unpadded: drafts keep their gap with `gapMin`, and the budget counts real minutes.
+  const { commitments, busy } = busyTime(rows, opts.except ?? new Set(), { padReviews: false })
   const free = freeSlots(commitments, week, { timeZone: opts.timeZone, ...STUDY_DAY })
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
   return { week, timeZone: opts.timeZone, free, busy, budget }
 }
 
-export function padded(block: Interval, minutes: number): Interval {
+/** A block with `minutes` (default: the study-day buffer) either side. */
+export function padded(block: Interval, minutes: number = STUDY_DAY.bufferMin): Interval {
   const pad = minutes * MINUTE_MS
   return { start: block.start - pad, end: block.end + pad }
 }
@@ -343,7 +371,9 @@ export function completeTrims(
     const tooLong = task.durationMin > perDay
     if (!tooLong && (!opts.overCapacity || capacityTrims === MAX_CAPACITY_TRIMS)) continue
     if (!tooLong) capacityTrims++
-    out.push({ taskId: task.id, durationMin, reason: clip(trim.reason, MAX_REASON_CHARS) })
+    // A too-long to-do's reason names the budget in force now, in code's words.
+    const reason = tooLong ? overBudgetTrim(task, perDay).reason : clip(trim.reason, MAX_REASON_CHARS)
+    out.push({ taskId: task.id, durationMin, reason })
   }
   for (const task of tasks) {
     if (task.durationMin > perDay && !out.some((t) => t.taskId === task.id)) out.push(overBudgetTrim(task, perDay))
@@ -472,4 +502,104 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 export function draftCopy(placedMin: number, unplacedMin: number): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
   return unplacedMin > 0 ? `${drafted} ${formatMinutes(unplacedMin)} didn't fit.` : `${drafted} Everything fits.`
+}
+
+// ---------------------------------------------------------------------------
+// Re-fit: study blocks whose time passed without being done
+// ---------------------------------------------------------------------------
+
+/**
+ * A block that didn't happen: an open, one-off to-do whose time block has
+ * ended. Never a commitment (those are never moved), never a recurring item,
+ * never one ticked off or dismissed.
+ */
+export function isMissedBlock(item: PlanItem, now: number): boolean {
+  return item.kind === 'task'
+    && item.status === 'open'
+    && item.recurrence == null
+    && item.starts_at != null
+    && item.ends_at != null
+    && Date.parse(item.ends_at) <= now
+}
+
+/** Re-fit looks this far ahead for free time (further if a to-do is due later). */
+export const REFIT_LOOKAHEAD_DAYS = 7
+
+/** Where re-fit may put the missed blocks: the user's local today to the look-ahead (or the latest due date). */
+export function refitRange(missed: ReadonlyArray<PlanItem>, opts: { now: number; timeZone: string }): Interval {
+  const start = startOfLocalDay(opts.now, opts.timeZone)
+  let end = startOfLocalDay(opts.now, opts.timeZone, REFIT_LOOKAHEAD_DAYS + 1)
+  for (const item of missed) {
+    const due = latestFor(item, opts.now)
+    if (due !== undefined && due > end) end = due
+  }
+  return { start, end }
+}
+
+export interface RefitProposal {
+  item: PlanItem
+  /** The new block, or null when it doesn't fit (see `reason`). */
+  starts_at: string | null
+  ends_at: string | null
+  reason: UnplacedReason | null
+}
+
+/**
+ * New times for the missed blocks, oldest first, earliest free fit from now,
+ * around every commitment and every other block in `items` (the range from
+ * `refitRange`, expanded). A to-do still due later must fit before it is due;
+ * one whose due date has passed just goes in the next free time. Read-only.
+ */
+export function planRefit(
+  missed: ReadonlyArray<PlanItem>,
+  items: ReadonlyArray<PlanItemOccurrence>,
+  opts: { now: number; timeZone: string },
+): RefitProposal[] {
+  if (missed.length === 0) return []
+  const range = refitRange(missed, opts)
+  const { commitments, busy } = busyTime(items, new Set(missed.map((m) => m.id)))
+  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
+  const result = refit(
+    missed.map((item) => ({
+      taskId: item.id,
+      start: Date.parse(item.starts_at!),
+      end: Date.parse(item.ends_at!),
+      durationMin: item.duration_min ?? undefined,
+      latest: latestFor(item, opts.now),
+    })),
+    free,
+    { now: opts.now, existingPlacements: busy },
+  )
+  const placed = new Map(result.placements.map((p) => [p.taskId, p]))
+  const unplaced = new Map(result.unplaced.map((u) => [u.taskId, u.reason]))
+  return [...missed]
+    .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
+    .map((item) => {
+      const p = placed.get(item.id)
+      return p
+        ? { item, starts_at: new Date(p.start).toISOString(), ends_at: new Date(p.end).toISOString(), reason: null }
+        : { item, starts_at: null, ends_at: null, reason: unplaced.get(item.id) ?? 'no-free-slot' }
+    })
+}
+
+/** The to-do's due time if it is still ahead; a passed due date no longer limits where it goes. */
+function latestFor(item: PlanItem, now: number): number | undefined {
+  if (!item.due_at) return undefined
+  const due = Date.parse(item.due_at)
+  return due > now ? due : undefined
+}
+
+/**
+ * Why an accepted re-fit block can't be written as proposed (the week changed
+ * since the preview), or null if it still fits: it starts in the past, or
+ * overlaps a commitment or another block (including another accepted one).
+ */
+export function refitConflict(
+  block: Interval,
+  others: ReadonlyArray<Interval>,
+  now: number,
+): 'started' | 'overlaps' | null {
+  if (block.start < now) return 'started'
+  if (others.some((o) => o.start < block.end && block.start < o.end)) return 'overlaps'
+  return null
 }

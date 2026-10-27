@@ -17,17 +17,18 @@ test('renders course overview with percentages', async ({ mount, page, simulator
 
   await expect(page.getByText('biology')).toBeVisible()
   await expect(page.getByText('chemistry')).toBeVisible()
-  await expect(page.getByText('This Week')).toBeVisible()
+  await expect(page.getByText('You feel sure about 7 of 54 moments so far')).toBeVisible()
 })
 
-test('shows gap count', async ({ mount, page, simulator }) => {
+test('shows how many moments to review', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
       <WeeklyOverviewLens {...defaultProps} />
     </TestProviders>,
   )
 
-  await expect(page.getByText(/gaps? to review/)).toBeVisible()
+  await expect(page.getByText('6 moments to review')).toBeVisible()
+  await expect(page.locator('[data-course="biology"]').getByText('5 to review')).toBeVisible()
 })
 
 test('a course-filtered board shows only that course and says what it leaves out', async ({ mount, page, simulator }) => {

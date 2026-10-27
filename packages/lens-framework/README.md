@@ -27,9 +27,9 @@ import { LensRegistryProvider, getLensComponent } from "@pls/lens-framework";
 
 const manifest: PanelManifest = {
   id: "weekly-overview",
-  label: "This Week",
+  label: "Your Progress",
   icon: CalendarIcon,
-  description: "Progress by course",
+  description: "How sure you feel, course by course",
   scope: { courseTag: "filter", recordingId: "ignore" },
   reads: ["weekly_overview"],
   load: () => import("@pls/lens-weekly-overview"),

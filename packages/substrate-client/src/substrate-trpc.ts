@@ -87,6 +87,11 @@ export const substrateTrpc: SubstrateWriter = {
     return adapt(trpc.planItems.list.useQuery(query))
   },
 
+  useRefitPreview(timeZone: string) {
+    // Blocks become "missed" as time passes, not only when data changes.
+    return adapt(trpc.planItems.refitPreview.useQuery({ timeZone }, { refetchInterval: 60_000 }))
+  },
+
   useCreateTag() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.tags.create.useMutation({
@@ -137,6 +142,16 @@ export const substrateTrpc: SubstrateWriter = {
   useAutofillPlan() {
     // Advice only: nothing is written, so nothing to invalidate.
     return adaptMutation(trpc.planning.autofill.useMutation())
+  },
+
+  useAcceptRefit() {
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.planItems.refit.useMutation({
+      // On a conflict too: the preview is stale either way.
+      onSettled: () => {
+        utils.planItems.invalidate()
+      },
+    }))
   },
 }
 

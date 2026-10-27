@@ -1,14 +1,6 @@
 import type { JSONValue, TransactionSql } from 'postgres'
-import { freeSlots, place, startOfLocalDay, type ExistingPlacement, type Interval } from '@pls/scheduler'
-import {
-  REVIEW_SUBTYPE,
-  REVIEW_TASK_JOB,
-  STUDY_BLOCK_GAP_MIN,
-  STUDY_DAY,
-  padded as paddedBy,
-  type PlanItem,
-  type ReviewTaskParams,
-} from '@pls/substrate'
+import { freeSlots, place, startOfLocalDay, type Interval } from '@pls/scheduler'
+import { REVIEW_SUBTYPE, REVIEW_TASK_JOB, STUDY_DAY, busyTime, padded, type PlanItem, type ReviewTaskParams } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
 
@@ -70,18 +62,8 @@ export async function findReviewSlots(
     to: new Date(range.end).toISOString(),
     statuses: ['open', 'done'],
   })
-  const commitments: Interval[] = []
-  const busy: ExistingPlacement[] = []
   // The reviews being placed can all move: their current blocks are not busy.
-  const moving = new Set(reviews.map((r) => r.id))
-  for (const item of items) {
-    if (!item.starts_at || !item.ends_at || moving.has(item.id)) continue
-    const block = { start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) }
-    if (item.kind === 'commitment') commitments.push(block)
-    // Reviews keep a gap between them so two never run back to back.
-    else if (item.kind === 'task') busy.push({ ...(item.subtype === REVIEW_SUBTYPE ? padded(block) : block), taskId: item.id })
-  }
-
+  const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)))
   const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
   // One at a time, in priority order, so each placed review pads the next.
   for (const r of reviews) {
@@ -99,10 +81,6 @@ export async function findReviewSlots(
     }
   }
   return slots
-}
-
-function padded(block: Interval): Interval {
-  return paddedBy(block, STUDY_BLOCK_GAP_MIN)
 }
 
 /** The fields a placement result writes on the review. */

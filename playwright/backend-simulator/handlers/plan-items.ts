@@ -13,11 +13,18 @@ import {
   planTasks,
   sanitizeAdvice,
   weekLayout,
+  busyTime,
+  isMissedBlock,
+  planRefit,
+  refitAcceptInput,
+  refitConflict,
+  refitPreviewInput,
+  refitRange,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
-import type { ProcedureRouter } from '../trpc-protocol'
+import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
 
 /**
@@ -132,5 +139,44 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const cap = planCapacity(weekLayout(rows, week, { timeZone: q.timeZone, studyMinPerDay: q.studyMinPerDay }), tasks, now)
     const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: q.studyMinPerDay, weakTopics: [], timeZone: q.timeZone })
     return sanitizeAdvice(raw, tasks, cap, q.studyMinPerDay)
+  })
+
+  // Re-fit, as apps/server/src/planning/refit.ts: same rules (@pls/substrate
+  // planning), in-memory data.
+  const missedNow = (now: number) => db.planItems.map(withCourse).filter((p) => isMissedBlock(p, now))
+  const rangeItems = (missed: PlanItem[], opts: { now: number; timeZone: string }) => {
+    const range = refitRange(missed, opts)
+    const query: PlanItemQuery = { from: new Date(range.start).toISOString(), to: new Date(range.end).toISOString(), statuses: ['open', 'done'] }
+    return expandPlanItems(db.planItems.map(withCourse).filter((p) => matchesPlanItemFilters(p, query)), query)
+  }
+
+  router.register('planItems.refitPreview', (input) => {
+    const { timeZone } = parse(refitPreviewInput, input)
+    const opts = { now: Date.now(), timeZone }
+    const missed = missedNow(opts.now)
+    return missed.length ? planRefit(missed, rangeItems(missed, opts), opts) : []
+  })
+
+  router.register('planItems.refit', (input) => {
+    const { timeZone, blocks } = parse(refitAcceptInput, input)
+    const now = Date.now()
+    const missed = new Map(missedNow(now).map((p) => [p.id, p]))
+    const accepted = blocks.map((b) => {
+      if (!missed.has(b.id)) throw new SimulatorError('CONFLICT', 'A block was already moved, done or removed.')
+      return { id: b.id, start: Date.parse(b.starts_at), end: Date.parse(b.ends_at) }
+    })
+    const { commitments, busy } = busyTime(rangeItems([...missed.values()], { now, timeZone }), new Set(accepted.map((a) => a.id)))
+    const taken = [...commitments, ...busy]
+    for (const a of accepted) {
+      if (refitConflict(a, taken, now)) throw new SimulatorError('CONFLICT', 'Your week changed since this re-fit was suggested.')
+      taken.push(a)
+    }
+    for (const a of accepted) {
+      const row = find(a.id)
+      row.starts_at = new Date(a.start).toISOString()
+      row.ends_at = new Date(a.end).toISOString()
+      row.updated_at = new Date().toISOString()
+    }
+    return { moved: accepted.length }
   })
 }

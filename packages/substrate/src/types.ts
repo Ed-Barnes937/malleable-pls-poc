@@ -205,26 +205,37 @@ export interface PlanItemUpdate {
   patch: PlanItemPatch
 }
 
-export interface CourseOverview {
+/**
+ * How a course is going, over every lecture moment in it (all time). Moment
+ * statuses follow `momentStatus` (./moments.ts), so Your progress, All
+ * courses and Weak topics always agree.
+ */
+export interface CourseProgress {
   course: string
-  totalSegments: number
-  confidentSegments: number
-  gapCount: number
+  totalMoments: number
+  /** Moments the student feels solid on. */
+  solidMoments: number
+  /** Moments to look at again; Weak topics lists exactly these. */
+  reviewMoments: number
+  /** solidMoments / totalMoments, rounded percent. */
   percentage: number
 }
 
-export interface CourseGap {
-  course: string
-  percentage: number
-  weakAreaCount: number
-}
-
+/** A lecture moment that needs another look (status `review`), weakest first. */
 export interface WeakTopic {
   rank: number
-  conceptLabel: string
+  segmentId: string
+  recordingId: string
+  recordingTitle: string
+  /** Where the moment starts in the lecture. */
+  offsetMs: number
+  /** Short readable topic, e.g. "Maternal inheritance". */
+  label: string
   course: string
-  week: string
-  avgConfidence: number
+  /** Latest "how sure you feel" rating (0-100), or null if never rated. */
+  confidence: number | null
+  /** Marked confusing (and not felt sure about since). */
+  confused: boolean
 }
 
 export interface ConnectionResult {

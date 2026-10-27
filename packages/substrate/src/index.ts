@@ -13,6 +13,7 @@ export {
   REVIEW_TRIGGER_LABELS,
   REVIEW_WINDOW_OPTIONS,
   reviewTaskParamsInput,
+  timeZoneInput,
   reviewWindowLabel,
   type ReviewTaskParams,
 } from './workflows'
@@ -57,6 +58,18 @@ export {
 
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
+export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
+export {
+  busyTime,
+  isMissedBlock,
+  REFIT_LOOKAHEAD_DAYS,
+  refitRange,
+  planRefit,
+  refitConflict,
+  type RefitProposal,
+} from './planning'
+export { refitPreviewInput, refitAcceptInput, type RefitPreview, type RefitAccept, type RefitResult } from './refit-schemas'
+export { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
 
 export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
 export {
@@ -83,8 +96,7 @@ export type {
   WorkspacePanel,
   WorkspaceScope,
   Scope,
-  CourseOverview,
-  CourseGap,
+  CourseProgress,
   WeakTopic,
   ConnectionResult,
   NewTag,
