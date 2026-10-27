@@ -5,7 +5,12 @@ export interface Recording {
   duration: number
   audio_url: string | null
   status: string
+  /** By-id reads only: what the lecture's AI jobs are still doing, if anything. */
+  processing?: LectureProcessing | null
 }
+
+/** A lecture's AI work in progress: its transcript, then its summary. */
+export type LectureProcessing = 'transcribing' | 'summarising'
 
 export interface TranscriptSegment {
   id: string

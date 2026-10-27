@@ -99,6 +99,59 @@ test.describe('Building a board', () => {
     }
   })
 
+  test('a widget added to a full board goes below the others, in view, covering nothing', async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.expectActiveWorkspace('My week')
+
+    // Calendar, To-do and Coming up fill the 1440x900 board; Transcript doesn't fit beside them.
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    for (const [i, label] of ['Calendar', 'To-do', 'Coming up', 'Transcript'].entries()) {
+      await sidebar.addWidget(label)
+      await grid.expectPanelCount(i + 1)
+    }
+    await page.keyboard.press('Escape')
+
+    const transcript = grid.panelByLabel('Transcript')
+    // The board scrolled down to show it whole.
+    await expect(transcript).toBeInViewport({ ratio: 1 })
+    const boxes = await panelBoxes(page)
+    for (let i = 0; i < boxes.length; i++) {
+      for (let j = i + 1; j < boxes.length; j++) expect(overlaps(boxes[i], boxes[j]), `widgets ${i} and ${j} overlap`).toBe(false)
+    }
+    const calendarBox = await grid.panelByLabel('Calendar').boundingBox()
+    expect((await transcript.boundingBox())!.y).toBeGreaterThanOrEqual(calendarBox!.y + calendarBox!.height)
+
+    // Nothing covers the calendar: its controls still take clicks.
+    await grid.panelByLabel('Calendar').getByRole('button', { name: 'Help me plan' }).click({ trial: true })
+
+    // Fullscreen shows the widget from the top of the board, and leaving it
+    // puts the board back where it was scrolled to.
+    // (The trial click above scrolled the Calendar back into view.)
+    const scrollTop = () => grid.root.evaluate((el) => el.scrollTop)
+    await page.waitForTimeout(500) // let any smooth scroll finish
+    await grid.root.evaluate((el) => { el.scrollTop = 150 })
+    await expect.poll(scrollTop).toBe(150)
+    const before = 150
+    await transcript.getByRole('button', { name: 'Fullscreen Transcript' }).click()
+    await expect.poll(scrollTop).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(scrollTop).toBe(before)
+
+    // ] / [ cycle the selection and scroll the selected widget into view.
+    await grid.root.evaluate((el) => { el.scrollTop = 0 })
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+    await expect(transcript).not.toBeInViewport({ ratio: 1 })
+    await page.keyboard.press('[') // nothing selected: the last widget, Transcript
+    await expect(transcript).toBeInViewport({ ratio: 1 })
+    await page.keyboard.press(']') // wraps to the first, Calendar
+    await expect(grid.panelByLabel('Calendar')).toBeInViewport({ ratio: 0.9 })
+  })
+
   test('removing a widget frees its spot for the next one', async ({ page }) => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -194,6 +247,12 @@ test.describe('Building a board', () => {
     const chipBox = await chip.boundingBox()
     expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(400)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400)
+    // The stacked column scrolls with the wheel to reach the last widget.
+    const allCourses = grid.panelByLabel('All Courses')
+    await expect(allCourses).not.toBeInViewport({ ratio: 0.5 })
+    await page.mouse.move(200, 400)
+    for (let i = 0; i < 10; i++) await page.mouse.wheel(0, 400)
+    await expect(allCourses).toBeInViewport({ ratio: 1 })
 
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(grid.root).toHaveAttribute('data-layout', 'free')

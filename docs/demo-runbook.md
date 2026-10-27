@@ -30,15 +30,15 @@ What the reseed gives you: weekly Biology lectures (Mon, Wed 10-12), Chemistry (
 - Board menu > Showing > Course: **Biology**, then Escape. Chip "Showing: Biology"; the calendar says "Biology highlighted" (Chemistry dimmed, shifts kept); Coming up shows the quiz and "+1 in other courses".
 
 **4. Lecture**
-- Board menu: click **Audio Capture** and **Transcript**, Escape. On a full board they land over the calendar: **straight away drag the Transcript into the right-hand column** (under To-do / Coming up) so the calendar's evenings stay visible.
-- In Audio Capture, click the **upload arrow next to the mic**, pick the demo wav, title it **"Mitochondrial DNA - today"** (distinct from the seeded "Biology Lecture: Mitochondrial DNA"), course is pre-set to Biology, **Upload**. Transcript and a 3-line summary appear in a few seconds.
-- Remove Audio Capture (its x).
+- Board menu: click **Audio Capture** and **Transcript**, Escape. On a full board they land below the other widgets (nothing is covered) and the board scrolls down to show them. **Upload first, then arrange**: dragging the Transcript about before uploading can hide Audio Capture's upload arrow.
+- In Audio Capture, click the **upload arrow next to the mic**, pick the demo wav, title it **"Mitochondrial DNA - today"** (distinct from the seeded "Biology Lecture: Mitochondrial DNA"), course is pre-set to Biology, **Upload**. The Transcript says "Transcribing your lecture...", then "Writing your summary...", and the transcript and a 3-line summary appear in a few seconds.
+- Remove Audio Capture (its x). If you like, drag the Transcript into the right-hand column (under To-do / Coming up) so the calendar and transcript are both in view; otherwise scroll the board between them.
 - In the Transcript, click the moment starting "Now, here is the part people find tricky, so let me try to explain maternal inheritance" (1:18 in mock mode), then **confused**. Chip: "Review planned ... · 20 min"; To-do gets "Review: maternal inheritance", "from: Mitochondrial DNA - today, 1:18".
 - The review lands as late as possible within 3 days, around everything accepted: marked on a Tuesday that is **Friday 21:30-21:50**, at the bottom of the grid (with the re-fit banner showing, scroll the calendar down to see the evening). Click it: the popover says "Showing this moment in the Transcript." and the transcript jumps there. Press Escape.
 
 **5. Malleability**
 - Transcript widget's automations button (lightning): "When I mark something confusing, add a 20-min review within 3 days". Change **20** to **30** and **within 3 days** to **by tomorrow**: "Saved. Moved 1 review to fit." Close the dialog: the block moves to tomorrow evening (on a Tuesday, **Wednesday 21:30-22:00**), chip "· 30 min".
-- Add a widget with a click: board menu > **Weakest Topics**; drag it off the calendar (e.g. over Coming up). Remove any widget with its x.
+- Add a widget with a click: board menu > **Weakest Topics**; it lands in free space (below the others on a full board) and the board scrolls to it. Remove any widget with its x.
 
 **6. Encores**
 - Weakest Topics lists readable topics: Maternal inheritance (today's lecture, "Confusing"), Mitochondrial disease, Maternal inheritance (the seeded lecture), Paternal inheritance, ... Click one: the Transcript jumps to that moment (seeded ones show "Reviewed · 20 min").
@@ -58,5 +58,4 @@ What the reseed gives you: weekly Biology lectures (Mon, Wed 10-12), Chemistry (
 - **Live Whisper splits moments differently** from mock: in mock the maternal-inheritance moment is one 40s segment (1:18-1:59); live it may be two or three shorter ones. Tap the one with "explain maternal inheritance"; the review title comes from the live LLM.
 - Weakest Topics shows two "Maternal inheritance" rows (the seeded lecture and today's); the distinct upload title tells them apart.
 - After the automation edit, a block popover left open still shows the old times until reopened: close popovers (Escape) first.
-- The review chip's time follows the browser's locale ("21:30" or "9:30 PM").
 - Keep Test Me off the demo board (its answer field is cut off); the seeded Evening Review and Exam Prep boards have it, so stay on "My week".

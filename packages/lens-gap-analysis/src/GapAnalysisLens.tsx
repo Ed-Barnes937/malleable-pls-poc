@@ -54,7 +54,7 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
                 </div>
                 <span className={cn(
                   'flex w-28 shrink-0 items-center gap-1 text-[11px]',
-                  toReview ? 'text-amber-200/70' : 'text-neutral-500'
+                  toReview ? 'text-attention' : 'text-neutral-500'
                 )}>
                   {toReview && <CircleHelp className="h-3 w-3" />}
                   {toReview ? `${course.reviewMoments} to review` : 'Nothing to review'}

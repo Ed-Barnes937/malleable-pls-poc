@@ -21,6 +21,7 @@ import {
   WorkspaceBackground,
   useCanvasStore,
   findFreeSpot,
+  scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -174,6 +175,19 @@ export function WorkspaceShell() {
   useEffect(dropPendingOnCanvas, [panels, dropPendingOnCanvas])
 
   /**
+   * Scrolls the board so a just-added panel is in view, once it reaches the
+   * canvas (a full board places new widgets below the fold).
+   */
+  const revealPanel = useCallback((panelId: string) => {
+    let frames = 0
+    const tryReveal = () => {
+      // The panel list refetches after the save; give it a couple of seconds.
+      if (!scrollPanelIntoView(canvasRef.current, panelId) && ++frames < 120) requestAnimationFrame(tryReveal)
+    }
+    requestAnimationFrame(tryReveal)
+  }, [])
+
+  /**
    * Adds a widget at its default size. Without a position (a palette click)
    * it goes in the first free area of the visible board.
    */
@@ -219,6 +233,7 @@ export function WorkspaceShell() {
             // Stays taken until the canvas shows the saved panel (it may already).
             add.panelId = (row as { id?: string } | undefined)?.id
             dropPendingOnCanvas()
+            if (add.panelId && !at) revealPanel(add.panelId)
             // One toast for a run of adds, not a stack of them.
             pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
           },
@@ -229,7 +244,7 @@ export function WorkspaceShell() {
         },
       )
     },
-    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas],
+    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel],
   )
 
   const handleDrop = useCallback(
@@ -245,12 +260,14 @@ export function WorkspaceShell() {
       // Anchor the panel's top-left at the cursor, then clamp within the canvas
       // so it stays fully visible. (Centering on the cursor caused drops near
       // the top/left edge to collapse to 0,0 once the negative result was clamped.)
-      const rect = e.currentTarget.getBoundingClientRect()
+      // The canvas scrolls down once widgets sit below the fold: drop in content coordinates.
+      const el = e.currentTarget
+      const rect = el.getBoundingClientRect()
       const maxX = Math.max(0, rect.width - width)
-      const maxY = Math.max(0, rect.height - height)
+      const maxY = Math.max(0, Math.max(rect.height, el.scrollHeight) - height)
       addWidget(lensType, {
         x: Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX),
-        y: Math.min(Math.max(0, Math.round(e.clientY - rect.top)), maxY),
+        y: Math.min(Math.max(0, Math.round(e.clientY - rect.top + el.scrollTop)), maxY),
       })
     },
     [addWidget, manifests],
@@ -355,7 +372,7 @@ export function WorkspaceShell() {
           <CanvasSkeleton />
         ) : (
           <div
-            className="relative flex-1 transition-opacity duration-150"
+            className="relative min-h-0 flex-1 transition-opacity duration-150"
             style={{ opacity: transitioning ? 0 : 1 }}
           >
             <WorkspaceBackground />

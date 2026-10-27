@@ -131,10 +131,33 @@ describe('findFreeSpot', () => {
     expect(spot.y + size.height).toBeLessThanOrEqual(canvas.height)
   })
 
-  it('picks the least-covering spot inside the canvas when nothing is free', () => {
+  it('goes below the existing panels, never over them, when the canvas is full', () => {
     // A wide panel fills the top; the bottom strip is too short to clear it.
     const spot = findFreeSpot([at(0, 0, 1200, 700)], size, big)
-    expect(spot).toEqual({ x: 20, y: 580 })
+    expect(spot).toEqual({ x: 20, y: 720 })
+  })
+
+  it('fills a gap that runs past the bottom of the canvas before starting a new row', () => {
+    // A tall widget on the right leaves free room under the left one, but only
+    // by spilling below the 900px canvas (the T12 Calendar + Transcript case).
+    const panels = [at(20, 20, 880, 640), at(940, 20, 360, 800)]
+    const transcript = { width: 420, height: 380 }
+    const spot = findFreeSpot(panels, transcript, { width: 1440, height: 844 })
+    expect(spot).toEqual({ x: 20, y: 680 })
+    expect(panels.some((p) => intersects(p, { x: spot.x, y: spot.y, ...transcript }))).toBe(false)
+  })
+
+  it('never overlaps on a crowded board, whatever the sizes', () => {
+    const canvas = { width: 1000, height: 600 }
+    const panels: ReturnType<typeof at>[] = []
+    for (let i = 0; i < 12; i++) {
+      const box = { width: 200 + ((i * 137) % 400), height: 150 + ((i * 89) % 300) }
+      const spot = findFreeSpot(panels, box, canvas)
+      const placed = { ...spot, ...box }
+      expect(panels.some((p) => intersects(p, placed))).toBe(false)
+      expect(spot.x + box.width).toBeLessThanOrEqual(canvas.width)
+      panels.push(placed)
+    }
   })
 
   it('pins to 0,0 when the panel is bigger than the canvas', () => {

@@ -71,9 +71,61 @@ test('shows the lecture summary at the top and the review a confused moment beca
   ])
   const chip = page.getByTestId('review-chip')
   await expect(chip).toHaveCount(1)
-  await expect(chip).toContainText('Review planned')
-  await expect(chip).toContainText('20 min')
+  // 24-hour en-GB times, like every other widget.
+  await expect(chip).toHaveText('Review planned Wed 22 Apr 19:40 · 20 min')
   await expect(chip).toHaveAttribute('title', 'Review: maternal inheritance')
+})
+
+function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed', recordingId: string) {
+  return {
+    id, workflow_id: 'wf-test', workflow_job_id: 'wfj-test', job_type: jobType, status,
+    input: JSON.stringify({ recording_id: recordingId }), output: null, error: null, depth: 0,
+    created_at: '2026-04-16T10:00:00Z', started_at: null, completed_at: null,
+  }
+}
+
+const newLecture = {
+  id: 'rec-new', title: 'Just uploaded', created_at: '2026-04-16T10:00:00Z',
+  duration: 60000, audio_url: '/uploads/rec-new.wav', status: 'uploaded',
+}
+
+test('says the lecture is being transcribed instead of showing an empty transcript', async ({ mount, page, simulator }) => {
+  simulator.db.recordings.push(newLecture)
+  simulator.db.jobRuns.push(jobRun('jr-t', 'ai:transcribe', 'running', 'rec-new'))
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Just uploaded')).toBeVisible()
+  await expect(page.getByTestId('transcribing')).toHaveText('Transcribing your lecture...')
+  await expect(page.getByText(/segments/)).toHaveCount(0)
+
+  // Once the job is done, the next refresh drops the note.
+  simulator.db.jobRuns.find((j) => j.id === 'jr-t')!.status = 'completed'
+  await expect(page.getByTestId('transcribing')).toHaveCount(0, { timeout: 10000 })
+  await expect(page.getByText('0 segments')).toBeVisible()
+})
+
+test('says the summary is being written above the transcript', async ({ mount, page, simulator }) => {
+  simulator.db.recordings.push(newLecture)
+  simulator.db.transcriptSegments.push({
+    id: 'seg-new-1', recording_id: 'rec-new', start_ms: 0, end_ms: 5000, text: 'Today: mitochondria.', speaker: null,
+  })
+  simulator.db.jobRuns.push(jobRun('jr-t', 'ai:transcribe', 'completed', 'rec-new'))
+  simulator.db.jobRuns.push(jobRun('jr-s', 'ai:summarize-lecture', 'pending', 'rec-new'))
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+    </TestProviders>,
+  )
+
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await expect(summary.getByTestId('summarising')).toHaveText('Writing your summary...')
+  await expect(page.getByText('Today: mitochondria.')).toBeVisible()
+  await expect(page.getByText('1 segments')).toBeVisible()
+  await expect(page.getByTestId('transcribing')).toHaveCount(0)
 })
 
 test('shows empty state when no recording selected', async ({ mount, page, simulator }) => {

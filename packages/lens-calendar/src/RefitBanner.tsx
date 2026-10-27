@@ -208,7 +208,7 @@ export function RefitBanner({
       className="flex shrink-0 flex-col gap-1.5 rounded-xl bg-amber-200/[0.06] px-3 py-1.5 ring-1 ring-amber-200/15"
     >
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <RotateCcw className="h-3.5 w-3.5 shrink-0 text-amber-200/70" aria-hidden />
+        <RotateCcw className="h-3.5 w-3.5 shrink-0 text-attention" aria-hidden />
         <p className="min-w-0 flex-1 text-[11px] text-text-primary">
           {missedQuestion(asked)}{' '}
           {previewing

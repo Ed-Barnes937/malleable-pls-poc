@@ -25,6 +25,17 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('recordings.byId', (input) => {
     const id = input as string
-    return db.recordings.find((r) => r.id === id) ?? null
+    const recording = db.recordings.find((r) => r.id === id)
+    if (!recording) return null
+    // Mirrors the server: what the lecture's AI jobs are still doing.
+    const busy = db.jobRuns.filter((j) => {
+      if (j.status !== 'pending' && j.status !== 'running') return false
+      const input = j.input ? (JSON.parse(j.input) as { recording_id?: string; target_id?: string }) : {}
+      return (input.recording_id ?? input.target_id) === id
+    })
+    const processing = busy.some((j) => j.job_type === 'ai:transcribe')
+      ? 'transcribing'
+      : busy.some((j) => j.job_type === 'ai:summarize-lecture') ? 'summarising' : null
+    return { ...recording, processing }
   })
 }

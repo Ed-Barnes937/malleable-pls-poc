@@ -219,7 +219,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(port, '0.0.0.0')
-startJobRunner(executors)
+void startJobRunner(executors)
 console.log(`tRPC server listening on :${port}`)
 
 export type { AppRouter } from './router'

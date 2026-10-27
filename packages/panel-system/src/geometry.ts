@@ -57,8 +57,9 @@ export const PLACEMENT_GAP = 20
  * Top-left for a new panel of `size`: the first spot, scanning rows top to
  * bottom and left to right, where it fits inside the canvas without touching
  * any existing panel (keeping `PLACEMENT_GAP` around it). When the canvas has
- * no such spot, the spot inside the canvas that covers the least of the
- * existing panels, so a full board still gets a usable placement.
+ * no such spot, the scan carries on below it, so a full board grows downward
+ * (the canvas scrolls) and the new panel never covers another one: at the
+ * latest, a row of its own under the lowest panel.
  */
 export function findFreeSpot(
   panels: Rect[],
@@ -67,26 +68,22 @@ export function findFreeSpot(
   step = PLACEMENT_GAP,
 ): { x: number; y: number } {
   const g = PLACEMENT_GAP
-  const overlapArea = (x: number, y: number, gap: number) =>
-    panels.reduce((sum, p) => {
-      const w = Math.min(x + size.width + gap, p.x + p.width) - Math.max(x - gap, p.x)
-      const h = Math.min(y + size.height + gap, p.y + p.height) - Math.max(y - gap, p.y)
-      return w > 0 && h > 0 ? sum + w * h : sum
-    }, 0)
+  const touches = (x: number, y: number) =>
+    panels.some((p) =>
+      Math.min(x + size.width + g, p.x + p.width) > Math.max(x - g, p.x)
+      && Math.min(y + size.height + g, p.y + p.height) > Math.max(y - g, p.y))
 
-  let best = { x: 0, y: 0 }
-  let bestArea = Infinity
-  for (const y of positions(canvas.height - size.height, g, step)) {
-    for (const x of positions(canvas.width - size.width, g, step)) {
-      if (overlapArea(x, y, g) === 0) return { x, y }
-      const area = overlapArea(x, y, 0)
-      if (area < bestArea) {
-        best = { x, y }
-        bestArea = area
-      }
+  const bottom = Math.max(0, ...panels.map((p) => p.y + p.height))
+  const height = panels.length > 0 ? Math.max(canvas.height, bottom + 2 * g + size.height) : canvas.height
+  const xs = positions(canvas.width - size.width, g, step)
+  for (const y of positions(height - size.height, g, step)) {
+    for (const x of xs) {
+      if (!touches(x, y)) return { x, y }
     }
   }
-  return best
+  // The scan steps past the exact row under the lowest panel; that row is always free.
+  if (panels.length > 0) return { x: xs[0]!, y: bottom + g }
+  return { x: xs[0]!, y: positions(canvas.height - size.height, g, step)[0]! }
 }
 
 /** Candidate offsets along one axis with `room` to spare, keeping `gap` from both edges where it fits. */

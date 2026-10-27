@@ -68,9 +68,42 @@ async function processJobs(executors: ExecutorRegistry): Promise<void> {
   }
 }
 
+/** Error recorded on runs a server restart cut off. */
+export const INTERRUPTED_ERROR = 'Interrupted: the server restarted while this was running'
+
+/**
+ * Marks every run still 'running' as failed. Called once at start-up, before
+ * this server claims anything: a run is only ever 'running' inside a live
+ * server's runner (one server per database), so these were cut off by a
+ * restart and would otherwise show as in progress forever. Retries are
+ * counted as used up, so the student gets the retry button instead of an
+ * automatic re-run (which could bill an AI provider twice).
+ */
+export async function failInterruptedJobs(executors: ExecutorRegistry): Promise<number> {
+  const rows = await sql<{ id: string; job_type: string }[]>`
+    SELECT id, job_type FROM job_runs WHERE status = 'running'
+  `
+  for (const row of rows) {
+    await sql`
+      UPDATE job_runs
+      SET status = 'failed', error = ${INTERRUPTED_ERROR}, completed_at = now(),
+          retry_count = GREATEST(retry_count, ${retryLimitFor(executors, row.job_type)})
+      WHERE id = ${row.id} AND status = 'running'
+    `
+  }
+  return rows.length
+}
+
 let intervalHandle: ReturnType<typeof setInterval> | null = null
 
-export function startJobRunner(executors: ExecutorRegistry) {
+export async function startJobRunner(executors: ExecutorRegistry) {
+  if (intervalHandle) return
+  try {
+    const interrupted = await failInterruptedJobs(executors)
+    if (interrupted > 0) console.log(`marked ${interrupted} interrupted job run(s) failed`)
+  } catch (err) {
+    console.error('could not clear interrupted job runs:', err)
+  }
   if (intervalHandle) return
   console.log(`job runner started (polling every ${POLL_INTERVAL_MS}ms)`)
   intervalHandle = setInterval(() => {

@@ -84,7 +84,7 @@ describe('simulator parity — read procedures return data on default seed', () 
 
   it('recordings.byId', async () => {
     const data = await query(router, 'recordings.byId', 'rec-bio-1')
-    expect(data).toMatchObject({ id: 'rec-bio-1' })
+    expect(data).toMatchObject({ id: 'rec-bio-1', processing: null })
   })
 
   it('transcripts.byRecording', async () => {

@@ -1,11 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
-import { CalendarCheck, CalendarClock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { cn, dayAndTime, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
+import { AudioLines, CalendarCheck, CalendarClock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { segmentAtOffset } from './moments'
-
-const REVIEW_TIME = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
 
 /** What happened to the review a marked moment turned into, in a few words. */
 function ReviewChip({ review }: { review: PlanItemOccurrence }) {
@@ -15,7 +13,7 @@ function ReviewChip({ review }: { review: PlanItemOccurrence }) {
   const when = done
     ? 'Reviewed'
     : review.starts_at
-      ? `Review planned ${REVIEW_TIME.format(new Date(review.starts_at))}`
+      ? `Review planned ${dayAndTime(review.starts_at)}`
       : 'Review on your to-do list'
   return (
     <span
@@ -29,6 +27,16 @@ function ReviewChip({ review }: { review: PlanItemOccurrence }) {
       <Icon className="h-2.5 w-2.5" />
       {[when, minutes].filter(Boolean).join(' · ')}
     </span>
+  )
+}
+
+/** A calm note that the lecture's AI work is still under way. */
+function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; message: string; testId: string }) {
+  return (
+    <p role="status" data-testid={testId} className="flex items-center gap-1.5 text-[12px] text-neutral-400">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-accent motion-safe:animate-pulse" />
+      {message}
+    </p>
   )
 }
 
@@ -119,6 +127,10 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
+  // Until the transcript lands there is nothing to show but that it's coming.
+  const transcribing = recording?.processing === 'transcribing' && !segments?.length
+  const summarising = recording?.processing === 'summarising'
+
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
@@ -150,10 +162,24 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         <span className="truncate text-[11px] font-medium text-neutral-400">
           {recording?.title ?? 'Loading...'}
         </span>
-        <span className="ml-auto shrink-0 font-mono text-[10px] text-neutral-600">
-          {segments?.length ?? 0} segments
-        </span>
+        {recording && segments && !transcribing && (
+          <span className="ml-auto shrink-0 font-mono text-[10px] text-neutral-600">
+            {segments.length} segments
+          </span>
+        )}
       </div>
+
+      {transcribing && (
+        <div className="flex flex-1 items-center justify-center">
+          <InProgress icon={AudioLines} message="Transcribing your lecture..." testId="transcribing" />
+        </div>
+      )}
+
+      {summarising && summaryLines.length === 0 && (
+        <section aria-label="Lecture summary" className="rounded-lg border border-accent/15 bg-accent/5 px-3 py-2">
+          <InProgress icon={Sparkles} message="Writing your summary..." testId="summarising" />
+        </section>
+      )}
 
       {summaryLines.length > 0 && (
         <section
@@ -172,7 +198,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         </section>
       )}
 
-      <div ref={listRef} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
+      <div ref={listRef} hidden={transcribing} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)

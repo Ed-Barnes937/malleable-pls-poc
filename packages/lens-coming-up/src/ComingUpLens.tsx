@@ -52,7 +52,7 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
               <h3
                 className={cn(
                   'text-[10px] font-medium uppercase tracking-widest',
-                  group.past ? 'text-amber-200/60' : 'text-neutral-500',
+                  group.past ? 'text-attention-soft' : 'text-neutral-500',
                 )}
               >
                 {group.heading}
