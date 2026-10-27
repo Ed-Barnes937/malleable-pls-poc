@@ -40,7 +40,15 @@ function seedWeek(simulator: BackendSimulator) {
 
 /** Viewport point for a day column and time on the grid. */
 async function point(page: Page, dayIndex: number, hours: number) {
-  const grid = await page.getByTestId('calendar-grid').boundingBox()
+  // The grid settles after mount (data, the due row and the hour sizing can
+  // each move it): measure only once it has held still, or a drag lands off.
+  let grid = await page.getByTestId('calendar-grid').boundingBox()
+  await expect.poll(async () => {
+    const before = grid
+    await page.waitForTimeout(100)
+    grid = await page.getByTestId('calendar-grid').boundingBox()
+    return JSON.stringify(before) === JSON.stringify(grid)
+  }).toBe(true)
   const day = await page.getByTestId('calendar-day').nth(dayIndex).boundingBox()
   return { x: day!.x + day!.width / 2, y: grid!.y + (hours / 24) * grid!.height }
 }
