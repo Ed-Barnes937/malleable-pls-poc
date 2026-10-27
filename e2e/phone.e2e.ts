@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
-import { trpcMutation } from './api'
+import { trpcMutation, trpcQuery } from './api'
 
 /**
  * On a phone (400px wide): the Calendar opens on today in Day view and steps
@@ -68,7 +68,7 @@ test.describe('Phone', () => {
     await expect(calendar.days).toHaveCount(7)
   })
 
-  test('a ticked to-do says Done · Undo in place, Undo reopens it, and left alone it moves to Done today', async ({ page }) => {
+  test('a ticked to-do says Done · Undo in place, Undo reopens it, and left alone it moves to Done today', async ({ page, request }) => {
     const todo = new PanelGridPom(page).panelByLabel('To-do')
     const title = 'Make flashcards: cell structure'
     const row = todo.getByTestId('todo-item').filter({ hasText: title })
@@ -79,10 +79,15 @@ test.describe('Phone', () => {
     await expect(row.getByText('Done', { exact: true })).toBeVisible()
     await expect(todo.getByText('Done today')).toHaveCount(0)
 
-    // Undo: open again, and it stays open after a reload.
+    // Undo: open again at once. The reopen saves after the tick has, so
+    // wait for it before reloading (a reload would cancel it).
+    const reopened = page.waitForResponse((r) => r.url().includes('planItems.update'))
     await row.getByRole('button', { name: `Undo: ${title}` }).click()
     await expect(row.getByRole('checkbox', { name: `Done: ${title}` })).toHaveAttribute('aria-checked', 'false')
     await expect(row).not.toHaveAttribute('data-just-done')
+    await reopened
+    const saved = await trpcQuery<{ title: string; status: string }[]>(request, 'planItems.list', { kinds: ['task'] })
+    expect(saved.find((item) => item.title === title)?.status).toBe('open')
     await page.reload()
     await new TopBarPom(page).switchToWorkspace('My week')
     await expect(row.getByRole('checkbox', { name: `Done: ${title}` })).toHaveAttribute('aria-checked', 'false', { timeout: 10000 })

@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
@@ -6,6 +6,7 @@ import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
 import { useJustDone } from './useJustDone'
+import { useStatusWrites } from './useStatusWrites'
 
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
@@ -27,27 +28,31 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   // A ticked to-do stays where it was for a moment, struck through, with
   // "Done · Undo", then fades and moves down to "Done today".
   const justDone = useJustDone()
-  /** The save of each just-ticked to-do, so Undo reopens it only after it landed. */
-  const completing = useRef(new Map<string, Promise<unknown>>())
+  // Ticks and Undos on one to-do save in order, and show at once.
+  const status = useStatusWrites(
+    items,
+    (id, next) => (next === 'done' ? complete.mutateAsync(id) : update.mutateAsync({ id, patch: { status: 'open' } })),
+    justDone.remove,
+  )
   const tick = (id: string) => {
     justDone.add(id)
-    const saved = complete.mutateAsync(id).catch(() => justDone.remove(id))
-    completing.current.set(id, saved)
-    void saved.finally(() => {
-      if (completing.current.get(id) === saved) completing.current.delete(id)
-    })
+    status.setStatus(id, 'done')
   }
-  const undo = (id: string) => {
+  const reopen = (id: string) => {
     justDone.remove(id)
-    void (completing.current.get(id) ?? Promise.resolve()).then(() =>
-      update.mutate({ id, patch: { status: 'open' } }))
+    status.setStatus(id, 'open')
   }
 
   const now = Date.now()
-  const open = orderTodos((items ?? []).filter((item) => item.status === 'open' && !justDone.stages.has(item.id)))
+  // Rows as the student last left them, while their saves are on the way.
+  const shown = (items ?? []).map((item) => {
+    const s = status.statusOf(item)
+    return s === item.status ? item : { ...item, status: s }
+  })
+  const open = orderTodos(shown.filter((item) => item.status === 'open' && !justDone.stages.has(item.id)))
   // Open and just-ticked to-dos in one list, so a ticked one keeps its place.
-  const listed = orderTodos((items ?? []).filter((item) => item.status === 'open' || justDone.stages.has(item.id)))
-  const done = doneToday((items ?? []).filter((item) => !justDone.stages.has(item.id)), now)
+  const listed = orderTodos(shown.filter((item) => item.status === 'open' || justDone.stages.has(item.id)))
+  const done = doneToday(shown.filter((item) => !justDone.stages.has(item.id)), now)
 
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
@@ -100,8 +105,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               now={now}
               showCourse={!course}
               highlighted={!stage && isFromRecording(item, highlight?.recordingId)}
-              justDone={stage && { fading: stage === 'fading', onUndo: () => undo(item.id) }}
-              onToggle={() => (stage ? undo(item.id) : tick(item.id))}
+              justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
+              onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
               onScopeChange={onScopeChange}
               onShowMoment={onShowMoment}
@@ -118,7 +123,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
             now={now}
             showCourse={!course}
             highlighted={false}
-            onToggle={() => update.mutate({ id: item.id, patch: { status: 'open' } })}
+            onToggle={() => reopen(item.id)}
             onScopeChange={onScopeChange}
             onShowMoment={onShowMoment}
           />
