@@ -70,6 +70,7 @@ export function formatHour(hour: number): string {
 
 const dayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short' })
 const longDayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+const fullDayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })
 const monthFormat = new Intl.DateTimeFormat('en-GB', { month: 'short' })
 
 /** "Mon". */
@@ -80,6 +81,11 @@ export function formatWeekday(d: Date): string {
 /** "Tue 27 Oct". */
 export function formatLongDay(d: Date): string {
   return longDayFormat.format(d).replace(',', '')
+}
+
+/** "Tuesday 27 Oct": the day heading in the phone's Day view. */
+export function formatFullDay(d: Date): string {
+  return fullDayFormat.format(d).replace(',', '')
 }
 
 /**

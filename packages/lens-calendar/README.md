@@ -4,7 +4,7 @@ Calendar widget: a view over plan items (classes and other commitments, study ti
 
 ## Features
 
-- **Week view** (Mon-Sun) and **Day view**, with previous / today / next. The hours grid is sized so 08:00-22:00 fits the panel and opens scrolled there; earlier and later hours scroll.
+- **Week view** (Mon-Sun) and **Day view**, with previous / today / next. The hours grid is sized so 08:00-22:00 fits the panel and opens scrolled there; earlier and later hours scroll. On a phone (below 640px) it opens in Day view with the day between previous and next buttons; a view picked there is not saved, so the wide screen keeps its own.
 - **Commitments** (classes, shifts) are fixed, fuller blocks; **study time** (scheduled tasks) is lighter with a dashed outline; **deadlines** (`kind = 'deadline'` only) sit in a "Due" row and as a marker line at their time (a due time of local 00:00 means "due that day": no time, no marker). A to-do's own due date shows in its popover, the To-do widget and Help me plan, not as a marker. Course colours per block; overlapping blocks sit side by side.
 - **Create** with the header "Add" button (keyboard friendly), or by clicking (one hour at the half hour) or dragging (15-minute snap) on empty time: title, kind (class / commitment, study time, due), course (defaults to the board's course), "Repeats weekly" for commitments (stored with the browser's time zone so it keeps its wall-clock time across DST).
 - **Edit / delete / mark done** from a popover. Editing a weekly occurrence shifts the whole series by the same delta (`movePatch` in `src/drafts.ts`); turning "Repeats weekly" off keeps just that occurrence.

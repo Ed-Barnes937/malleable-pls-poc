@@ -164,6 +164,8 @@ const TEXT_PAIRS: [string, string][] = [
   ['surface-raised', 'confused'],
   ['good', 'surface-raised'],
   ['good', 'good-soft'],
+  // To-do's "Done · Undo": the Undo link sits on the good tint.
+  ['accent', 'good-soft'],
   ['inverse-foreground', 'inverse'],
   ['inverse-accent', 'inverse'],
   ['shift-ink', 'shift'],

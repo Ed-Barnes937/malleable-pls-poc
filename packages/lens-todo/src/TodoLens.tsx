@@ -1,10 +1,11 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
 import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
+import { useJustDone } from './useJustDone'
 
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
@@ -18,14 +19,35 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   // Unfiltered counterpart, only to say what the course filter leaves out.
   const { data: allOpen } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
 
-  const now = Date.now()
-  const open = orderTodos((items ?? []).filter((item) => item.status === 'open'))
-  const done = doneToday(items ?? [], now)
-
   const create = writer.useCreatePlanItem()
   const complete = writer.useCompletePlanItem()
   const dismiss = writer.useDismissPlanItem()
   const update = writer.useUpdatePlanItem()
+
+  // A ticked to-do stays where it was for a moment, struck through, with
+  // "Done · Undo", then fades and moves down to "Done today".
+  const justDone = useJustDone()
+  /** The save of each just-ticked to-do, so Undo reopens it only after it landed. */
+  const completing = useRef(new Map<string, Promise<unknown>>())
+  const tick = (id: string) => {
+    justDone.add(id)
+    const saved = complete.mutateAsync(id).catch(() => justDone.remove(id))
+    completing.current.set(id, saved)
+    void saved.finally(() => {
+      if (completing.current.get(id) === saved) completing.current.delete(id)
+    })
+  }
+  const undo = (id: string) => {
+    justDone.remove(id)
+    void (completing.current.get(id) ?? Promise.resolve()).then(() =>
+      update.mutate({ id, patch: { status: 'open' } }))
+  }
+
+  const now = Date.now()
+  const open = orderTodos((items ?? []).filter((item) => item.status === 'open' && !justDone.stages.has(item.id)))
+  // Open and just-ticked to-dos in one list, so a ticked one keeps its place.
+  const listed = orderTodos((items ?? []).filter((item) => item.status === 'open' || justDone.stages.has(item.id)))
+  const done = doneToday((items ?? []).filter((item) => !justDone.stages.has(item.id)), now)
 
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
@@ -69,19 +91,23 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
       <RefitBanner course={course} />
 
       <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
-        {open.map((item) => (
-          <TodoRow
-            key={item.occurrence_key}
-            item={item}
-            now={now}
-            showCourse={!course}
-            highlighted={isFromRecording(item, highlight?.recordingId)}
-            onToggle={() => complete.mutate(item.id)}
-            onDismiss={() => dismiss.mutate(item.id)}
-            onScopeChange={onScopeChange}
-            onShowMoment={onShowMoment}
-          />
-        ))}
+        {listed.map((item) => {
+          const stage = justDone.stages.get(item.id)
+          return (
+            <TodoRow
+              key={item.occurrence_key}
+              item={item}
+              now={now}
+              showCourse={!course}
+              highlighted={!stage && isFromRecording(item, highlight?.recordingId)}
+              justDone={stage && { fading: stage === 'fading', onUndo: () => undo(item.id) }}
+              onToggle={() => (stage ? undo(item.id) : tick(item.id))}
+              onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
+              onScopeChange={onScopeChange}
+              onShowMoment={onShowMoment}
+            />
+          )
+        })}
         {done.length > 0 && (
           <li className="pb-1 pt-4 text-meta font-semibold text-text-muted">Done today</li>
         )}
@@ -97,7 +123,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
             onShowMoment={onShowMoment}
           />
         ))}
-        {!isLoading && open.length === 0 && done.length === 0 && (
+        {!isLoading && listed.length === 0 && done.length === 0 && (
           <li className="flex flex-1 items-center justify-center text-body text-text-muted">
             Nothing to do yet. Add something below.
           </li>

@@ -3,6 +3,7 @@ import { TestProviders } from '../../../playwright/mount-wrapper'
 import { daysFromNow, seedPlanItem } from '../../../playwright/plan-items'
 import { MomentHarness } from '../../../playwright/moment-harness'
 import TodoLens from './TodoLens'
+import { JUST_DONE_FADE_MS, JUST_DONE_MS } from './useJustDone'
 
 const defaultProps = {
   panelId: 'test-panel',
@@ -78,8 +79,10 @@ test('an unscoped board shows every course with its pill', async ({ mount, page,
   await expect(page.getByTestId('hidden-elsewhere')).toHaveCount(0)
 })
 
-test('ticking a to-do moves it to Done today, and unticking brings it back', async ({ mount, page, simulator }) => {
-  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+test('a ticked to-do strikes through in place with Done · Undo, then fades to Done today', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards', duration_min: 60, course: 'biology', created_at: daysFromNow(-2, 9) })
+  seedPlanItem(simulator, { id: 'todo-2', kind: 'task', title: 'Lab notes', created_at: daysFromNow(-1, 9) })
+  await page.clock.install()
 
   await mount(
     <TestProviders>
@@ -88,13 +91,55 @@ test('ticking a to-do moves it to Done today, and unticking brings it back', asy
   )
 
   await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
-  await expect(page.getByText('Done today')).toBeVisible()
-  await expect(page.getByRole('checkbox', { name: 'Not done yet: Flashcards' })).toHaveAttribute('aria-checked', 'true')
-  expect(simulator.db.planItems[0].status).toBe('done')
+  // Saved straight away, but it stays where it was, struck through, for a moment.
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'todo-1')!.status).toBe('done')
+  const rows = page.getByTestId('todo-item')
+  await expect(rows.first()).toContainText('Flashcards')
+  await expect(rows.first()).toHaveAttribute('data-just-done', 'shown')
+  await expect(rows.first().getByText('Flashcards')).toHaveCSS('text-decoration-line', 'line-through')
+  await expect(rows.first().getByText('Done', { exact: true })).toBeVisible()
+  await expect(rows.first().getByRole('button', { name: 'Undo: Flashcards' })).toBeVisible()
+  await expect(rows.first().getByText('1h')).toBeVisible()
+  await expect(page.getByText('1 to do')).toBeVisible()
+  await expect(page.getByText('Done today')).toHaveCount(0)
 
+  // Then it fades and moves down to Done today, without the Undo chip.
+  await page.clock.runFor(JUST_DONE_MS)
+  await expect(rows.first()).toHaveAttribute('data-just-done', 'fading')
+  await page.clock.runFor(JUST_DONE_FADE_MS)
+  await expect(page.getByText('Done today')).toBeVisible()
+  await expect(rows.last()).toContainText('Flashcards')
+  await expect(page.getByRole('checkbox', { name: 'Not done yet: Flashcards' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('button', { name: 'Undo: Flashcards' })).toHaveCount(0)
+
+  // Unticking from Done today brings it back.
   await page.getByRole('checkbox', { name: 'Not done yet: Flashcards' }).click()
   await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toBeVisible()
   await expect(page.getByText('Done today')).toHaveCount(0)
+})
+
+test('Undo right after ticking reopens the to-do where it was', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+  await page.clock.install()
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await page.getByRole('button', { name: 'Undo: Flashcards' }).click()
+
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Flashcards' })
+  await expect(row).not.toHaveAttribute('data-just-done')
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('open')
+
+  // Nothing fades or moves later.
+  await page.clock.runFor(JUST_DONE_MS + JUST_DONE_FADE_MS)
+  await expect(page.getByText('Done today')).toHaveCount(0)
+  await expect(row).toBeVisible()
 })
 
 test('dismissing a to-do removes it without fuss', async ({ mount, page, simulator }) => {

@@ -1,7 +1,7 @@
 import type { LensProps } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, dayAndTime, dayLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
-import { CalendarClock, Check, Clock, Hourglass, X } from 'lucide-react'
+import { CalendarClock, Check, Clock, Hourglass, Undo2, X } from 'lucide-react'
 import { slippedAt } from './todo-items'
 import { SourceLink } from './SourceLink'
 
@@ -12,6 +12,8 @@ export interface TodoRowProps {
   showCourse: boolean
   /** Linked to the board's focused lecture. */
   highlighted: boolean
+  /** Ticked a moment ago: shown done in place, with "Done · Undo", until it fades. */
+  justDone?: { fading: boolean; onUndo: () => void }
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
@@ -19,17 +21,20 @@ export interface TodoRowProps {
   onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
-  const done = item.status === 'done'
+export function TodoRow({ item, now, showCourse, highlighted, justDone, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
+  // A just-ticked row is done straight away, before the save comes back.
+  const done = item.status === 'done' || !!justDone
   const slipped = done ? null : slippedAt(item, now)
 
   return (
     <li
       data-testid="todo-item"
       data-highlighted={highlighted || undefined}
+      data-just-done={justDone ? (justDone.fading ? 'fading' : 'shown') : undefined}
       className={cn(
-        'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-colors last:border-b-0 hover:bg-surface-inset',
+        'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-[background-color,opacity] duration-300 last:border-b-0 hover:bg-surface-inset motion-reduce:transition-none',
         highlighted && 'rounded-item bg-accent-soft ring-1 ring-accent-line',
+        justDone?.fading && 'opacity-0',
       )}
     >
       <button
@@ -53,9 +58,9 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
         <span className={cn('text-body font-semibold', done ? 'text-text-muted line-through' : 'text-text-primary')}>
           {item.title}
         </span>
-        {!done && (
+        {(!done || justDone) && (
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-meta text-text-muted">
-            {slipped ? (
+            {done ? null : slipped ? (
               <span className="flex items-center gap-1 text-attn">
                 <Hourglass className="h-3.5 w-3.5" />
                 {stillToDoLabel(slipped, now)}
@@ -85,7 +90,23 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
                 {item.course}
               </span>
             )}
-            <SourceLink item={item} onScopeChange={onScopeChange} onShowMoment={onShowMoment} />
+            {!justDone && <SourceLink item={item} onScopeChange={onScopeChange} onShowMoment={onShowMoment} />}
+            {justDone && (
+              <span className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-item bg-good-soft px-2.5 font-semibold text-good">
+                <Check className="h-3.5 w-3.5" aria-hidden />
+                <span>Done</span>
+                <span aria-hidden>·</span>
+                <button
+                  type="button"
+                  onClick={justDone.onUndo}
+                  aria-label={`Undo: ${item.title}`}
+                  className="inline-flex items-center gap-1 text-accent hover:underline"
+                >
+                  <Undo2 className="h-3.5 w-3.5" aria-hidden />
+                  Undo
+                </button>
+              </span>
+            )}
           </div>
         )}
       </div>
