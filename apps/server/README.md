@@ -46,7 +46,7 @@ Then call it through the injected client: `const { title } = await ai.llm.run(re
 - The schema must suit strict structured output: an object root, every field required (use `.nullable()`, not `.optional()`), and no `default`, length or format constraints. `defineLlmTask` throws at definition time otherwise, so a bad schema fails the first test that imports it instead of only failing live.
 - Live and fake replies both go through JSON parsing and `schema` validation.
 - In tests, `createFakeLlmClient()` records `.calls` (task, input, built prompt) for assertions.
-- Register it in `src/ai/tasks/index.ts` with a sample input (`llmTaskSample(task, (lecture) => input)`), so the live smoke test covers it. `src/ai/tasks/index.test.ts` fails until you do.
+- Register it in `src/ai/tasks/index.ts` with a sample input (`llmTaskSample(task, (lecture) => input)`), so the live smoke test covers it. `src/ai/tasks/index.test.ts` scans all of `src` for `defineLlmTask(` and fails until you do (or if the task is not exported).
 
 ## Demo lecture and the live smoke test
 

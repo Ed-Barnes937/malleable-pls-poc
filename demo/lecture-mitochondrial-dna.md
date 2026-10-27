@@ -8,7 +8,7 @@ Let's start with the mitochondrion itself. You will remember it as the powerhous
 
 What is less well known is that mitochondria carry their own genome. It is a small, circular molecule, about sixteen and a half thousand base pairs long.
 
-That tiny genome codes for thirty seven genes. Thirteen of them make proteins for the electron transport chain, and the rest make the transfer and ribosomal RNA the mitochondrion needs to build those proteins.
+That tiny genome codes for thirty seven genes. Thirteen of them make proteins for oxidative phosphorylation, and the rest make the transfer and ribosomal RNA the mitochondrion needs to build those proteins.
 
 Why would an organelle have its own DNA at all? The best explanation is the endosymbiotic theory. Around two billion years ago, an ancestral cell engulfed a free living bacterium, and instead of digesting it, the two came to depend on each other.
 

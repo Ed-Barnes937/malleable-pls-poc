@@ -19,9 +19,10 @@ export function llmTaskSample<I, O>(task: LlmTask<I, O>, sampleInput: (lecture: 
 }
 
 /**
- * Every LLM task in this folder, each with a sample input. The live smoke test
- * (scripts/demo/live-smoke.mts) runs each one once against the real provider;
- * ./index.test.ts fails if a task defined here is missing, so add new tasks
+ * Every LLM task the server defines, each with a sample input. The live smoke
+ * test (scripts/demo/live-smoke.mts) runs each one once against the real
+ * provider; ./index.test.ts fails if any `defineLlmTask` in apps/server/src is
+ * missing (or unexported), so add new tasks
  * with `llmTaskSample(task, (lecture) => input)`.
  */
 export const llmTaskSamples: LlmTaskSample[] = []
