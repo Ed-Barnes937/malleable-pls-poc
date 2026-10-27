@@ -348,9 +348,10 @@ export function defaultTrims(tasks: ReadonlyArray<PlanTask>, shortfallMin: numbe
 }
 
 /**
- * Makes a set of trims safe for this budget: rounded to 15 minutes and
- * clamped to fit in one day; dropped unless shorter than now and at least 15
- * minutes; and every to-do longer than a day's study time is guaranteed one
+ * Makes a set of trims safe for this budget: rounded to 15 minutes; a
+ * to-do longer than a day's study time is offered exactly that (whatever the
+ * advice said, which may predate a budget change); dropped unless shorter
+ * than now and at least 15 minutes; and every such to-do is guaranteed one
  * (so none is left with no way forward). Trims for to-dos that could fit as
  * they are only count when over capacity, at most two.
  */
@@ -366,9 +367,11 @@ export function completeTrims(
   for (const trim of trims) {
     const task = byId.get(trim.taskId)
     if (!task || out.some((t) => t.taskId === task.id)) continue
-    const durationMin = Math.min(Math.round(trim.durationMin / 15) * 15, perDay)
-    if (!(durationMin >= 15 && durationMin < task.durationMin)) continue
     const tooLong = task.durationMin > perDay
+    // A to-do longer than a day shrinks to a day's study time, at the budget
+    // in force now (so a new study time per day offers its own length).
+    const durationMin = tooLong ? perDay : Math.round(trim.durationMin / 15) * 15
+    if (!(durationMin >= 15 && durationMin < task.durationMin)) continue
     if (!tooLong && (!opts.overCapacity || capacityTrims === MAX_CAPACITY_TRIMS)) continue
     if (!tooLong) capacityTrims++
     // A too-long to-do's reason names the budget in force now, in code's words.

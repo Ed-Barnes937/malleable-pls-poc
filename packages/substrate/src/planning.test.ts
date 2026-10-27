@@ -212,6 +212,17 @@ describe('ranking and trims', () => {
     expect(longestBlockMin(100)).toBe(90)
   })
 
+  it('offers the new day length after the study time per day changes', () => {
+    // Advice from a 2h day ("Shrink to 2h?"), re-read at 3h a day: "Shrink to 3h?".
+    const lab = tasks.find((t) => t.id === 'lab')!
+    expect(lab.durationMin).toBeGreaterThan(180)
+    const offers = completeTrims([{ taskId: 'lab', durationMin: 120, reason: '' }], tasks, { overCapacity: false, minutesPerDay: 180 })
+    expect(offers.find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 180, reason: expect.stringContaining('3h a day') })
+    // A capacity trim (a to-do that fits a day) keeps the advice's length.
+    expect(completeTrims([{ taskId: 'lab', durationMin: 120, reason: 'r' }], tasks, { overCapacity: true, minutesPerDay: 600 })
+      .find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 120 })
+  })
+
   it('drops sentences with amounts of time from the note (code says the numbers)', () => {
     expect(noteWithoutAmounts('Quiz prep goes first. About 4h 30m will not fit! Problem sheet 3 can wait.'))
       .toBe('Quiz prep goes first. Problem sheet 3 can wait.')

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, atMinutes, formatDuration, formatRangeTitle, formatSpan, fromInputs,
+  addDays, atMinutes, firstFreeStart, formatDuration, formatRangeTitle, formatSpan, fromInputs,
   snap, snapDown, startOfWeek, toDateInput, toTimeInput, wallMinutes,
 } from './time'
 
@@ -50,5 +50,18 @@ describe('formatting', () => {
     expect(fromInputs(toDateInput(d), toTimeInput(d))).toEqual(d)
     expect(fromInputs('', '10:00')).toBeNull()
     expect(fromInputs('2026-10-27', '')).toBeNull()
+  })
+
+  it('starts "Pick a time" at the first free gap long enough for the to-do', () => {
+    const h = 3_600_000
+    // A 20-minute gap (off the 15-minute grid), then a 2h one.
+    const free = [{ start: 10 * h + 5 * 60_000, end: 10 * h + 25 * 60_000 }, { start: 14 * h, end: 16 * h }]
+    expect(firstFreeStart(free, 60)).toBe(14 * h)
+    // Fits the first gap once aligned to 10:15.
+    expect(firstFreeStart(free, 10)).toBe(10 * h + 15 * 60_000)
+    // Too long for any gap: the first free moment of 15 minutes or more.
+    expect(firstFreeStart(free, 180)).toBe(14 * h)
+    expect(firstFreeStart([{ start: 9 * h, end: 9 * h + 30 * 60_000 }, ...free], 180)).toBe(9 * h)
+    expect(firstFreeStart([], 30)).toBeNull()
   })
 })

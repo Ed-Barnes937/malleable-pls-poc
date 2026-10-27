@@ -127,4 +127,48 @@ describe('proposals', () => {
     expect(result.current.notice).toContain('Didn\'t save "Overlapping": that time overlaps "Quiz prep".')
     expect(result.current.notice).toContain('Didn\'t save "Shifted": that time overlaps Cafe shift.')
   })
+
+  it('arrow-key nudges hop past a commitment to the next free position, within the day', () => {
+    // Busy 09:00-10:00 on Monday.
+    const validate = (p: Proposal) =>
+      Date.parse(p.startsAt) < at(0, 10) && at(0, 9) < Date.parse(p.endsAt) ? 'that time overlaps Biology lecture' : null
+    const { result } = renderHook(() => useProposalLayer({ save: vi.fn(), rows: [], validate }))
+    const g: Proposal = { ...ghost, startsAt: iso(0, 8), endsAt: iso(0, 9) }
+    act(() => result.current.propose('refit', [g]))
+
+    act(() => result.current.nudge('g1', 15, 0))
+    expect(result.current.proposals[0]).toMatchObject({ startsAt: iso(0, 10), endsAt: iso(0, 11), adjusted: true })
+    expect(result.current.notice).toBeNull()
+    act(() => result.current.nudge('g1', -15, 0))
+    expect(result.current.proposals[0]).toMatchObject({ startsAt: iso(0, 8), endsAt: iso(0, 9) })
+    // Nothing free before 08:00 in its day... until midnight: it moves there; past it, it stays put.
+    act(() => result.current.move('g1', iso(0, 0), iso(0, 1)))
+    act(() => result.current.nudge('g1', -15, 0))
+    expect(result.current.proposals[0]).toMatchObject({ startsAt: iso(0, 0) })
+    // A day at a time.
+    act(() => result.current.nudge('g1', 0, 1))
+    expect(result.current.proposals[0]).toMatchObject({ startsAt: iso(1, 0) })
+  })
+
+  it('writes a source with saveTogether in one call, all or nothing', async () => {
+    const save = vi.fn(async () => {})
+    let fail = true
+    const together = vi.fn(async () => {
+      if (fail) throw new Error('conflict')
+    })
+    const { result } = renderHook(() => useProposalLayer({ save, saveTogether: { refit: together }, rows: [] }))
+    const g2: Proposal = { ...ghost, id: 'g2', taskId: 't2', title: 'Lab write-up', startsAt: iso(1, 8), endsAt: iso(1, 9) }
+    act(() => result.current.propose('refit', [ghost, g2]))
+
+    await act(() => result.current.acceptAll())
+    expect(together).toHaveBeenCalledWith([ghost, g2])
+    expect(result.current.savedIds.size).toBe(0)
+    expect(result.current.error).toMatch(/"Quiz prep", "Lab write-up"/)
+
+    fail = false
+    await act(() => result.current.accept('g2'))
+    expect(together).toHaveBeenLastCalledWith([g2])
+    expect([...result.current.savedIds]).toEqual(['g2'])
+    expect(save).not.toHaveBeenCalled()
+  })
 })
