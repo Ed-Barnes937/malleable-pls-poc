@@ -76,9 +76,15 @@ function TodayLineText({ weekday, events, study }: { weekday: string; events: st
         : (shortRef.current?.offsetWidth ?? Infinity) <= room ? 'no-weekday' : 'none')
     }
     measure()
+    // The copies change size when the web font swaps in, the box when the bar does.
     const observer = new ResizeObserver(measure)
-    observer.observe(box)
-    return () => observer.disconnect()
+    for (const el of [box, fullRef.current, shortRef.current]) if (el) observer.observe(el)
+    let live = true
+    void document.fonts?.ready.then(() => { if (live) measure() })
+    return () => {
+      live = false
+      observer.disconnect()
+    }
   }, [key])
 
   return (

@@ -13,8 +13,8 @@ const TONE: Record<BoardStarter['id'], string> = {
 
 export interface BoardStartersProps {
   manifests: ReadonlyArray<PanelManifest>
-  /** Adds the starter's widgets to the board; `onFailed` runs if one of them couldn't be added. */
-  onStart: (widgets: PanelManifest[], onFailed: () => void) => void
+  /** Adds the starter's widgets to the board (which hides the starters until they fail or land). */
+  onStart: (widgets: PanelManifest[]) => void
   /** Opens the widget palette. */
   onAddWidgets: () => void
 }
@@ -25,7 +25,7 @@ export interface BoardStartersProps {
  * your own.
  */
 export function BoardStarters({ manifests, onStart, onAddWidgets }: BoardStartersProps) {
-  // One starter per board: the board stops being empty once its widgets save.
+  // One starter per click: no second add from a double click before the board re-renders.
   const [started, setStarted] = useState(false)
   const starters = BOARD_STARTERS
     .map((starter) => ({ starter, widgets: starterWidgets(starter, manifests) }))
@@ -50,7 +50,7 @@ export function BoardStarters({ manifests, onStart, onAddWidgets }: BoardStarter
                 disabled={started}
                 onClick={() => {
                   setStarted(true)
-                  onStart(widgets, () => setStarted(false))
+                  onStart(widgets)
                 }}
                 aria-label={`${starter.label}: add ${names}`}
                 className={cn(

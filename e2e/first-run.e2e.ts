@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom } from './pom'
+import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 
 type Box = { x: number; y: number; width: number; height: number }
@@ -86,6 +86,41 @@ test.describe('First run on an empty board', () => {
     await grid.emptyState.getByRole('button', { name: 'Add widgets' }).click()
     await expect(page.getByTestId('drawer-sidebar')).toBeInViewport()
   })
+
+  test('the starters step aside while a widget from the palette is still saving', async ({ page }) => {
+    const { topBar, grid } = await newBoard(page)
+    // A slow save: the board is still empty while it is on its way.
+    let release!: () => void
+    const held = new Promise<void>((r) => { release = r })
+    await page.route('**/workspaces.addPanel**', async (route) => { await held; await route.continue() })
+
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Calendar')
+    await page.keyboard.press('Escape')
+    // No starter to click, so no second Calendar.
+    await expect(grid.emptyState).toBeHidden()
+    await grid.expectPanelCount(0)
+
+    release()
+    await grid.expectPanelCount(1)
+    await grid.expectHasPanel('Calendar')
+    await expect(grid.emptyState).toBeHidden()
+  })
+
+  test('a starter that fails says so once and comes back', async ({ page }) => {
+    const { grid } = await newBoard(page)
+    await page.route('**/workspaces.addPanel**', (route) => route.fulfill({ status: 500, body: 'down' }))
+
+    await grid.starter('Capture a lecture').click()
+    const toasts = page.getByTestId('toast-host').getByRole('button', { name: 'Dismiss' })
+    await expect(page.getByTestId('toast-host')).toContainText("Couldn't add Audio Capture and Transcript. Try again.")
+    await expect(toasts).toHaveCount(1)
+    await grid.expectPanelCount(0)
+    // Try again: the starters are back and work once the server does.
+    await page.unroute('**/workspaces.addPanel**')
+    await grid.starter('Capture a lecture').click()
+    await grid.expectPanelCount(2)
+  })
 })
 
 test.describe('The today line', () => {
@@ -105,14 +140,13 @@ test.describe('The today line', () => {
     await expect(topBar.todayLine).toBeHidden()
   })
 
-  test('steps aside rather than cutting off when the board tabs fill the bar', async ({ page }) => {
+  test('drops the weekday, then steps aside, rather than cutting off when the bar is crowded', async ({ page }) => {
     await reseed({ now: TUESDAY })
     await page.clock.setFixedTime(TUESDAY)
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
     const topBar = new TopBarPom(page)
-    await expect(topBar.todayLine).toBeVisible()
-    await expect(topBar.todayLine).toContainText('Tuesday')
+    await expect(topBar.todayLine).toHaveAttribute('title', /^Tuesday · /)
 
     /** What the line shows now; it is never clipped. */
     const state = async (): Promise<'full' | 'no-weekday' | 'hidden'> => {
@@ -125,24 +159,35 @@ test.describe('The today line', () => {
       return text.includes('Tuesday') ? 'full' : 'no-weekday'
     }
 
-    // Each new board's tab takes room from the line: it drops the weekday, then steps aside.
-    const seen = [await state()]
-    for (const name of ['Biology revision', 'Chemistry lab week', 'Physics problem sets', 'Essay writing']) {
-      await topBar.openCreateWorkspaceDialog()
-      await new CreateWorkspaceDialogPom(page).createWorkspace(name)
-      await topBar.expectActiveWorkspace(name)
-      // Let the bar settle (ResizeObserver) before reading it.
-      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
-      seen.push(await state())
-    }
-    const order = ['full', 'no-weekday', 'hidden']
-    expect([...new Set(seen)]).toEqual(order)
-    expect(seen.map((s) => order.indexOf(s))).toEqual([...seen.map((s) => order.indexOf(s))].sort())
+    // Let the bar settle (ResizeObserver) before reading it.
+    const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
 
-    // Room again: it comes back whole.
-    await page.setViewportSize({ width: 1920, height: 900 })
-    await expect(topBar.todayLine).toContainText('Tuesday')
-    expect(await state()).toBe('full')
+    // Crowd the bar at the narrowest width the line shows at, with boards
+    // until it steps aside (however wide tabs and chip happen to be).
+    const narrowest = 1280
+    await page.setViewportSize({ width: narrowest, height: 900 })
+    await settle()
+    for (let i = 0; i < 8 && (await state()) !== 'hidden'; i++) {
+      await topBar.openCreateWorkspaceDialog()
+      await new CreateWorkspaceDialogPom(page).createWorkspace(`Extra board ${i + 1}`)
+      await topBar.expectActiveWorkspace(`Extra board ${i + 1}`)
+      await settle()
+    }
+    expect(await state()).toBe('hidden')
+
+    // Then give it room a little at a time (less than the weekday's width per
+    // step): it comes back without the weekday first, then whole, never cut off.
+    const seen: string[] = []
+    for (let width = narrowest; width <= 3200; width += 16) {
+      await page.setViewportSize({ width, height: 900 })
+      await settle()
+      seen.push(await state())
+      if (seen.at(-1) === 'full') break
+    }
+    const order = ['hidden', 'no-weekday', 'full']
+    expect([...new Set(seen)]).toEqual(order)
+    const ranks = seen.map((s) => order.indexOf(s))
+    expect(ranks).toEqual([...ranks].sort())
   })
 
   test('stays out of the way on a day with no class or shift', async ({ page }) => {
