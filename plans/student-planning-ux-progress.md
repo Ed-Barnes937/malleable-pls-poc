@@ -34,3 +34,6 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U4 merged into `feat/student-planning-ux` (7ae5fae, PR #81) after re-review PASS. "Go to moment" order: review-mode Transcript, then a board already showing the lecture, then tab order (middle tiebreaker added by the implementer; same result on seed data). Nits for later: rail marks overlap past ~11 tags, `aria-controls` dangling while collapsed, the no-timeout toast covers the bottom of the board on a phone (fold into U6b).
 - U3 told to adopt U4's toast API and summary toggle.
 - New flake ticket (Sonnet): scheduler `time.test.ts` timeouts and an unidentified `expected 4 to be 3` unit failure under load.
+- PR #84 (test flake fixes: scheduler time/property tests, DB test timeouts) merged into `feat/student-planning-ux` (e82fe9c) after reviewer PASS. `expected 4 to be 3` not reproduced; likely follow-on from DB test timeouts.
+- INCIDENT: the #84 reviewer ran `pnpm dev:migrate` with only `DATABASE_URL` set; the script builds its URL from `PG_DB` (default `malleable_pls`), so migrations 014 and 015 were applied to Ed's default DB at 22:35 UTC. Reported to Ed; no revert without his say. Footgun to fix: agents must set `PG_DB`, and `dev:migrate` should honour `DATABASE_URL` or refuse.
+- U6 re-review: fix confirmed; still needs U4 merge and stuck-status fix. Sent back.
