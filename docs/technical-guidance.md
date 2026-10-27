@@ -145,8 +145,8 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | This week | `filter` | `ignore` | all courses |
 | All courses (gap analysis) | `highlight` | `ignore` | all courses |
 | Weakest topics | `filter` | `ignore` | all |
-| Coming up (planned) | `filter` + "+N elsewhere"; overdue always shown | `highlight` | all, next 14 days |
-| To-do (planned) | `filter`; new to-dos inherit course | `highlight` | all open |
+| Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
+| To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
 | Calendar | `highlight` (dim other courses, never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
 
 ### Showing a Moment ("click a study block, land on the lecture moment")
