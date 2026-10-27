@@ -13,6 +13,7 @@ export default defineConfig({
       'packages/**/src/**/*.test.{ts,tsx}',
       'apps/**/src/**/*.test.{ts,tsx}',
       'playwright/**/*.test.{ts,tsx}',
+      'e2e/**/*.test.ts',
     ],
     css: false,
     // Only collected with `pnpm test:coverage`.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { dayLabel, daysFromToday, dueEnd, formatDuration, isAllDay, localDayKey, stillToDoLabel, dayAndTime } from './plan-dates'
+import { dayLabel, daysFromToday, dueEnd, formatDuration, isAllDay, localDayKey, stillToDoLabel, dayAndTime, dayMonthAndTime } from './plan-dates'
 
 // Monday 26 Oct 2026, midday local time. Built from local parts so the tests
 // hold in any time zone.
@@ -70,5 +70,12 @@ describe('all-day due dates', () => {
   it('passes at the end of an all-day date, or at a real due time', () => {
     expect(dueEnd(at(30, 0))).toBe(at(31, 0).getTime())
     expect(dueEnd(at(30, 17).toISOString())).toBe(at(30, 17).getTime())
+  })
+})
+
+describe('dayMonthAndTime', () => {
+  it('reads "27 Oct, 00:20" with a 24-hour clock', () => {
+    expect(dayMonthAndTime(at(27, 0, 20))).toBe('27 Oct, 00:20')
+    expect(dayMonthAndTime(at(5, 14, 5))).toBe('5 Oct, 14:05')
   })
 })
