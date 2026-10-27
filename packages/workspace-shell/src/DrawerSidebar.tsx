@@ -179,8 +179,13 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
       previousFocusRef.current = document.activeElement
       asideRef.current?.focus()
     } else if (previousFocusRef.current) {
+      // The opener may be gone (e.g. the empty-board button once a widget is
+      // added); fall back to the menu button so focus never drops to <body>.
       const el = previousFocusRef.current as HTMLElement
-      if (typeof el.focus === 'function') el.focus()
+      const target = el.isConnected
+        ? el
+        : document.querySelector<HTMLElement>('[data-testid="drawer-trigger"]')
+      target?.focus()
       previousFocusRef.current = null
     }
   }, [open])
@@ -233,12 +238,12 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         }}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border-subtle px-4 py-2.5">
-          <h2 className="text-sm font-semibold text-neutral-200">Your board</h2>
+          <h2 className="text-sm font-semibold text-neutral-200">Board menu</h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close menu"
-            title="Close menu"
+            aria-label="Close board menu"
+            title="Close board menu"
             className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
           >
             <X className="h-4 w-4" />

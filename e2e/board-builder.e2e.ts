@@ -89,12 +89,45 @@ test.describe('Building a board', () => {
     expect(await savedSize()).toEqual(before)
   })
 
+  test('Tab moves focus through the top bar and board menu on a board with widgets', async ({ page }) => {
+    const { topBar } = await buildBiologyBoard(page)
+
+    // Top bar: Tab moves between board tabs instead of cycling widgets.
+    const firstTab = topBar.root.getByRole('button', { name: 'Evening Review', exact: true })
+    await firstTab.focus()
+    await page.keyboard.press('Tab')
+    await expect(topBar.root.getByRole('button', { name: 'Exam Prep', exact: true })).toBeFocused()
+
+    // Board menu: Tab reaches its controls, including widget tiles.
+    await topBar.drawerTrigger.click()
+    const drawer = page.getByTestId('drawer-sidebar')
+    await expect(drawer).toBeInViewport()
+    await page.keyboard.press('Tab')
+    await expect(drawer.getByRole('button', { name: 'Close board menu' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(drawer.getByRole('button', { name: 'Add Audio Capture' })).toBeFocused()
+
+    // Escape closes it and focus returns to the menu button.
+    await page.keyboard.press('Escape')
+    await expect(topBar.drawerTrigger).toBeFocused()
+  })
+
   test('at phone width widgets stack and nothing scrolls sideways', async ({ page }) => {
     await buildBiologyBoard(page)
-    await page.setViewportSize({ width: 400, height: 800 })
-
     const grid = new PanelGridPom(page)
+    // Remember a node inside a widget: crossing the breakpoint must restyle,
+    // never remount (which would drop e.g. an in-progress recording).
+    const prompt = grid.panelByLabel('Transcript').getByText('Pick a lecture to see its transcript')
+    await expect(prompt).toBeVisible()
+    await prompt.evaluate((el) => {
+      (window as unknown as { __widgetNode: Element }).__widgetNode = el
+    })
+    const widgetNodeConnected = () =>
+      page.evaluate(() => (window as unknown as { __widgetNode: Element }).__widgetNode.isConnected)
+
+    await page.setViewportSize({ width: 400, height: 800 })
     await expect(grid.root).toHaveAttribute('data-layout', 'stack')
+    expect(await widgetNodeConnected()).toBe(true)
     for (const box of await panelBoxes(page)) {
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(400)
@@ -104,5 +137,9 @@ test.describe('Building a board', () => {
     const chipBox = await chip.boundingBox()
     expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(400)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400)
+
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(grid.root).toHaveAttribute('data-layout', 'free')
+    expect(await widgetNodeConnected()).toBe(true)
   })
 })

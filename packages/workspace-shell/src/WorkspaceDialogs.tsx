@@ -80,7 +80,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
             disabled={!name.trim() || createWorkspace.isPending}
             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-40"
           >
-                        {createWorkspace.isPending ? 'Creating...' : 'Create board'}
+            {createWorkspace.isPending ? 'Creating...' : 'Create board'}
           </button>
         </div>
       </form>
@@ -135,7 +135,7 @@ export function DeleteWorkspaceDialog({
           disabled={deleteWorkspace.isPending}
           className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-40"
         >
-                      {deleteWorkspace.isPending ? 'Deleting...' : 'Delete board'}
+          {deleteWorkspace.isPending ? 'Deleting...' : 'Delete board'}
         </button>
       </div>
     </Dialog>

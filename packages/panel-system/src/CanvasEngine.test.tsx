@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
@@ -504,11 +505,45 @@ describe('CanvasEngine', () => {
 
       const container = screen.getByTestId('canvas-container')
       expect(container).toHaveAttribute('data-layout', 'stack')
-      const ids = [...container.querySelectorAll('[data-panel-id]')].map((el) => el.getAttribute('data-panel-id'))
-      expect(ids).toEqual(['red', 'blue', 'green'])
+      const order = (id: string) => Number(screen.getByTestId(`panel-${id}`).dataset.stackOrder)
+      expect([order('red'), order('blue'), order('green')]).toEqual([0, 1, 2])
       expect(screen.getByTestId('panel-red').style.left).toBe('')
       expect(screen.queryByTestId('panel-fullscreen-red')).toBeNull()
       expect(useCanvasStore.getState().panels).toBe(before)
+    })
+
+    it('orders the stack by position (top to bottom, then left to right), not store order', () => {
+      setWidth(400)
+      const { addPanel } = useCanvasStore.getState()
+      addPanel({ id: 'low', pos_x: 0, pos_y: 500, width: 100, height: 100, z_index: 1 })
+      addPanel({ id: 'right', pos_x: 300, pos_y: 0, width: 100, height: 100, z_index: 2 })
+      addPanel({ id: 'left', pos_x: 0, pos_y: 0, width: 100, height: 100, z_index: 3 })
+      render(<CanvasEngine />)
+      const order = (id: string) => Number(screen.getByTestId(`panel-${id}`).dataset.stackOrder)
+      expect([order('left'), order('right'), order('low')]).toEqual([0, 1, 2])
+    })
+
+    it('never remounts a widget when the canvas crosses the breakpoint', () => {
+      function Counter() {
+        const [n, setN] = useState(0)
+        return <button type="button" onClick={() => setN((v) => v + 1)}>count {n}</button>
+      }
+      setWidth(1200)
+      seedPanels()
+      render(<CanvasEngine renderPanel={(id) => (id === 'red' ? <Counter /> : null)} />)
+      fireEvent.click(screen.getByRole('button', { name: 'count 0' }))
+      const node = screen.getByRole('button', { name: 'count 1' })
+
+      setWidth(400)
+      act(() => { window.dispatchEvent(new Event('resize')) })
+      expect(screen.getByTestId('canvas-container')).toHaveAttribute('data-layout', 'stack')
+      expect(screen.getByRole('button', { name: 'count 1' })).toBe(node)
+
+      setWidth(1200)
+      act(() => { window.dispatchEvent(new Event('resize')) })
+      expect(screen.getByTestId('canvas-container')).toHaveAttribute('data-layout', 'free')
+      expect(screen.getByRole('button', { name: 'count 1' })).toBe(node)
+      expect(node.isConnected).toBe(true)
     })
 
     it('keeps the free layout on a wide canvas', () => {

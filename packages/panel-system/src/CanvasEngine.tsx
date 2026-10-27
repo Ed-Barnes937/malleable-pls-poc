@@ -33,7 +33,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const shiftRef = useShiftKey()
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Activate keyboard shortcuts (Tab cycle, f fullscreen, Backspace remove, Escape)
+  // Activate keyboard shortcuts (] / [ cycle, f fullscreen, Backspace remove, Escape)
   useCanvasKeyboard({ onRemovePanel, canvasRef })
 
   const prevPanelsRef = useRef(panels)
@@ -51,6 +51,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   }, [panels, onLayoutChange])
 
   const narrow = useNarrowCanvas(canvasRef)
+  const stackOrder = new Map([...panels].sort(byPosition).map((p, i) => [p.id, i]))
 
   /** Clicking the canvas background clears the selection and exits focus mode */
   const handleCanvasPointerDown = useCallback(
@@ -77,28 +78,22 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
-      {narrow && [...panels].sort(byPosition).map((panel) => (
-        <StackedPanel
-          key={panel.id}
-          panel={panel}
-          onRemovePanel={onRemovePanel}
-          renderPanel={renderPanel}
-          getIcon={getIcon}
-          getLabel={getLabel}
-          renderHeaderActions={renderHeaderActions}
-        />
-      ))}
-      {!narrow && panels.map((panel) => (
+      {/* One element per panel in both layouts, in store order, so crossing the
+          breakpoint only restyles panels: widgets never remount (an
+          in-progress recording survives). Stacked reading order comes from CSS
+          `order`, not from re-sorting children. */}
+      {panels.map((panel) => (
         <DraggablePanel
           key={panel.id}
           panel={panel}
           shiftRef={shiftRef}
+          stackOrder={narrow ? stackOrder.get(panel.id) ?? 0 : undefined}
           // A fullscreen panel sits above every other, even ones sharing its z_index.
           zIndex={fullscreenPanelId === panel.id ? maxZIndex + 1 : panel.z_index}
           isFocused={panel.z_index === maxZIndex}
           isSelected={selectedPanelId === panel.id}
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
-          isFullscreen={fullscreenPanelId === panel.id}
+          isFullscreen={!narrow && fullscreenPanelId === panel.id}
           canvasRef={canvasRef}
           onRemovePanel={onRemovePanel}
           renderPanel={renderPanel}
@@ -123,7 +118,10 @@ function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
     if (!el) return
     const update = () => setNarrow(el.clientWidth > 0 && el.clientWidth < STACK_BREAKPOINT)
     update()
-    if (typeof ResizeObserver === 'undefined') return
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
     const observer = new ResizeObserver(update)
     observer.observe(el)
     return () => observer.disconnect()
@@ -134,48 +132,6 @@ function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
 /** Reading order for the stacked layout: top to bottom, then left to right. */
 function byPosition(a: PanelItem, b: PanelItem): number {
   return a.pos_y - b.pos_y || a.pos_x - b.pos_x
-}
-
-interface StackedPanelProps {
-  panel: PanelItem
-  onRemovePanel?: (panelId: string) => void
-  renderPanel?: (panelId: string) => ReactNode
-  getIcon?: (lensType: string) => ComponentType<{ className?: string }> | undefined
-  getLabel?: (lensType: string) => string | undefined
-  renderHeaderActions?: (panelId: string) => ReactNode
-}
-
-/**
- * A panel in the narrow (stacked) layout: full width, its saved height, no
- * drag, resize or fullscreen. Purely presentational: the saved free layout is
- * untouched, so widening the window restores it.
- */
-function StackedPanel({ panel, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: StackedPanelProps) {
-  const removePanel = useCanvasStore((s) => s.removePanel)
-  const icon = panel.lensType ? getIcon?.(panel.lensType) : undefined
-  const label = panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
-  return (
-    <div
-      data-testid={`panel-${panel.id}`}
-      data-panel-id={panel.id}
-      className="w-full shrink-0 rounded-[var(--radius-panel)] border border-border"
-      style={{
-        height: Math.max(panel.height, panel.constraints?.minHeight ?? 0),
-        backgroundColor: 'var(--color-surface-raised)',
-        boxShadow: 'var(--shadow-panel)',
-      }}
-    >
-      <PanelChrome
-        panelId={panel.id}
-        title={label}
-        icon={icon}
-        onClose={() => (onRemovePanel ? onRemovePanel(panel.id) : removePanel(panel.id))}
-        headerActions={renderHeaderActions?.(panel.id)}
-      >
-        {renderPanel?.(panel.id)}
-      </PanelChrome>
-    </div>
-  )
 }
 
 /* ── Handle directions ── */
@@ -432,6 +388,12 @@ function usePanelDrag(
 interface DraggablePanelProps {
   panel: PanelItem
   shiftRef: React.RefObject<boolean>
+  /**
+   * Set in the narrow layout: the panel's place in the stacked column. It
+   * then renders full width at its saved height, without drag, resize or
+   * fullscreen. Purely presentational: the saved free layout is untouched.
+   */
+  stackOrder?: number
   zIndex: number
   isFocused: boolean
   isSelected?: boolean
@@ -445,7 +407,8 @@ interface DraggablePanelProps {
   renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+  const stacked = stackOrder !== undefined
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
@@ -481,7 +444,8 @@ function DraggablePanel({ panel, shiftRef, zIndex, isFocused, isSelected, isDimm
         ? 'var(--shadow-panel-focused)'
         : 'var(--shadow-panel)'
 
-  const transitionStyle = isGesturing
+  // No layout animation while gesturing or stacked (switching layouts should snap).
+  const transitionStyle = isGesturing || stacked
     ? undefined
     : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
 
@@ -492,17 +456,28 @@ function DraggablePanel({ panel, shiftRef, zIndex, isFocused, isSelected, isDimm
     <motion.div
       data-testid={`panel-${panel.id}`}
       data-panel-id={panel.id}
-      drag={!isFullscreen}
+      data-stack-order={stacked ? stackOrder : undefined}
+      drag={!isFullscreen && !stacked}
       dragControls={dragControls}
       dragListener={false}
       dragMomentum={false}
       style={{
-        position: 'absolute',
-        left: panel.pos_x,
-        top: panel.pos_y,
-        width: panel.width,
-        height: panel.height,
-        zIndex,
+        ...(stacked
+          ? {
+              position: 'relative',
+              order: stackOrder,
+              flexShrink: 0,
+              width: '100%',
+              height: Math.max(panel.height, panel.constraints?.minHeight ?? 0),
+            }
+          : {
+              position: 'absolute',
+              left: panel.pos_x,
+              top: panel.pos_y,
+              width: panel.width,
+              height: panel.height,
+              zIndex,
+            }),
         backgroundColor: 'var(--color-surface-raised)',
         boxShadow: shadow,
         opacity: isDimmed ? 0.3 : 1,
@@ -522,7 +497,7 @@ function DraggablePanel({ panel, shiftRef, zIndex, isFocused, isSelected, isDimm
       transition={{ type: 'tween', duration: 0.2 }}
     >
       <div
-        style={{ pointerEvents: (isHovered && !isFullscreen) ? 'auto' : 'none' }}
+        style={{ pointerEvents: (isHovered && !isFullscreen && !stacked) ? 'auto' : 'none' }}
         data-testid={`resize-handles-${panel.id}`}
       >
         {ALL_DIRECTIONS.map((dir) => (
@@ -541,9 +516,9 @@ function DraggablePanel({ panel, shiftRef, zIndex, isFocused, isSelected, isDimm
         title={label}
         icon={icon}
         onClose={handleClose}
-        onDragHandlePointerDown={onDragHandlePointerDown}
+        onDragHandlePointerDown={stacked ? undefined : onDragHandlePointerDown}
         isFullscreen={isFullscreen}
-        onToggleFullscreen={handleToggleFullscreen}
+        onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
         headerActions={renderHeaderActions?.(panel.id)}
       >
         {renderPanel?.(panel.id)}

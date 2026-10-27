@@ -110,7 +110,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
     <Dialog
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Edit workflow' : 'New workflow'}
+      title={isEditing ? 'Edit automation' : 'New automation'}
       className="w-full max-w-md"
     >
       <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
@@ -181,12 +181,15 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     value={Math.round(job.delayMs / DAY_MS)}
                     onChange={(e) => updateJob(idx, { delayMs: Math.max(0, Number(e.target.value)) * DAY_MS })}
                     title="Delay (days)"
+                    aria-label="Delay (days)"
                     className="w-12 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
                   />
                   <span className="text-[9px] text-neutral-600">d</span>
                   <button
                     type="button"
                     onClick={() => moveJob(idx, -1)}
+                    aria-label="Move step up"
+                    title="Move step up"
                     disabled={idx === 0}
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
                   >
@@ -195,6 +198,8 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                   <button
                     type="button"
                     onClick={() => moveJob(idx, 1)}
+                    aria-label="Move step down"
+                    title="Move step down"
                     disabled={idx === jobs.length - 1}
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
                   >
@@ -203,6 +208,8 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                   <button
                     type="button"
                     onClick={() => removeJob(idx)}
+                    aria-label="Remove step"
+                    title="Remove step"
                     className="rounded p-0.5 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
                   >
                     <Trash2 className="h-3 w-3" />

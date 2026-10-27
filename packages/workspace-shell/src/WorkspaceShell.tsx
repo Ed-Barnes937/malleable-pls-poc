@@ -41,13 +41,27 @@ function jobLabel(jobType?: string): string {
   return (jobType && JOB_LABELS[jobType]) || 'Background task'
 }
 
+/**
+ * What a finished job means for the student, by job type. Types not listed
+ * fall back to "Done: <job label>".
+ */
+const JOB_DONE_MESSAGES: Record<string, string> = {
+  'ai:transcribe': 'Transcript ready',
+  'ai:find-connections': 'Connections found',
+  'ai:generate-questions': 'Practice questions ready',
+}
+
+function jobDoneMessage(jobType?: string): string {
+  return (jobType && JOB_DONE_MESSAGES[jobType]) || `Done: ${jobLabel(jobType)}`
+}
+
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: `Done: ${jobLabel(event.jobType)}`, tone: 'success' }),
+    onJobCompleted: (event) => pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' }),
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
@@ -166,7 +180,8 @@ export function WorkspaceShell() {
           z_index: existing.length > 0 ? Math.max(...existing.map((p) => p.z_index)) + 1 : 1,
         },
         {
-          onSuccess: () => pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success' }),
+          // One toast for a run of adds, not a stack of them.
+          onSuccess: () => pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' }),
           onError: () => pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' }),
         },
       )
@@ -284,6 +299,7 @@ export function WorkspaceShell() {
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
+        menuOpen={drawerOpen}
         onOrganize={handleOrganize}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />

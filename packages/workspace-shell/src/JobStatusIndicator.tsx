@@ -135,7 +135,6 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const running = rows.filter((j) => j.status === 'running' || j.status === 'pending')
   const finished = rows.filter((j) => j.status === 'completed' || j.status === 'failed')
 
-  // Tick once a second while jobs are running so elapsed time stays live.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -144,6 +143,7 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', handler)
   }, [onClose])
 
+  // Tick once a second while jobs are running so elapsed time stays live.
   useEffect(() => {
     if (running.length === 0) return
     const handle = setInterval(() => setNow(Date.now()), 1000)

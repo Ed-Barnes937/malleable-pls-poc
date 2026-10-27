@@ -11,6 +11,8 @@ import { COURSES } from '@pls/shared-ui'
 
 export interface TopBarProps {
   onMenuClick: () => void
+  /** Whether the board menu (drawer) is open, for the menu button's state. */
+  menuOpen?: boolean
   onOrganize?: () => void
 }
 
@@ -21,7 +23,7 @@ const ICON_BUTTON =
  * Summarises the board scope as "Showing: ..." chip text, limited to the
  * dimensions some widget on the board actually uses, so the chip never
  * claims a filter nothing applies. A board whose widgets use the course but
- * has none set says "All courses" rather than hiding the chip, so the
+ * has none set (and no focused lecture) says "All courses" rather than hiding the chip, so the
  * student can always see (and change) what the board shows. Returns null
  * when no widget uses any scope.
  */
@@ -35,21 +37,21 @@ export function useScopeSummary(workspaceId: string): string | null {
   const { data: focused } = useFocusedRecording(s.recordingId)
 
   return useMemo(() => {
+    const lecture = s.recordingId && dims.has('recordingId') && focused?.id === s.recordingId
+      ? (focused?.title as string | undefined)
+      : undefined
     const parts: string[] = []
     if (dims.has('courseTag')) {
-      parts.push(
-        s.courseTag ? (COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag) : 'All courses',
-      )
+      if (s.courseTag) parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
+      // "All courses" next to one lecture reads as a contradiction; the lecture says enough.
+      else if (!lecture) parts.push('All courses')
     }
-    if (s.recordingId && dims.has('recordingId')) {
-      const title = focused?.id === s.recordingId ? (focused?.title as string | undefined) : undefined
-      if (title) parts.push(title)
-    }
+    if (lecture) parts.push(lecture)
     return parts.length > 0 ? parts.join(' · ') : null
   }, [s, dims, focused])
 }
 
-export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
+export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const scopeSummary = useScopeSummary(activeWorkspaceId)
 
@@ -93,8 +95,9 @@ export function TopBar({ onMenuClick, onOrganize }: TopBarProps) {
         data-testid="drawer-trigger"
         type="button"
         onClick={onMenuClick}
-        aria-label="Add widgets and board settings"
-        title="Add widgets and board settings"
+        aria-label="Board menu"
+        aria-expanded={menuOpen}
+        title="Board menu: add widgets, choose what's shown"
         className={ICON_BUTTON}
       >
         <Menu size={18} />

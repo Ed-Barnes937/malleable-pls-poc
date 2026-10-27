@@ -9,6 +9,11 @@ export interface Toast {
   id: number
   message: string
   tone: ToastTone
+  /**
+   * Toasts sharing a key replace each other instead of stacking, e.g. one
+   * "Transcript added" toast while a student adds several widgets in a row.
+   */
+  key?: string
 }
 
 interface ToastState {
@@ -23,7 +28,9 @@ export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (toast) => {
     const id = ++nextId
-    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
+    set((s) => ({
+      toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), { ...toast, id }],
+    }))
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
     }, 4000)
