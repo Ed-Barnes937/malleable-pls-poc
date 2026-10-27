@@ -4,11 +4,12 @@ import {
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
-import { Dialog, TextField } from '@pls/shared-ui'
+import { COURSES, Dialog, Select, TextField } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
+  const [courseTag, setCourseTag] = useState('')
   const createWorkspace = useCreateWorkspace()
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -16,6 +17,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
   useEffect(() => {
     if (open) {
       setName('')
+      setCourseTag('')
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
@@ -25,7 +27,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
     const trimmed = name.trim()
     if (!trimmed) return
     createWorkspace.mutate(
-      { name: trimmed },
+      { name: trimmed, ...(courseTag ? { courseTag } : {}) },
       {
         onSuccess: (ws) => {
           setActiveWorkspaceId(ws.id)
@@ -36,7 +38,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="New Workspace">
+    <Dialog open={open} onClose={onClose} title="New board">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="ws-name" className="mb-1 block text-xs text-neutral-400">
@@ -48,8 +50,22 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Morning Study"
+            placeholder="e.g. My week"
           />
+        </div>
+        <div>
+          <label htmlFor="ws-course" className="mb-1 block text-xs text-neutral-400">
+            Course (optional)
+          </label>
+          <Select id="ws-course" value={courseTag} onChange={(e) => setCourseTag(e.target.value)}>
+            <option value="">All courses</option>
+            {COURSES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-[11px] text-neutral-500">Widgets on this board focus on this course. You can change it later.</p>
         </div>
         <div className="flex justify-end gap-2">
           <button
@@ -64,7 +80,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
             disabled={!name.trim() || createWorkspace.isPending}
             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80 disabled:opacity-40"
           >
-            {createWorkspace.isPending ? 'Creating...' : 'Create'}
+            {createWorkspace.isPending ? 'Creating...' : 'Create board'}
           </button>
         </div>
       </form>
@@ -100,11 +116,10 @@ export function DeleteWorkspaceDialog({
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Delete Workspace">
+    <Dialog open={open} onClose={onClose} title="Delete board">
       <p className="mb-4 text-xs text-neutral-400">
-        Are you sure you want to delete{' '}
-        <span className="font-medium text-neutral-200">{workspace?.name}</span>? This will remove
-        all panels and settings for this workspace.
+        Delete <span className="font-medium text-neutral-200">{workspace?.name}</span>? Its widgets
+        and settings are removed. Your lectures, notes and to-dos stay.
       </p>
       <div className="flex justify-end gap-2">
         <button
@@ -120,7 +135,7 @@ export function DeleteWorkspaceDialog({
           disabled={deleteWorkspace.isPending}
           className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:opacity-40"
         >
-          {deleteWorkspace.isPending ? 'Deleting...' : 'Delete'}
+          {deleteWorkspace.isPending ? 'Deleting...' : 'Delete board'}
         </button>
       </div>
     </Dialog>

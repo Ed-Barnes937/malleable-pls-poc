@@ -16,6 +16,17 @@ function isTyping(): boolean {
   return false
 }
 
+/**
+ * True when keyboard focus is somewhere other than the page itself or the
+ * canvas (e.g. the top bar, the board menu, a dialog). Canvas shortcuts then
+ * stay out of the way so those controls behave normally.
+ */
+function focusOutsideCanvas(canvas: HTMLElement | null | undefined): boolean {
+  const el = document.activeElement
+  if (!el || el === document.body || el === document.documentElement) return false
+  return !canvas?.contains(el)
+}
+
 export interface CanvasKeyboardOptions {
   /** Remove a panel through the host (so the deletion is also persisted). Falls
    *  back to the store's local removePanel when not provided. */
@@ -27,14 +38,16 @@ export interface CanvasKeyboardOptions {
 /**
  * Keyboard shortcuts that act on the currently selected lens.
  *
- * - **Tab / Shift+Tab** — cycle the selection forward/backward through panels.
+ * - **] / [** - cycle the selection forward/backward through panels. Tab is
+ *   left alone so keyboard users can always reach every control.
  * - **f / F** — toggle fullscreen on the selected panel (falls back to the
  *   top-most panel when nothing is selected).
  * - **Backspace / Delete** — remove the selected panel.
  * - **Escape** — exit fullscreen, then focus mode, then clear the selection.
  *
- * All single-key shortcuts are suppressed while typing in an input/textarea/
- * contenteditable so they don't interfere with lens content.
+ * All shortcuts are suppressed while typing in an input/textarea/
+ * contenteditable, and while focus is outside the canvas (top bar, board
+ * menu, dialogs), so they don't interfere with other controls.
  */
 export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOptions = {}): void {
   useEffect(() => {
@@ -46,12 +59,14 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
 
     function handleKeyDown(e: KeyboardEvent) {
       const state = useCanvasStore.getState()
+      if (focusOutsideCanvas(canvasRef?.current)) return
 
-      // Tab / Shift+Tab — cycle selection
-      if (e.key === 'Tab') {
+      // ] / [ - cycle selection
+      if (e.key === ']' || e.key === '[') {
         if (isTyping()) return
+        if (e.metaKey || e.ctrlKey || e.altKey) return
         if (state.panels.length === 0) return
-        state.selectNext(e.shiftKey)
+        state.selectNext(e.key === '[')
         e.preventDefault()
         return
       }

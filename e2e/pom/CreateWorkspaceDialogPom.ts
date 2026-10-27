@@ -4,12 +4,14 @@ import { DialogPom } from './DialogPom'
 
 export class CreateWorkspaceDialogPom extends DialogPom {
   readonly nameInput: Locator
+  readonly courseSelect: Locator
   readonly createButton: Locator
   readonly cancelButton: Locator
 
   constructor(page: Page) {
     super(page)
     this.nameInput = this.root.getByLabel('Name')
+    this.courseSelect = this.root.getByLabel('Course (optional)')
     this.createButton = this.root.getByRole('button', { name: 'Create' })
     this.cancelButton = this.root.getByRole('button', { name: 'Cancel' })
   }
@@ -26,8 +28,10 @@ export class CreateWorkspaceDialogPom extends DialogPom {
     await this.cancelButton.click()
   }
 
-  async createWorkspace(name: string) {
+  /** Creates a board, optionally with a course (by its label, e.g. 'Biology'). */
+  async createWorkspace(name: string, course?: string) {
     await this.fillName(name)
+    if (course) await this.courseSelect.selectOption({ label: course })
     await this.submit()
   }
 

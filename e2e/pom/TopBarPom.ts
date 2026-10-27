@@ -16,7 +16,7 @@ export class TopBarPom {
   constructor(private page: Page) {
     this.root = page.getByTestId('top-bar')
     this.workspaceTabs = this.root.getByTestId('workspace-tab')
-    this.newWorkspaceButton = this.root.getByRole('button', { name: 'New workspace' })
+    this.newWorkspaceButton = this.root.getByRole('button', { name: 'New board' })
     this.drawerTrigger = this.root.getByTestId('drawer-trigger')
     this.scopeChip = this.root.getByTestId('scope-chip')
   }
@@ -40,10 +40,10 @@ export class TopBarPom {
     await this.newWorkspaceButton.click()
   }
 
+  /** Opens the board, then its delete button (only the open board's tab has one). */
   async deleteWorkspace(name: string) {
-    // The delete button is hidden until hover on its tab; force-click to
-    // bypass the opacity-0 state.
-    const btn = this.root.getByLabel(`Delete ${name}`)
-    await btn.click({ force: true })
+    await this.switchToWorkspace(name)
+    await this.expectActiveWorkspace(name)
+    await this.root.getByRole('button', { name: `Delete ${name}`, exact: true }).click()
   }
 }

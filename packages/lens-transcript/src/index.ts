@@ -7,7 +7,8 @@ export const manifest: PanelManifest = {
   id: 'transcript',
   label: 'Transcript',
   icon: FileText,
-  description: 'Segments & tags',
+  description: 'Read a lecture and mark moments',
+  group: 'study',
   // Course narrows the lecture picker (focus clears when it leaves the course).
   scope: { courseTag: 'filter', recordingId: 'target' },
   reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
