@@ -19,3 +19,9 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - For Ed, non-blocking: widget name casing is mixed (Title Case vs sentence case); copy guide lists it as undecided.
 - U2 PR #80 opened (suites green); fresh reviewer running. Answered: "Do by"/"How long?" stay in U2 (U6 told not to duplicate). For Ed: P0-4 handled by an extra draft sentence explaining short leftover gaps, rather than retuning the seed.
 - Watch: `journey-6-upload-recording` timed out once under multi-agent load (U2), and U5 fixed a separate double-match flake in the same test.
+- U2 review round 1: CHANGES NEEDED (leftover sentence wrong outside demo week, Pick a time defaults onto a ghost, panel focus, e2e coverage, nits). Sent back. journey-6 e2e failed again under load for the U2 reviewer; re-check after U5's fix merges, else assign a dedicated fix.
+- U5 merged into `feat/student-planning-ux` (a8f2185, PR #79) after reviewer PASS and small fixes.
+- U2 fixes pushed (de0a7ab); re-review running.
+- U3 PR #83, U6 PR #82 opened (suites green); fresh reviewers running.
+- U4 review round 1: CHANGES NEEDED (toast keyboard/focus, scroll rail a11y, tag legend, simulator delete parity, tests). Sent back with Ed's answers.
+- Open for Ed: U3 Q1 (reviews unscheduled when the whole window is at budget), U3 Q2 (server only knows default 2h/day), U6 phone top bar menu.
