@@ -45,8 +45,10 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
      * Returns workflows matching `triggerEvent` with override resolution:
      * when both a default (workspace_id IS NULL) and a workspace override exist
      * for the same (source_lens, condition_field, condition_value), the override
-     * wins and only one row is returned. Implemented via DISTINCT ON with
-     * workspace_id NULLS LAST ordering.
+     * wins and only one row is returned, even when the override is disabled
+     * (that is how a board switches a built-in automation off). Implemented
+     * via DISTINCT ON with workspace_id NULLS LAST ordering; `enabled` is
+     * checked after it.
      */
     async getEffectiveWorkflows(triggerEvent, scopeId): Promise<WorkflowWithJobs[]> {
       return withDb(async (tx) => {
@@ -55,7 +57,6 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
             SELECT DISTINCT ON (source_lens, condition_field, condition_value) id
             FROM workflows
             WHERE trigger_event = ${triggerEvent}
-              AND enabled = true
               AND user_id = ${userId}
               AND (workspace_id IS NULL OR workspace_id = ${scopeId})
             ORDER BY source_lens, condition_field, condition_value, workspace_id NULLS LAST
@@ -65,6 +66,8 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
           FROM deduped
           JOIN workflows w ON w.id = deduped.id
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
+          -- After override resolution, so a board copy switched off hides the default.
+          WHERE w.enabled = true
           GROUP BY w.id
         `
         return rows as unknown as WorkflowWithJobs[]
@@ -82,7 +85,10 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
           : Math.max(args.delayMs ?? 0, 0)
         // Persist the owning user in the input so executors (which open their own
         // RLS-scoped tx via withUser) can recover it when the job is claimed.
-        const input = { ...args.input, _userId: userId }
+        // The board it was dispatched on goes with it too, so events the job
+        // raises cascade on that board (see job-runner.ts scopeForJob). A
+        // retry re-enqueues the stored input, which already carries it.
+        const input = { ...args.input, _userId: userId, ...(args.scopeId ? { _workspaceId: args.scopeId } : {}) }
         // tx.json, not JSON.stringify: a pre-stringified value lands in the jsonb
         // column as a jsonb *string*, so executors would receive a string.
         const [row] = await tx`

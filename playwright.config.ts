@@ -5,6 +5,9 @@ import { apiPort, apiUrl, webPort } from './e2e/ports'
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
 process.env.AI_MODE = 'mock'
 delete process.env.OPENROUTER_API_KEY
+// Pin the demo's zone for both the test process (seed times) and the browser,
+// so date and DST behaviour doesn't depend on the host.
+process.env.TZ = 'Europe/London'
 
 const baseURL = `http://localhost:${webPort}`
 
@@ -24,7 +27,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
   ],
   webServer: [

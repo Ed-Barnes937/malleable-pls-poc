@@ -32,36 +32,31 @@ import { LensAutomationsButton } from './LensAutomationsButton'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
+import { useShowMoment } from './moments'
 
-const JOB_LABELS: Record<string, string> = Object.fromEntries(
-  getAvailableJobTypes().map((j) => [j.type, j.label]),
-)
+const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
 function jobLabel(jobType?: string): string {
-  return (jobType && JOB_LABELS[jobType]) || 'Background task'
+  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Background task'
 }
 
-/**
- * What a finished job means for the student, by job type. Types not listed
- * fall back to "Done: <job label>".
- */
-const JOB_DONE_MESSAGES: Record<string, string> = {
-  'ai:transcribe': 'Transcript ready',
-  'ai:find-connections': 'Connections found',
-  'ai:generate-questions': 'Practice questions ready',
-}
-
+/** What a finished job means for the student; falls back to "Done: <job label>". */
 function jobDoneMessage(jobType?: string): string {
-  return (jobType && JOB_DONE_MESSAGES[jobType]) || `Done: ${jobLabel(jobType)}`
+  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
 }
 
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
+  const clearMoment = useWorkspaceStore((s) => s.clearMoment)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' }),
+    onJobCompleted: (event) => {
+      if (event.quiet) return
+      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+    },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
@@ -115,6 +110,12 @@ export function WorkspaceShell() {
     },
     [activeWorkspaceId, setWorkspaceScope.mutate],
   )
+
+  const activeLensTypes = useMemo(
+    () => (panels as unknown as { lens_type: string }[] | undefined)?.map((p) => p.lens_type) ?? [],
+    [panels],
+  )
+  const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
@@ -232,10 +233,11 @@ export function WorkspaceShell() {
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
       // Each widget sees only the dimensions it declares, with highlighted
       // ones kept apart from what its readers may filter by.
-      const panelScope = splitScope(scope, manifests.find((m) => m.id === panel.lens_type)?.scope)
+      const manifest = manifests.find((m) => m.id === panel.lens_type)
+      const panelScope = splitScope(scope, manifest?.scope)
 
       return (
-        <PanelContainer lensType={panel.lens_type}>
+        <PanelContainer lensType={panel.lens_type} boardId={activeWorkspaceId}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
             scope={panelScope.scope}
@@ -243,11 +245,14 @@ export function WorkspaceShell() {
             config={config}
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
+            onShowMoment={handleShowMoment}
+            focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
+            onMomentShown={manifest?.showsMoments ? clearMoment : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment],
   )
 
   // Icon resolver: look up icon from the manifest registry

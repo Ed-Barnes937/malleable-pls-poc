@@ -109,6 +109,24 @@ describe('job runner', () => {
       )
     })
 
+    it('runs and cascades each job in its own scope when scopeForJob is given', async () => {
+      const adapter = makeAdapter([makePendingJob({ input: { target_id: 't1', board: 'ws-a' } })])
+      const executors = createExecutorRegistry()
+      const executor = vi.fn(async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }))
+      executors.register('test:run', executor, { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter })
+      const dispatchSpy = vi.spyOn(engine, 'dispatch')
+      const runner = createJobRunner({
+        adapter, executors, engine, scopeId: null,
+        scopeForJob: (job) => (job.input?.board as string | undefined) ?? null,
+      })
+
+      await runner.processOnce()
+
+      expect(executor).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ scopeId: 'ws-a' }))
+      expect(dispatchSpy).toHaveBeenCalledWith({ type: 'evt:next', payload: {} }, { scopeId: 'ws-a', depth: 0 })
+    })
+
     it('marks jobs failed when the executor throws', async () => {
       const adapter = makeAdapter([makePendingJob()])
       const executors = createExecutorRegistry()

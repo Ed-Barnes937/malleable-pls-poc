@@ -188,7 +188,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
         RETURNING id
       `)
       await db.withUser(alice, (tx) => tx`
-        INSERT INTO workflow_jobs (user_id, workflow_id, job_type) VALUES (${alice}, ${wf.id}, 'schedule:quiz')
+        INSERT INTO workflow_jobs (user_id, workflow_id, job_type) VALUES (${alice}, ${wf.id}, 'test:noop')
       `)
       return wf.id as string
     }

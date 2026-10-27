@@ -24,8 +24,8 @@ test.describe('Journey: Upload a lecture recording', () => {
     // The new recording becomes the workspace focus, so the Transcript lens
     // follows it and fills in once the (mock) transcription job completes.
     await expect(transcript.getByText('Uploaded: Enzyme Kinetics')).toBeVisible({ timeout: 10000 })
-    await expect(transcript.getByText(/Welcome to today's lecture/)).toBeVisible({ timeout: 20000 })
-    await expect(transcript.getByText('3 segments')).toBeVisible()
+    await expect(transcript.getByText(/Today we're looking at mitochondrial DNA/)).toBeVisible({ timeout: 20000 })
+    await expect(transcript.getByText('6 segments')).toBeVisible()
 
     await topBar.openDrawer()
     const sidebar = new SidebarPom(page)
@@ -52,7 +52,12 @@ test.describe('Journey: Upload a lecture recording', () => {
     await expect(transcript.getByText('Uploaded: Demo lecture')).toBeVisible({ timeout: 10000 })
     await expect(transcript.getByText(/let me try to explain maternal inheritance/)).toBeVisible({ timeout: 20000 })
     await expect(transcript.getByText('17 segments')).toBeVisible()
-    await expect(transcript.getByText(/Welcome to today's lecture/)).toHaveCount(0)
+    // Not the canned mock lecture (apps/server/src/ai/transcriber.ts).
+    await expect(transcript.getByText(/^Welcome back\./)).toHaveCount(0)
+    // The (fake) summary is built from the real script.
+    const summary = transcript.getByRole('region', { name: 'Lecture summary' })
+    await expect(summary.getByRole('listitem')).toHaveCount(3, { timeout: 20000 })
+    await expect(summary).toContainText(/mitochondrial DNA/i)
 
     const sidebar = new SidebarPom(page)
     await topBar.openDrawer()

@@ -157,13 +157,40 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | Weakest topics | `filter` | `ignore` | all |
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
 | To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
-| Calendar (planned) | `highlight` (dim other courses, never hide commitments) | `highlight` | current week, everything |
+| Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
+
+### Showing a Moment ("click a study block, land on the lecture moment")
+
+Some items point at a moment in a recording (a plan item's `source_type =
+'recording'`, `source_id`, `source_offset_ms`). Jumping there is a shell-level
+gesture, not lens-to-lens messaging, and it works like scope:
+
+1. A widget calls `LensProps.onShowMoment({ recordingId, offsetMs })`.
+2. The shell (`packages/workspace-shell/src/moments.ts`) focuses the recording
+   on the board (the `recordingId` scope row, as `onScopeChange` would) and
+   publishes the moment as ephemeral, app-wide shell state
+   (`useWorkspaceStore().focusedMoment`, never persisted, a fresh `id` per
+   request).
+3. Widgets whose manifest declares `showsMoments: true` (the Transcript)
+   receive it as `LensProps.focusedMoment`. The Transcript waits until the
+   focused lecture's segments have loaded, then scrolls its list to the
+   segment containing the offset and highlights it (`aria-current="location"`),
+   then reports `onMomentShown(id)` and the shell drops the moment, so
+   revisiting a board later doesn't jump there again.
+
+`onShowMoment` resolves `no-viewer` when the board has no moment viewer (the
+recording is still focused). The caller can then offer "Open in a board with
+Transcript": `onShowMoment(moment, { elsewhere: true })` switches to the first
+board (in tab order) that has one, preferring a board already focused on that
+recording, and shows the moment there. The Calendar does both: clicking a block
+with provenance jumps straight away, and its popover says where it landed or
+offers the other board.
 
 ---
 
 ## Architecture Overview
 
-Lenses never communicate directly — all interaction is emergent through the shared substrate (see terminology.md for principles and scaling rules).
+Lenses never communicate directly - all interaction is emergent through the shared substrate (see terminology.md for principles and scaling rules), plus the board scope and the ephemeral "show this moment" request the shell carries for them (see Showing a Moment above).
 
 ### Lens–Substrate–Workspace Relationship
 

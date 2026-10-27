@@ -1,5 +1,5 @@
 import { sql } from '@pls/db'
-import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type RunnerEvent } from '@pls/workflows'
+import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type JobRun, type RunnerEvent } from '@pls/workflows'
 import { createPgAdapter } from './pg-adapter'
 import { emitEvent } from '../routers/events'
 
@@ -29,7 +29,15 @@ function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: R
     jobType: event.jobRun.job_type,
     userId,
     ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < retryLimit } : {}),
+    // Executors flag runs that did nothing visible with `output.quiet`.
+    ...(event.type === 'job:completed' && event.result.output.quiet === true ? { quiet: true } : {}),
   })
+}
+
+/** The board a job was dispatched on (stored as `input._workspaceId` by the pg adapter), or null. */
+export function jobBoard(job: JobRun): string | null {
+  const board = job.input?._workspaceId
+  return typeof board === 'string' && board ? board : null
 }
 
 async function processJobs(executors: ExecutorRegistry): Promise<void> {
@@ -47,6 +55,7 @@ async function processJobs(executors: ExecutorRegistry): Promise<void> {
       executors,
       engine,
       scopeId: null,
+      scopeForJob: jobBoard,
       maxRetries: MAX_RETRIES,
     })
 

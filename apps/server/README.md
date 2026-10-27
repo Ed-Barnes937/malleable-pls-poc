@@ -48,6 +48,22 @@ Then call it through the injected client: `const { title } = await ai.llm.run(re
 - In tests, `createFakeLlmClient()` records `.calls` (task, input, built prompt) for assertions.
 - Register it in `src/ai/tasks/index.ts` with a sample input (`llmTaskSample(task, (lecture) => input)`), so the live smoke test covers it. `src/ai/tasks/index.test.ts` scans all of `src` for `defineLlmTask(` and fails until you do (or if the task is not exported).
 
+## Lecture AI jobs
+
+| Job | Runs after | Writes |
+|---|---|---|
+| `ai:transcribe` | `recording:completed` | transcript segments; emits `recording:transcribed` |
+| `ai:summarize-lecture` | `recording:transcribed` | a 3-line summary annotation on the recording (`LECTURE_SUMMARY_ANCHOR`), replacing any earlier one |
+| `plan:review-task` | `tag:created` (label = confused) | a review to-do linked to the moment, filed under the lecture's course, placed by `@pls/scheduler`; emits `plan-item:created` |
+
+The confusion automation's params (`durationMin`, `windowDays`, `timeZone`; see `packages/substrate/src/workflows/review-automation.ts`) are read when the job runs. `windowDays` = 1 means "by tomorrow": the review ends by the end of that local day, placed latest-first (spaced review) around every commitment and every other scheduled task. Days use the stored IANA `timeZone`; it defaults to Europe/London until users have a time zone preference, and the sentence editor stores the browser's zone when the student edits it.
+
+Editing the params (`workflows.patch`, or `workflows.update`) re-places the open, not-yet-started reviews the automation made that are still where it put them (`job_runs.output.plan_item_id` / `starts_at` are the record). Reviews the student moved, started or finished, and all commitments, never move.
+
+**Boards:** writes made from a board (marks, notes, uploads, plan item changes) send its id, and automations are dispatched on that board, so a board copy (e.g. one switched off there) wins over the built-in one. The pg adapter stores the board with each job as `input._workspaceId` (next to `_userId`), and the runner cascades events a job raises on the same board (`scopeForJob`), so switching the summary off on a board works too.
+
+The LLM only writes words (a review topic, summary lines); the fakes (`src/ai/tasks/text.ts`) derive them from the transcript so mock mode looks real. DB-backed tests: `TEST_DATABASE_URL=... pnpm test review-automation.db`.
+
 ## Demo lecture and the live smoke test
 
 The prepared demo lecture lives in `demo/` at the repo root: the script text (`lecture-mitochondrial-dna.md`), the audio (`.wav`, 16 kHz mono) and its transcript fixture (`.segments.json`: one segment per paragraph with exact timings, plus the wav's sha256). Regenerate the audio and fixture together after editing the script, on macOS:

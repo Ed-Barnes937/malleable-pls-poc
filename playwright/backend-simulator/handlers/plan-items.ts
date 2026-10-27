@@ -6,6 +6,7 @@ import {
   planItemUpdateInput,
   planItemListInput,
   planItemIdInput,
+  planItemOnBoardInput,
   parsePlanItemInput as parse,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
@@ -101,8 +102,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     return withCourse(row)
   }
 
-  router.register('planItems.complete', (input) => setStatus(parse(planItemIdInput, input), 'done'))
-  router.register('planItems.dismiss', (input) => setStatus(parse(planItemIdInput, input), 'dismissed'))
+  router.register('planItems.complete', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'done'))
+  router.register('planItems.dismiss', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'dismissed'))
 
   router.register('planItems.delete', (input) => {
     const id = parse(planItemIdInput, input)

@@ -1,10 +1,38 @@
-import { useState, useMemo } from 'react'
-import type { Tag } from '@pls/substrate'
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, EmptyState, formatTime, TagPill, TAG_STYLES } from '@pls/shared-ui'
-import { MessageSquare } from 'lucide-react'
+import { CalendarCheck, CalendarClock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { segmentAtOffset } from './moments'
 
-export default function TranscriptLens({ scope, config }: LensProps) {
+const REVIEW_TIME = new Intl.DateTimeFormat(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+
+/** What happened to the review a marked moment turned into, in a few words. */
+function ReviewChip({ review }: { review: PlanItemOccurrence }) {
+  const minutes = review.duration_min ? `${review.duration_min} min` : null
+  const done = review.status === 'done'
+  const Icon = done ? CalendarCheck : review.starts_at ? CalendarClock : ListTodo
+  const when = done
+    ? 'Reviewed'
+    : review.starts_at
+      ? `Review planned ${REVIEW_TIME.format(new Date(review.starts_at))}`
+      : 'Review on your to-do list'
+  return (
+    <span
+      data-testid="review-chip"
+      title={review.title}
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium ring-1',
+        done ? 'bg-emerald-500/10 text-emerald-400 ring-emerald-500/20' : 'bg-amber-500/10 text-amber-300 ring-amber-500/20',
+      )}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {[when, minutes].filter(Boolean).join(' · ')}
+    </span>
+  )
+}
+
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -16,11 +44,41 @@ export default function TranscriptLens({ scope, config }: LensProps) {
   const { data: segments } = substrate.useTranscript(recordingId)
   const { data: tags } = substrate.useTags({ ...scope })
   const { data: annotations } = substrate.useAnnotations({ ...scope })
+  // Reviews the confusion automation made from this lecture's moments.
+  const { data: reviews } = substrate.usePlanItems(
+    recordingId ? { sourceType: 'recording', sourceId: recordingId, kinds: ['task'], statuses: ['open', 'done'] } : undefined,
+  )
   const createTag = mutations.useCreateTag()
   const createAnnotation = mutations.useCreateAnnotation()
 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [annotationDraft, setAnnotationDraft] = useState('')
+
+  // A moment another widget asked to show (e.g. a calendar study block that
+  // came from this lecture): scroll to its segment and highlight it, once per
+  // request, once this lecture's segments, tags and notes have loaded (they
+  // set the row heights the scroll position depends on).
+  const [momentSegmentId, setMomentSegmentId] = useState<string | null>(null)
+  const handledMomentId = useRef<number | null>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!focusedMoment || focusedMoment.id === handledMomentId.current) return
+    if (focusedMoment.recordingId !== recordingId) return
+    const own = segments?.filter((s) => s.recording_id === recordingId)
+    if (!own?.length || !tags || !annotations) return
+    handledMomentId.current = focusedMoment.id
+    setMomentSegmentId(segmentAtOffset(own, focusedMoment.offsetMs)?.id ?? null)
+    setSelectedSegmentId(null)
+    onMomentShown?.(focusedMoment.id)
+  }, [focusedMoment, recordingId, segments, tags, annotations, onMomentShown])
+  useEffect(() => {
+    const list = listRef.current
+    const el = momentSegmentId ? list?.querySelector<HTMLElement>(`[data-segment-id="${momentSegmentId}"]`) : null
+    if (!list || !el) return
+    // Scroll only the transcript list (scrollIntoView could also shift the board).
+    const top = el.offsetTop - list.clientHeight / 2 + el.clientHeight / 2
+    list.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+  }, [momentSegmentId])
 
   const tagsBySegment = useMemo(() => {
     const map = new Map<string, Tag[]>()
@@ -45,6 +103,21 @@ export default function TranscriptLens({ scope, config }: LensProps) {
     }
     return map
   }, [annotations])
+
+  const summaryLines = useMemo(() => {
+    const summary = (annotations ?? []).find(
+      (a) => a.anchor_type === LECTURE_SUMMARY_ANCHOR && a.anchor_id === recordingId,
+    )
+    return summary ? summary.body.split('\n').filter(Boolean) : []
+  }, [annotations, recordingId])
+
+  const reviewByOffset = useMemo(() => {
+    const map = new Map<number, PlanItemOccurrence>()
+    for (const review of reviews ?? []) {
+      if (review.source_offset_ms != null && !map.has(review.source_offset_ms)) map.set(review.source_offset_ms, review)
+    }
+    return map
+  }, [reviews])
 
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
@@ -82,34 +155,62 @@ export default function TranscriptLens({ scope, config }: LensProps) {
         </span>
       </div>
 
-      <div className="-mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
+      {summaryLines.length > 0 && (
+        <section
+          aria-label="Lecture summary"
+          className="rounded-lg border border-accent/15 bg-accent/5 px-3 py-2"
+        >
+          <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-accent/80">
+            <Sparkles className="h-3 w-3" />
+            Summary
+          </p>
+          <ul className="space-y-0.5">
+            {summaryLines.map((line, i) => (
+              <li key={i} className="text-[12px] leading-snug text-neutral-300">{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <div ref={listRef} className="relative -mx-3 min-h-0 flex-1 space-y-px overflow-y-auto px-3">
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
+          const review = reviewByOffset.get(seg.start_ms)
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
+          const isMoment = momentSegmentId === seg.id
 
           return (
-            <div key={seg.id}>
+            <div key={seg.id} data-segment-id={seg.id} data-moment={isMoment || undefined}>
               <button
-                onClick={() => setSelectedSegmentId(isSelected ? null : seg.id)}
+                onClick={() => {
+                  setMomentSegmentId(null)
+                  setSelectedSegmentId(isSelected ? null : seg.id)
+                }}
+                aria-current={isMoment ? 'location' : undefined}
                 className={cn(
                   'group flex w-full gap-3 rounded-lg px-2.5 py-2 text-left transition-all',
-                  isSelected ? 'bg-accent/8 ring-1 ring-accent/20' : 'hover:bg-surface-overlay/50'
+                  isSelected
+                    ? 'bg-accent/8 ring-1 ring-accent/20'
+                    : isMoment
+                      ? 'bg-accent/10 ring-2 ring-accent/40'
+                      : 'hover:bg-surface-overlay/50'
                 )}
               >
                 <span className={cn(
                   'shrink-0 pt-0.5 font-mono text-[11px] tabular-nums',
-                  isSelected ? 'text-accent' : 'text-neutral-600 group-hover:text-neutral-500'
+                  isSelected || isMoment ? 'text-accent' : 'text-neutral-600 group-hover:text-neutral-500'
                 )}>
                   {formatTime(seg.start_ms)}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={cn('text-[13px] leading-relaxed', isSelected ? 'text-neutral-200' : 'text-neutral-400')}>
+                  <p className={cn('text-[13px] leading-relaxed', isSelected || isMoment ? 'text-neutral-200' : 'text-neutral-400')}>
                     {seg.text}
                   </p>
-                  {segTags.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
+                  {(segTags.length > 0 || review) && (
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
                       {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                      {review && <ReviewChip review={review} />}
                     </div>
                   )}
                   {!isCapture && segAnnotations.length > 0 && (

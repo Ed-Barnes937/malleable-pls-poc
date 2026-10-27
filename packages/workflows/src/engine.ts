@@ -54,6 +54,7 @@ export function createWorkflowEngine(config: WorkflowEngineConfig): WorkflowEngi
           // The engine adds +1 on enqueue; callers cascade at job.depth.
           depth: depth + 1,
           delayMs: job.delay_ms,
+          scopeId: ctx.scopeId,
         })
         enqueuedJobIds.push(runId)
       }

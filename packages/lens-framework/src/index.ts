@@ -7,6 +7,10 @@ export type {
   RecordingScopeMode,
   DateRange,
   LensProps,
+  Moment,
+  FocusedMoment,
+  ShowMomentResult,
+  ShowMomentOptions,
 } from './types'
 export {
   usesScopeDim,
@@ -41,4 +45,5 @@ export {
   SubstrateProvider,
   useSubstrate,
   useSubstrateMutations,
+  useBoardId,
 } from './substrate-context'
