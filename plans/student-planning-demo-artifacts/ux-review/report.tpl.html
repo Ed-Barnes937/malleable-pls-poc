@@ -1,0 +1,476 @@
+<title>Student Planner UX Review</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (findings) with full-bleed evidence figures; a sticky jump bar for P0/P1/P2. */
+:root {
+  --ink: oklch(0.24 0.02 250);
+  --ink-2: oklch(0.42 0.02 250);
+  --paper: oklch(0.985 0.004 230);
+  --sheet: oklch(1 0 0);
+  --rule: oklch(0.88 0.01 240);
+  --accent: oklch(0.52 0.12 175);
+  --accent-soft: oklch(0.94 0.04 175);
+  --p0: oklch(0.55 0.17 28);
+  --p0-soft: oklch(0.95 0.035 28);
+  --p1: oklch(0.55 0.12 75);
+  --p1-soft: oklch(0.96 0.04 85);
+  --p2: oklch(0.5 0.05 250);
+  --p2-soft: oklch(0.95 0.01 250);
+  --good: oklch(0.5 0.12 155);
+  --font-display: 'Bricolage Grotesque', 'Avenir Next', system-ui, sans-serif;
+  --font-body: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --step--1: 0.8125rem;
+  --step-0: 1rem;
+  --step-1: 1.1875rem;
+  --step-2: 1.5rem;
+  --step-3: 2.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: oklch(0.93 0.01 240);
+    --ink-2: oklch(0.74 0.015 240);
+    --paper: oklch(0.19 0.012 250);
+    --sheet: oklch(0.23 0.014 250);
+    --rule: oklch(0.34 0.015 250);
+    --accent: oklch(0.75 0.11 175);
+    --accent-soft: oklch(0.3 0.05 175);
+    --p0: oklch(0.74 0.14 28);
+    --p0-soft: oklch(0.31 0.06 28);
+    --p1: oklch(0.8 0.12 80);
+    --p1-soft: oklch(0.31 0.05 80);
+    --p2: oklch(0.76 0.04 250);
+    --p2-soft: oklch(0.3 0.02 250);
+    --good: oklch(0.76 0.12 155);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: oklch(0.93 0.01 240);
+  --ink-2: oklch(0.74 0.015 240);
+  --paper: oklch(0.19 0.012 250);
+  --sheet: oklch(0.23 0.014 250);
+  --rule: oklch(0.34 0.015 250);
+  --accent: oklch(0.75 0.11 175);
+  --accent-soft: oklch(0.3 0.05 175);
+  --p0: oklch(0.74 0.14 28);
+  --p0-soft: oklch(0.31 0.06 28);
+  --p1: oklch(0.8 0.12 80);
+  --p1-soft: oklch(0.31 0.05 80);
+  --p2: oklch(0.76 0.04 250);
+  --p2-soft: oklch(0.3 0.02 250);
+  --good: oklch(0.76 0.12 155);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 68rem; margin: 0 auto; padding-block: 2.5rem 5rem; display: flex; flex-direction: column; gap: 2.5rem; }
+.col { max-width: 44rem; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: var(--step-3); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 700; }
+h3 { font-size: var(--step-1); font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+header { display: flex; flex-direction: column; gap: 0.9rem; }
+.lede { font-size: var(--step-1); color: var(--ink-2); max-width: 42rem; }
+.meta { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink-2); }
+nav.jump {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--paper); border-bottom: 1px solid var(--rule);
+  display: flex; flex-wrap: wrap; gap: 0.5rem; padding-block: 0.6rem;
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+nav.jump a { font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink); text-decoration: none; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--rule); background: var(--sheet); }
+nav.jump a:hover { border-color: var(--accent); }
+a:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+.summary .card { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 1.1rem 1.2rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.summary ol { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; }
+section.tier { display: flex; flex-direction: column; gap: 1.5rem; scroll-margin-top: 4rem; }
+.tier-head { display: flex; flex-direction: column; gap: 0.35rem; border-top: 3px solid var(--tier); padding-top: 1rem; }
+#p0 { --tier: var(--p0); --tier-soft: var(--p0-soft); }
+#p1 { --tier: var(--p1); --tier-soft: var(--p1-soft); }
+#p2 { --tier: var(--p2); --tier-soft: var(--p2-soft); }
+article.rec { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 1.25rem; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem; scroll-margin-top: 4rem; }
+.rec-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 0.75rem; }
+.id { font-family: var(--font-mono); font-size: var(--step--1); font-weight: 500; color: var(--tier); }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-left: auto; }
+.chip { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.04em; padding: 0.1rem 0.5rem; border-radius: 999px; background: var(--tier-soft); color: var(--ink); white-space: nowrap; }
+.chip.area { background: transparent; border: 1px solid var(--rule); color: var(--ink-2); }
+dl.wwe { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr); gap: 0.4rem 1rem; margin: 0; }
+dl.wwe dt { font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink-2); padding-top: 0.15rem; }
+dl.wwe dd { margin: 0; max-width: 44rem; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+figure img { display: block; max-width: 100%; height: auto; border-radius: 6px; border: 1px solid var(--rule); }
+figcaption { font-size: var(--step--1); color: var(--ink-2); }
+.figs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: 1rem; align-items: start; }
+.figs.narrow { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 22rem)); }
+code { font-family: var(--font-mono); font-size: 0.875em; background: var(--p2-soft); padding: 0.05rem 0.3rem; border-radius: 4px; }
+.num { font-variant-numeric: tabular-nums; }
+.good-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 0.75rem; }
+.good-list div { border-left: 3px solid var(--good); padding: 0.2rem 0 0.2rem 0.8rem; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 10px; background: var(--sheet); }
+table { border-collapse: collapse; width: 100%; min-width: 40rem; font-size: 0.9375rem; }
+th, td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-family: var(--font-mono); font-size: var(--step--1); font-weight: 500; color: var(--ink-2); letter-spacing: 0.04em; }
+tr:last-child td { border-bottom: 0; }
+.ctr { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.bad { color: var(--p0); font-weight: 700; }
+.mocks { display: flex; flex-direction: column; gap: 1rem; }
+.mocks div { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+footer { color: var(--ink-2); font-size: var(--step--1); }
+@media (max-width: 560px) {
+  dl.wwe { grid-template-columns: minmax(0, 1fr); gap: 0.1rem; }
+  dl.wwe dd { margin-bottom: 0.5rem; }
+  .chips { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">T12 · Student planning demo · read-only review</span>
+  <h1>Student Planner UX Review</h1>
+  <p class="lede">The demo works end to end and much of the copy is already kind and honest. What holds it back is a light-mode colour bug that hides the best moment, type that is too small to feel calm, and a handful of layout collisions on stage. Fix the P0 list and the demo will read as intentional; the P1 and P2 lists are what make it feel built for students.</p>
+  <div class="meta">
+    <span>Build: feat/student-planning-demo @ 789b388</span>
+    <span>AI_MODE=mock · seed at Tue 27 Oct 2026, 10:30 London</span>
+    <span>1440x900 and 400px · light and dark</span>
+  </div>
+</header>
+
+<nav class="jump" aria-label="Jump to section">
+  <a href="#top5">Top recommendations</a>
+  <a href="#p0">P0 · for the demo</a>
+  <a href="#p1">P1 · next</a>
+  <a href="#p2">P2 · later</a>
+  <a href="#copy">Copy fixes</a>
+  <a href="#keep">Keep these</a>
+  <a href="#mocks">Mock-up briefs</a>
+</nav>
+
+<section id="top5" class="summary" aria-label="Summary">
+  <div class="card">
+    <span class="eyebrow">If you only do five things</span>
+    <ol>
+      <li>Add light-theme overrides for the amber palette, so "Review planned" and "% sure" are readable (P0-1).</li>
+      <li>Make the confused-to-calendar ripple visible: scroll to and pulse the new block, link the chip (P0-2).</li>
+      <li>Make the capacity line agree with Auto-fill by saying the 2h-a-day cap out loud (P0-4).</li>
+      <li>Show a "Transcribing..." state instead of an empty transcript (P0-6).</li>
+      <li>Raise the type floor from 10-11px to 12-13px and fix muted-text contrast (P1-1, P1-2).</li>
+    </ol>
+  </div>
+  <div class="card">
+    <span class="eyebrow">How I tested</span>
+    <p>Walked every step of the section 2 script in headless Chromium with the clock pinned, then explored as a first-time student. I built "My week" by clicking, ran Help me plan and Auto-fill, scoped to Biology, uploaded the demo lecture, marked the maternal-inheritance moment as confusing, edited the automation and tried both encores. I seeded the missed blocks for re-fit by hand because the demo seed has none.</p>
+  </div>
+</section>
+
+<!-- ======================= P0 ======================= -->
+<section id="p0" class="tier">
+  <div class="tier-head">
+    <span class="eyebrow">P0 · before the demo · each one is small</span>
+    <h2>Things the audience will notice</h2>
+  </div>
+
+  <article class="rec" id="p0-1">
+    <div class="rec-top"><span class="id">P0-1</span><h3>Amber text disappears in light mode</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Contrast</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>The light theme inverts the neutral and emerald scales in <code>apps/web/src/index.css</code> but leaves amber alone. <code>text-amber-200/300/400</code> (8 files: Transcript, To-do, Re-fit banner, Weakest Topics, Your Progress, All Courses, Coming up, WorkflowCard) were picked for a dark background and render at <span class="ctr bad">1.2:1</span> on light panels. Add light values for <code>--color-amber-200..400</code> (about <code>oklch(0.5 0.12 70)</code>), or better, swap them for a semantic <code>--color-attention</code> token.</dd>
+      <dt>Why</dt><dd>It hides "Review planned...", "5 moments to review", "Still to do from yesterday" and every "% sure" score. The same strings read at <span class="ctr">15:1</span> in dark mode, so this is a token bug, not a design choice.</dd>
+    </dl>
+    <div class="figs">
+      <figure><img src="{{exam-light}}" alt="Exam Prep board in light mode: rank numbers, percent-sure scores and 'to review' counts are pale yellow and almost invisible" loading="lazy"><figcaption>Light: rank numbers, "28% sure" and "5 to review" are almost invisible.</figcaption></figure>
+      <figure><img src="{{exam-dark}}" alt="The same Exam Prep board in dark mode where the amber text is readable" loading="lazy"><figcaption>Dark: the same widgets read fine.</figcaption></figure>
+    </div>
+  </article>
+
+  <article class="rec" id="p0-2">
+    <div class="rec-top"><span class="id">P0-2</span><h3>Let the audience see the ripple</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Delight</span><span class="chip area">Demo step 4</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>When you tap "confused", the to-do, toast and calendar block all appear, but you can't see any of it happen. (1) Fix the chip contrast (P0-1). (2) Make the chip a button that opens the block, and use 24-hour times like the calendar: "Review planned · Wed 21:30 · 30 min". (3) Add a "See it" action to the "Review added to your plan" toast. (4) When a block appears or moves, scroll the calendar to it and give it one soft 600ms glow (respect reduced motion).</dd>
+      <dt>Why</dt><dd>This is the moment that sells the product, and right now it plays out as a pale chip and a block that teleports to the 21:30 row at the very bottom of the grid, half under the frame. The demo script promises "slots itself into Wednesday evening". The data does that, but the audience can't see it.</dd>
+    </dl>
+    <div class="figs">
+      <figure><img src="{{chip-light}}" alt="Transcript moment marked confused; the yellow 'Review planned Fri 9:30 PM' chip next to it is unreadable" loading="lazy"><figcaption>The payoff chip in light mode. It also says "9:30 PM" while the calendar says 21:30.</figcaption></figure>
+      <figure><img src="{{moved}}" alt="My week board after editing the automation: the review block sits in the last row of the Wednesday column at 21:30, partly cut off, and a click-added Transcript widget overlaps the calendar" loading="lazy"><figcaption>After "30 min by tomorrow", the block moves to Wed 21:30, a sliver at the bottom edge.</figcaption></figure>
+    </div>
+  </article>
+
+  <article class="rec" id="p0-3">
+    <div class="rec-top"><span class="id">P0-3</span><h3>Keep Test Me off the demo boards, or fix its clipping</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Polish</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>On Evening Review and Exam Prep, the answer field and the "Reveal Answer" button are cut in half by the widget frame. The plan already says to keep Test Me off demo boards. Either drop it from the seeded boards, or give the body a scroll container and a minimum height.</dd>
+      <dt>Why</dt><dd>It is the first thing the eye lands on when you switch boards, and clipped controls look broken.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p0-4">
+    <div class="rec-top"><span class="id">P0-4</span><h3>The capacity line contradicts Auto-fill</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Copy</span><span class="chip area">Demo step 2</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Help me plan says "About 12 hours of study time left this week. Your to-dos need 12." with a full bar. Then Auto-fill says "7h 30m didn't fit". The reason (a 2h-a-day cap) only appears in small print further down. Bring the cap into the headline: "About 12 free hours, up to 2h a day. Lab report write-up (7h 30m) won't fit in one go." Then offer "Split across days" before "Shrink to 2h". A student would expect splitting a long write-up, not shrinking it.</dd>
+      <dt>Why</dt><dd>Principle 6 ("honest capacity note") only works if the numbers agree. With today's seed at 10:30 Tuesday you also don't get the scripted "About 9 free hours. This needs 12." line, so retune the seed or update the runbook line.</dd>
+    </dl>
+    <div class="figs">
+      <figure><img src="{{hmp}}" alt="Help me plan panel open beside the calendar: capacity says 12 hours left and 12 needed, and the calendar squeezes so event titles truncate to 'Biolog...' and 'Cafe s...'" loading="lazy"><figcaption>"12 left, need 12". The calendar also squeezes until titles read "Biolog...", "Cafe s..." (see P1-3).</figcaption></figure>
+      <figure><img src="{{ghost}}" alt="Auto-fill draft with hatched ghost blocks, a shrink suggestion and Accept all / Keep my plan buttons" loading="lazy"><figcaption>The draft copy itself is good. Ghost blocks read well.</figcaption></figure>
+    </div>
+  </article>
+
+  <article class="rec" id="p0-5">
+    <div class="rec-top"><span class="id">P0-5</span><h3>Click-added widgets land on top of others</h3>
+      <div class="chips"><span class="chip">Effort S (demo) / M (fix)</span><span class="chip area">Layout</span><span class="chip area">Demo step 5</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>On a board that already has Calendar, To-do and Coming up, "Add Transcript" places the new widget over the calendar, and it then blocks clicks on calendar blocks. If no free area fits, place the widget below the lowest one and scroll to it. For the demo, add widgets before the board gets full, or press "Tidy up widgets" straight after.</dd>
+      <dt>Why</dt><dd>Step 5 is "add or remove a widget with a click". An overlap there undercuts the malleability pitch.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p0-6">
+    <div class="rec-top"><span class="id">P0-6</span><h3>An empty transcript while the lecture processes</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Empty state</span><span class="chip area">Demo step 4</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>After you press Upload, the Transcript shows the title, "0 segments" and a large blank area for several seconds. The only sign of progress is "1 running" in the top bar. Show a skeleton with "Transcribing Mitochondrial DNA... this takes about a minute", then "Writing your summary..." once the transcript is in.</dd>
+      <dt>Why</dt><dd>Silence on stage reads as a crash, especially with live Whisper, where the wait is real.</dd>
+    </dl>
+    <div class="figs narrow"><figure><img src="{{processing}}" alt="Transcript widget immediately after upload showing the lecture title, '0 segments' and an empty body" loading="lazy"><figcaption>1.5s after Upload.</figcaption></figure></div>
+  </article>
+</section>
+
+<!-- ======================= P1 ======================= -->
+<section id="p1" class="tier">
+  <div class="tier-head">
+    <span class="eyebrow">P1 · softness, clarity and access</span>
+    <h2>Make it feel calm and look intentional</h2>
+  </div>
+
+  <article class="rec" id="p1-1">
+    <div class="rec-top"><span class="id">P1-1</span><h3>A real type scale, with a 12px floor</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Softness</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Widgets use <code>text-[10px]</code> 88 times and <code>text-[11px]</code> 67 times. Uppercase mono micro-labels ("4 TO DO", "HOW YOUR COURSES COMPARE", "DUE") are everywhere. Define four steps as tokens (12 meta, 14 body, 16 item title, 20 widget heading), use them everywhere, and save uppercase mono for at most one label per widget. Use proportional numerals for times in lists; keep mono for transcript timestamps only.</dd>
+      <dt>Why</dt><dd>Tiny grey caps are the main reason the UI feels like an admin tool. Bigger, friendlier type at the same density is the cheapest way to make it feel softer.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p1-2">
+    <div class="rec-top"><span class="id">P1-2</span><h3>Muted text fails contrast in both themes</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Accessibility</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd><code>--color-text-muted</code> is <span class="ctr bad">3.1:1</span> on light panels and <span class="ctr bad">2.5:1</span> on dark ones. It carries real information: due dates, "+2 in other courses", provenance, durations. Move it to about <code>oklch(0.52 ...)</code> in light and <code>oklch(0.62 ...)</code> in dark to reach 4.5:1. <code>--color-text-secondary</code> is fine at 7.2:1.</dd>
+      <dt>Why</dt><dd>Principle 4 ("never hide silently") depends on "+N in other courses" being readable. Today it is the faintest text on the screen.</dd>
+    </dl>
+    <div class="figs narrow"><figure><img src="{{scope}}" alt="Biology-scoped board: 'Biology highlighted' chip on the calendar and a faint '+2 in other courses' label on the To-do widget" loading="lazy"><figcaption>Scope works well ("Biology highlighted"), but "+2 in other courses" is faint and tiny.</figcaption></figure></div>
+  </article>
+
+  <article class="rec" id="p1-3">
+    <div class="rec-top"><span class="id">P1-3</span><h3>Help me plan squeezes the calendar</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Layout</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>The planning panel takes about 300px from a 900px widget, so every block truncates and free time floods each column in pale blue. Options: let the panel grow the widget temporarily, or overlay the panel on the calendar's right edge. Show free time as a thin stripe or a dotted outline inside each gap, not a full-column wash.</dd>
+      <dt>Why</dt><dd>Step 2 is the point where Ed narrates the plan. Truncated titles and a blue wash make it hard to see what goes where.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p1-4">
+    <div class="rec-top"><span class="id">P1-4</span><h3>Tell blocks apart at a glance</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Colour</span><span class="chip area">Affordance</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Today accepted study blocks have a dashed border that looks almost like a ghost. Shifts are heavy grey slabs, and missed blocks look like any other past block. Suggested language: <b>class</b> uses a solid course tint; <b>commitment</b> (shift) uses a soft neutral tint with a small icon, never grey-on-grey; <b>study time</b> uses a light course tint, a solid left bar and a grab handle on hover; <b>ghost</b> uses hatching with a dashed outline; <b>missed</b> is faded with a gentle "didn't happen" marker.</dd>
+      <dt>Why</dt><dd>Principle 5 ("commitments stay fixed; study time can move") should be visible on the grid itself, not only in the popover copy.</dd>
+    </dl>
+    <div class="figs"><figure><img src="{{board-built}}" alt="My week board built with Calendar, To-do and Coming up; the cafe shifts are large grey slabs" loading="lazy"><figcaption>Board built in three clicks. The grey shift slabs dominate the week.</figcaption></figure></div>
+  </article>
+
+  <article class="rec" id="p1-5">
+    <div class="rec-top"><span class="id">P1-5</span><h3>Clicking a review block should lead with "Go to the moment"</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Affordance</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Clicking a study block with provenance opens a full edit form (native date and time pickers, course select, Save), with the source link tucked near the bottom. Lead with the source: the title, "From Mitochondrial DNA · 1:18", a primary "Go to moment" button, then "Mark done" and "Edit time". On landing, offset the scroll so the moment isn't hidden under the sticky summary, and flash it once.</dd>
+      <dt>Why</dt><dd>In the demo the click-through is the last beat of step 4. On a board without Transcript it currently ends on "This board has no Transcript."</dd>
+    </dl>
+    <div class="figs"><figure><img src="{{landed}}" alt="Transcript after jumping from the to-do source link: the confusing moment is highlighted but its first lines are hidden under the sticky summary" loading="lazy"><figcaption>Landed on the moment, but its first lines are hidden under the sticky summary.</figcaption></figure></div>
+  </article>
+
+  <article class="rec" id="p1-6">
+    <div class="rec-top"><span class="id">P1-6</span><h3>A first run that suggests where to start</h3>
+      <div class="chips"><span class="chip">Effort S/M</span><span class="chip area">Empty state</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>The empty board shows a grey icon, one line and "Add widgets". Keep that, but add three one-click starters below it, named by intent: "Plan my time" (Calendar, To-do, Coming up), "Capture a lecture" (Audio Capture, Transcript), "Find what to revise" (Weakest Topics, Your Progress). Each one just adds widgets, which the student can then rearrange. It doesn't create a fixed workflow.</dd>
+      <dt>Why</dt><dd>It keeps principle 1 (tools, not workflows) while teaching what widgets are for. It also gives Ed a one-click fallback on stage.</dd>
+    </dl>
+    <div class="figs narrow"><figure><img src="{{empty-board}}" alt="A new empty board with a grey grid icon, the line 'This board is empty. Add widgets to build it your way.' and a blue Add widgets button" loading="lazy"><figcaption>Empty board today.</figcaption></figure></div>
+  </article>
+
+  <article class="rec" id="p1-7">
+    <div class="rec-top"><span class="id">P1-7</span><h3>Phone width: switch to Day view and show the tabs scroll</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Responsive</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>At 400px the week grid collapses: day labels collide ("26TUE 27WED 28THU") and blocks shrink to one letter. Default to Day view below about 640px, with prev/next to step days. The board tabs are clipped with no sign that they scroll ("ecture", "Ex"), so add an edge fade and scroll the active tab into view.</dd>
+      <dt>Why</dt><dd>Mobile-first is out of scope, but students will open this on a phone, and a broken grid is worse than a simpler view.</dd>
+    </dl>
+    <div class="figs narrow">
+      <figure><img src="{{week-400}}" alt="Calendar week view at 400px with colliding day labels and unreadable blocks" loading="lazy"><figcaption>Week view at 400px.</figcaption></figure>
+      <figure><img src="{{tabs-400}}" alt="Evening Review board at 400px with board tabs clipped at the right edge" loading="lazy"><figcaption>Tabs clipped at "Ex".</figcaption></figure>
+    </div>
+  </article>
+
+  <article class="rec" id="p1-8">
+    <div class="rec-top"><span class="id">P1-8</span><h3>Small affordance fixes</h3>
+      <div class="chips"><span class="chip">Effort S each</span><span class="chip area">Affordance</span><span class="chip area">Accessibility</span></div></div>
+    <dl class="wwe">
+      <dt>Upload</dt><dd>The upload form uses placeholder-only fields (title, course). Give them visible labels: "Lecture title" and "Course".</dd>
+      <dt>Create</dt><dd>Clicking empty time defaults to "Class / commitment". A student clicking an empty slot is usually adding study time, so make that the default and show a placeholder block on the grid where they clicked.</dd>
+      <dt>Tick</dt><dd>Ticking a to-do makes it vanish with no acknowledgement. Strike it through, fade it out over about 400ms and show "Done · Undo".</dd>
+      <dt>Find</dt><dd>The automation that creates reviews lives on the Transcript widget. On the Calendar, the automations dialog says "No automations for this widget yet", so a student wondering "why is this here?" never finds it. Link the review block and chip to "Made by: When I mark something confusing... Edit".</dd>
+      <dt>Focus</dt><dd>Focus rings are visible and consistent (good). Keep them as the type changes, and check the calendar blocks, which use a 2px ring on a 2px selection ring.</dd>
+    </dl>
+    <div class="figs narrow"><figure><img src="{{create-popover}}" alt="Create event popover with placeholder 'What is it?', Class / commitment selected by default, and native date and time inputs" loading="lazy"><figcaption>Create popover: commitment by default, no preview on the grid.</figcaption></figure></div>
+  </article>
+</section>
+
+<!-- ======================= P2 ======================= -->
+<section id="p2" class="tier">
+  <div class="tier-head">
+    <span class="eyebrow">P2 · warmth and personality</span>
+    <h2>Make it feel like it is on the student's side</h2>
+  </div>
+
+  <article class="rec" id="p2-1">
+    <div class="rec-top"><span class="id">P2-1</span><h3>A gentle "today" line on every board</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Warmth</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Next to the "Showing" chip, add a quiet sentence built from plan items: "Tuesday · Chemistry at 14:00 · shift 17:00-22:00 · 2h free". It is a view of the same data, not a new workflow.</dd>
+      <dt>Why</dt><dd>It turns the top bar from tool chrome into a friend who knows your week, and it reinforces principle 2 (the data is the thing).</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p2-2">
+    <div class="rec-top"><span class="id">P2-2</span><h3>Softer surfaces and course colour with character</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Softness</span><span class="chip area">Colour</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Every widget has the same 16px radius, hairline border and header strip, so nothing stands out. Drop the header divider, add 4px more inner padding, and use a softer 20px radius on widgets with 10px on inner items. Give each course a fuller, paired palette (tint, ink, stripe) and use it on the widget icon when the board is scoped. In the board menu, colour each group's icons (Capture, Study, Plan, Review) so they are easy to scan.</dd>
+      <dt>Why</dt><dd>Courses are how students think. Colour that carries meaning feels warm; uniform grey feels clinical.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p2-3">
+    <div class="rec-top"><span class="id">P2-3</span><h3>Schedule reviews at humane times</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Calm</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Every automatic placement I saw landed in the last free slot of the day (Fri 21:30, then Wed 21:30) or at the current minute (Today 10:30). Prefer the earliest slot that starts 30+ minutes from now and ends before a "wind down" time (default 21:00, a layer-2 setting), and leave a 15-minute buffer after classes.</dd>
+      <dt>Why</dt><dd>"Calm, not guilt" includes not booking a confusing topic at 21:30 after a five-hour shift. Reviewing sooner also helps memory.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p2-4">
+    <div class="rec-top"><span class="id">P2-4</span><h3>Choreograph one signature motion</h3>
+      <div class="chips"><span class="chip">Effort M</span><span class="chip area">Motion</span><span class="chip area">Delight</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Build one orchestrated sequence, not effects everywhere. The confused flag fills, a small card lifts off the moment, the To-do row slides in, and the calendar block grows into its slot with the same tint. When the automation changes, the block glides to its new time instead of jumping. Ghost blocks fade in one after another on Auto-fill. Everything else stays still. Respect <code>prefers-reduced-motion</code>.</dd>
+      <dt>Why</dt><dd>"Composable widgets over shared data" is abstract. Seeing one fact move across three widgets makes it concrete.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p2-5">
+    <div class="rec-top"><span class="id">P2-5</span><h3>Summary and transcript as study material</h3>
+      <div class="chips"><span class="chip">Effort S/M</span><span class="chip area">Readability</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>The summary is three 12px lines; the third is cut off with "...". Give it full sentences at body size, and collapse it to one line once the student scrolls instead of keeping it sticky. Moments that carry tags could have a coloured gutter mark so confusing passages are easy to spot when scrolling.</dd>
+      <dt>Why</dt><dd>The transcript is where students spend the most reading time.</dd>
+    </dl>
+  </article>
+
+  <article class="rec" id="p2-6">
+    <div class="rec-top"><span class="id">P2-6</span><h3>Re-fit and Activity in student language</h3>
+      <div class="chips"><span class="chip">Effort S</span><span class="chip area">Copy</span></div></div>
+    <dl class="wwe">
+      <dt>What</dt><dd>Re-fit is kind ("1 block didn't happen. Re-fit it?"), but on a Biology-scoped board it counts only the Biology block while the Chemistry one sits dimmed on the calendar. Say "+1 in other courses" there too. The Activity panel lists job names ("Write a transcript", "0s"). Write outcomes instead: "Transcript ready · Mitochondrial DNA · just now", each linked to its result.</dd>
+      <dt>Why</dt><dd>Principle 4 applies to banners too, and Activity is where a curious student checks what the app did for them.</dd>
+    </dl>
+    <div class="figs narrow">
+      <figure><img src="{{refit}}" alt="Re-fit proposal in the To-do widget: '1 block didn't happen. Here is where it could go: Read chapter 5, Today 08:00' with Move it and Keep my plan" loading="lazy"><figcaption>Re-fit preview. Note "Today 08:00" is already in the past at 10:30.</figcaption></figure>
+      <figure><img src="{{activity}}" alt="Activity panel listing 'Add a review to my plan 0s', 'Write a 3-line summary 0s', 'Write a transcript 1s'" loading="lazy"><figcaption>Activity reads as a job log.</figcaption></figure>
+    </div>
+  </article>
+</section>
+
+<!-- ======================= COPY ======================= -->
+<section id="copy" class="tier" style="--tier: var(--accent); --tier-soft: var(--accent-soft);">
+  <div class="tier-head">
+    <span class="eyebrow">Copy · checked against the Genio UX copy rules</span>
+    <h2>Strings to change</h2>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Where</th><th>Current</th><th>Suggested</th><th>Why</th></tr></thead>
+      <tbody>
+        <tr><td>Review chip</td><td>Review planned Fri 9:30 PM · 20 min</td><td>Review planned · Fri 21:30 · 20 min</td><td>One time format (rule 3)</td></tr>
+        <tr><td>Help me plan title</td><td>Plan this week</td><td>Plan your time</td><td>Avoid "plan your week" framing (rule 4)</td></tr>
+        <tr><td>Capacity line</td><td>About 12 hours of study time left this week. Your to-dos need 12.</td><td>About 12 free hours this week, up to 2h a day. Your to-dos need 12.</td><td>Don't overclaim (rule 6)</td></tr>
+        <tr><td>Unplaceable to-do</td><td>No free slot fits as it is.</td><td>Too long for one sitting. Split it or pick a time.</td><td>Say it the way a person would (rule 1)</td></tr>
+        <tr><td>To-do meta</td><td>Due Thu 29 Oct (on a to-do)</td><td>Do by Thu 29 Oct, or "For: Biology quiz, Thu"</td><td>"Due" means someone else's date (rule 5)</td></tr>
+        <tr><td>To-do estimate</td><td>Est.</td><td>How long?</td><td>No abbreviations (rule 1)</td></tr>
+        <tr><td>Transcript tag</td><td>key-point</td><td>Key point</td><td>A label, not a slug (rule 4)</td></tr>
+        <tr><td>Test Me</td><td>Confidence 20%</td><td>How sure you feel: 20%</td><td>Vocabulary table, section 1 (rule 3)</td></tr>
+        <tr><td>Activity</td><td>Write a transcript · 1s</td><td>Transcript ready · Mitochondrial DNA · just now</td><td>Name the outcome (rule 2)</td></tr>
+        <tr><td>Missing Transcript</td><td>This board has no Transcript. / Open in a board with Transcript</td><td>Open this moment in Evening Review</td><td>Name the specific place (rule 2)</td></tr>
+        <tr><td>Board appearance</td><td>Reload</td><td>Reset background</td><td>Say what happens (rule 2)</td></tr>
+        <tr><td>Processing</td><td>(nothing) · 0 segments</td><td>Transcribing Mitochondrial DNA...</td><td>Loading labels say what is happening (rule 9)</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="col"><b>Not decided yet, flag only:</b> widget names mix Title Case ("All Courses", "Your Progress", "Weakest Topics", "Test Me", "Audio Capture", "Reveal Answer") with sentence case ("Coming up", "To-do", "Help me plan", "Create board"). Pick one before adding more widgets.</p>
+</section>
+
+<!-- ======================= KEEP ======================= -->
+<section id="keep" class="tier" style="--tier: var(--good); --tier-soft: var(--accent-soft);">
+  <div class="tier-head">
+    <span class="eyebrow">Working well · protect these in any redesign</span>
+    <h2>Keep these</h2>
+  </div>
+  <div class="good-list">
+    <div><b>The automation sentence.</b> "When I mark something confusing, add a 30-min review by tomorrow." It has inline selects, says "Saved. Moved 1 review to fit." and explains its scope. This is the best screen in the app.</div>
+    <div><b>Honest Auto-fill copy.</b> "Nothing is saved until you accept", "Keep my plan" and "Lab report write-up is due soonest, so it gets first pick" all set the right tone.</div>
+    <div><b>Scope you can see.</b> "Showing: Biology", "Biology highlighted" and dimmed (not hidden) other courses all follow principles 3 and 4.</div>
+    <div><b>Click-to-add with the drawer staying open.</b> The board menu is grouped by intent (Capture, Study, Plan, Review), and each tile has a short description.</div>
+    <div><b>Visible focus rings and labelled icon buttons.</b> Every top-bar icon has a name ("Tidy up widgets", "Board appearance", "Switch to dark mode").</div>
+    <div><b>Calm re-fit.</b> "1 block didn't happen. Re-fit it?" with no red and no overdue pile.</div>
+  </div>
+  <div class="figs narrow"><figure><img src="{{automation}}" alt="Automations dialog showing the sentence 'When I mark something confusing, add a 30-min review by tomorrow' with inline dropdowns and 'Saved. Moved 1 review to fit.'" loading="lazy"><figcaption>The automation sentence after editing.</figcaption></figure></div>
+</section>
+
+<!-- ======================= MOCKS ======================= -->
+<section id="mocks" class="tier" style="--tier: var(--ink-2); --tier-soft: var(--p2-soft);">
+  <div class="tier-head">
+    <span class="eyebrow">For a follow-up mock-up agent</span>
+    <h2>Screens to mock up first</h2>
+  </div>
+  <div class="mocks">
+    <div><h3>1. My week, with Help me plan open</h3><p>A 1440 board with Calendar, To-do and Coming up. The planning panel overlays the calendar's right edge instead of squeezing it. Free time shows as soft dotted gaps, not a blue wash. Block types follow P1-4. Show the capacity headline with the daily cap and a "Split across days" suggestion. Use the type steps from P1-1 and the softer surfaces from P2-2.</p></div>
+    <div><h3>2. The confused-to-calendar ripple</h3><p>Three frames, Transcript and Calendar side by side. (a) The student taps "confused" on the maternal-inheritance moment. (b) A review card lifts off the moment, and the To-do row and toast "Review added to your plan · See it" appear. (c) The calendar scrolls to Wed evening, and the new block glows once in Biology tint with "From Mitochondrial DNA · 1:18". Use 24-hour times throughout.</p></div>
+    <div><h3>3. First run: an empty board</h3><p>A new board named "My week" with a warm, light illustration-free empty state. There is one sentence and three starter chips ("Plan my time", "Capture a lecture", "Find what to revise"), each previewing the widget icons it adds, plus the existing "Add widgets" button. Show the "today" line from P2-1 in the top bar.</p></div>
+    <div><h3>4. Study block popover and landing on the moment</h3><p>The popover leads with the source ("From Mitochondrial DNA · 1:18"), a primary "Go to moment" button, then "Mark done" and "Edit time". Pair it with the Transcript after landing: the moment fully visible below a collapsed one-line summary, briefly highlighted, with a coloured gutter mark for its "confused" tag.</p></div>
+    <div><h3>5. Phone: Day view and To-do</h3><p>A 400px stack. The board tabs scroll with an edge fade. The calendar is in Day view with prev/next day controls. The To-do widget shows the re-fit banner, a just-ticked item with "Done · Undo", and readable meta at 12-13px. Show it in both themes, with the fixed amber tokens in light.</p></div>
+  </div>
+</section>
+
+<footer>Screenshots were taken in headless Chromium against a local stack in mock AI mode. The full set (about 90 PNGs, light and dark, 1440 and 400) is in the reviewer's scratchpad. No code was changed.</footer>
+</div>

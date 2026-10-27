@@ -1,0 +1,144 @@
+<!doctype html><html><head><meta charset="utf-8"><title>02 Ripple</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 1440px; height: 900px; overflow: hidden; position: relative; }
+.tr-title { display: flex; align-items: center; gap: 10px; padding: 0 0 10px; }
+.tr-title b { font-size: var(--t16); font-weight: 600; }
+.tr-title .meta { margin-left: auto; }
+.sum { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font-size: var(--t14); color: var(--ink-2); }
+.sum .ic { color: var(--accent); }
+.sum span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum a { color: var(--accent); font-weight: 600; font-size: var(--t14); text-decoration: none; display: flex; align-items: center; gap: 2px; }
+.seg-row { display: grid; grid-template-columns: 52px 1fr; gap: 6px; padding: 12px 12px 12px 0; position: relative; border-radius: 14px; }
+.seg-row .ts { font-family: var(--mono); font-size: var(--t12); color: var(--muted); padding-top: 3px; text-align: right; padding-right: 6px; }
+.seg-row p { margin: 0; font-size: var(--t16); line-height: 1.6; color: var(--ink); }
+.seg-row.sel { background: var(--bio-soft); box-shadow: inset 0 0 0 1px var(--bio-tint); }
+.seg-row.sel .ts { color: var(--bio-ink); font-weight: 500; }
+.seg-row.flag::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 4px; background: var(--confused); }
+.tags { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.tag { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); font-size: var(--t14); font-weight: 500; color: var(--ink-2); }
+.tag.confused.on { background: var(--confused); color: #fff; border-color: transparent; }
+.tag.press { transform: scale(.96); box-shadow: 0 0 0 4px var(--confused-soft); }
+.planned { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: 10px; background: var(--attn-soft); color: var(--attn); font-size: var(--t14); font-weight: 600; border: 1px solid var(--attn-line); }
+.planned .ic:last-child { opacity: .8; }
+.fade { opacity: .55; }
+.cursor { position: absolute; z-index: 40; width: 26px; height: 26px; }
+.liftcard {
+  position: absolute; z-index: 35; width: 270px; padding: 12px 14px; border-radius: 14px;
+  background: var(--panel); border: 1px solid var(--bio-tint); box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; gap: 4px; transform: rotate(-2.5deg);
+}
+.liftcard::before { content: ""; position: absolute; left: 0; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--bio); }
+.liftcard b { font-size: var(--t14); font-weight: 600; }
+.trail { position: absolute; z-index: 34; pointer-events: none; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 20px 12px; }
+.range { font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; margin-left: 4px; }
+.scoped { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t12); font-weight: 600; color: var(--bio-ink); background: var(--bio-soft); padding: 0 10px; height: 24px; border-radius: 99px; }
+.tlabel {
+  position: absolute; z-index: 8; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
+  font-size: var(--t12); font-weight: 600; color: var(--bio-ink); background: var(--panel);
+  border: 1px solid var(--bio-tint); border-radius: 8px; padding: 4px 8px; box-shadow: var(--shadow);
+}
+.todo.new { background: var(--bio-soft); border-radius: 12px; border-bottom: 0; padding: 12px; margin: 4px 0; box-shadow: inset 0 0 0 1px var(--bio-tint); }
+.todo.slide { transform: translateY(-8px); opacity: .7; }
+.src { color: var(--bio-ink); font-weight: 600; }
+.framebadge { position: absolute; left: 16px; bottom: 16px; z-index: 50; background: var(--ink); color: var(--panel); font-size: var(--t14); font-weight: 600; padding: 8px 14px; border-radius: 999px; }
+.blk.compact { padding-top: 4px; padding-bottom: 0; }
+.blk.compact .bt span { -webkit-line-clamp: 1; }
+.blk .bm { white-space: nowrap; }
+.blk.glow { box-shadow: inset 0 0 0 1px var(--bio), 0 0 0 3px var(--panel), 0 0 0 6px color-mix(in oklab, var(--bio) 55%, transparent), 0 0 34px 12px color-mix(in oklab, var(--bio) 45%, transparent) !important; background: var(--bio-tint) !important; }
+</style></head><body>
+<div id="top"></div>
+<div class="board">
+  <div class="w" style="left:24px;top:24px;width:640px;height:530px">
+    <div id="tr-h"></div>
+    <div class="wb" style="padding-top:4px;overflow:hidden">
+      <div class="tr-title"><b>Mitochondrial DNA</b><span class="chip bio">Biology</span><span class="meta">Mon 26 Oct · 3:41</span></div>
+      <div class="sum"><i data-i="sparkles" data-s="16"></i><span>Why mitochondrial DNA comes only from your mother, and what that tells us about Mitochondrial Eve.</span><a href="#">More<i data-i="chevron-right" data-s="14"></i></a></div>
+      <div class="seg-row fade" style="margin-top:6px"><span class="ts">1:07</span><p>There is also a lot of it. A single cell can hold hundreds or even thousands of copies of mitochondrial DNA, compared with just two copies of each nuclear chromosome.</p></div>
+      <div class="seg-row sel" id="m118"><span class="ts">1:18</span><div><p>Now, here is the part people find tricky, so let me try to explain maternal inheritance. You inherit your mitochondria from your mother, but not because your father has none. His sperm do have mitochondria, and some get into the egg, but they are tagged and destroyed.</p>
+        <div class="tags" id="tags"></div></div></div>
+    </div>
+  </div>
+
+  <div class="w" style="left:24px;top:570px;width:640px;height:242px">
+    <div id="todo-h"></div>
+    <div class="wb" style="padding-top:0" id="todo"></div>
+  </div>
+
+  <div class="w" style="left:680px;top:24px;width:736px;height:788px">
+    <div id="cal-h"></div>
+    <div class="toolbar">
+      <button class="btn sm"><i data-i="chevron-left" data-s="16"></i></button>
+      <button class="btn sm">Today</button>
+      <button class="btn sm"><i data-i="chevron-right" data-s="16"></i></button>
+      <span class="range">26 Oct - 1 Nov</span>
+      <span class="scoped"><span class="dot bio"></span>Biology highlighted</span>
+      <span class="spacer"></span>
+      <div class="seg"><span class="on">Week</span><span>Day</span></div>
+    </div>
+    <div style="padding:0 16px 16px;position:relative" id="gridwrap"><div id="grid"></div></div>
+  </div>
+</div>
+<div id="extras"></div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+const f = (location.hash || '#a').slice(1);
+document.getElementById('top').outerHTML = topbar({ active: 'In Lecture', showing: 'Biology · Mitochondrial DNA' });
+document.getElementById('tr-h').outerHTML = wh('file-text', 'Transcript');
+document.getElementById('todo-h').outerHTML = wh('list-todo', 'To-do', '<span class="meta" style="margin-left:4px">+2 in other courses</span>');
+document.getElementById('cal-h').outerHTML = wh('calendar', 'Calendar');
+
+const tags = document.getElementById('tags');
+const m = document.getElementById('m118');
+if (f === 'a') {
+  tags.innerHTML = `<span class="tag confused on press"><i data-i="flag" data-s="15"></i>Confused</span><span class="tag"><i data-i="star" data-s="15"></i>Key point</span><span class="tag"><i data-i="circle-help" data-s="15"></i>Question</span>`;
+} else {
+  m.classList.add('flag');
+  tags.innerHTML = `<span class="tag confused on"><i data-i="flag" data-s="15"></i>Confused</span><span class="planned"><i data-i="calendar-clock" data-s="15"></i>Review planned · Wed 19:30 · 20 min<i data-i="arrow-right" data-s="14"></i></span>`;
+}
+
+const baseTodos = `
+  <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Revise for the Biology quiz</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Today 10:30</span><span><i data-i="clock" data-s="13"></i>2h</span></div></div></div>
+  <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Make flashcards: cell structure</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Sat 10:00</span><span><i data-i="clock" data-s="13"></i>1h</span></div></div></div>`;
+const newTodo = `<div class="todo new ${f === 'b' ? 'slide' : ''}"><span class="tick"></span><div class="tb"><span class="tt">Review: maternal inheritance</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Wed 19:30</span><span><i data-i="clock" data-s="13"></i>20 min</span><span class="src"><i data-i="audio-lines" data-s="13"></i>From Mitochondrial DNA · 1:18</span></div></div></div>`;
+document.getElementById('todo').innerHTML = (f === 'a' ? '' : newTodo) + baseTodos;
+
+const blocks = FIXED.map(b => ({ ...b, dim: b.c === 'chem' })).concat([
+  { day: 1, s: 10.5, e: 12.5, type: 'study', c: 'bio', title: 'Revise for the Biology quiz' },
+  { day: 2, s: 13, e: 15, type: 'study', c: 'chem', title: 'Lab report · 1 of 3', dim: true },
+  { day: 3, s: 13, e: 15, type: 'study', c: 'chem', title: 'Lab report · 2 of 3', dim: true },
+  { day: 4, s: 9, e: 11, type: 'study', c: 'chem', title: 'Lab report · 3 of 3', dim: true },
+  { day: 5, s: 10, e: 11, type: 'study', c: 'bio', title: 'Make flashcards' },
+]);
+if (f === 'c') blocks.push({ day: 2, s: 19.5, e: 19.5 + 1 / 3 + 0.12, type: 'study compact', c: 'bio', title: 'Review: maternal inheritance', glow: true });
+const H = 56, scroll = f === 'c' ? 184 : 0;
+renderWeek(document.getElementById('grid'), { H, blocks, now: { day: 1, t: 10.5 }, bodyH: 600, scroll });
+
+let extras = '';
+if (f === 'a') {
+  extras += `<svg class="cursor" style="left:150px;top:486px" viewBox="0 0 24 24"><path d="M5 3l14 7-6 1.5L10 18z" fill="#2B2520" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+if (f === 'b') {
+  extras += `<div class="liftcard" style="left:560px;top:400px"><span class="meta" style="color:var(--bio-ink);font-weight:600"><span><i data-i="sparkles" data-s="13"></i>Adding to your plan</span></span><b>Review: maternal inheritance</b><span class="meta"><span><i data-i="clock" data-s="13"></i>20 min</span><span>From Mitochondrial DNA · 1:18</span></span></div>`;
+  extras += `<div class="toast" style="right:24px;bottom:24px"><i data-i="check" data-s="18"></i>Review added to your plan<a href="#">See it<i data-i="arrow-right" data-s="14"></i></a></div>`;
+}
+if (f === 'c') {
+  extras += `<div class="toast" style="right:24px;bottom:24px;opacity:.9"><i data-i="check" data-s="18"></i>Review added to your plan<a href="#">See it<i data-i="arrow-right" data-s="14"></i></a></div>`;
+}
+document.getElementById('extras').innerHTML = extras;
+if (f === 'c') {
+  // attach provenance label under the glowing block
+  const blk = document.querySelector('.blk.glow');
+  const wrap = document.getElementById('gridwrap');
+  const r = blk.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
+  const lab = document.createElement('div');
+  lab.className = 'tlabel';
+  lab.innerHTML = '<div style="display:flex;flex-direction:column;gap:2px"><span style="color:var(--ink);font-size:14px">Review: maternal inheritance</span><span style="display:flex;align-items:center;gap:5px"><i data-i="audio-lines" data-s="13"></i>From Mitochondrial DNA · 1:18</span><span style="color:var(--muted);font-weight:500">Wed 19:30-19:50 · 20 min</span></div>'; lab.style.padding='8px 12px'; lab.style.borderRadius='12px';
+  lab.style.left = (r.left - wr.left - 4) + 'px';
+  lab.style.top = (r.bottom - wr.top + 10) + 'px';
+  wrap.appendChild(lab);
+}
+paintIcons();
+</script>
+</body></html>

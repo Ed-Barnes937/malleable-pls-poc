@@ -1,0 +1,87 @@
+<!doctype html><html><head><meta charset="utf-8"><title>04a Popover</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 1440px; height: 900px; overflow: hidden; position: relative; }
+.toolbar { display: flex; align-items: center; gap: 8px; padding: 4px 20px 12px; }
+.range { font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; margin-left: 4px; }
+.scoped { display: inline-flex; align-items: center; gap: 6px; font-size: var(--t12); font-weight: 600; color: var(--bio-ink); background: var(--bio-soft); padding: 0 10px; height: 24px; border-radius: 99px; }
+.pop {
+  position: absolute; z-index: 40; width: 360px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 18px; box-shadow: var(--shadow-pop); padding: 16px 16px 14px; display: flex; flex-direction: column; gap: 12px;
+}
+.pop::before { content: ""; position: absolute; left: -8px; top: var(--ay, 132px); width: 14px; height: 14px; background: var(--panel); border-left: 1px solid var(--line); border-bottom: 1px solid var(--line); transform: rotate(45deg); }
+.pop .src { display: flex; align-items: center; gap: 6px; font-size: var(--t14); font-weight: 600; color: var(--bio-ink); }
+.pop h3 { margin: 0; font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; line-height: 1.25; }
+.quote { margin: 0; font-size: var(--t14); color: var(--ink-2); padding: 10px 12px; border-radius: 12px; background: var(--bio-soft); border-left: 4px solid var(--confused); }
+.quote .tg { display: inline-flex; align-items: center; gap: 4px; font-size: var(--t12); font-weight: 600; color: var(--confused); margin-bottom: 4px; }
+.pop .go { height: 42px; justify-content: center; font-size: var(--t16); font-weight: 600; border-radius: 13px; }
+.pop .row { display: flex; gap: 8px; }
+.pop .row .btn { flex: 1; justify-content: center; }
+.made { font-size: var(--t12); color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; display: flex; gap: 6px; align-items: flex-start; }
+.made a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.close { position: absolute; right: 10px; top: 10px; }
+.blk.compact { padding-top: 4px; padding-bottom: 0; }
+.blk.compact .bt span { -webkit-line-clamp: 1; }
+.blk .bm { white-space: nowrap; }
+.cu-day { font-size: var(--t12); font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+</style></head><body>
+<div id="top"></div>
+<div class="board">
+  <div class="w" style="left:24px;top:24px;width:1060px;height:788px">
+    <div id="cal-h"></div>
+    <div class="toolbar">
+      <button class="btn sm"><i data-i="chevron-left" data-s="16"></i></button>
+      <button class="btn sm">Today</button>
+      <button class="btn sm"><i data-i="chevron-right" data-s="16"></i></button>
+      <span class="range">26 Oct - 1 Nov 2026</span>
+      <span class="scoped"><span class="dot bio"></span>Biology highlighted</span>
+      <span class="spacer"></span>
+      <div class="seg"><span class="on">Week</span><span>Day</span></div>
+      <button class="btn"><i data-i="plus" data-s="16"></i>Add</button>
+      <button class="btn soft"><i data-i="sparkles" data-s="16"></i>Help me plan</button>
+    </div>
+    <div style="padding:0 16px 16px" id="gridwrap"><div id="grid"></div></div>
+  </div>
+  <div class="w" style="left:1100px;top:24px;width:316px;height:788px">
+    <div id="todo-h"></div>
+    <div class="wb" style="padding-top:2px">
+      <div class="meta" style="justify-content:space-between"><span class="section-lbl">3 to do</span><span>+2 in other courses</span></div>
+      <div class="todo" style="background:var(--bio-soft);border-radius:12px;padding:12px;border:0;margin-top:6px;box-shadow:inset 0 0 0 1.5px var(--accent-line)"><span class="tick"></span><div class="tb"><span class="tt">Review: maternal inheritance</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Wed 19:30</span><span><i data-i="clock" data-s="13"></i>20 min</span></div><div class="meta"><span style="color:var(--bio-ink);font-weight:600"><i data-i="audio-lines" data-s="13"></i>From Mitochondrial DNA · 1:18</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Revise for the Biology quiz</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Today 10:30</span><span><i data-i="clock" data-s="13"></i>2h</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Make flashcards: cell structure</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Sat 10:00</span><span><i data-i="clock" data-s="13"></i>1h</span></div></div></div>
+    </div>
+  </div>
+</div>
+<div class="pop" id="pop">
+  <button class="iconbtn sm close"><i data-i="x" data-s="16"></i></button>
+  <span class="src"><i data-i="audio-lines" data-s="16"></i>From Mitochondrial DNA · 1:18</span>
+  <h3>Review: maternal inheritance</h3>
+  <div class="meta"><span class="chip bio">Biology</span><span><i data-i="calendar-clock" data-s="13"></i>Wed 28 Oct · 19:30-19:50</span><span><i data-i="clock" data-s="13"></i>20 min</span></div>
+  <p class="quote"><span class="tg"><i data-i="flag" data-s="12"></i>You marked this confusing</span><br>"Now, here is the part people find tricky, so let me try to explain maternal inheritance..."</p>
+  <button class="btn primary go"><i data-i="play" data-s="16"></i>Go to moment</button>
+  <div class="row"><button class="btn"><i data-i="check" data-s="16"></i>Mark done</button><button class="btn"><i data-i="calendar-clock" data-s="16"></i>Edit time</button></div>
+  <div class="made"><i data-i="zap" data-s="13"></i><span>Made by "When I mark something confusing, add a 20-min review within 3 days". <a href="#">Edit</a></span></div>
+</div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+document.getElementById('top').outerHTML = topbar({ active: 'My week', showing: 'Biology', today: TODAY_LINE });
+document.getElementById('cal-h').outerHTML = wh('calendar', 'Calendar');
+document.getElementById('todo-h').outerHTML = wh('list-todo', 'To-do');
+const blocks = FIXED.map(b => ({ ...b, dim: b.c === 'chem' })).concat([
+  { day: 1, s: 10.5, e: 12.5, type: 'study', c: 'bio', title: 'Revise for the Biology quiz' },
+  { day: 2, s: 13, e: 15, type: 'study', c: 'chem', title: 'Lab report · 1 of 3', dim: true },
+  { day: 3, s: 13, e: 15, type: 'study', c: 'chem', title: 'Lab report · 2 of 3', dim: true },
+  { day: 4, s: 9, e: 11, type: 'study', c: 'chem', title: 'Lab report · 3 of 3', dim: true },
+  { day: 5, s: 10, e: 11, type: 'study', c: 'bio', title: 'Make flashcards' },
+  { day: 2, s: 19.5, e: 19.5 + 1 / 3 + 0.1, type: 'study compact', c: 'bio', title: 'Review: maternal inheritance', sel: true },
+]);
+renderWeek(document.getElementById('grid'), { H: 50, blocks, now: { day: 1, t: 10.5 }, bodyH: 584, scroll: 116 });
+const blk = document.querySelector('.blk.sel').getBoundingClientRect();
+const pop = document.getElementById('pop');
+pop.style.left = (blk.right + 14) + 'px';
+paintIcons();
+const ph = pop.getBoundingClientRect().height, cy = blk.top + blk.height / 2;
+const ptop = Math.min(cy - 139, 900 - ph - 20);
+pop.style.top = ptop + 'px'; pop.style.setProperty('--ay', (cy - ptop - 7) + 'px');
+</script>
+</body></html>

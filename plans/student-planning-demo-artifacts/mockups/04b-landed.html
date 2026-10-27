@@ -1,0 +1,89 @@
+<!doctype html><html><head><meta charset="utf-8"><title>04b Landed on the moment</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 1440px; height: 900px; overflow: hidden; position: relative; }
+.tr-title { display: flex; align-items: center; gap: 10px; padding: 0 0 10px; }
+.tr-title b { font-size: var(--t16); font-weight: 600; }
+.tr-title .meta { margin-left: auto; }
+.sum { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); font-size: var(--t14); color: var(--ink-2); position: relative; z-index: 3; box-shadow: 0 6px 12px -8px rgba(70,45,20,.18); }
+.sum .ic { color: var(--accent); }
+.sum span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum a { color: var(--accent); font-weight: 600; text-decoration: none; display: flex; align-items: center; gap: 2px; }
+.scroller { position: relative; display: grid; grid-template-columns: 1fr 14px; gap: 12px; margin-top: 4px; }
+.seg-row { display: grid; grid-template-columns: 56px 1fr; gap: 6px; padding: 12px 14px 12px 0; position: relative; border-radius: 14px; }
+.seg-row .ts { font-family: var(--mono); font-size: var(--t12); color: var(--muted); padding-top: 4px; text-align: right; padding-right: 6px; }
+.seg-row p { margin: 0; font-size: var(--t16); line-height: 1.65; color: var(--ink); }
+.seg-row.fade p { color: var(--ink-2); }
+.seg-row.land { background: var(--bio-soft); box-shadow: inset 0 0 0 1.5px var(--bio), 0 0 0 5px color-mix(in oklab, var(--bio) 18%, transparent); }
+.seg-row.land .ts { color: var(--bio-ink); font-weight: 500; }
+.seg-row.flag::before { content: ""; position: absolute; left: 6px; top: 12px; bottom: 12px; width: 4px; border-radius: 4px; background: var(--confused); }
+.seg-row.kp::before { content: ""; position: absolute; left: 6px; top: 12px; bottom: 12px; width: 4px; border-radius: 4px; background: var(--attn); }
+.tags { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+.tag { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 10px; font-size: var(--t14); font-weight: 600; }
+.tag.confused { background: var(--confused-soft); color: var(--confused); border: 1px solid var(--confused-line); }
+.tag.kp { background: var(--attn-soft); color: var(--attn); border: 1px solid var(--attn-line); }
+.planned { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 10px; background: var(--attn-soft); color: var(--attn); font-size: var(--t14); font-weight: 600; border: 1px solid var(--attn-line); }
+.landed { position: absolute; right: 14px; top: -12px; font-size: var(--t12); font-weight: 600; color: var(--bio-ink); background: var(--panel); border: 1px solid var(--bio-tint); padding: 2px 10px; border-radius: 99px; display: flex; gap: 5px; align-items: center; }
+.rail { position: relative; border-radius: 99px; background: var(--bg-2); }
+.rail i { position: absolute; left: 2px; right: 2px; height: 6px; border-radius: 3px; }
+.rail .thumb { position: absolute; left: 0; right: 0; border-radius: 99px; background: var(--line-2); opacity: .7; }
+.legend { display: flex; gap: 14px; font-size: var(--t12); color: var(--muted); margin-top: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 4px; border-radius: 2px; display: inline-block; }
+.ac-wave { display: flex; align-items: center; gap: 3px; height: 48px; justify-content: center; }
+.ac-wave i { width: 3px; border-radius: 2px; background: var(--accent); opacity: .7; }
+.ac-time { text-align: center; font-size: var(--t20); font-weight: 600; font-variant-numeric: tabular-nums; margin: 6px 0 12px; }
+.ac-ctrls { display: flex; justify-content: center; gap: 10px; }
+.round { width: 44px; height: 44px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; background: var(--panel); color: var(--ink-2); }
+.round.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.prog { height: 6px; border-radius: 99px; background: var(--bg-2); margin: 18px 0 6px; position: relative; }
+.prog b { position: absolute; left: 0; top: 0; bottom: 0; width: 35.7%; background: var(--accent); border-radius: 99px; }
+.prog u { position: absolute; left: 35.7%; top: 50%; width: 14px; height: 14px; border-radius: 50%; background: var(--panel); border: 3px solid var(--accent); transform: translate(-50%,-50%); }
+</style></head><body>
+<div id="top"></div>
+<div class="board">
+  <div class="w" style="left:24px;top:24px;width:340px;height:330px">
+    <div id="ac-h"></div>
+    <div class="wb">
+      <div class="ac-wave" id="wave"></div>
+      <div class="ac-time">1:18 <span style="color:var(--muted);font-weight:500;font-size:14px">/ 3:41</span></div>
+      <div class="ac-ctrls"><span class="round on"><i data-i="play" data-s="18"></i></span><span class="round"><i data-i="mic" data-s="18"></i></span><span class="round"><i data-i="upload" data-s="18"></i></span></div>
+      <div class="prog"><b></b><u></u></div>
+      <div class="meta" style="justify-content:space-between"><span>Playing from 1:18</span><span>3:41</span></div>
+    </div>
+  </div>
+
+  <div class="w" style="left:380px;top:24px;width:1036px;height:788px">
+    <div id="tr-h"></div>
+    <div class="wb" style="padding-top:4px;overflow:hidden">
+      <div class="tr-title"><b>Mitochondrial DNA</b><span class="chip bio">Biology</span><span class="meta">Mon 26 Oct · 17 moments · 3:41</span></div>
+      <div class="sum"><i data-i="sparkles" data-s="16"></i><span>Why mitochondrial DNA comes only from your mother, and what that tells us about Mitochondrial Eve.</span><a href="#">Show summary<i data-i="chevron-right" data-s="14"></i></a></div>
+      <div class="scroller">
+        <div>
+          <div class="seg-row fade" style="margin-top:8px"><span class="ts">0:58</span><p>So the mitochondrion has its own small, circular genome, a leftover from when it was a free-living bacterium.</p></div>
+          <div class="seg-row kp fade"><span class="ts">1:07</span><div><p>There is also a lot of it. A single cell can hold hundreds or even thousands of copies of mitochondrial DNA, compared with just two copies of each nuclear chromosome.</p></div></div>
+          <div class="seg-row land flag" style="margin:8px 0"><span class="landed"><i data-i="calendar-clock" data-s="12"></i>From your plan · Wed 19:30</span><span class="ts">1:18</span><div><p>Now, here is the part people find tricky, so let me try to explain maternal inheritance. You inherit your mitochondria from your mother, but not because your father has none. His sperm do have mitochondria, in the midpiece, and some of them do get into the egg. But they are tagged and destroyed, mostly, so what you end up with is your mother's mitochondrial DNA, which she got from her mother, and not her father's.</p>
+            <div class="tags"><span class="tag confused"><i data-i="flag" data-s="14"></i>Confused</span><span class="planned"><i data-i="calendar-clock" data-s="14"></i>Review planned · Wed 19:30 · 20 min</span></div></div></div>
+          <div class="seg-row fade"><span class="ts">1:58</span><p>If that felt like a lot, don't worry. We will come back to it with family trees next week, and it will click once you can see it drawn out.</p></div>
+          <div class="seg-row fade"><span class="ts">2:09</span><p>And if some of the egg's own mitochondria are different from each other, which we call heteroplasmy, then which ones you get is partly down to chance.</p></div>
+          <div class="seg-row fade"><span class="ts">2:31</span><p>That is why two siblings can inherit the same mother's mitochondria and still not have exactly the same mix.</p></div>
+          <div class="seg-row fade"><span class="ts">2:47</span><p>Because it passes down the maternal line without mixing, mitochondrial DNA is a very useful clock for tracing ancestry.</p></div>
+        </div>
+        <div class="rail" id="rail"><span class="thumb" style="top:24%;height:22%"></span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" style="right:24px;bottom:24px"><i data-i="audio-lines" data-s="18"></i>Opened 1:18 in In Lecture<a href="#"><i data-i="chevron-left" data-s="14"></i>Back to My week</a></div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+document.getElementById('top').outerHTML = topbar({ active: 'In Lecture', showing: 'Biology · Mitochondrial DNA' });
+document.getElementById('ac-h').outerHTML = wh('mic', 'Audio Capture');
+document.getElementById('tr-h').outerHTML = wh('file-text', 'Transcript', '<span class="legend" style="margin:0 0 0 8px"><span><i style="background:var(--confused)"></i>Confused</span><span><i style="background:var(--attn)"></i>Key point</span><span><i style="background:var(--accent)"></i>Question</span></span>');
+const rail = document.getElementById('rail');
+[[31, 'confused'], [28, 'attn'], [55, 'accent'], [72, 'confused'], [86, 'attn']].forEach(([t, c]) => rail.insertAdjacentHTML('beforeend', `<i style="top:${t}%;background:var(--${c})"></i>`));
+const wave = document.getElementById('wave');
+for (let i = 0; i < 46; i++) wave.insertAdjacentHTML('beforeend', `<i style="height:${10 + Math.abs(Math.sin(i * 1.7) * 30) + (i % 5) * 2}px;${i > 16 ? 'opacity:.25' : ''}"></i>`);
+paintIcons();
+</script>
+</body></html>

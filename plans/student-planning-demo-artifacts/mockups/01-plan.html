@@ -1,0 +1,144 @@
+<!doctype html><html><head><meta charset="utf-8"><title>01 My week with Help me plan</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 1440px; height: 900px; overflow: hidden; }
+.toolbar { display: flex; align-items: center; gap: 10px; padding: 4px 20px 12px; }
+.range { font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; margin-left: 6px; }
+.grid-wrap { padding: 0 16px 16px; }
+.hmp {
+  position: absolute; right: 14px; top: 104px; bottom: 14px; width: 314px; z-index: 20;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-pop);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.hmp-h { display: flex; align-items: flex-start; gap: 10px; padding: 16px 12px 0 18px; }
+.hmp-h h3 { margin: 0; font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; flex: 1; display: flex; align-items: center; gap: 8px; }
+.hmp-h h3 .ic { color: var(--accent); }
+.hmp-b { padding: 4px 18px 0; display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.lede { font-size: var(--t14); color: var(--ink-2); margin: 0; }
+.cap { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.cap p { margin: 0; font-size: var(--t16); font-weight: 600; line-height: 1.35; }
+.bar { height: 8px; border-radius: 99px; background: var(--bg-2); position: relative; overflow: hidden; }
+.bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 75%; background: var(--accent); border-radius: 99px; }
+.bar u { position: absolute; left: 75%; top: 0; bottom: 0; right: 0; background: repeating-linear-gradient(135deg, var(--attn-line) 0 4px, transparent 4px 8px); }
+.cap .meta b { color: var(--ink-2); font-weight: 600; }
+.call { border-radius: 14px; background: var(--attn-soft); border: 1px solid var(--attn-line); padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.call p { margin: 0; font-size: var(--t14); color: var(--ink); }
+.call p b { font-weight: 600; }
+.call .row { display: flex; gap: 6px; flex-wrap: wrap; }
+.call .btn.sm { padding: 0 9px; gap: 6px; }
+.call .btn.sm.pressed { background: var(--ink); color: var(--panel); border-color: transparent; }
+.call .note { font-size: var(--t12); color: var(--attn); font-weight: 500; }
+.draft { display: flex; flex-direction: column; gap: 6px; }
+.dr { display: flex; align-items: center; gap: 10px; padding: 5px 10px; border-radius: 10px; border: 1.5px dashed var(--line-2); }
+.dr .t { font-size: var(--t14); font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dr .when { font-size: var(--t12); color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.miss { font-size: var(--t12); color: var(--ink-2); }
+.miss a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.hmp-f { padding: 12px 18px 16px; display: flex; gap: 8px; border-top: 1px solid var(--line); background: var(--panel); }
+.hmp-f .btn.primary { flex: 1; justify-content: center; }
+.addrow { display: flex; gap: 8px; margin-top: 8px; }
+.input { flex: 1; height: 38px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: var(--t14); }
+.cu-day { font-size: var(--t12); font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+.cu { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 12px; background: var(--panel-2); font-size: var(--t14); }
+.cu b { font-weight: 600; flex: 1; }
+.cu .tm { font-size: var(--t12); color: var(--muted); font-variant-numeric: tabular-nums; }
+.grab { color: var(--muted); }
+</style></head><body>
+<div id="top"></div>
+<div class="board">
+  <div class="w" style="left:24px;top:24px;width:1080px;height:788px">
+    <div id="cal-h"></div>
+    <div class="toolbar">
+      <div class="seg" style="background:transparent;padding:0;gap:4px">
+        <button class="btn sm"><i data-i="chevron-left" data-s="16"></i></button>
+        <button class="btn sm">Today</button>
+        <button class="btn sm"><i data-i="chevron-right" data-s="16"></i></button>
+      </div>
+      <span class="range">26 Oct - 1 Nov 2026</span>
+      <span class="spacer"></span>
+      <div class="seg"><span class="on">Week</span><span>Day</span></div>
+      <button class="btn"><i data-i="plus" data-s="16"></i>Add</button>
+      <button class="btn soft" style="box-shadow:inset 0 0 0 1.5px var(--accent-line)"><i data-i="sparkles" data-s="16"></i>Help me plan</button>
+    </div>
+    <div class="grid-wrap"><div id="grid"></div></div>
+
+    <aside class="hmp">
+      <div class="hmp-h"><h3><i data-i="sparkles" data-s="18"></i>Plan your time</h3><button class="iconbtn sm"><i data-i="x" data-s="16"></i></button></div>
+      <div class="hmp-b">
+        <p class="lede">Drag a to-do onto a free gap, or let Auto-fill draft the rest. Nothing is saved until you accept.</p>
+        <div class="cap">
+          <p>About 9 hours of study time left this week (2h a day). Your to-dos need 12.</p>
+          <div class="bar"><i></i><u></u></div>
+          <div class="meta"><span><b>9h</b> free</span><span><b>12h</b> to do</span><span style="color:var(--attn);font-weight:600">3h short</span></div>
+        </div>
+        <div class="call">
+          <p><b>Lab report write-up</b> (7h 30m) is too long for one day.</p>
+          <div class="row">
+            <button class="btn sm pressed"><i data-i="split" data-s="14"></i>Split across days</button>
+            <button class="btn sm"><i data-i="scissors" data-s="14"></i>Shrink</button>
+          </div>
+          
+        </div>
+        <div class="draft">
+          <span class="section-lbl">Draft · 4 blocks</span>
+          <div class="dr"><span class="dot chem"></span><span class="t">Lab report · 1 of 3</span><span class="when">Wed 13:00</span></div>
+          <div class="dr"><span class="dot chem"></span><span class="t">Lab report · 2 of 3</span><span class="when">Thu 13:00</span></div>
+          <div class="dr"><span class="dot chem"></span><span class="t">Lab report · 3 of 3</span><span class="when">Fri 09:00</span></div>
+          <div class="dr"><span class="dot bio"></span><span class="t">Make flashcards</span><span class="when">Sat 10:00</span></div>
+        </div>
+        <p class="miss">Problem sheet (1h 30m) didn't fit. <a href="#">Pick a time</a></p>
+      </div>
+      <div class="hmp-f"><button class="btn primary"><i data-i="check" data-s="16"></i>Accept draft</button><button class="btn ghost">Keep my plan</button></div>
+    </aside>
+  </div>
+
+  <div class="w" style="left:1120px;top:24px;width:296px;height:470px">
+    <div id="todo-h"></div>
+    <div class="wb" style="padding-top:2px">
+      <span class="section-lbl">4 to do</span>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Revise for the Biology quiz</span>
+        <div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Today 10:30</span><span><i data-i="clock" data-s="13"></i>2h</span><span class="chip bio">Biology</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Lab report write-up</span>
+        <div class="meta"><span>Do by Fri 30 Oct</span><span><i data-i="clock" data-s="13"></i>7h 30m</span><span class="chip chem">Chemistry</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Chemistry problem sheet</span>
+        <div class="meta"><span><i data-i="clock" data-s="13"></i>1h 30m</span><span class="chip chem">Chemistry</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Make flashcards: cell structure</span>
+        <div class="meta"><span><i data-i="clock" data-s="13"></i>1h</span><span class="chip bio">Biology</span></div></div></div>
+      <div class="addrow"><span class="input">Add a to-do</span><span class="input" style="flex:none;width:96px">How long?</span></div>
+    </div>
+  </div>
+
+  <div class="w" style="left:1120px;top:510px;width:296px;height:302px">
+    <div id="cu-h"></div>
+    <div class="wb" style="padding-top:2px">
+      <div class="seg"><span class="on">Next 14 days</span><span>This week</span></div>
+      <div class="cu-day">Thu 29 Oct</div>
+      <div class="cu"><span class="dot bio"></span><b>Biology quiz</b><span class="tm">10:00</span></div>
+      <div class="cu-day">Fri 30 Oct</div>
+      <div class="cu"><span class="dot chem"></span><b>Chemistry lab report</b><span class="tm">17:00</span></div>
+    </div>
+  </div>
+</div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+document.getElementById('top').outerHTML = topbar({ active: 'My week', today: TODAY_LINE });
+document.getElementById('cal-h').outerHTML = wh('calendar', 'Calendar');
+document.getElementById('todo-h').outerHTML = wh('list-todo', 'To-do');
+document.getElementById('cu-h').outerHTML = wh('calendar-clock', 'Coming up');
+const blocks = FIXED.concat([
+  { day: 1, s: 10.5, e: 12.5, type: 'study', c: 'bio', title: 'Revise for the Biology quiz', icon: 'grip-vertical' },
+  { day: 2, s: 13, e: 15, type: 'ghost', c: 'chem', title: 'Lab report · 1 of 3' },
+  { day: 3, s: 13, e: 15, type: 'ghost', c: 'chem', title: 'Lab report · 2 of 3' },
+  { day: 4, s: 9, e: 11, type: 'ghost', c: 'chem', title: 'Lab report · 3 of 3' },
+  { day: 5, s: 10, e: 11, type: 'ghost', c: 'bio', title: 'Make flashcards' },
+]);
+const free = [
+  { day: 1, s: 12.5, e: 14, label: '1h 30m free' }, { day: 1, s: 16, e: 17, label: '1h free' },
+  { day: 2, s: 8, e: 10, label: '2h free' }, { day: 2, s: 12, e: 13 }, { day: 2, s: 15, e: 21, label: '6h free' },
+  { day: 3, s: 8, e: 13, label: '5h free' }, { day: 3, s: 15, e: 17, label: '2h free' },
+  { day: 4, s: 8, e: 9 }, { day: 4, s: 11, e: 21, label: '10h free' },
+];
+renderWeek(document.getElementById('grid'), { H: 40, blocks, free, now: { day: 1, t: 10.5 } });
+paintIcons();
+</script>
+</body></html>

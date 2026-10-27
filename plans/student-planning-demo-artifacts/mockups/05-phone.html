@@ -1,0 +1,96 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>05 Phone</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 400px; }
+.ptop { background: var(--panel); border-bottom: 1px solid var(--line); padding: 8px 12px 10px; display: flex; flex-direction: column; gap: 8px; position: sticky; top: 0; z-index: 10; }
+.row1 { display: flex; align-items: center; gap: 6px; }
+.tabwrap { flex: 1; min-width: 0; position: relative; }
+.tabwrap .tabs { overflow: hidden; }
+.tabwrap::before, .tabwrap::after { content: ""; position: absolute; top: 0; bottom: 0; width: 28px; z-index: 2; pointer-events: none; }
+.tabwrap::before { left: 0; background: linear-gradient(90deg, var(--panel) 15%, transparent); border-radius: 14px 0 0 14px; }
+.tabwrap::after { right: 0; background: linear-gradient(270deg, var(--panel) 15%, transparent); border-radius: 0 14px 14px 0; }
+.tabs .inner { display: flex; gap: 4px; transform: translateX(-118px); }
+.row2 { display: flex; align-items: center; gap: 8px; }
+.row2 .today-line { font-size: var(--t12); overflow: hidden; }
+.stack { padding: 14px 12px 24px; display: flex; flex-direction: column; gap: 14px; }
+.w { position: relative; }
+.wh { padding: 12px 10px 4px 14px; }
+.wb { padding: 6px 14px 16px; }
+.dnav { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.dnav .day { font-size: var(--t16); font-weight: 600; flex: 1; text-align: center; }
+.dnav .day small { display: block; font-size: var(--t12); color: var(--muted); font-weight: 500; }
+.wk { border-radius: 12px; }
+.blk { font-size: var(--t12); }
+.blk .bt { font-size: var(--t14); }
+.refit { border-radius: 14px; background: var(--attn-soft); border: 1px solid var(--attn-line); padding: 12px; display: flex; flex-direction: column; gap: 10px; margin-bottom: 4px; }
+.refit p { margin: 0; font-size: var(--t14); color: var(--ink); display: flex; gap: 8px; }
+.refit p .ic { color: var(--attn); margin-top: 2px; }
+.refit .row { display: flex; gap: 8px; }
+.todo .meta { font-size: 13px; }
+.todo.done .tt { text-decoration: line-through; color: var(--muted); }
+.todo.done { opacity: .9; }
+.undo { margin-left: auto; align-self: center; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border-radius: 10px; background: var(--good-soft); color: var(--good); font-size: var(--t12); font-weight: 600; white-space: nowrap; }
+.undo a { color: var(--accent); text-decoration: none; display: inline-flex; gap: 3px; align-items: center; }
+.src { color: var(--bio-ink); font-weight: 600; }
+.addrow { display: flex; gap: 8px; margin-top: 10px; }
+.input { flex: 1; height: 40px; border-radius: 12px; border: 1px solid var(--line-2); background: var(--panel-2); display: flex; align-items: center; padding: 0 12px; color: var(--muted); font-size: var(--t14); }
+</style></head><body>
+<div class="ptop">
+  <div class="row1">
+    <button class="iconbtn"><i data-i="menu" data-s="20"></i></button>
+    <div class="tabwrap"><div class="tabs"><div class="inner">
+      <div class="tab"><i data-i="moon" data-s="16"></i>Evening Review</div>
+      <div class="tab"><i data-i="book-open" data-s="16"></i>In Lecture</div>
+      <div class="tab on"><i data-i="calendar-days" data-s="16"></i>My week</div>
+      <div class="tab"><i data-i="graduation-cap" data-s="16"></i>Exam Prep</div>
+      <div class="tab add"><i data-i="plus" data-s="16"></i></div>
+    </div></div></div>
+    <button class="iconbtn"><i data-i="layout-grid" data-s="18"></i></button>
+  </div>
+  <div class="row2"><span class="showing" style="height:28px;font-size:13px">Showing: <b>All courses</b></span><span class="today-line">Tue <span class="sep">·</span> shift 17:00 <span class="sep">·</span> <b>2h free</b></span></div>
+</div>
+<div class="stack">
+  <div class="w">
+    <div id="cal-h"></div>
+    <div class="wb">
+      <div class="dnav">
+        <button class="btn sm"><i data-i="chevron-left" data-s="16"></i></button>
+        <span class="day">Tuesday 27 Oct<small>Today</small></span>
+        <button class="btn sm"><i data-i="chevron-right" data-s="16"></i></button>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:12px"><div class="seg"><span>Week</span><span class="on">Day</span></div><span class="spacer"></span><button class="btn soft sm"><i data-i="sparkles" data-s="15"></i>Help me plan</button></div>
+      <div id="grid"></div>
+    </div>
+  </div>
+  <div class="w">
+    <div id="todo-h"></div>
+    <div class="wb">
+      <div class="refit">
+        <p><i data-i="refresh-cw" data-s="16"></i><span>1 block didn't happen yesterday: <b>Lab report reading</b>. Re-fit it?</span></p>
+        <div class="row"><button class="btn sm primary">Re-fit</button><button class="btn sm ghost">Not now</button></div>
+      </div>
+      <div class="todo done"><span class="tick done"><i data-i="check" data-s="13" data-w="3"></i></span><div class="tb"><span class="tt">Make flashcards: cell structure</span><div class="meta"><span>1h</span><span class="chip bio">Biology</span><span class="undo"><i data-i="check" data-s="13"></i>Done · <a href="#"><i data-i="undo-2" data-s="12"></i>Undo</a></span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Revise for the Biology quiz</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Today 10:30</span><span><i data-i="clock" data-s="13"></i>2h</span><span class="chip bio">Biology</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Review: maternal inheritance</span><div class="meta"><span><i data-i="calendar-clock" data-s="13"></i>Wed 19:30</span><span><i data-i="clock" data-s="13"></i>20 min</span></div><div class="meta"><span class="src"><i data-i="audio-lines" data-s="13"></i>From Mitochondrial DNA · 1:18</span></div></div></div>
+      <div class="todo"><span class="tick"></span><div class="tb"><span class="tt">Lab report write-up</span><div class="meta"><span>Do by Fri 30 Oct</span><span><i data-i="clock" data-s="13"></i>7h 30m</span><span class="chip chem">Chemistry</span></div></div></div>
+      <div class="addrow"><span class="input">Add a to-do</span><span class="input" style="flex:none;width:104px">How long?</span></div>
+    </div>
+  </div>
+</div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+if (location.hash === '#dark') document.documentElement.classList.add('dark');
+document.getElementById('cal-h').outerHTML = wh('calendar', 'Calendar');
+document.getElementById('todo-h').outerHTML = wh('list-todo', 'To-do', '<span class="meta" style="margin-left:2px">4 to do</span>');
+const days = [{ n: 'Tue', d: 27, today: true }];
+const blocks = [
+  { day: 1, s: 10.5, e: 12.5, type: 'study', c: 'bio', title: 'Revise for the Biology quiz', icon: 'grip-vertical' },
+  { day: 1, s: 14, e: 16, type: 'class', c: 'chem', title: 'Chemistry lecture', icon: 'repeat' },
+  { day: 1, s: 17, e: 22, type: 'shift', title: 'Cafe shift', icon: 'coffee' },
+];
+const free = [{ day: 1, s: 12.5, e: 14, label: '1h 30m free' }, { day: 1, s: 16, e: 17, label: '1h free' }];
+renderWeek(document.getElementById('grid'), { H: 36, days, dayIdx: [1], blocks, free, now: { day: 1, t: 10.5 }, due: false, start: 9, end: 22, gutter: 48 });
+document.querySelector('.wk-head').remove();
+paintIcons();
+</script>
+</body></html>

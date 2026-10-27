@@ -1,0 +1,171 @@
+<title>Student Planner Mock-ups</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column per screen, mock-up full width of the wrap, "today" screenshot smaller beneath; matches the UX review page it follows. */
+:root {
+  --ink: oklch(0.25 0.02 60);
+  --ink-2: oklch(0.43 0.02 60);
+  --paper: oklch(0.975 0.008 75);
+  --sheet: oklch(0.995 0.004 75);
+  --rule: oklch(0.88 0.015 70);
+  --accent: oklch(0.5 0.15 268);
+  --accent-soft: oklch(0.94 0.035 268);
+  --after: oklch(0.5 0.11 155);
+  --after-soft: oklch(0.94 0.04 155);
+  --font-display: 'Bricolage Grotesque', 'Avenir Next', system-ui, sans-serif;
+  --font-body: 'Atkinson Hyperlegible', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --step--1: 0.8125rem; --step-0: 1rem; --step-1: 1.1875rem; --step-2: 1.5rem; --step-3: 2.25rem;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ink: oklch(0.93 0.01 70); --ink-2: oklch(0.75 0.015 70); --paper: oklch(0.19 0.01 60);
+    --sheet: oklch(0.23 0.012 60); --rule: oklch(0.35 0.015 60); --accent: oklch(0.76 0.11 268);
+    --accent-soft: oklch(0.31 0.05 268); --after: oklch(0.77 0.12 155); --after-soft: oklch(0.3 0.05 155);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ink: oklch(0.93 0.01 70); --ink-2: oklch(0.75 0.015 70); --paper: oklch(0.19 0.01 60);
+  --sheet: oklch(0.23 0.012 60); --rule: oklch(0.35 0.015 60); --accent: oklch(0.76 0.11 268);
+  --accent-soft: oklch(0.31 0.05 268); --after: oklch(0.77 0.12 155); --after-soft: oklch(0.3 0.05 155);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--font-body); font-size: var(--step-0); line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--paper); }
+.wrap { max-width: 72rem; margin: 0 auto; padding-block: 2.5rem 5rem; display: flex; flex-direction: column; gap: 3rem; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; line-height: 1.15; margin: 0; }
+h1 { font-size: var(--step-3); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: var(--step-2); font-weight: 700; }
+p { margin: 0; }
+.eyebrow { font-family: var(--font-mono); font-size: var(--step--1); letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-2); }
+header { display: flex; flex-direction: column; gap: 0.9rem; max-width: 46rem; }
+.lede { font-size: var(--step-1); color: var(--ink-2); }
+nav.jump { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--paper); border-bottom: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 0.5rem; padding-block: 0.6rem; }
+nav.jump a { font-family: var(--font-mono); font-size: var(--step--1); color: var(--ink); text-decoration: none; padding: 0.3rem 0.7rem; border-radius: 999px; border: 1px solid var(--rule); background: var(--sheet); }
+nav.jump a:hover { border-color: var(--accent); }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+section.screen { display: flex; flex-direction: column; gap: 1.25rem; scroll-margin-top: 4rem; border-top: 1px solid var(--rule); padding-top: 1.75rem; }
+.head { display: flex; flex-direction: column; gap: 0.4rem; max-width: 46rem; }
+.fixes { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.fix { font-family: var(--font-mono); font-size: 0.75rem; padding: 0.1rem 0.55rem; border-radius: 999px; background: var(--accent-soft); color: var(--ink); white-space: nowrap; }
+ul.changes { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: 0.35rem; max-width: 46rem; }
+figure { margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+figure img { display: block; max-width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--rule); background: var(--sheet); }
+figcaption { font-size: var(--step--1); color: var(--ink-2); display: flex; gap: 0.6rem; align-items: baseline; }
+.tag { font-family: var(--font-mono); font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.05rem 0.5rem; border-radius: 999px; white-space: nowrap; }
+.tag.after { background: var(--after-soft); color: var(--ink); }
+.tag.before { border: 1px solid var(--rule); color: var(--ink-2); }
+.before-fig { max-width: 34rem; }
+.before-fig img { opacity: 0.95; }
+.frames { display: flex; flex-direction: column; gap: 1.5rem; }
+.phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 18rem)); gap: 1.25rem; align-items: start; }
+.notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); gap: 1rem; }
+.notes div { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.4rem; }
+code { font-family: var(--font-mono); font-size: 0.85em; overflow-wrap: anywhere; }
+footer { color: var(--ink-2); font-size: var(--step--1); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">T12 follow-up · Student planning demo · mock-ups</span>
+  <h1>Student Planner Mock-ups</h1>
+  <p class="lede">Five screens from the UX review, drawn as static pages with Priya's real week: Biology and Chemistry lectures, cafe shifts Tue and Thu 17:00-22:00, the Biology quiz on Thursday and the lab report on Friday. The structure is the app you have today, with board tabs and widget panels. What changes is the type, the surfaces and a few interactions that tell the story better on stage.</p>
+</header>
+
+<nav class="jump" aria-label="Jump to screen">
+  <a href="#s1">My week + Help me plan</a>
+  <a href="#s2">Confused to calendar</a>
+  <a href="#s3">First run</a>
+  <a href="#s4">Go to moment</a>
+  <a href="#s5">Phone</a>
+</nav>
+
+<section class="notes" aria-label="About these mock-ups">
+  <div><span class="eyebrow">Shared across every screen</span><p>Type on four steps: 12 meta, 14 body, 16 item titles, 20 headings, with no 10-11px text and almost no uppercase mono. Widgets get a 20px radius, no header divider and a warmer paper ground. Times are 24-hour everywhere. Each course has a tint, an ink and a stripe colour.</p></div>
+  <div><span class="eyebrow">Block language on the calendar</span><p>Class: solid course tint. Shift: soft neutral with a cup icon. Study time: light tint with a solid left bar and a grab handle. Ghost draft: hatched with a dashed outline. Free time: a dotted gap with "2h free", only while you are planning.</p></div>
+</section>
+
+<section class="screen" id="s1">
+  <div class="head"><span class="eyebrow">Screen 1 · 1440 x 900</span><h2>My week, with Help me plan open</h2>
+    <div class="fixes"><span class="fix">P0-4 capacity agrees with Auto-fill</span><span class="fix">P1-3 panel overlays</span><span class="fix">P1-4 block types</span><span class="fix">P1-1 type scale</span><span class="fix">P2-1 today line</span><span class="fix">P2-2 softer surfaces</span></div></div>
+  <ul class="changes">
+    <li>The planning panel floats over the weekend columns. Monday to Friday keep their full width, so "Revise for the Biology quiz" and "Cafe shift" no longer truncate.</li>
+    <li>Free time is a dotted gap with its length ("1h 30m free") in place of the blue wash.</li>
+    <li>The headline names the cap: "About 9 hours of study time left this week (2h a day). Your to-dos need 12." The bar shows the 3h shortfall as hatching.</li>
+    <li>The lab report offers "Split across days" first, then "Shrink". The draft shows three 2h sittings, Wed to Fri, as ghost blocks, and names what didn't fit.</li>
+    <li>Copy fixes from the review: "Plan your time", "Do by Fri 30 Oct", "How long?".</li>
+  </ul>
+  <figure><img src="{{01-my-week-help-me-plan}}" alt="Mock-up: My week board with Calendar, To-do and Coming up; the Plan your time panel floats over the calendar's weekend columns" width="1440" height="900"><figcaption><span class="tag after">Mock-up</span>Auto-fill draft after choosing Split across days.</figcaption></figure>
+  <figure class="before-fig"><img src="{{before-demo-light-06-help-me-plan}}" alt="Current app: Help me plan squeezes the calendar" loading="lazy"><figcaption><span class="tag before">Today</span>The panel takes about 300px, every block truncates, and the capacity line says 12 left, need 12.</figcaption></figure>
+</section>
+
+<section class="screen" id="s2">
+  <div class="head"><span class="eyebrow">Screen 2 · three frames · 1440 x 900</span><h2>The confused-to-calendar ripple</h2>
+    <div class="fixes"><span class="fix">P0-1 readable amber</span><span class="fix">P0-2 show the ripple</span><span class="fix">P2-3 humane times</span><span class="fix">P2-4 one signature motion</span><span class="fix">P2-5 summary and gutter marks</span></div></div>
+  <ul class="changes">
+    <li>Transcript and Calendar sit side by side, so the audience sees cause and effect on one screen. The summary collapses to one line so the moment is fully visible.</li>
+    <li>The "Review planned · Wed 19:30 · 20 min" chip uses a fixed amber that reads in light mode, uses 24-hour time and links to the block.</li>
+    <li>The review slots in at Wed 19:30, which is after the lecture, on a day with no shift, and ends before a 21:00 wind-down (P2-3). Today it lands at 21:30.</li>
+    <li>The toast carries a "See it" action. The calendar scrolls to the new block and glows once in Biology green, with "From Mitochondrial DNA · 1:18" attached.</li>
+  </ul>
+  <div class="frames">
+    <figure><img src="{{02a-ripple-tap}}" alt="Frame 1: tapping Confused on the 1:18 maternal inheritance moment" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Frame 1</span>Priya taps "Confused" on the 1:18 moment.</figcaption></figure>
+    <figure><img src="{{02b-ripple-lift}}" alt="Frame 2: a review card lifts off the moment, a To-do row appears and a toast says Review added to your plan, See it" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Frame 2</span>A review card lifts off the moment toward the calendar. The To-do row slides in and the toast appears.</figcaption></figure>
+    <figure><img src="{{02c-ripple-land}}" alt="Frame 3: the calendar scrolled to Wednesday evening with the new review block glowing" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Frame 3</span>The calendar scrolls to Wednesday evening and the block glows once.</figcaption></figure>
+  </div>
+  <figure class="before-fig"><img src="{{before-demo-light-20-confused-1500}}" alt="Current app: the review chip is pale amber and hard to read" loading="lazy"><figcaption><span class="tag before">Today</span>The payoff chip is near invisible in light mode and says "9:30 PM". No calendar is in view.</figcaption></figure>
+</section>
+
+<section class="screen" id="s3">
+  <div class="head"><span class="eyebrow">Screen 3 · 1440 x 900</span><h2>First run on an empty board</h2>
+    <div class="fixes"><span class="fix">P1-6 starters by intent</span><span class="fix">P2-1 today line</span></div></div>
+  <ul class="changes">
+    <li>One sentence and three starters named by intent. Each shows the widget icons it adds and names the widgets underneath. It only adds widgets, so it stays a tool and not a workflow.</li>
+    <li>"Add widgets" stays as the way to pick your own.</li>
+    <li>The top bar gains a quiet today line: "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h free".</li>
+  </ul>
+  <figure><img src="{{03-first-run-empty-board}}" alt="Mock-up: empty My week board with three starter cards" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Mock-up</span>"Plan my time" is shown in its hover state. It is also a one-click fallback for the live demo.</figcaption></figure>
+  <figure class="before-fig"><img src="{{before-demo-light-02-empty-board}}" alt="Current app: empty board with a grey icon and Add widgets" loading="lazy"><figcaption><span class="tag before">Today</span>A grey icon, one line and "Add widgets".</figcaption></figure>
+</section>
+
+<section class="screen" id="s4">
+  <div class="head"><span class="eyebrow">Screen 4 · two states · 1440 x 900</span><h2>Study block popover, then landing on the moment</h2>
+    <div class="fixes"><span class="fix">P1-5 lead with Go to moment</span><span class="fix">P1-8 show which automation made it</span><span class="fix">P2-5 collapsed summary, gutter marks</span></div></div>
+  <ul class="changes">
+    <li>The popover leads with where the block came from: "From Mitochondrial DNA · 1:18", the quoted line and "You marked this confusing". The primary button is "Go to moment". "Mark done" and "Edit time" come next. The date and time pickers move behind "Edit time".</li>
+    <li>A footer names the automation that made the block, with an Edit link, so "why is this here?" has an answer.</li>
+    <li>After landing, the summary is a single line and the moment sits fully below it, outlined in Biology green with an orange gutter mark for "confused". A scroll rail shows every tagged moment in the lecture.</li>
+    <li>On a board with no Transcript, it opens In Lecture and the toast says so, with "Back to My week". That replaces "This board has no Transcript."</li>
+  </ul>
+  <figure><img src="{{04a-study-block-popover}}" alt="Mock-up: popover on the Wednesday 19:30 review block with a Go to moment button" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Mock-up</span>Clicking the review block on My week.</figcaption></figure>
+  <figure><img src="{{04b-transcript-landed}}" alt="Mock-up: Transcript with the 1:18 moment highlighted below a one-line summary" width="1440" height="900" loading="lazy"><figcaption><span class="tag after">Mock-up</span>After "Go to moment". Audio is cued to 1:18.</figcaption></figure>
+  <figure class="before-fig"><img src="{{before-demo-light-23-click-review}}" alt="Current app: the review block opens a full edit form" loading="lazy"><figcaption><span class="tag before">Today</span>A full edit form, with the source link and "This board has no Transcript" near the bottom.</figcaption></figure>
+</section>
+
+<section class="screen" id="s5">
+  <div class="head"><span class="eyebrow">Screen 5 · 400px wide · light and dark</span><h2>Phone: Day view and To-do</h2>
+    <div class="fixes"><span class="fix">P1-7 Day view below 640px</span><span class="fix">P1-8 Done · Undo</span><span class="fix">P0-1 amber tokens</span><span class="fix">P1-2 muted contrast</span></div></div>
+  <ul class="changes">
+    <li>Board tabs scroll sideways with a fade at both edges, and the active tab is scrolled into view.</li>
+    <li>The calendar opens in Day view with previous and next day buttons. Blocks have room for full titles at 14px.</li>
+    <li>The re-fit banner uses the fixed amber in light mode. A just-ticked to-do strikes through and shows "Done · Undo" before it fades.</li>
+    <li>Meta text is 12-13px and passes contrast in both themes.</li>
+  </ul>
+  <div class="phones">
+    <figure><img src="{{05-phone-light}}" alt="Mock-up: phone, light theme, Day view and To-do" width="560" loading="lazy"><figcaption><span class="tag after">Light</span>Full scroll height.</figcaption></figure>
+    <figure><img src="{{05-phone-dark}}" alt="Mock-up: phone, dark theme, Day view and To-do" width="560" loading="lazy"><figcaption><span class="tag after">Dark</span>Same content.</figcaption></figure>
+    <figure><img src="{{before-var-light-400-myweek}}" alt="Current app: week grid collapsed at 400px" loading="lazy"><figcaption><span class="tag before">Today</span>The week grid collapses and the tabs clip.</figcaption></figure>
+  </div>
+</section>
+
+<footer>These are static HTML and CSS drawings, not the app. Nothing in the repo was changed. Full-resolution PNGs (2x) are in <code>{{PNGDIR}}</code>.</footer>
+</div>

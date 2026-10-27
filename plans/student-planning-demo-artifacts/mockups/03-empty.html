@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><title>03 First run</title>
+<link rel="stylesheet" href="base.css">
+<style>
+body { width: 1440px; height: 900px; overflow: hidden; }
+.stage { height: 836px; display: grid; place-items: center; }
+.empty { width: 760px; display: flex; flex-direction: column; align-items: center; gap: 22px; text-align: center; margin-top: -40px; }
+.empty h1 { margin: 0; font-size: var(--t20); font-weight: 600; letter-spacing: -0.01em; }
+.empty p { margin: 0; font-size: var(--t16); color: var(--ink-2); max-width: 520px; }
+.starters { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; width: 100%; margin-top: 6px; }
+.st {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-w); box-shadow: var(--shadow);
+  padding: 18px 18px 16px; display: flex; flex-direction: column; gap: 12px; text-align: left; position: relative;
+}
+.st.hover { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft), var(--shadow); }
+.st .icons { display: flex; gap: 6px; }
+.st .icons span { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; }
+.st b { font-size: var(--t16); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.st b .ic { margin-left: auto; color: var(--muted); }
+.st small { font-size: var(--t12); color: var(--muted); }
+.t-plan span { background: var(--accent-soft); color: var(--accent); }
+.t-cap span { background: var(--confused-soft); color: var(--confused); }
+.t-rev span { background: var(--bio-soft); color: var(--bio-ink); }
+.or { font-size: var(--t14); color: var(--muted); display: flex; align-items: center; gap: 12px; }
+</style></head><body>
+<div id="top"></div>
+<div class="stage">
+  <div class="empty">
+    <h1>This board is yours to build.</h1>
+    <p>Pick a starting point and we'll add a few widgets. You can move, swap or remove any of them.</p>
+    <div class="starters">
+      <div class="st t-plan hover">
+        <div class="icons"><span><i data-i="calendar" data-s="18"></i></span><span><i data-i="list-todo" data-s="18"></i></span><span><i data-i="calendar-clock" data-s="18"></i></span></div>
+        <b>Plan my time<i data-i="plus" data-s="16"></i></b>
+        <small>Calendar, To-do and Coming up</small>
+      </div>
+      <div class="st t-cap">
+        <div class="icons"><span><i data-i="mic" data-s="18"></i></span><span><i data-i="file-text" data-s="18"></i></span></div>
+        <b>Capture a lecture<i data-i="plus" data-s="16"></i></b>
+        <small>Audio Capture and Transcript</small>
+      </div>
+      <div class="st t-rev">
+        <div class="icons"><span><i data-i="target" data-s="18"></i></span><span><i data-i="trending-up" data-s="18"></i></span></div>
+        <b>Find what to revise<i data-i="plus" data-s="16"></i></b>
+        <small>Weakest Topics and Your Progress</small>
+      </div>
+    </div>
+    <div class="or">or<button class="btn"><i data-i="layout-grid" data-s="16"></i>Add widgets</button></div>
+  </div>
+</div>
+<script src="icons.js"></script><script src="cal.js"></script>
+<script>
+document.getElementById('top').outerHTML = topbar({ active: 'My week', today: TODAY_LINE });
+paintIcons();
+</script>
+</body></html>
