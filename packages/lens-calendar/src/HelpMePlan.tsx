@@ -186,7 +186,7 @@ export function HelpMePlanPanel({ layout, weekLabel, now, layer, onClose, onSche
     <aside
       data-testid="help-me-plan-panel"
       aria-label="Help me plan"
-      className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-raised/70"
+      className="flex h-full min-h-0 w-[300px] shrink-0 flex-col overflow-hidden rounded-xl border border-border-subtle bg-surface-raised"
     >
       <div className="flex items-start gap-2 border-b border-border-subtle px-3 py-2.5">
         <div className="min-w-0 flex-1">
