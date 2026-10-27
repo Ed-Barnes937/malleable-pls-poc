@@ -18,6 +18,12 @@ const TRIGGER_LABELS = Object.fromEntries(
 )
 
 const DAY_MS = 86400000
+
+const REVIEW_HEADINGS: Record<string, string> = {
+  confused: 'Review what confused you',
+  'key-point': 'Review your key points',
+  question: 'Review your questions',
+}
 const HOUR_MS = 3600000
 
 function waitLabel(delayMs: number): string {
@@ -71,7 +77,9 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
           {reviewJob ? (
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500">Review what confused you</p>
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+              {REVIEW_HEADINGS[workflow.condition_value ?? ''] ?? 'Review what you marked'}
+            </p>
           ) : (
             <>
               <p className="text-[11px] font-medium text-neutral-300">{triggerLabel}</p>
@@ -148,11 +156,11 @@ export function WorkflowCard({ workflow, workspaceId, showEditDelete = false, on
       </div>
       )}
 
-      {isDefault && (
-        <p className="mt-2 text-[10px] text-neutral-700">
-          Built in - switching it off makes a copy just for this board
-        </p>
-      )}
+      <p className="mt-2 text-[10px] text-neutral-500">
+        {isDefault
+          ? 'Built in - switching it off here turns it off on this board only'
+          : 'Just for this board'}
+      </p>
     </div>
   )
 }

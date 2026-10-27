@@ -41,6 +41,20 @@ export const planItemUpdateInput = z.object({
   patch: z.object({ kind: kind.optional(), ...fields, title: fields.title.optional() }),
 })
 
+/**
+ * The board (workspace) a change is made from, so that board's automations
+ * run. Optional: changes made outside a board run the built-in ones.
+ */
+export const boardIdInput = z.string().max(255).nullable().optional()
+
+export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput })
+export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput })
+
+/** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
+export const planItemOnBoardInput = z
+  .union([planItemIdInput, z.object({ id: planItemIdInput, workspaceId: boardIdInput })])
+  .transform((v) => (typeof v === 'string' ? { id: v, workspaceId: null } : { id: v.id, workspaceId: v.workspaceId ?? null }))
+
 export const planItemListInput = z.object({
   from: isoDateTime.optional(),
   to: isoDateTime.optional(),

@@ -58,6 +58,8 @@ export interface UploadRecordingArgs {
   title: string
   durationMs: number
   course?: string | null
+  /** The board the upload is made from, so that board's automations run. */
+  boardId?: string | null
 }
 
 /**
@@ -75,6 +77,7 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<string
       'x-recording-title': encodeURIComponent(args.title),
       ...(args.course ? { 'x-recording-course': encodeURIComponent(args.course) } : {}),
       'x-recording-duration': String(Math.round(args.durationMs)),
+      ...(args.boardId ? { 'x-workspace-id': args.boardId } : {}),
       ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
     },
     body: args.audio,

@@ -13,6 +13,8 @@ export interface ServerEvent {
   jobType?: string
   /** job:failed only - true when the runner will retry automatically. */
   willRetry?: boolean
+  /** job:completed only - the run changed nothing worth telling the student (e.g. a duplicate mark). */
+  quiet?: boolean
   userId: string
 }
 

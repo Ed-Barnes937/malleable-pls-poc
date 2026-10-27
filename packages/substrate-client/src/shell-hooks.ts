@@ -213,6 +213,8 @@ export interface JobEvent {
   jobType?: string
   /** job:failed only - true when the server will retry automatically. */
   willRetry?: boolean
+  /** job:completed only - nothing changed worth a toast (e.g. a moment marked twice). */
+  quiet?: boolean
 }
 
 export interface ServerEventHandlers {

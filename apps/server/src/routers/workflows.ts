@@ -1,4 +1,4 @@
-import type { JSONValue } from 'postgres'
+import type { JSONValue, TransactionSql } from 'postgres'
 import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
 import { parseReviewParams, REVIEW_TASK_JOB, reviewTaskParamsInput } from '@pls/substrate'
@@ -15,6 +15,21 @@ const jobInputSchema = z.object({
   delayMs: z.number().int().min(0).optional(),
 })
 
+/**
+ * Ids of the automations that apply on a board: a board copy replaces the
+ * built-in one it was made from (same trigger, lens and condition), as in
+ * dispatch (see pg-adapter getEffectiveWorkflows), so the list shows one card
+ * per automation and its switch reflects what actually runs there.
+ */
+function effectiveOnBoard(tx: TransactionSql, userId: string, workspaceId: string) {
+  return tx`(
+    SELECT DISTINCT ON (trigger_event, source_lens, condition_field, condition_value) id
+    FROM workflows
+    WHERE user_id = ${userId} AND (workspace_id IS NULL OR workspace_id = ${workspaceId})
+    ORDER BY trigger_event, source_lens, condition_field, condition_value, workspace_id NULLS LAST, created_at
+  )`
+}
+
 export const workflowsRouter = router({
   forLens: publicProcedure
     .input(z.object({ lensType: z.string().max(255), workspaceId: z.string().max(255) }))
@@ -24,9 +39,8 @@ export const workflowsRouter = router({
           SELECT w.*, ${workflowJobsJson(tx)} AS jobs
           FROM workflows w
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
-          WHERE w.source_lens = ${input.lensType}
-            AND w.user_id = ${ctx.userId}
-            AND (w.workspace_id IS NULL OR w.workspace_id = ${input.workspaceId})
+          WHERE w.id IN ${effectiveOnBoard(tx, ctx.userId, input.workspaceId)}
+            AND w.source_lens = ${input.lensType}
           GROUP BY w.id
           ORDER BY w.created_at
         `
@@ -42,8 +56,7 @@ export const workflowsRouter = router({
           SELECT w.*, ${workflowJobsJson(tx)} AS jobs
           FROM workflows w
           LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
-          WHERE w.user_id = ${ctx.userId}
-            AND (w.workspace_id IS NULL OR w.workspace_id = ${input.workspaceId})
+          WHERE w.id IN ${effectiveOnBoard(tx, ctx.userId, input.workspaceId)}
           GROUP BY w.id
           ORDER BY w.created_at
         `

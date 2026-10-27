@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useBoardId } from '@pls/lens-framework'
 import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
@@ -22,6 +23,9 @@ export interface AudioRecorderOptions {
  */
 export function useAudioRecorder(focusedRecordingId: string, options: AudioRecorderOptions = {}) {
   const { course, onRecordingCreated } = options
+  const boardId = useBoardId()
+  const boardIdRef = useRef(boardId)
+  boardIdRef.current = boardId
   const [state, setState] = useState<CaptureState>(focusedRecordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -99,7 +103,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
   const upload = useCallback(async (args: UploadRecordingArgs) => {
     setState('uploading')
     try {
-      const id = await uploadRecording(args)
+      const id = await uploadRecording({ ...args, boardId: boardIdRef.current })
       setRecordingId(id)
       setState('complete')
       onRecordingCreatedRef.current?.(id)

@@ -48,7 +48,10 @@ export function WorkspaceShell() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' }),
+    onJobCompleted: (event) => {
+      if (event.quiet) return
+      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+    },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
@@ -195,7 +198,7 @@ export function WorkspaceShell() {
       const panelScope = splitScope(scope, manifests.find((m) => m.id === panel.lens_type)?.scope)
 
       return (
-        <PanelContainer lensType={panel.lens_type}>
+        <PanelContainer lensType={panel.lens_type} boardId={activeWorkspaceId}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
             scope={panelScope.scope}

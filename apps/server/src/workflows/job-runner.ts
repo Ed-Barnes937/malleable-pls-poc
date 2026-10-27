@@ -29,6 +29,8 @@ function bridgeRunnerEvent(executors: ExecutorRegistry, userId: string, event: R
     jobType: event.jobRun.job_type,
     userId,
     ...(event.type === 'job:failed' ? { willRetry: event.jobRun.retry_count < retryLimit } : {}),
+    // Executors flag runs that did nothing visible with `output.quiet`.
+    ...(event.type === 'job:completed' && event.result.output.quiet === true ? { quiet: true } : {}),
   })
 }
 

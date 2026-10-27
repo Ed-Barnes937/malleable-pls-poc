@@ -3,12 +3,18 @@ import type { InMemoryDb, Workflow, WorkflowJob } from '../in-memory-db'
 
 type WorkflowWithJobs = Workflow & { jobs: WorkflowJob[] }
 
+/** As on the server: a board copy replaces the built-in automation it was made from. */
+function effectiveOnBoard(workflows: Workflow[], workspaceId: string): Workflow[] {
+  const key = (w: Workflow) => [w.trigger_event, w.source_lens, w.condition_field, w.condition_value].join('\u0000')
+  const onBoard = new Set(workflows.filter((w) => w.workspace_id === workspaceId).map(key))
+  return workflows.filter((w) =>
+    w.workspace_id === workspaceId || (w.workspace_id === null && !onBoard.has(key(w))))
+}
+
 export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workflows.forLens', (input) => {
     const { lensType, workspaceId } = input as { lensType: string; workspaceId: string }
-    const matching = db.workflows.filter(
-      (w) => w.source_lens === lensType && (w.workspace_id === null || w.workspace_id === workspaceId),
-    )
+    const matching = effectiveOnBoard(db.workflows, workspaceId).filter((w) => w.source_lens === lensType)
 
     return matching
       .map((w): WorkflowWithJobs => ({
@@ -22,9 +28,7 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
 
   router.register('workflows.forWorkspace', (input) => {
     const { workspaceId } = input as { workspaceId: string }
-    const matching = db.workflows.filter(
-      (w) => w.workspace_id === null || w.workspace_id === workspaceId,
-    )
+    const matching = effectiveOnBoard(db.workflows, workspaceId)
 
     return matching
       .map((w): WorkflowWithJobs => ({

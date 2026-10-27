@@ -3,9 +3,10 @@ import { TRPCError } from '@trpc/server'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import {
-  planItemUpdateInput,
+  planItemUpdateOnBoardInput,
   planItemListInput,
-  newPlanItemInput,
+  newPlanItemOnBoardInput,
+  planItemOnBoardInput,
   planItemIdInput as id,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
@@ -39,10 +40,16 @@ async function setStatus(tx: TransactionSql, userId: string, planItemId: string,
  * plan-item:updated, and a transition into 'done' also fires
  * plan-item:completed (exactly once per transition).
  */
-async function dispatchChange(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem) {
-  await dispatchWorkflows(tx, userId, 'plan-item:updated', eventPayload(after), null)
+async function dispatchChange(
+  tx: TransactionSql,
+  userId: string,
+  before: PlanItem,
+  after: PlanItem,
+  workspaceId: string | null,
+) {
+  await dispatchWorkflows(tx, userId, 'plan-item:updated', eventPayload(after), workspaceId)
   if (before.status !== 'done' && after.status === 'done') {
-    await dispatchWorkflows(tx, userId, 'plan-item:completed', eventPayload(after), null)
+    await dispatchWorkflows(tx, userId, 'plan-item:completed', eventPayload(after), workspaceId)
   }
 }
 
@@ -77,11 +84,11 @@ export const planItemsRouter = router({
     }),
 
   create: publicProcedure
-    .input(newPlanItemInput)
-    .mutation(async ({ ctx, input }) => {
+    .input(newPlanItemOnBoardInput)
+    .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
         const item = await insertPlanItem(tx, ctx.userId, input)
-        await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), null)
+        await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item
       })
     }),
@@ -92,7 +99,7 @@ export const planItemsRouter = router({
    * editing from a list row.
    */
   update: publicProcedure
-    .input(planItemUpdateInput)
+    .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const current = await fetchOne(tx, ctx.userId, input.id)
@@ -105,27 +112,27 @@ export const planItemsRouter = router({
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
         const item = await fetchOne(tx, ctx.userId, input.id)
-        await dispatchChange(tx, ctx.userId, current, item)
+        await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
         return item
       })
     }),
 
   complete: publicProcedure
-    .input(id)
+    .input(planItemOnBoardInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const { before, item } = await setStatus(tx, ctx.userId, input, 'done')
-        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item)
+        const { before, item } = await setStatus(tx, ctx.userId, input.id, 'done')
+        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
     }),
 
   dismiss: publicProcedure
-    .input(id)
+    .input(planItemOnBoardInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const { before, item } = await setStatus(tx, ctx.userId, input, 'dismissed')
-        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item)
+        const { before, item } = await setStatus(tx, ctx.userId, input.id, 'dismissed')
+        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
     }),

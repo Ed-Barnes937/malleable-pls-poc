@@ -76,7 +76,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings']) {
+    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'workspaces', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [alice])
     }
     await db.sql.end()
@@ -179,6 +179,74 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       workflowId,
       jobParams: [{ workflowJobId, params: { durationMin: 0, windowDays: 1, timeZone: TZ } }],
     })).rejects.toThrow()
+  })
+
+  it('never moves a hand-moved review, even after the moment is marked again', async () => {
+    const api = caller(alice)
+    const id = (await markConfused(seg(2))).output.plan_item_id as string
+    const placed = await api.planItems.byId(id)
+    const draggedTo = ms(placed!.starts_at) - 90 * MIN
+    await api.planItems.update({
+      id,
+      patch: { starts_at: new Date(draggedTo).toISOString(), ends_at: new Date(draggedTo + 30 * MIN).toISOString() },
+    })
+    // Marking it again adds nothing and records nothing about where it is now.
+    const again = await markConfused(seg(2))
+    expect(again.output).toEqual({ existing_plan_item_id: id, deduplicated: true, quiet: true })
+
+    await api.workflows.patch({
+      workflowId,
+      jobParams: [{ workflowJobId, params: { durationMin: 45, windowDays: 2, timeZone: TZ } }],
+    })
+    const after = await api.planItems.byId(id)
+    expect(ms(after!.starts_at)).toBe(draggedTo)
+    expect(after!.duration_min).not.toBe(45)
+  })
+
+  it('keeps a gap between reviews it places', async () => {
+    const { findReviewSlots } = await import('./review-automation')
+    const now = Date.now()
+    const latest = startOfLocalDay(now, TZ, 3)
+    const slots = await db.withUser(alice, (tx) => findReviewSlots(tx, alice, [
+      { id: 'gap-a', durationMin: 20, latest },
+      { id: 'gap-b', durationMin: 20, latest },
+    ], { now, timeZone: TZ }))
+    const a = slots.get('gap-a') as { start: number; end: number }
+    const b = slots.get('gap-b') as { start: number; end: number }
+    expect(b.end).toBeLessThanOrEqual(a.start - 10 * MIN)
+  })
+
+  it('runs the board copy of the automation for marks made on that board', async () => {
+    const api = caller(alice)
+    const [boardA, boardB] = await db.withUser(alice, async (tx) => {
+      const rows = await tx`
+        INSERT INTO workspaces (user_id, name) VALUES (${alice}, 'Board A'), (${alice}, 'Board B') RETURNING id
+      `
+      return rows.map((r) => r.id as string)
+    })
+    // Switching it off on board A makes a disabled copy there.
+    await api.workflows.createOverride({ sourceWorkflowId: workflowId, workspaceId: boardA, enabled: false })
+    const cards = await api.workflows.forLens({ lensType: 'transcript', workspaceId: boardA })
+    expect(cards.filter((w) => w.trigger_event === 'tag:created')).toEqual([
+      expect.objectContaining({ workspace_id: boardA, enabled: false }),
+    ])
+
+    const runsFor = async () => {
+      const [{ n }] = await db.withUser(alice, (tx) => tx`
+        SELECT count(*)::int AS n FROM job_runs
+        WHERE job_type = ${REVIEW_TASK_JOB} AND status = 'pending' AND input->>'target_id' = ${seg(0)}
+      `)
+      return n as number
+    }
+    const mark = (workspaceId: string | null) =>
+      api.tags.create({ target_type: 'transcript_segment', target_id: seg(0), label: 'confused', workspaceId })
+
+    await mark(boardA)
+    expect(await runsFor()).toBe(0)
+    await mark(boardB)
+    expect(await runsFor()).toBe(1)
+    await mark(null)
+    expect(await runsFor()).toBe(2)
   })
 
   it('writes a 3-line summary from the transcript after transcription, replacing any earlier one', async () => {

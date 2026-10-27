@@ -39,7 +39,7 @@ function isContent(word: string): boolean {
 /** Runs of consecutive content words, split at stopwords and punctuation. */
 function candidatePhrases(text: string): string[][] {
   const phrases: string[][] = []
-  for (const clause of text.split(/[.,;:!?()"—-]+/)) {
+  for (const clause of text.split(/[.,;:!?()"\u2014-]+/)) {
     let run: string[] = []
     for (const word of words(clause)) {
       if (isContent(word)) {

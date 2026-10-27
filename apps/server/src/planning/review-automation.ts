@@ -64,22 +64,38 @@ export async function findReviewSlots(
   })
   const commitments: Interval[] = []
   const busy: ExistingPlacement[] = []
+  // The reviews being placed can all move: their current blocks are not busy.
+  const moving = new Set(reviews.map((r) => r.id))
   for (const item of items) {
-    if (!item.starts_at || !item.ends_at) continue
+    if (!item.starts_at || !item.ends_at || moving.has(item.id)) continue
     const block = { start: Date.parse(item.starts_at), end: Date.parse(item.ends_at) }
     if (item.kind === 'commitment') commitments.push(block)
-    else if (item.kind === 'task') busy.push({ ...block, taskId: item.id })
+    // Reviews keep a gap between them so two never run back to back.
+    else if (item.kind === 'task') busy.push({ ...(item.subtype === REVIEW_SUBTYPE ? padded(block) : block), taskId: item.id })
   }
 
   const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
-  const result = place(
-    reviews.map((r) => ({ id: r.id, durationMin: r.durationMin, latest: r.latest })),
-    free,
-    { now: opts.now, existingPlacements: busy, anchor: 'latest' },
-  )
-  for (const p of result.placements) slots.set(p.taskId, { start: p.start, end: p.end })
-  for (const u of result.unplaced) slots.set(u.taskId, { reason: u.reason })
+  // One at a time, in priority order, so each placed review pads the next.
+  for (const r of reviews) {
+    const result = place([{ id: r.id, durationMin: r.durationMin, latest: r.latest }], free, {
+      now: opts.now,
+      existingPlacements: busy,
+      anchor: 'latest',
+    })
+    const [p] = result.placements
+    if (p) {
+      slots.set(r.id, { start: p.start, end: p.end })
+      busy.push({ ...padded(p), taskId: `placed:${r.id}` })
+    } else {
+      slots.set(r.id, { reason: result.unplaced[0]?.reason ?? 'no-free-slot' })
+    }
+  }
   return slots
+}
+
+function padded(block: Interval): Interval {
+  const pad = STUDY_DAY.bufferMin * MINUTE_MS
+  return { start: block.start - pad, end: block.end + pad }
 }
 
 /** The fields a placement result writes on the review. */
@@ -159,8 +175,14 @@ export async function createReview(
   tx: TransactionSql,
   userId: string,
   args: { moment: MarkedMoment; title: string; params: ReviewTaskParams; now: number },
-): Promise<{ item: PlanItem; slot: ReviewSlot | undefined }> {
+): Promise<{ item: PlanItem; slot: ReviewSlot | undefined; created: true } | { item: PlanItem; created: false }> {
   const { moment, params, now } = args
+  // One review per moment even when two marks race: serialise on the moment,
+  // then check again inside this transaction.
+  await tx`SELECT pg_advisory_xact_lock(hashtext(${`review:${userId}:${moment.recordingId}:${moment.startMs}`}))`
+  const existing = await findOpenReview(tx, userId, moment)
+  if (existing) return { item: existing, created: false }
+
   const deadline = reviewDeadline(now, params)
   const created = await insertPlanItem(tx, userId, {
     kind: 'task',
@@ -187,7 +209,7 @@ export async function createReview(
       WHERE id = ${created.id} AND user_id = ${userId}
     `
   }
-  return { item: await fetchOne(tx, userId, created.id), slot }
+  return { item: await fetchOne(tx, userId, created.id), slot, created: true }
 }
 
 // ---------------------------------------------------------------------------
@@ -216,11 +238,15 @@ export async function replaceAutomationReviews(
   const runs = await tx`
     SELECT output FROM job_runs
     WHERE user_id = ${userId} AND workflow_id = ${workflowId} AND job_type = ${REVIEW_TASK_JOB}
-      AND status = 'completed' AND output ? 'plan_item_id'
+      AND status = 'completed' AND output ? 'plan_item_id' AND NOT (output ? 'deduplicated')
+    ORDER BY created_at, id
   `
+  // The run that created a review is the only record of where the automation
+  // put it; a review is made by one run, so the first one wins.
   const placedAt = new Map<string, string | null>()
   for (const { output } of runs) {
-    placedAt.set(output.plan_item_id as string, (output.starts_at as string | null | undefined) ?? null)
+    const id = output.plan_item_id as string
+    if (!placedAt.has(id)) placedAt.set(id, (output.starts_at as string | null | undefined) ?? null)
   }
   if (placedAt.size === 0) return { moved: 0, unscheduled: 0 }
 
@@ -262,7 +288,7 @@ export async function replaceAutomationReviews(
     await tx`
       UPDATE job_runs SET output = output || ${tx.json(placed as JSONValue)}
       WHERE user_id = ${userId} AND workflow_id = ${workflowId} AND job_type = ${REVIEW_TASK_JOB}
-        AND output->>'plan_item_id' = ${before.id}
+        AND output->>'plan_item_id' = ${before.id} AND NOT (output ? 'deduplicated')
     `
     const after = await fetchOne(tx, userId, before.id)
     if (!sameInstant(before.starts_at, after.starts_at) || before.duration_min !== after.duration_min) result.moved++

@@ -51,6 +51,8 @@ function LoadingSkeleton() {
 
 interface PanelContainerProps {
   lensType: string
+  /** The board the panel sits on (see useBoardId). */
+  boardId?: string | null
   children: ReactNode
 }
 
@@ -59,7 +61,7 @@ interface PanelContainerProps {
  * and Suspense. In the new canvas-based layout, the outer chrome (header, drag,
  * close, fullscreen) is handled by PanelChrome inside CanvasEngine.
  */
-export function PanelContainer({ lensType, children }: PanelContainerProps) {
+export function PanelContainer({ lensType, boardId, children }: PanelContainerProps) {
   const manifest = useManifest(lensType)
   // Writer access follows the manifest's `writes` declaration.
   const isWritable = canWrite(manifest)
@@ -70,6 +72,7 @@ export function PanelContainer({ lensType, children }: PanelContainerProps) {
         <SubstrateProvider
           reader={substrateBridge}
           writer={isWritable ? substrateBridge : undefined}
+          boardId={boardId}
         >
           {children}
         </SubstrateProvider>

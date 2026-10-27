@@ -2,7 +2,8 @@
 -- 1. Drop the stub jobs that reported success while doing nothing
 --    (search:related-docs, schedule:quiz, ai:generate-questions,
 --    ai:find-connections). Their executors are gone, so any automation still
---    using them would only fail. The seeded automations built on them go too.
+--    using them would only fail. Automations built only on them go too
+--    (built-in and board copies), and queued runs of them are dropped.
 -- 2. Seed the two real lecture automations:
 --    - "When a lecture transcript is ready, write a 3-line summary"
 --    - "When I mark something confusing, add a 20-min review within 3 days"
@@ -10,9 +11,26 @@
 --    the sentence editor stores the browser's zone when the student edits it.
 -- Guarded so it is safe to re-run (e2e/reseed.ts replays it after 002).
 
-DELETE FROM workflows
-WHERE user_id = 'dev-user-1'
-  AND id IN ('wf-confused-search', 'wf-keypoint-connections', 'wf-low-confidence');
+-- Removed job types, for every user. Runs still queued would fail later with
+-- "Unknown job type", so they go; finished runs stay as history.
+DELETE FROM job_runs
+WHERE job_type IN ('search:related-docs', 'schedule:quiz', 'ai:generate-questions', 'ai:find-connections')
+  AND status IN ('pending', 'running');
+
+-- Automations (built-in or board copies) whose every step was a stub would be
+-- left empty, and a board copy would then shadow the new automation with the
+-- same trigger on that board. They go; mixed ones just lose the stub steps.
+DELETE FROM workflows w
+WHERE EXISTS (
+    SELECT 1 FROM workflow_jobs wj
+    WHERE wj.workflow_id = w.id
+      AND wj.job_type IN ('search:related-docs', 'schedule:quiz', 'ai:generate-questions', 'ai:find-connections')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM workflow_jobs wj
+    WHERE wj.workflow_id = w.id
+      AND wj.job_type NOT IN ('search:related-docs', 'schedule:quiz', 'ai:generate-questions', 'ai:find-connections')
+  );
 
 DELETE FROM workflow_jobs
 WHERE job_type IN ('search:related-docs', 'schedule:quiz', 'ai:generate-questions', 'ai:find-connections');

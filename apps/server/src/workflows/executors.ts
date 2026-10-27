@@ -126,15 +126,21 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       })
       if (!found) throw new Error(`Transcript moment ${segmentId} not found`)
       const { moment, existing, params } = found
-      if (existing) {
-        return { output: { plan_item_id: existing.id, starts_at: existing.starts_at, ends_at: existing.ends_at, deduplicated: true } }
-      }
+      // Marking a moment again adds nothing. The run records which review it
+      // matched but not where that review is now: only the run that created a
+      // review records its placement (see replaceAutomationReviews).
+      const alreadyReviewed = (id: string) => ({
+        output: { existing_plan_item_id: id, deduplicated: true, quiet: true },
+      })
+      if (existing) return alreadyReviewed(existing.id)
 
       const taskInput = { lectureTitle: moment.recordingTitle, moment: moment.text, before: moment.before, after: moment.after }
       const { topic } = await llm.run(reviewTask, taskInput)
       const title = reviewTitle(topic, taskInput)
 
-      const { item, slot } = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now() }))
+      const result = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now() }))
+      if (!result.created) return alreadyReviewed(result.item.id)
+      const { item, slot } = result
       return {
         output: {
           plan_item_id: item.id,
