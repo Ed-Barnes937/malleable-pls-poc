@@ -1,8 +1,14 @@
 import { defineConfig, devices } from '@playwright/test'
+import { apiPort, apiUrl, webPort } from './e2e/ports'
 
-// Override these when another checkout/worktree already occupies the defaults.
-const apiPort = process.env.API_PORT ?? '3001'
-const webPort = process.env.WEB_PORT ?? '5173'
+// Cost guardrail: test runs never reach a real AI provider. Forced here so
+// every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
+process.env.AI_MODE = 'mock'
+delete process.env.OPENROUTER_API_KEY
+// Pin the demo's zone for both the test process (seed times) and the browser,
+// so date and DST behaviour doesn't depend on the host.
+process.env.TZ = 'Europe/London'
+
 const baseURL = `http://localhost:${webPort}`
 
 export default defineConfig({
@@ -21,7 +27,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
   ],
   webServer: [
@@ -29,7 +35,7 @@ export default defineConfig({
       // Postgres (docker) + migrations + API server — e2e runs from a cold
       // start with only docker available.
       command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} DISABLE_RATE_LIMIT=1 pnpm run e2e:server`,
-      url: `http://localhost:${apiPort}/health`,
+      url: `${apiUrl}/health`,
       reuseExistingServer: true,
       timeout: 60_000,
     },

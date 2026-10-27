@@ -1,5 +1,5 @@
 import { Suspense, Component, type ReactNode, type ErrorInfo } from 'react'
-import { SubstrateProvider, useManifest } from '@pls/lens-framework'
+import { SubstrateProvider, useManifest, canWrite } from '@pls/lens-framework'
 import { AlertTriangle, RefreshCw } from 'lucide-react'
 import { substrateBridge } from './substrate-bridge'
 
@@ -51,6 +51,8 @@ function LoadingSkeleton() {
 
 interface PanelContainerProps {
   lensType: string
+  /** The board the panel sits on (see useBoardId). */
+  boardId?: string | null
   children: ReactNode
 }
 
@@ -59,9 +61,10 @@ interface PanelContainerProps {
  * and Suspense. In the new canvas-based layout, the outer chrome (header, drag,
  * close, fullscreen) is handled by PanelChrome inside CanvasEngine.
  */
-export function PanelContainer({ lensType, children }: PanelContainerProps) {
+export function PanelContainer({ lensType, boardId, children }: PanelContainerProps) {
   const manifest = useManifest(lensType)
-  const isWritable = manifest?.category === 'tool'
+  // Writer access follows the manifest's `writes` declaration.
+  const isWritable = canWrite(manifest)
 
   return (
     <LensErrorBoundary label={manifest?.label ?? lensType}>
@@ -69,6 +72,7 @@ export function PanelContainer({ lensType, children }: PanelContainerProps) {
         <SubstrateProvider
           reader={substrateBridge}
           writer={isWritable ? substrateBridge : undefined}
+          boardId={boardId}
         >
           {children}
         </SubstrateProvider>

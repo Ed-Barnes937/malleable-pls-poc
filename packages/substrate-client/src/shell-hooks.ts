@@ -6,9 +6,8 @@ import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 type ScopeRow = { scope_type: string; scope_value: string }
 
 /** `workspace_scopes.scope_type` for each Scope dimension. */
-export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, string> = {
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'recording'> = {
   courseTag: 'tag',
-  timeframe: 'timeframe',
   recordingId: 'recording',
 }
 
@@ -17,7 +16,6 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
     if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
-    if (s.scope_type === SCOPE_TYPE_BY_DIM.timeframe) scope.timeframe = s.scope_value as 'week' | 'all'
     if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
   }
   return scope
@@ -119,6 +117,15 @@ export function useRecordings(courseTag?: string) {
   return trpc.recordings.list.useQuery(courseTag ? { courseTag } : undefined)
 }
 
+/**
+ * The board's focused recording, looked up by id rather than through the
+ * course-narrowed list: focus and course may disagree, and the picker and
+ * chip must still name the focused lecture.
+ */
+export function useFocusedRecording(recordingId: string | undefined) {
+  return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
+}
+
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {
   return trpc.jobs.recent.useQuery(limit) as unknown as UseQueryResult<JobRun[]>
 }
@@ -179,6 +186,21 @@ export function useUpdateWorkflow() {
   })
 }
 
+/**
+ * Edits an automation in place (condition value, job params). Editing the
+ * confusion automation re-places its reviews on the server, so plan items
+ * refresh too.
+ */
+export function usePatchWorkflow() {
+  const utils = trpc.useUtils()
+  return trpc.workflows.patch.useMutation({
+    onSuccess: () => {
+      invalidateWorkflows(utils)
+      utils.planItems.invalidate()
+    },
+  })
+}
+
 export function useDeleteWorkflow() {
   const utils = trpc.useUtils()
   return trpc.workflows.delete.useMutation({
@@ -191,6 +213,8 @@ export interface JobEvent {
   jobType?: string
   /** job:failed only - true when the server will retry automatically. */
   willRetry?: boolean
+  /** job:completed only - nothing changed worth a toast (e.g. a moment marked twice). */
+  quiet?: boolean
 }
 
 export interface ServerEventHandlers {
@@ -201,26 +225,34 @@ export interface ServerEventHandlers {
 
 export function useServerEvents(handlers?: ServerEventHandlers) {
   const utils = trpc.useUtils()
+  /**
+   * Everything a job may have written. A failed run too: it can fail after
+   * writing (e.g. while cascading), and a lecture's `processing` ends with it.
+   */
+  const refreshJobData = () => {
+    utils.recordings.invalidate()
+    utils.transcripts.invalidate()
+    utils.tags.invalidate()
+    utils.links.invalidate()
+    utils.confidence.invalidate()
+    utils.aggregates.invalidate()
+    utils.annotations.invalidate()
+    utils.planItems.invalidate()
+  }
   return trpc.events.onDataChange.useSubscription(undefined, {
     onError: () => {},
     onData: (event) => {
+      utils.jobs.recent.invalidate()
+      utils.jobs.runningCount.invalidate()
       if (event.type === 'job:started') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
+        // A lecture's `processing` follows its jobs (e.g. its summary starting).
+        utils.recordings.byId.invalidate()
         handlers?.onJobStarted?.(event)
       } else if (event.type === 'job:completed') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
-        utils.recordings.invalidate()
-        utils.transcripts.invalidate()
-        utils.tags.invalidate()
-        utils.links.invalidate()
-        utils.confidence.invalidate()
-        utils.aggregates.invalidate()
+        refreshJobData()
         handlers?.onJobCompleted?.(event)
       } else if (event.type === 'job:failed') {
-        utils.jobs.recent.invalidate()
-        utils.jobs.runningCount.invalidate()
+        refreshJobData()
         handlers?.onJobFailed?.(event)
       }
     },

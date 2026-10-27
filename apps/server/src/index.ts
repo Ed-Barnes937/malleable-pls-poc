@@ -4,9 +4,10 @@ import path from 'path'
 import { createHTTPHandler } from '@trpc/server/adapters/standalone'
 import cors from 'cors'
 import { appRouter } from './router'
-import { createContext } from './context'
+import { createContextFactory } from './context'
+import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
-import { registerAllExecutors } from './workflows/executors'
+import { createServerExecutors } from './workflows/executors'
 import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
@@ -14,7 +15,10 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads
 const port = Number(process.env.PORT ?? 3001)
 const isProduction = process.env.NODE_ENV === 'production'
 
-registerAllExecutors()
+// The single place AI clients are constructed; everything else receives them.
+const ai = createAiDeps()
+console.log(describeAiDeps(ai))
+const executors = createServerExecutors(ai)
 
 // ---------------------------------------------------------------------------
 // Rate limiter (sliding window, per-IP)
@@ -105,7 +109,7 @@ function isAllowedOrigin(origin: string): boolean {
 
 const trpcHandler = createHTTPHandler({
   router: appRouter,
-  createContext,
+  createContext: createContextFactory({ ai, executors }),
   middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
 })
 
@@ -115,7 +119,7 @@ function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course, x-workspace-id')
 }
 
 // ---------------------------------------------------------------------------
@@ -145,10 +149,11 @@ const server = http.createServer((req, res) => {
   // Security headers on every response
   setSecurityHeaders(res)
 
-  // Unauthenticated readiness probe (used by the Playwright webServer config)
+  // Unauthenticated readiness probe (used by the Playwright webServer config).
+  // `aiMode` lets test tooling refuse to run against a live-AI server.
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ ok: true }))
+    res.end(JSON.stringify({ ok: true, aiMode: ai.mode }))
     return
   }
 
@@ -214,7 +219,7 @@ const server = http.createServer((req, res) => {
 })
 
 server.listen(port, '0.0.0.0')
-startJobRunner()
+void startJobRunner(executors)
 console.log(`tRPC server listening on :${port}`)
 
 export type { AppRouter } from './router'

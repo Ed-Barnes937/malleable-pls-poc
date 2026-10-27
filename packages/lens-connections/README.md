@@ -11,7 +11,7 @@ Lens for visualising concept relationships and cross-references across recording
 
 ## Scope
 
-Can be scoped to a specific concept label via config, or shows all connections matching the current scope.
+`recordingId: 'target'`, `courseTag: 'filter'` - shows all connections of the focused lecture (a targeted lecture wins over the course) and the in-course connections of an optional concept label from config, saying "+N in other courses" for concept links it leaves out. Prompts to focus a lecture when neither is set.
 
 ## Internal Dependencies
 

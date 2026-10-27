@@ -2,23 +2,24 @@ import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import { MAX_RETRIES } from '../workflows/job-runner'
+import { retryLimitFor } from '../workflows/job-runner'
 
 export const jobsRouter = router({
   recent: publicProcedure
     .input(z.number().optional().default(5))
     .query(async ({ ctx, input }) => {
-      return withUser(ctx.userId, async (tx) => {
-        // `retryable`: failed with automatic retries exhausted, so the student
-        // can retry it by hand. Earlier failed attempts were already retried.
-        return tx`
-          SELECT *, (status = 'failed' AND retry_count >= ${MAX_RETRIES}) AS retryable
-          FROM job_runs
-          WHERE user_id = ${ctx.userId}
-          ORDER BY created_at DESC
-          LIMIT ${input}
-        `
-      })
+      const rows = await withUser(ctx.userId, (tx) => tx`
+        SELECT * FROM job_runs
+        WHERE user_id = ${ctx.userId}
+        ORDER BY created_at DESC
+        LIMIT ${input}
+      `)
+      // `retryable`: failed with automatic retries exhausted (per job type), so
+      // the student can retry it by hand. Earlier failed attempts were already retried.
+      return rows.map((row) => ({
+        ...row,
+        retryable: row.status === 'failed' && (row.retry_count as number) >= retryLimitFor(ctx.executors, row.job_type as string),
+      }))
     }),
 
   /** Re-queue a failed run in place as a fresh attempt (automatic retries reset). */

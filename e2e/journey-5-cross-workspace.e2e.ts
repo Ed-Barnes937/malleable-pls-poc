@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Cross-workspace data flow', () => {
-  test('confused tag in Evening Review increases gap count in Exam Prep', async ({ page }) => {
+  test('confused tag in Evening Review adds a moment to review, also in Exam Prep', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -12,13 +12,13 @@ test.describe('Journey: Cross-workspace data flow', () => {
     await topBar.expectActiveWorkspace('Evening Review')
 
     const transcriptPanel = grid.panelByLabel('Transcript')
-    const weeklyPanel = grid.panelByLabel('This Week')
+    const weeklyPanel = grid.panelByLabel('Your Progress')
 
     // Wait for data to load
     await expect(transcriptPanel.getByText('14 segments')).toBeVisible({ timeout: 10000 })
 
-    // Read initial gap count dynamically (other tests may have modified data)
-    const gapText = weeklyPanel.getByText(/\d+ gaps? to review/)
+    // Read the initial count dynamically (other tests may have modified data)
+    const gapText = weeklyPanel.getByText(/\d+ moments? to review/)
     await expect(gapText).toBeVisible({ timeout: 10000 })
     const initialGapText = await gapText.textContent()
     const initialGapCount = parseInt(initialGapText!.match(/(\d+)/)![1], 10)
@@ -28,17 +28,17 @@ test.describe('Journey: Cross-workspace data flow', () => {
     const confusedButton = transcriptPanel.getByRole('button', { name: 'confused', exact: true })
     await confusedButton.click()
 
-    // Verify gap count increased by 1
-    await expect(weeklyPanel.getByText(`${initialGapCount + 1} gaps to review`)).toBeVisible({ timeout: 10000 })
+    // One more moment to review
+    await expect(weeklyPanel.getByText(`${initialGapCount + 1} moments to review`)).toBeVisible({ timeout: 10000 })
 
     // Switch to Exam Prep
     await topBar.switchToWorkspace('Exam Prep')
     await topBar.expectActiveWorkspace('Exam Prep')
 
-    // Gap analysis ("All Courses" lens) should reflect the new confused tag
+    // All Courses counts the same moments to review as Your Progress did (the
+    // Evening Review board is Biology, so its total is Biology's).
     const gapPanel = grid.panelByLabel('All Courses')
-    await expect(gapPanel.getByText('biology')).toBeVisible({ timeout: 10000 })
-    await expect(gapPanel.getByText(/weak area/).first()).toBeVisible({ timeout: 10000 })
+    await expect(gapPanel.locator('[data-course="biology"]').getByText(`${initialGapCount + 1} to review`)).toBeVisible({ timeout: 10000 })
   })
 
   test('confidence recorded in Evening Review reflects in Exam Prep weakest topics', async ({ page }) => {
@@ -67,11 +67,10 @@ test.describe('Journey: Cross-workspace data flow', () => {
     await topBar.switchToWorkspace('Exam Prep')
     await topBar.expectActiveWorkspace('Exam Prep')
 
-    // WeakestTopics should reflect the lowered confidence
+    // Weakest Topics reflects the lowered confidence: the first question (the
+    // least sure confusing moment, 20%) dropped to 0%.
     const weakestPanel = grid.panelByLabel('Weakest Topics')
-    await expect(weakestPanel.getByText('Weakest Topics')).toBeVisible({ timeout: 10000 })
-
-    // Verify the panel loaded with data (ranks visible)
-    await expect(weakestPanel.locator('text=1').first()).toBeVisible()
+    await expect(weakestPanel.getByText(/\d+ to review/)).toBeVisible({ timeout: 10000 })
+    await expect(weakestPanel.getByTestId('weak-topic').filter({ hasText: '0% sure' }).first()).toBeVisible({ timeout: 10000 })
   })
 })

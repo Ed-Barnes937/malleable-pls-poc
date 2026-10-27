@@ -33,7 +33,7 @@ Items are ordered by priority.
 ---
 
 ### 3. Lock Down Workflow Dispatch (C4)
-**Impact:** `workflows.dispatch` is a `publicProcedure` accepting arbitrary event types and payloads. Combined with no auth, anyone can trigger expensive operations (e.g. AssemblyAI transcription).
+**Impact:** `workflows.dispatch` is a `publicProcedure` accepting arbitrary event types and payloads. Combined with no auth, anyone can trigger expensive operations (e.g. live Whisper transcription).
 
 **Work:**
 - Gate behind `protectedProcedure` once auth exists

@@ -109,6 +109,41 @@ describe('job runner', () => {
       )
     })
 
+    it('announces job:completed only once the follow-up jobs are queued', async () => {
+      const adapter = makeAdapter([makePendingJob()])
+      const executors = createExecutorRegistry()
+      executors.register('test:run', async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }), {
+        label: 'T', category: 'T',
+      })
+      const engine = createWorkflowEngine({ adapter })
+      const order: string[] = []
+      vi.spyOn(engine, 'dispatch').mockImplementation(async () => { order.push('dispatch'); return { enqueuedJobIds: [] } })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null })
+      runner.onEvent((e) => { order.push(e.type) })
+
+      await runner.processOnce()
+
+      expect(order).toEqual(['job:started', 'dispatch', 'job:completed'])
+    })
+
+    it('runs and cascades each job in its own scope when scopeForJob is given', async () => {
+      const adapter = makeAdapter([makePendingJob({ input: { target_id: 't1', board: 'ws-a' } })])
+      const executors = createExecutorRegistry()
+      const executor = vi.fn(async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }))
+      executors.register('test:run', executor, { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter })
+      const dispatchSpy = vi.spyOn(engine, 'dispatch')
+      const runner = createJobRunner({
+        adapter, executors, engine, scopeId: null,
+        scopeForJob: (job) => (job.input?.board as string | undefined) ?? null,
+      })
+
+      await runner.processOnce()
+
+      expect(executor).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ scopeId: 'ws-a' }))
+      expect(dispatchSpy).toHaveBeenCalledWith({ type: 'evt:next', payload: {} }, { scopeId: 'ws-a', depth: 0 })
+    })
+
     it('marks jobs failed when the executor throws', async () => {
       const adapter = makeAdapter([makePendingJob()])
       const executors = createExecutorRegistry()
@@ -178,6 +213,24 @@ describe('job runner', () => {
           depth: 0,
         }),
       )
+    })
+
+    it('lets an executor opt out of retries via its meta', async () => {
+      const adapter = makeAdapter([makePendingJob({ retry_count: 0 })])
+      const executors = createExecutorRegistry()
+      executors.register(
+        'test:run',
+        async () => {
+          throw new Error('provider timeout')
+        },
+        { label: 'T', category: 'T', maxRetries: 0 },
+      )
+      const engine = createWorkflowEngine({ adapter })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null, maxRetries: 3 })
+
+      await runner.processOnce()
+
+      expect(adapter.enqueueJobRun).not.toHaveBeenCalled()
     })
 
     it('does NOT retry when retry_count has reached maxRetries', async () => {

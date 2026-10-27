@@ -7,10 +7,13 @@ export const manifest: PanelManifest = {
   id: 'transcript',
   label: 'Transcript',
   icon: FileText,
-  description: 'Segments & tags',
-  category: 'tool',
-  filters: ['recordingId'] as const,
-  reads: ['transcript_segments', 'tags', 'annotations', 'recordings'],
+  description: 'Read a lecture and mark moments',
+  group: 'study',
+  // Course narrows the lecture picker (focus clears when it leaves the course).
+  scope: { courseTag: 'filter', recordingId: 'target' },
+  // Scrolls to and highlights a moment other widgets ask to show.
+  showsMoments: true,
+  reads: ['transcript_segments', 'tags', 'annotations', 'recordings', 'plan_items'],
   writes: ['tags', 'annotations'],
   emits: ['tag:created', 'annotation:created'],
   load: () => import('./TranscriptLens'),

@@ -1,7 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useBoardId } from '@pls/lens-framework'
+import { dayMonthAndTime } from '@pls/shared-ui'
 import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
+
+// 24 kbps measurably hurt Whisper accuracy; 48 kbps opus keeps an hour of
+// lecture around 21 MB, under the 50 MB upload cap.
+const RECORDING_BITS_PER_SECOND = 48_000
 
 export interface AudioRecorderOptions {
   /** Course tag applied to new recordings (mic captures and file uploads). */
@@ -18,6 +24,9 @@ export interface AudioRecorderOptions {
  */
 export function useAudioRecorder(focusedRecordingId: string, options: AudioRecorderOptions = {}) {
   const { course, onRecordingCreated } = options
+  const boardId = useBoardId()
+  const boardIdRef = useRef(boardId)
+  boardIdRef.current = boardId
   const [state, setState] = useState<CaptureState>(focusedRecordingId ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -69,6 +78,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
         mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
           ? 'audio/webm;codecs=opus'
           : 'audio/webm',
+        audioBitsPerSecond: RECORDING_BITS_PER_SECOND,
       })
 
       recorder.ondataavailable = (e) => {
@@ -94,7 +104,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
   const upload = useCallback(async (args: UploadRecordingArgs) => {
     setState('uploading')
     try {
-      const id = await uploadRecording(args)
+      const id = await uploadRecording({ ...args, boardId: boardIdRef.current })
       setRecordingId(id)
       setState('complete')
       onRecordingCreatedRef.current?.(id)
@@ -136,7 +146,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
     await upload({
       audio: blob,
       contentType: 'audio/webm',
-      title: `Recording ${new Date().toLocaleString()}`,
+      title: recordingTitle(Date.now()),
       durationMs: elapsed,
       course,
     })
@@ -159,4 +169,9 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
   }, [stopTimer])
 
   return { state, elapsed, error, start, stop, uploadFile, reset, recordingId }
+}
+
+/** Title for a new capture, in house style: "Lecture 27 Oct, 00:20". */
+export function recordingTitle(now: number): string {
+  return `Lecture ${dayMonthAndTime(now)}`
 }

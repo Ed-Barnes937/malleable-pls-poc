@@ -1,5 +1,6 @@
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
+import { inCourse } from './course-scope'
 
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
@@ -12,7 +13,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   })
 
   router.register('workspaces.create', (input) => {
-    const { name } = input as { name: string }
+    const { name, courseTag } = input as { name: string; courseTag?: string }
     const ws = {
       id: `ws-${crypto.randomUUID().slice(0, 8)}`,
       name,
@@ -23,6 +24,14 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       sort_order: db.workspaces.length,
     }
     db.workspaces.push(ws)
+    if (courseTag) {
+      db.workspaceScopes.push({
+        id: `ws-scope-${crypto.randomUUID().slice(0, 8)}`,
+        workspace_id: ws.id,
+        scope_type: 'tag',
+        scope_value: courseTag,
+      })
+    }
     return ws
   })
 
@@ -99,10 +108,17 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, scopeType, scopeValue } = input as {
       workspaceId: string; scopeType: string; scopeValue: string | null
     }
-    // Mirror server invariant: changing the course clears any focused recording.
-    if (scopeType === 'tag') {
+    // Mirror the server's z.enum: only live board dimensions.
+    if (scopeType !== 'tag' && scopeType !== 'recording') throw new Error(`Unknown scope type: ${scopeType}`)
+    // Mirror server invariant: a new course clears a focused recording that
+    // is not in it; "All courses" (null) keeps the focus.
+    if (scopeType === 'tag' && scopeValue !== null) {
       db.workspaceScopes = db.workspaceScopes.filter(
-        (s) => !(s.workspace_id === workspaceId && s.scope_type === 'recording'),
+        (s) => !(
+          s.workspace_id === workspaceId &&
+          s.scope_type === 'recording' &&
+          !inCourse(db, scopeValue, 'recording', s.scope_value)
+        ),
       )
     }
     const idx = db.workspaceScopes.findIndex(

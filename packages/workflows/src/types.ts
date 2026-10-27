@@ -109,6 +109,11 @@ export type Executor = (
 export interface ExecutorMeta {
   label: string
   category: string
+  /**
+   * Overrides the runner's `maxRetries` for this job type, e.g. 0 for jobs
+   * that call a paid provider, where a retry after a timeout can bill twice.
+   */
+  maxRetries?: number
 }
 
 export interface ExecutorRegistry {
@@ -121,6 +126,8 @@ export interface ExecutorRegistry {
     ctx: ExecutorContext,
   ): Promise<JobResult>
   has(jobType: string): boolean
+  /** Undefined for unknown job types. */
+  getMeta(jobType: string): ExecutorMeta | undefined
   getAvailableTypes(): Array<{ type: string } & ExecutorMeta>
 }
 
@@ -142,6 +149,12 @@ export interface EnqueueJobRunArgs {
    * the adapter's backoff instead.
    */
   delayMs?: number
+  /**
+   * The scope (board) the triggering event was dispatched in, or null. The
+   * server stores it with the job so events the job raises cascade in the
+   * same scope (see `JobRunnerConfig.scopeForJob`); substrate ignores it.
+   */
+  scopeId?: string | null
 }
 
 /**
@@ -260,7 +273,15 @@ export interface JobRunnerConfig {
   /**
    * Maximum retry attempts on executor failure. Defaults to 0, which is the
    * safest default for substrate (which has no backoff column and would
-   * otherwise loop). The server passes a higher value.
+   * otherwise loop). The server passes a higher value. An executor's own
+   * `ExecutorMeta.maxRetries` takes precedence.
    */
   maxRetries?: number
+  /**
+   * The scope a claimed job runs and cascades in. Defaults to `scopeId` for
+   * every job; the server reads back the board stored at enqueue time, so a
+   * board's own automations (e.g. one switched off there) apply to events the
+   * job raises.
+   */
+  scopeForJob?: (job: JobRun) => string | null
 }

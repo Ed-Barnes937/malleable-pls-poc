@@ -180,35 +180,35 @@ export function createDefaultSeedData(): SeedData {
     workspaceScopes: [
       { id: 'ws-scope-1', workspace_id: 'ws-in-lecture', scope_type: 'recording', scope_value: 'rec-bio-4' },
       { id: 'ws-scope-2', workspace_id: 'ws-evening-review', scope_type: 'tag', scope_value: 'biology' },
-      { id: 'ws-scope-3', workspace_id: 'ws-evening-review', scope_type: 'timeframe', scope_value: 'week' },
-      { id: 'ws-scope-4', workspace_id: 'ws-exam-prep', scope_type: 'timeframe', scope_value: 'all' },
       { id: 'ws-scope-5', workspace_id: 'ws-evening-review', scope_type: 'recording', scope_value: 'rec-bio-4' },
     ],
 
+    // Matches 002_seed.sql + 013_lecture_ai_automations.sql.
     workflows: [
-      // Audio capture: when recording completes -> generate transcript
+      // Audio capture: when recording completes -> write a transcript
       { id: 'wf-audio-transcribe', source_lens: 'audio-capture', trigger_event: 'recording:completed', condition_field: null, condition_value: null, enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
-      // Transcript: confused tag -> search related docs + schedule quiz
-      { id: 'wf-confused-search', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'confused', enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
-      // Transcript: key-point tag -> find cross-lecture connections
-      { id: 'wf-keypoint-connections', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'key-point', enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
-      // Test-me: low confidence -> generate practice questions
-      { id: 'wf-low-confidence', source_lens: 'test-me', trigger_event: 'confidence:recorded', condition_field: 'lowConfidence', condition_value: 'true', enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
+      // Audio capture: when the transcript is ready -> write a 3-line summary
+      { id: 'wf-lecture-summary', source_lens: 'audio-capture', trigger_event: 'recording:transcribed', condition_field: null, condition_value: null, enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
+      // Transcript: confused mark -> add a 20-min review within 3 days
+      { id: 'wf-confused-review', source_lens: 'transcript', trigger_event: 'tag:created', condition_field: 'label', condition_value: 'confused', enabled: 1, workspace_id: null, created_at: '2026-03-28T09:00:00Z' },
     ],
 
     workflowJobs: [
       { id: 'wfj-audio-transcribe', workflow_id: 'wf-audio-transcribe', job_type: 'ai:transcribe', params: '{}', sort_order: 0, delay_ms: 0 },
-      { id: 'wfj-confused-search', workflow_id: 'wf-confused-search', job_type: 'search:related-docs', params: '{}', sort_order: 0, delay_ms: 0 },
-      { id: 'wfj-confused-quiz', workflow_id: 'wf-confused-search', job_type: 'schedule:quiz', params: '{}', sort_order: 1, delay_ms: 604800000 },
-      { id: 'wfj-keypoint-connections', workflow_id: 'wf-keypoint-connections', job_type: 'ai:find-connections', params: '{}', sort_order: 0, delay_ms: 0 },
-      { id: 'wfj-low-confidence-qs', workflow_id: 'wf-low-confidence', job_type: 'ai:generate-questions', params: '{}', sort_order: 0, delay_ms: 0 },
+      { id: 'wfj-lecture-summary', workflow_id: 'wf-lecture-summary', job_type: 'ai:summarize-lecture', params: '{}', sort_order: 0, delay_ms: 0 },
+      { id: 'wfj-confused-review', workflow_id: 'wf-confused-review', job_type: 'plan:review-task', params: '{"durationMin":20,"windowDays":3,"timeZone":"Europe/London"}', sort_order: 0, delay_ms: 0 },
     ],
 
     jobRuns: [
-      { id: 'jr-1', workflow_id: 'wf-confused-search', workflow_job_id: 'wfj-confused-search', job_type: 'search:related-docs', status: 'completed', input: '{"segmentId":"seg-bio4-04"}', output: '{"found":3}', error: null, depth: 0, created_at: '2026-04-16T10:12:05Z', started_at: '2026-04-16T10:12:06Z', completed_at: '2026-04-16T10:12:08Z' },
-      { id: 'jr-2', workflow_id: 'wf-keypoint-connections', workflow_job_id: 'wfj-keypoint-connections', job_type: 'ai:find-connections', status: 'completed', input: '{"segmentId":"seg-bio4-04"}', output: '{"connections":2}', error: null, depth: 0, created_at: '2026-04-16T10:12:35Z', started_at: '2026-04-16T10:12:36Z', completed_at: '2026-04-16T10:12:40Z' },
-      { id: 'jr-3', workflow_id: 'wf-confused-search', workflow_job_id: 'wfj-confused-search', job_type: 'search:related-docs', status: 'running', input: '{"segmentId":"seg-bio4-08"}', output: null, error: null, depth: 0, created_at: '2026-04-16T10:25:05Z', started_at: '2026-04-16T10:25:06Z', completed_at: null },
-      { id: 'jr-4', workflow_id: 'wf-low-confidence', workflow_job_id: 'wfj-low-confidence-qs', job_type: 'ai:generate-questions', status: 'pending', input: '{"segmentId":"seg-bio4-08"}', output: null, error: null, depth: 0, created_at: '2026-04-16T21:10:15Z', started_at: null, completed_at: null },
+      { id: 'jr-1', workflow_id: 'wf-audio-transcribe', workflow_job_id: 'wfj-audio-transcribe', job_type: 'ai:transcribe', status: 'completed', input: '{"recording_id":"rec-bio-4"}', output: '{"segment_count":14}', error: null, depth: 0, created_at: '2026-04-16T10:12:05Z', started_at: '2026-04-16T10:12:06Z', completed_at: '2026-04-16T10:12:08Z' },
+      { id: 'jr-2', workflow_id: 'wf-lecture-summary', workflow_job_id: 'wfj-lecture-summary', job_type: 'ai:summarize-lecture', status: 'completed', input: '{"recording_id":"rec-bio-4"}', output: '{"lines":3}', error: null, depth: 1, created_at: '2026-04-16T10:12:35Z', started_at: '2026-04-16T10:12:36Z', completed_at: '2026-04-16T10:12:40Z' },
+      { id: 'jr-3', workflow_id: 'wf-confused-review', workflow_job_id: 'wfj-confused-review', job_type: 'plan:review-task', status: 'running', input: '{"target_id":"seg-bio4-08"}', output: null, error: null, depth: 0, created_at: '2026-04-16T10:25:05Z', started_at: '2026-04-16T10:25:06Z', completed_at: null },
+      { id: 'jr-4', workflow_id: 'wf-confused-review', workflow_job_id: 'wfj-confused-review', job_type: 'plan:review-task', status: 'pending', input: '{"target_id":"seg-bio4-10"}', output: null, error: null, depth: 0, created_at: '2026-04-16T21:10:15Z', started_at: null, completed_at: null },
     ],
+
+    // Deliberately empty, unlike `pnpm db:reseed` (which adds Priya's week,
+    // e2e/seed-week.ts, built around the real clock): component tests arrange
+    // the plan items they assert on with ../plan-items.ts `seedPlanItem`.
+    planItems: [],
   }
 }

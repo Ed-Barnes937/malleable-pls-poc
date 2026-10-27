@@ -9,6 +9,11 @@ export interface Toast {
   id: number
   message: string
   tone: ToastTone
+  /**
+   * Toasts sharing a key replace each other instead of stacking, e.g. one
+   * "Transcript added" toast while a student adds several widgets in a row.
+   */
+  key?: string
 }
 
 interface ToastState {
@@ -23,7 +28,9 @@ export const useToastStore = create<ToastState>((set) => ({
   toasts: [],
   push: (toast) => {
     const id = ++nextId
-    set((s) => ({ toasts: [...s.toasts, { ...toast, id }] }))
+    set((s) => ({
+      toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), { ...toast, id }],
+    }))
     setTimeout(() => {
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
     }, 4000)
@@ -38,7 +45,12 @@ export function ToastHost() {
   if (toasts.length === 0) return null
 
   return createPortal(
-    <div className="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="toast-host"
+      className="fixed bottom-4 left-4 right-4 z-[20000] flex flex-col items-end gap-2 sm:left-auto"
+    >
       {toasts.map((toast) => (
         <div
           key={toast.id}
@@ -55,7 +67,10 @@ export function ToastHost() {
           )}
           <span className="text-xs text-neutral-200">{toast.message}</span>
           <button
+            type="button"
             onClick={() => dismiss(toast.id)}
+            aria-label="Dismiss"
+            title="Dismiss"
             className="ml-1 rounded p-0.5 text-neutral-600 transition-colors hover:bg-surface-overlay hover:text-neutral-300"
           >
             <X className="h-3 w-3" />

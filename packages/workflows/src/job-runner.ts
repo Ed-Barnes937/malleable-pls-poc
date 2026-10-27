@@ -11,6 +11,7 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
     scopeId,
     pollIntervalMs = DEFAULT_INTERVAL_MS,
     maxRetries = DEFAULT_MAX_RETRIES,
+    scopeForJob = () => scopeId,
   } = config
 
   let intervalHandle: ReturnType<typeof setInterval> | null = null
@@ -37,32 +38,37 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
           await adapter.commit?.()
         }
         const runningJob = { ...job, status: 'running' as const }
+        const jobScope = scopeForJob(job)
         emit({ type: 'job:started', jobRun: runningJob })
 
         try {
           const input = job.input ?? {}
           const result = await executors.execute(job.job_type, input, {
-            scopeId,
+            scopeId: jobScope,
             depth: job.depth,
             jobRun: job,
           })
 
           await adapter.updateJobRunStatus(job.id, 'completed', result.output, undefined)
           await adapter.commit?.()
+
+          if (result.events) {
+            for (const event of result.events) {
+              // Cascade at job.depth — engine.dispatch adds +1 so children land
+              // at job.depth + 1. This fixes the prior cross-backend divergence.
+              await engine.dispatch(event, { scopeId: jobScope, depth: job.depth })
+            }
+          }
+
+          // Announced once its follow-up jobs are queued, so a listener that
+          // re-reads on completion already sees them (e.g. a lecture's summary
+          // job after its transcript).
           const completedJob = {
             ...job,
             status: 'completed' as const,
             output: result.output,
           }
           emit({ type: 'job:completed', jobRun: completedJob, result })
-
-          if (result.events) {
-            for (const event of result.events) {
-              // Cascade at job.depth — engine.dispatch adds +1 so children land
-              // at job.depth + 1. This fixes the prior cross-backend divergence.
-              await engine.dispatch(event, { scopeId, depth: job.depth })
-            }
-          }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err)
           await adapter.updateJobRunStatus(job.id, 'failed', undefined, message)
@@ -72,7 +78,8 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
 
           // Retry decision lives in the core; backoff scheduling lives in the
           // adapter (server sets run_after via retryCount).
-          if (job.retry_count < maxRetries) {
+          const retryLimit = executors.getMeta(job.job_type)?.maxRetries ?? maxRetries
+          if (job.retry_count < retryLimit) {
             await adapter.enqueueJobRun({
               workflowId: job.workflow_id,
               workflowJobId: job.workflow_job_id,

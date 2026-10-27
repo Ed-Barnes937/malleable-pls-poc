@@ -5,12 +5,12 @@ export { default } from './WeeklyOverviewLens'
 
 export const manifest: PanelManifest = {
   id: 'weekly-overview',
-  label: 'This Week',
+  label: 'Your Progress',
   icon: BarChart3,
-  description: 'Progress by course',
-  category: 'view',
+  description: 'How sure you feel, course by course',
+  group: 'review',
+  scope: { courseTag: 'filter', recordingId: 'ignore' },
   reads: ['weekly_overview'],
-  filters: ['courseTag', 'timeframe'],
   load: () => import('./WeeklyOverviewLens'),
   minWidth: 350,
   minHeight: 250,

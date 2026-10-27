@@ -14,6 +14,7 @@ export {
   useUpdateWorkspaceBackground,
   useSetWorkspaceScope,
   useRecordings,
+  useFocusedRecording,
   useRecentJobs,
   useRunningJobCount,
   useRetryJob,
@@ -24,6 +25,7 @@ export {
   useCreateWorkflow,
   useUpdateWorkflow,
   useDeleteWorkflow,
+  usePatchWorkflow,
   useServerEvents,
 } from './shell-hooks'
 export type { JobEvent, ServerEventHandlers } from './shell-hooks'

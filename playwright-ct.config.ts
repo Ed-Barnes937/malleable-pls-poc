@@ -1,6 +1,14 @@
 import { defineConfig, devices } from '@playwright/experimental-ct-react'
 import path from 'path'
 
+// Cost guardrail: test runs never reach a real AI provider. Forced here so
+// every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
+process.env.AI_MODE = 'mock'
+delete process.env.OPENROUTER_API_KEY
+// Pin the demo's zone for both the test process (seed times) and the browser,
+// so date and DST behaviour doesn't depend on the host.
+process.env.TZ = 'Europe/London'
+
 export default defineConfig({
   testDir: '.',
   testMatch: '**/*.iwft.{ts,tsx}',
@@ -8,7 +16,8 @@ export default defineConfig({
   timeout: 15_000,
   retries: 0,
   use: {
-    ctPort: 3100,
+    // Override per checkout so parallel CT runs don't collide (see e2e/README.md).
+    ctPort: Number(process.env.CT_PORT ?? 3100),
     ctViteConfig: {
       plugins: [
         require('@vitejs/plugin-react').default(),
@@ -29,6 +38,9 @@ export default defineConfig({
           '@pls/lens-connections': path.resolve(__dirname, 'packages/lens-connections/src'),
           '@pls/lens-gap-analysis': path.resolve(__dirname, 'packages/lens-gap-analysis/src'),
           '@pls/lens-weakest-topics': path.resolve(__dirname, 'packages/lens-weakest-topics/src'),
+          '@pls/lens-calendar': path.resolve(__dirname, 'packages/lens-calendar/src'),
+          '@pls/lens-todo': path.resolve(__dirname, 'packages/lens-todo/src'),
+          '@pls/lens-coming-up': path.resolve(__dirname, 'packages/lens-coming-up/src'),
         },
       },
     },
@@ -36,7 +48,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
   ],
 })

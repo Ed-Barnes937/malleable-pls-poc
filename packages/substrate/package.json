@@ -5,6 +5,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
-    "@pls/workflows": "workspace:*"
+    "@pls/scheduler": "workspace:*",
+    "@pls/workflows": "workspace:*",
+    "zod": "^4.6.7"
   }
 }

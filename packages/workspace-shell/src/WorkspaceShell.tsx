@@ -14,12 +14,14 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
   WorkspaceBackground,
   useCanvasStore,
+  findFreeSpot,
+  scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -31,22 +33,38 @@ import { LensAutomationsButton } from './LensAutomationsButton'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
+import { useShowMoment } from './moments'
 
-const JOB_LABELS: Record<string, string> = Object.fromEntries(
-  getAvailableJobTypes().map((j) => [j.type, j.label]),
-)
+const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
 function jobLabel(jobType?: string): string {
-  return (jobType && JOB_LABELS[jobType]) || 'Job'
+  return (jobType && JOB_TYPES.get(jobType)?.label) || 'Background task'
+}
+
+/** What a finished job means for the student; falls back to "Done: <job label>". */
+function jobDoneMessage(jobType?: string): string {
+  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
+}
+
+interface PendingAdd {
+  workspaceId: string
+  box: { x: number; y: number; width: number; height: number; z: number }
+  /** Set once saved; the add stops counting as soon as the canvas has this panel. */
+  panelId?: string
 }
 
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
+  const clearMoment = useWorkspaceStore((s) => s.clearMoment)
   const pushToast = useToastStore((s) => s.push)
   useServerEvents({
-    onJobCompleted: (event) => pushToast({ message: `${jobLabel(event.jobType)} completed`, tone: 'success' }),
+    onJobCompleted: (event) => {
+      if (event.quiet) return
+      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+    },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
       if (event.willRetry) return
@@ -66,6 +84,7 @@ export function WorkspaceShell() {
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -99,6 +118,12 @@ export function WorkspaceShell() {
     },
     [activeWorkspaceId, setWorkspaceScope.mutate],
   )
+
+  const activeLensTypes = useMemo(
+    () => (panels as unknown as { lens_type: string }[] | undefined)?.map((p) => p.lens_type) ?? [],
+    [panels],
+  )
+  const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
@@ -135,6 +160,93 @@ export function WorkspaceShell() {
     }
   }, [])
 
+  /**
+   * Widgets added but not yet on the canvas: still saving, or saved and
+   * waiting for the panel list to refetch. Placement counts them as taken, so
+   * quick successive adds don't all pick the same free spot.
+   */
+  const pendingAddsRef = useRef<PendingAdd[]>([])
+  const dropPendingOnCanvas = useCallback(() => {
+    const onCanvas = new Set(useCanvasStore.getState().panels.map((p) => p.id))
+    pendingAddsRef.current = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
+  }, [])
+  // Release a spot as soon as its panel first reaches the canvas (usePanelSync,
+  // above, has synced this panel list), so removing that panel later frees it.
+  useEffect(dropPendingOnCanvas, [panels, dropPendingOnCanvas])
+
+  /**
+   * Scrolls the board so a just-added panel is in view, once it reaches the
+   * canvas (a full board places new widgets below the fold).
+   */
+  const revealPanel = useCallback((panelId: string) => {
+    let frames = 0
+    const tryReveal = () => {
+      // The panel list refetches after the save; give it a couple of seconds.
+      if (!scrollPanelIntoView(canvasRef.current, panelId) && ++frames < 120) requestAnimationFrame(tryReveal)
+    }
+    requestAnimationFrame(tryReveal)
+  }, [])
+
+  /**
+   * Adds a widget at its default size. Without a position (a palette click)
+   * it goes in the first free area of the visible board.
+   */
+  const addWidget = useCallback(
+    (lensType: string, at?: { x: number; y: number }) => {
+      const m = manifests.find((man) => man.id === lensType)
+      const width = m?.defaultWidth ?? 400
+      const height = m?.defaultHeight ?? 300
+      const existing = useCanvasStore.getState().panels
+      const pending = pendingAddsRef.current.filter((a) => a.workspaceId === activeWorkspaceId)
+      const taken = [
+        ...existing.map((p) => ({ x: p.pos_x, y: p.pos_y, width: p.width, height: p.height, z: p.z_index })),
+        ...pending.map((a) => a.box),
+      ]
+      const canvas = canvasRef.current
+      const spot = at ?? findFreeSpot(taken, { width, height }, {
+        width: canvas?.clientWidth ?? 0,
+        height: canvas?.clientHeight ?? 0,
+      })
+      const box = {
+        x: Math.round(spot.x),
+        y: Math.round(spot.y),
+        width,
+        height,
+        z: taken.length > 0 ? Math.max(...taken.map((t) => t.z)) + 1 : 1,
+      }
+      const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
+      pendingAddsRef.current = [...pending, add]
+
+      addPanel.mutate(
+        {
+          workspaceId: activeWorkspaceId,
+          lensType,
+          slotName: `slot-${Date.now()}`,
+          pos_x: box.x,
+          pos_y: box.y,
+          width,
+          height,
+          z_index: box.z,
+        },
+        {
+          onSuccess: (row) => {
+            // Stays taken until the canvas shows the saved panel (it may already).
+            add.panelId = (row as { id?: string } | undefined)?.id
+            dropPendingOnCanvas()
+            if (add.panelId && !at) revealPanel(add.panelId)
+            // One toast for a run of adds, not a stack of them.
+            pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
+          },
+          onError: () => {
+            pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
+            pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
+          },
+        },
+      )
+    },
+    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel],
+  )
+
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault()
@@ -145,30 +257,20 @@ export function WorkspaceShell() {
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
 
-      const slotName = `slot-${Date.now()}`
       // Anchor the panel's top-left at the cursor, then clamp within the canvas
       // so it stays fully visible. (Centering on the cursor caused drops near
       // the top/left edge to collapse to 0,0 once the negative result was clamped.)
-      const rect = e.currentTarget.getBoundingClientRect()
+      // The canvas scrolls down once widgets sit below the fold: drop in content coordinates.
+      const el = e.currentTarget
+      const rect = el.getBoundingClientRect()
       const maxX = Math.max(0, rect.width - width)
-      const maxY = Math.max(0, rect.height - height)
-      const pos_x = Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX)
-      const pos_y = Math.min(Math.max(0, Math.round(e.clientY - rect.top)), maxY)
-
-      addPanel.mutate({
-        workspaceId: activeWorkspaceId,
-        lensType,
-        slotName,
-        pos_x,
-        pos_y,
-        width,
-        height,
-        z_index: (useCanvasStore.getState().panels.length > 0
-          ? Math.max(...useCanvasStore.getState().panels.map((p) => p.z_index)) + 1
-          : 1),
+      const maxY = Math.max(0, Math.max(rect.height, el.scrollHeight) - height)
+      addWidget(lensType, {
+        x: Math.min(Math.max(0, Math.round(e.clientX - rect.left)), maxX),
+        y: Math.min(Math.max(0, Math.round(e.clientY - rect.top + el.scrollTop)), maxY),
       })
     },
-    [activeWorkspaceId, addPanel, manifests],
+    [addWidget, manifests],
   )
 
   // Handle panel removal — remove from DB then let query invalidation update canvas store
@@ -188,20 +290,33 @@ export function WorkspaceShell() {
       if (!panel) return null
       const LensComponent = getLensComponent(panel.lens_type, lensRegistry)
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
+      // Each widget sees only the dimensions it declares, with highlighted
+      // ones kept apart from what its readers may filter by.
+      const manifest = manifests.find((m) => m.id === panel.lens_type)
+      const panelScope = splitScope(scope, manifest?.scope)
 
       return (
-        <PanelContainer lensType={panel.lens_type}>
+        <PanelContainer lensType={panel.lens_type} boardId={activeWorkspaceId}>
           <LensComponent
             panelId={`${activeWorkspaceId}-${panel.slot_name}`}
-            scope={scope}
+            scope={panelScope.scope}
+            highlight={panelScope.highlight}
             config={config}
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
+            onShowMoment={handleShowMoment}
+            focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
+            onMomentShown={manifest?.showsMoments ? (id) => {
+              clearMoment(id)
+              // On a full board the widget may sit below the fold: bring it
+              // into view so the landed moment is seen.
+              scrollPanelIntoView(canvasRef.current, panel.id)
+            } : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -253,15 +368,16 @@ export function WorkspaceShell() {
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
+        menuOpen={drawerOpen}
         onOrganize={handleOrganize}
       />
-      <DrawerSidebar open={drawerOpen} onClose={() => setDrawerOpen(false)} />
+      <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {!panels ? (
           <CanvasSkeleton />
         ) : (
           <div
-            className="relative flex-1 transition-opacity duration-150"
+            className="relative min-h-0 flex-1 transition-opacity duration-150"
             style={{ opacity: transitioning ? 0 : 1 }}
           >
             <WorkspaceBackground />
@@ -282,7 +398,7 @@ export function WorkspaceShell() {
               >
                 <EmptyState
                   icon={LayoutGrid}
-                  message="This workspace is empty. Add a lens to get started."
+                  message="This board is empty. Add widgets to build it your way."
                   action={
                     <button
                       type="button"
@@ -291,7 +407,7 @@ export function WorkspaceShell() {
                       style={{ background: 'var(--color-accent)' }}
                     >
                       <Plus size={16} />
-                      Add lenses
+                      Add widgets
                     </button>
                   }
                 />

@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { motion, useDragControls, useMotionValue } from 'motion/react'
-import { useCanvasStore, clampDimensions, type PanelItem } from './canvas-store'
+import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
-import { clampToCanvas, resizeDimensions, anchoredPosition } from './geometry'
+import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP } from './geometry'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -33,7 +33,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const shiftRef = useShiftKey()
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  // Activate keyboard shortcuts (Tab cycle, f fullscreen, Backspace remove, Escape)
+  // Activate keyboard shortcuts (] / [ cycle, f fullscreen, Backspace remove, Escape)
   useCanvasKeyboard({ onRemovePanel, canvasRef })
 
   const prevPanelsRef = useRef(panels)
@@ -46,9 +46,27 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   useEffect(() => {
     if (prevPanelsRef.current !== panels) {
       prevPanelsRef.current = panels
-      onLayoutChange?.(panels)
+      onLayoutChange?.(persistableLayout(useCanvasStore.getState()))
     }
   }, [panels, onLayoutChange])
+
+  // A fullscreen panel fills the canvas from its top-left, so show the top;
+  // leaving fullscreen puts the board back where it was scrolled to.
+  const scrollBeforeFullscreen = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    if (fullscreenPanelId) {
+      scrollBeforeFullscreen.current ??= canvas.scrollTop
+      canvas.scrollTop = 0
+    } else if (scrollBeforeFullscreen.current !== null) {
+      canvas.scrollTop = scrollBeforeFullscreen.current
+      scrollBeforeFullscreen.current = null
+    }
+  }, [fullscreenPanelId])
+
+  const narrow = useNarrowCanvas(canvasRef)
+  const stackOrder = new Map([...panels].sort(byPosition).map((p, i) => [p.id, i]))
 
   /** Clicking the canvas background clears the selection and exits focus mode */
   const handleCanvasPointerDown = useCallback(
@@ -65,20 +83,37 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       ref={canvasRef}
       data-testid="canvas-container"
       data-canvas-scroll
-      className="relative z-[1] h-full w-full overflow-hidden"
+      data-layout={narrow ? 'stack' : 'free'}
+      className={
+        narrow
+          ? 'relative z-[1] flex h-full w-full flex-col gap-3 overflow-y-auto p-3'
+          // Free layout scrolls down when widgets sit below the fold (a full
+          // board grows downward rather than stacking widgets on top of each
+          // other), except while a widget fills the view.
+          : fullscreenPanelId
+            ? 'relative z-[1] h-full w-full overflow-hidden'
+            : 'relative z-[1] h-full w-full overflow-y-auto overflow-x-hidden'
+      }
       onPointerDown={handleCanvasPointerDown}
       onDragOver={onDragOver}
       onDrop={onDrop}
     >
+      {/* One element per panel in both layouts, in store order, so crossing the
+          breakpoint only restyles panels: widgets never remount (an
+          in-progress recording survives). Stacked reading order comes from CSS
+          `order`, not from re-sorting children. */}
       {panels.map((panel) => (
         <DraggablePanel
           key={panel.id}
           panel={panel}
           shiftRef={shiftRef}
+          stackOrder={narrow ? stackOrder.get(panel.id) ?? 0 : undefined}
+          // A fullscreen panel sits above every other, even ones sharing its z_index.
+          zIndex={fullscreenPanelId === panel.id ? maxZIndex + 1 : panel.z_index}
           isFocused={panel.z_index === maxZIndex}
           isSelected={selectedPanelId === panel.id}
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
-          isFullscreen={fullscreenPanelId === panel.id}
+          isFullscreen={!narrow && fullscreenPanelId === panel.id}
           canvasRef={canvasRef}
           onRemovePanel={onRemovePanel}
           renderPanel={renderPanel}
@@ -87,8 +122,44 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderHeaderActions={renderHeaderActions}
         />
       ))}
+      {/* Air under the lowest widget once the free board scrolls. */}
+      {!narrow && panels.length > 0 && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-0 w-px"
+          style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
+        />
+      )}
     </div>
   )
+}
+
+/* ── Narrow layout ── */
+
+/** Below this canvas width, panels stack in one scrolling column instead of floating. */
+export const STACK_BREAKPOINT = 640
+
+function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
+  const [narrow, setNarrow] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => setNarrow(el.clientWidth > 0 && el.clientWidth < STACK_BREAKPOINT)
+    update()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [ref])
+  return narrow
+}
+
+/** Reading order for the stacked layout: top to bottom, then left to right. */
+function byPosition(a: PanelItem, b: PanelItem): number {
+  return a.pos_y - b.pos_y || a.pos_x - b.pos_x
 }
 
 /* ── Handle directions ── */
@@ -285,7 +356,7 @@ function usePanelDrag(
         const clamped = clampToCanvas(
           { x: current.pos_x + offsetX, y: current.pos_y + offsetY },
           { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: canvas.clientHeight },
+          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
         )
         offsetX = clamped.x - current.pos_x
         offsetY = clamped.y - current.pos_y
@@ -315,7 +386,7 @@ function usePanelDrag(
         const clamped = clampToCanvas(
           { x: newX, y: newY },
           { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: canvas.clientHeight },
+          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
         )
         newX = clamped.x
         newY = clamped.y
@@ -345,6 +416,13 @@ function usePanelDrag(
 interface DraggablePanelProps {
   panel: PanelItem
   shiftRef: React.RefObject<boolean>
+  /**
+   * Set in the narrow layout: the panel's place in the stacked column. It
+   * then renders full width at its saved height, without drag, resize or
+   * fullscreen. Purely presentational: the saved free layout is untouched.
+   */
+  stackOrder?: number
+  zIndex: number
   isFocused: boolean
   isSelected?: boolean
   isDimmed?: boolean
@@ -357,7 +435,8 @@ interface DraggablePanelProps {
   renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+  const stacked = stackOrder !== undefined
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
@@ -393,7 +472,8 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
         ? 'var(--shadow-panel-focused)'
         : 'var(--shadow-panel)'
 
-  const transitionStyle = isGesturing
+  // No layout animation while gesturing or stacked (switching layouts should snap).
+  const transitionStyle = isGesturing || stacked
     ? undefined
     : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
 
@@ -404,17 +484,28 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
     <motion.div
       data-testid={`panel-${panel.id}`}
       data-panel-id={panel.id}
-      drag={!isFullscreen}
+      data-stack-order={stacked ? stackOrder : undefined}
+      drag={!isFullscreen && !stacked}
       dragControls={dragControls}
       dragListener={false}
       dragMomentum={false}
       style={{
-        position: 'absolute',
-        left: panel.pos_x,
-        top: panel.pos_y,
-        width: panel.width,
-        height: panel.height,
-        zIndex: panel.z_index,
+        ...(stacked
+          ? {
+              position: 'relative',
+              order: stackOrder,
+              flexShrink: 0,
+              width: '100%',
+              height: Math.max(panel.height, panel.constraints?.minHeight ?? 0),
+            }
+          : {
+              position: 'absolute',
+              left: panel.pos_x,
+              top: panel.pos_y,
+              width: panel.width,
+              height: panel.height,
+              zIndex,
+            }),
         backgroundColor: 'var(--color-surface-raised)',
         boxShadow: shadow,
         opacity: isDimmed ? 0.3 : 1,
@@ -434,7 +525,7 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
       transition={{ type: 'tween', duration: 0.2 }}
     >
       <div
-        style={{ pointerEvents: (isHovered && !isFullscreen) ? 'auto' : 'none' }}
+        style={{ pointerEvents: (isHovered && !isFullscreen && !stacked) ? 'auto' : 'none' }}
         data-testid={`resize-handles-${panel.id}`}
       >
         {ALL_DIRECTIONS.map((dir) => (
@@ -453,9 +544,9 @@ function DraggablePanel({ panel, shiftRef, isFocused, isSelected, isDimmed, isFu
         title={label}
         icon={icon}
         onClose={handleClose}
-        onDragHandlePointerDown={onDragHandlePointerDown}
+        onDragHandlePointerDown={stacked ? undefined : onDragHandlePointerDown}
         isFullscreen={isFullscreen}
-        onToggleFullscreen={handleToggleFullscreen}
+        onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
         headerActions={renderHeaderActions?.(panel.id)}
       >
         {renderPanel?.(panel.id)}

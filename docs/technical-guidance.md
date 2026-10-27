@@ -31,7 +31,20 @@ links
 confidence_signals
   id, target_type, target_id, score, source_lens_id,
   created_at, decay_curve?
+
+plan_items
+  id, kind (commitment|deadline|task), title,
+  starts_at?, ends_at?,            -- commitments, scheduled tasks
+  due_at?, duration_min?,          -- deadlines (due_at required), task estimates
+  status (open|done|dismissed),
+  recurrence?,                     -- v1, commitments only: { freq: 'weekly', until?, timeZone? }
+  subtype?,                        -- free-text label: class, shift, study...
+  source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
+  created_at, updated_at
+  -- course: a tag with target_type 'plan_item', like recordings carry theirs
 ```
+
+Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator, as are the input schemas). Occurrence rows keep the stored times in `series_starts_at` / `series_ends_at`; mutations always apply to the whole series.
 
 Note: this primitive list is audio-centric. A learning-first substrate may need additional primitives (see open-questions.md).
 
@@ -49,13 +62,16 @@ lens_data
 -- lens_type: "flashcard", target_type: "annotation", target_id: 42
 -- data: {"next_review": "2026-04-20", "interval": 3, "ease": 2.5}
 
--- Free-floating (planner task, no anchor):
--- lens_type: "planner", target_type: null, target_id: null
--- data: {"title": "Review mitochondria", "due": "2026-04-18"}
+-- Free-floating (pomodoro preferences, no anchor):
+-- lens_type: "pomodoro", target_type: null, target_id: null
+-- data: {"focus_min": 25, "break_min": 5}
 
--- Hybrid (planner task linked to a recording):
--- lens_type: "planner", target_type: "recording", target_id: 7
--- data: {"title": "Re-listen to intro section", "due": "2026-04-18"}
+-- Hybrid (pomodoro session log linked to a recording):
+-- lens_type: "pomodoro", target_type: "recording", target_id: 7
+-- data: {"sessions": 3, "last": "2026-04-18"}
+
+-- Planner tasks used to be the example here. They are now the core
+-- plan_items type, so every planning widget sees the same data.
 ```
 
 ### Workspace Config
@@ -74,23 +90,113 @@ workspace_panels
 
 workspace_scopes
   id, workspace_id, scope_type, scope_value
-  -- scope_type: "tag" | "timeframe" | "recording" | "exclude"
-  -- scope_value: "biology" | "2026-semester-1" | "rec_123" | "tag:practice-only"
+  -- scope_type: "tag" (course) | "recording" (focused lecture)
+  -- scope_value: "biology" | "rec_123"
   -- Scope is the user's primary dial. Changing scope is frequent and low-friction.
   -- A workspace with no scope rows sees all data (widest aperture).
 ```
+
+### Scope Declarations
+
+Scope controls what a widget shows, never what is true. Instead of a binary
+tool/view category, each lens manifest declares per dimension how it responds
+(`ScopeDeclaration` in `packages/lens-framework/src/types.ts`):
+
+| Dimension | Modes |
+|---|---|
+| `courseTag` | `filter` (readers narrow to the course, the widget says "+N in other courses"; new items inherit the course), `highlight` (everything, course emphasised, rest dimmed never hidden), `ignore` |
+| `recordingId` | `target` (works on the focused lecture, prompts when none), `highlight` (everything, items linked to the lecture emphasised), `ignore` |
+
+The shell enforces the declarations with `splitScope`. A widget receives
+`LensProps.scope` with only its `filter` / `target` dimensions, which is safe
+to pass straight to readers, and `LensProps.highlight` with its `highlight`
+dimensions, which is for styling only and never reaches readers. So a calendar
+written the obvious way (`usePlanItems(scope)`) cannot hide another course's
+commitments. Ignored dimensions reach neither. The drawer offers a picker for
+each dimension some widget on the board uses, and the TopBar "Showing: ..."
+chip summarises only those dimensions ("All courses" when the course is used
+but unset; hidden when no widget uses scope). Writer access is granted to
+lenses that declare `writes`, not by category.
+
+**Palette groups.** The widget palette groups widgets by what a student wants
+to do, not by tool/view: each manifest declares `group: 'capture' | 'study' |
+'plan' | 'review'` (`WidgetGroup` in
+`packages/lens-framework/src/substrate-contract.ts`). Groups show in that
+order; a widget without a group still appears, under "More widgets". A new
+widget slots in by declaring its group and being registered in
+`apps/web/src/App.tsx`; no shell change is needed (see
+`packages/workspace-shell/src/widget-groups.ts`).
+
+**A targeted lecture wins over the course.** When a reader gets a
+`recordingId` (tags, annotations, confidence, links of the focused lecture), it
+returns that lecture's data and does not apply `courseTag`. Focus and course
+may disagree (e.g. a Chemistry lecture uploaded on a Biology board); the
+student's own tags and notes on it never silently disappear, and the picker and
+chip still show the focused lecture's title.
+
+Course filtering happens server-side through one helper, `andInCourse` /
+`inCourse` in `apps/server/src/routers/_shared.ts`: a course is a `tags` row on
+a recording or a plan item (`target_type = 'plan_item'`, used by
+`planItems.list`), and segments, tags, confidence and links inherit the course
+of their recording.
+
+Time windows are not a board dimension. Widgets that show time own their
+navigation and look-ahead (a calendar shows the week being viewed, Coming up
+looks 14 days ahead) and pass a `DateRange` to readers in `QueryFilter`. The
+earlier `timeframe` board scope was never applied by any reader and was removed
+(migration 012).
+
+| Widget | Course | Focused recording | Unset scope |
+|---|---|---|---|
+| Audio capture | `filter` (tags new lecture) | `target` | ready to record |
+| Transcript | `filter` (narrows picker) | `target` | "pick a lecture" |
+| Connections | `filter` | `target` | prompt to focus a lecture |
+| Test me | `filter` | `ignore` | all material |
+| Your progress (weekly-overview) | `filter` | `ignore` | all courses |
+| All courses (gap analysis) | `highlight` | `ignore` | all courses |
+| Weakest topics | `filter` | `ignore` | all |
+| Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
+| To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
+| Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
+
+### Showing a Moment ("click a study block, land on the lecture moment")
+
+Some items point at a moment in a recording (a plan item's `source_type =
+'recording'`, `source_id`, `source_offset_ms`). Jumping there is a shell-level
+gesture, not lens-to-lens messaging, and it works like scope:
+
+1. A widget calls `LensProps.onShowMoment({ recordingId, offsetMs })`.
+2. The shell (`packages/workspace-shell/src/moments.ts`) focuses the recording
+   on the board (the `recordingId` scope row, as `onScopeChange` would) and
+   publishes the moment as ephemeral, app-wide shell state
+   (`useWorkspaceStore().focusedMoment`, never persisted, a fresh `id` per
+   request).
+3. Widgets whose manifest declares `showsMoments: true` (the Transcript)
+   receive it as `LensProps.focusedMoment`. The Transcript waits until the
+   focused lecture's segments have loaded, then scrolls its list to the
+   segment containing the offset and highlights it (`aria-current="location"`),
+   then reports `onMomentShown(id)` and the shell drops the moment, so
+   revisiting a board later doesn't jump there again.
+
+`onShowMoment` resolves `no-viewer` when the board has no moment viewer (the
+recording is still focused). The caller can then offer "Open in a board with
+Transcript": `onShowMoment(moment, { elsewhere: true })` switches to the first
+board (in tab order) that has one, preferring a board already focused on that
+recording, and shows the moment there. The Calendar does both: clicking a block
+with provenance jumps straight away, and its popover says where it landed or
+offers the other board.
 
 ---
 
 ## Architecture Overview
 
-Lenses never communicate directly — all interaction is emergent through the shared substrate (see terminology.md for principles and scaling rules).
+Lenses never communicate directly - all interaction is emergent through the shared substrate (see terminology.md for principles and scaling rules), plus the board scope and the ephemeral "show this moment" request the shell carries for them (see Showing a Moment above).
 
 ### Lens–Substrate–Workspace Relationship
 
 ```
 ┌─ Workspace ──────────────────────────────────────────┐
-│  scope: [tag=biology, time=last_7d]                  │
+│  scope: [tag=biology, recording=rec_123]             │
 │                                                       │
 │  ┌─ Panel ──────────┐    ┌─ Panel ──────────┐        │
 │  │ lens: transcript  │    │ lens: flashcard   │        │
@@ -117,10 +223,12 @@ Lenses exist on a spectrum from pure substrate views to mostly self-contained:
 ```
 Pure lens ◄─────────────────────────────► Pure micro-app
 
-Flashcards        Review        Planner        Pomodoro
-100% substrate    90/10         30/70          5/95
-0% local data                                  local data
+Flashcards   Calendar / To-do   Review        Pomodoro
+100% substrate   ~100%          90/10         5/95
+0% local data                                 local data
 ```
+
+Planning sat towards the micro-app end while tasks and events lived in lens-local data. With plan items as a core primitive, Calendar, To-do and Coming up are lenses over shared data: a to-do created by an automation shows up in all three.
 
 All use the same lens_data table and workspace_panels config. The platform doesn't distinguish — the ratio of substrate vs local data is an implementation detail of each lens.
 

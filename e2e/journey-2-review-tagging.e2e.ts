@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Evening review with tagging', () => {
-  test('tagging a segment as confused updates the weekly overview gap count', async ({ page }) => {
+  test('tagging a segment as confused adds a moment to review in Your Progress', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -11,16 +11,17 @@ test.describe('Journey: Evening review with tagging', () => {
     await topBar.switchToWorkspace('Evening Review')
     await topBar.expectActiveWorkspace('Evening Review')
     await grid.expectHasPanel('Transcript')
-    await grid.expectHasPanel('This Week')
+    await grid.expectHasPanel('Your Progress')
 
     const transcriptPanel = grid.panelByLabel('Transcript')
-    const weeklyPanel = grid.panelByLabel('This Week')
+    const weeklyPanel = grid.panelByLabel('Your Progress')
 
     // Wait for transcript segments to load
     await expect(transcriptPanel.getByText('14 segments')).toBeVisible({ timeout: 10000 })
 
-    // Verify initial gap count in WeeklyOverview (3 biology + 1 chemistry = 4 total)
-    await expect(weeklyPanel.getByText('4 gaps to review')).toBeVisible({ timeout: 10000 })
+    // Evening Review is a Biology board, so only the 5 biology moments to
+    // review count (chemistry's 1 is left out).
+    await expect(weeklyPanel.getByText('5 moments to review')).toBeVisible({ timeout: 10000 })
 
     // Find an untagged segment and click it to select
     // seg-bio4-01: "Today we're continuing our discussion of mitochondria..."
@@ -35,7 +36,7 @@ test.describe('Journey: Evening review with tagging', () => {
     // Verify the confused tag pill appears on the segment
     await expect(transcriptPanel.locator('text=confused').first()).toBeVisible()
 
-    // WeeklyOverview should update to show 5 gaps (one more biology gap)
-    await expect(weeklyPanel.getByText('5 gaps to review')).toBeVisible({ timeout: 10000 })
+    // One more biology moment to review
+    await expect(weeklyPanel.getByText('6 moments to review')).toBeVisible({ timeout: 10000 })
   })
 })

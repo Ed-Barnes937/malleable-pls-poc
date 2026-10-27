@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
+import { inCourse } from './_shared'
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -24,7 +25,11 @@ export const workspacesRouter = router({
     }),
 
   create: publicProcedure
-    .input(z.object({ name: z.string().max(500).min(1) }))
+    .input(z.object({
+      name: z.string().max(500).min(1),
+      // Optional board course, stored as the board's 'tag' scope.
+      courseTag: z.string().max(1000).min(1).optional(),
+    }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const [ws] = await tx`
@@ -32,6 +37,12 @@ export const workspacesRouter = router({
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
+        if (input.courseTag) {
+          await tx`
+            INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
+            VALUES (${ctx.userId}, ${ws.id}, 'tag', ${input.courseTag})
+          `
+        }
         return ws
       })
     }),
@@ -181,16 +192,21 @@ export const workspacesRouter = router({
   setScope: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
-      scopeType: z.string().max(255),
+      // Only live board dimensions ('tag' = course, 'recording' = focus);
+      // the removed 'timeframe' is rejected so stale clients can't write it.
+      scopeType: z.enum(['tag', 'recording']),
       scopeValue: z.string().max(1000).nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        if (input.scopeType === 'tag') {
+        if (input.scopeType === 'tag' && input.scopeValue !== null) {
+          // A focused lecture outside the new course would be an orphan: clear
+          // it in the same transaction. "All courses" (null) keeps any focus.
           await tx`
-            DELETE FROM workspace_scopes
-            WHERE workspace_id = ${input.workspaceId}
-              AND scope_type = 'recording' AND user_id = ${ctx.userId}
+            DELETE FROM workspace_scopes ws
+            WHERE ws.workspace_id = ${input.workspaceId}
+              AND ws.scope_type = 'recording' AND ws.user_id = ${ctx.userId}
+              AND NOT ${inCourse(tx, ctx.userId, input.scopeValue, 'recording', tx`ws.scope_value`)}
           `
         }
         if (input.scopeValue === null) {

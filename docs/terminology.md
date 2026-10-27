@@ -21,7 +21,7 @@ A preserved arrangement of lenses, layout, and configuration — separated from 
 A design principle from Allan MacLean's research. Customization difficulty should increase smoothly, not in cliffs. Each incremental step in modification power requires a proportionally small skill investment. Spreadsheets are the canonical example.
 
 ### Micro-App
-A workspace panel that is mostly self-contained, bringing its own domain rather than viewing the substrate differently. A planner is the canonical example. Micro-apps can still read/write the substrate when useful. The platform doesn't formally distinguish lenses from micro-apps — they sit on a spectrum (see technical-guidance.md).
+A workspace panel that is mostly self-contained, bringing its own domain rather than viewing the substrate differently. A Pomodoro timer is the canonical example. (A planner used to be the example here; now that plan items are a core primitive, Calendar, To-do and Coming up are lenses over shared data rather than micro-apps.) Micro-apps can still read/write the substrate when useful. The platform doesn't formally distinguish lenses from micro-apps - they sit on a spectrum (see technical-guidance.md).
 
 ### Audio as Unique Primitive
 Audio is the primary data primitive, not text. Timestamps are the universal anchor — every annotation, question, and connection points back to a moment in a recording. The transcript is just one lens on the audio, not the canonical form.
@@ -79,8 +79,9 @@ A small, stable set of types that the platform team owns. Lenses read and write 
 
 - **Recording** — audio blob + duration + timestamp
 - **Transcript** — text segments linked to recording timestamps
-- **Annotation** — user-created, anchored to a moment or span
+- **Annotation** - user-created, anchored to a moment or span. One AI-written kind exists: a lecture's 3-line summary, anchored to the whole recording (`anchor_type = 'recording_summary'`)
 - **Tag** — a label on anything (confused, key concept, exam-relevant)
 - **Link** — a connection between any two things
 - **Confidence Signal** — a score on a piece of material (from quizzes, self-assessment, spaced repetition)
+- **Plan Item** - anything on a student's plan: a fixed *commitment* (class, shift; can repeat weekly), a *deadline* (something due), or a *task* (a to-do, optionally scheduled into a time block). One type, many views: Calendar, To-do and Coming up all read it. Course attaches as a tag; provenance (e.g. the lecture moment a review to-do came from) is kept on the item
 - **Workspace** — an arrangement of lenses and scoping rules

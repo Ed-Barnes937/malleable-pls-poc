@@ -6,20 +6,36 @@ import type {
   Annotation,
   ConfidenceSignal,
   ConnectionResult,
-  CourseOverview,
-  CourseGap,
+  CourseProgress,
   WeakTopic,
   NewTag,
   NewAnnotation,
   NewConfidenceSignal,
+  PlanItem,
+  PlanItemOccurrence,
+  PlanItemQuery,
+  NewPlanItem,
+  PlanItemUpdate,
+  PlanAdvice,
+  PlanAutofillInput,
+  RefitAccept,
+  RefitPreview,
+  RefitResult,
 } from '@pls/substrate'
-import type { Scope, ScopeDim } from './types'
+import type { DateRange, Scope, ScopeDeclaration } from './types'
 
 /**
- * Query input for substrate hooks. Lenses pass their workspace `Scope`
- * (course, timeframe and focused recording) straight through.
+ * Query input for substrate hooks. Lenses pass `LensProps.scope` straight
+ * through (it holds only their `filter` / `target` dimensions), plus a
+ * `dateRange` when the widget shows a window of time it navigates itself.
+ * Never put `LensProps.highlight` here: readers treat every dimension as a
+ * hard filter, so a highlight-only widget (e.g. a calendar) would hide the
+ * other courses' commitments.
+ *
+ * When `recordingId` is set, readers return that lecture's data regardless of
+ * `courseTag`: a targeted lecture wins over the course.
  */
-export type QueryFilter = Scope
+export type QueryFilter = Scope & { dateRange?: DateRange }
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -51,6 +67,7 @@ export type TableName =
   | 'weekly_overview'
   | 'gap_analysis'
   | 'weakest_topics'
+  | 'plan_items'
 
 // ---------------------------------------------------------------------------
 // SubstrateReader — read-only hooks for view lenses
@@ -63,11 +80,35 @@ export interface SubstrateReader {
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
-  useConnections: (conceptSegmentId: string) => QueryResult<ConnectionResult[]>
+  useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
+  /** Links out of a targeted lecture; never course-filtered (the target wins). */
   useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
-  useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseOverview[]>
-  useGapAnalysis: () => QueryResult<CourseGap[]>
-  useWeakestTopics: (limit?: number) => QueryResult<WeakTopic[]>
+  useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseProgress[]>
+  useGapAnalysis: () => QueryResult<CourseProgress[]>
+  useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
+  /**
+   * Plan items (commitments, deadlines, to-dos). Pass `from`/`to` to get one
+   * row per occurrence in that range, with weekly recurrences expanded.
+   */
+  usePlanItems: (query?: PlanItemQuery) => QueryResult<PlanItemOccurrence[]>
+  /**
+   * To-dos whose time block ended without being done, each with where re-fit
+   * would put it now (or why it doesn't fit). Empty when nothing was missed.
+   * Always across every course: scope never changes where things go. Refreshed
+   * every minute, as blocks end. `refetch` asks the server now (e.g. right
+   * before showing new times), resolving with the fresh preview.
+   */
+  useRefitPreview: (timeZone: string) => QueryResult<RefitPreview> & { refetch: () => Promise<RefitPreview> }
+}
+
+/**
+ * A mutation refused because the data changed since the widget last read it
+ * (the server's CONFLICT, e.g. a stale re-fit preview), as opposed to a
+ * network or server failure worth retrying as is.
+ */
+export function isConflictError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'CONFLICT'
 }
 
 // ---------------------------------------------------------------------------
@@ -78,29 +119,74 @@ export interface SubstrateWriter extends SubstrateReader {
   useCreateTag: () => MutationHandle<NewTag>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
+  useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
+  /**
+   * Patches the stored item - the whole series for a recurring one. Send only
+   * changed fields, never a list row's occurrence times; to move an occurrence,
+   * shift `series_starts_at` / `series_ends_at` by the delta (see PlanItemOccurrence).
+   */
+  useUpdatePlanItem: () => MutationHandle<PlanItemUpdate, PlanItem>
+  /** Marks done. Takes the plan item id. */
+  useCompletePlanItem: () => MutationHandle<string, PlanItem>
+  /** Marks dismissed ("not doing this"). Takes the plan item id. */
+  useDismissPlanItem: () => MutationHandle<string, PlanItem>
+  useDeletePlanItem: () => MutationHandle<string, void>
+  /**
+   * Help me plan's Auto-fill advice for a week (priority order, trims when
+   * over capacity, a short note). Writes and places nothing: place with
+   * `draftPlan` from @pls/substrate and save accepted blocks with
+   * `useUpdatePlanItem`.
+   */
+  useAutofillPlan: () => MutationHandle<PlanAutofillInput, PlanAdvice>
+
+  /**
+   * Moves missed blocks to their previewed times. Fails with a CONFLICT
+   * (nothing moved) if the week changed since the preview; the preview then
+   * refreshes.
+   */
+  useAcceptRefit: () => MutationHandle<Omit<RefitAccept, 'workspaceId'>, RefitResult>
 }
 
 // ---------------------------------------------------------------------------
 // PanelManifest — single source of truth per panel
 // ---------------------------------------------------------------------------
 
+/**
+ * What a student wants to do with a widget. The widget palette groups tiles
+ * by it, in this order: capture (record or bring in material), study (work
+ * through it), plan (organise time and to-dos), review (see how it's going).
+ */
+export type WidgetGroup = 'capture' | 'study' | 'plan' | 'review'
+
 export interface PanelManifest {
   id: string
   label: string
   icon: ComponentType<{ className?: string }>
+  /** One short line shown on the palette tile, e.g. "Record or upload a lecture". */
   description: string
-  category: 'tool' | 'view'
+  /**
+   * Palette group. Declare one on every widget; a widget without one still
+   * appears, under "More widgets".
+   */
+  group?: WidgetGroup
   reads: TableName[]
+  /** Tables this widget writes. Declaring any grants it writer access. */
   writes?: TableName[]
   /** Trigger event identifiers this lens can fire. Drives the per-lens workflow editor's trigger dropdown. */
   emits?: string[]
   /**
-   * Workspace-level filter dimensions this lens consumes. The shell unions
-   * these across all panels in a workspace to decide which scope controls
-   * to surface. Omit (or leave empty) for lenses that don't consume any
-   * workspace-level filter — they'll receive an empty scope.
+   * How this widget responds to each board scope dimension. The shell splits
+   * the board scope into `LensProps.scope` (filter / target, for readers) and
+   * `LensProps.highlight` (styling only), and unions the used dimensions
+   * across the board to decide which scope pickers and chip parts to show.
+   * Omit for a widget that ignores board scope entirely.
    */
-  filters?: ScopeDim[]
+  scope?: ScopeDeclaration
+  /**
+   * The widget can show a recording moment (`LensProps.focusedMoment`), e.g.
+   * the Transcript. Decides where `LensProps.onShowMoment` can land.
+   */
+  showsMoments?: boolean
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

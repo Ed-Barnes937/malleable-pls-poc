@@ -36,6 +36,7 @@ function audioExtension(contentType: string | undefined): string | null {
 }
 
 const MAX_TITLE_LENGTH = 200
+const BOARD_ID_RE = /^[a-zA-Z0-9_-]{1,255}$/
 const MAX_COURSE_LENGTH = 100
 
 /**
@@ -130,6 +131,9 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const userId = (req.headers['x-user-id'] as string) ?? 'anonymous'
     const title = decodeHeader(req.headers['x-recording-title'], MAX_TITLE_LENGTH) ?? 'Untitled Recording'
     const course = decodeHeader(req.headers['x-recording-course'], MAX_COURSE_LENGTH)
+    // The board the upload came from, so that board's automations run.
+    const rawBoard = req.headers['x-workspace-id']
+    const workspaceId = typeof rawBoard === 'string' && BOARD_ID_RE.test(rawBoard) ? rawBoard : null
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
@@ -185,7 +189,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
       }
       await dispatchWorkflows(tx, userId, 'recording:completed', {
         recording_id: recordingId,
-      }, null)
+      }, workspaceId)
     })
 
     res.writeHead(200, { 'Content-Type': 'application/json' })

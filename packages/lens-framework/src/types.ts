@@ -1,16 +1,108 @@
+/**
+ * Workspace-level ("board") scope shared by every widget on a board. Each
+ * widget declares per dimension how it responds (see `ScopeDeclaration`); the
+ * shell splits the board scope accordingly (see `LensProps`).
+ */
 export interface Scope {
   courseTag?: string
-  timeframe?: 'week' | 'all'
   recordingId?: string
 }
 
-export type ScopeDim = 'courseTag' | 'timeframe' | 'recordingId'
+export type ScopeDim = keyof Scope
 
-export type LensCategory = 'tool' | 'view'
+/**
+ * How a widget responds to the board's course.
+ * - `filter`: readers narrow to the course; the widget says what it leaves
+ *   out ("+N in other courses"). Anything the widget creates inherits the
+ *   course (e.g. audio capture files a new lecture under it).
+ * - `highlight`: shows everything and emphasises the course (dims the rest,
+ *   never hides it). The course never reaches the widget's readers.
+ * - `ignore`: never sees the course.
+ */
+export type CourseScopeMode = 'filter' | 'highlight' | 'ignore'
+
+/**
+ * How a widget responds to the board's focused recording ("lecture").
+ * - `target`: works on that one recording (and prompts when none is focused).
+ *   A targeted lecture wins over the course: its own data is never hidden by
+ *   a course filter, even when the two disagree.
+ * - `highlight`: shows everything and emphasises items linked to it. The
+ *   focus never reaches the widget's readers.
+ * - `ignore`: never sees the focus.
+ */
+export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
+
+/**
+ * Per-dimension scope behaviour declared on a widget's manifest. Omitted
+ * dimensions are `ignore`. Scope controls what a widget shows, never what is
+ * true: e.g. a course-highlighting calendar still schedules around other
+ * courses.
+ */
+export interface ScopeDeclaration {
+  courseTag?: CourseScopeMode
+  recordingId?: RecordingScopeMode
+}
+
+/**
+ * Inclusive-exclusive window of time, as ISO-8601 instants. Not a board-level
+ * dimension: widgets own their own date navigation and look-ahead (a calendar
+ * shows the week being viewed, Coming up looks 14 days ahead) and pass the
+ * range to readers alongside the board scope.
+ */
+export interface DateRange {
+  /** Inclusive start. */
+  from: string
+  /** Exclusive end. */
+  to: string
+}
+
+/** A point in a recording, e.g. the lecture moment a review to-do came from. */
+export interface Moment {
+  recordingId: string
+  /** Offset from the start of the recording, in milliseconds. */
+  offsetMs: number
+}
+
+/**
+ * The moment most recently asked to be shown (see `LensProps.onShowMoment`).
+ * Ephemeral shell state, never persisted. `id` is new on every request, so
+ * showing the same moment twice scrolls to it again.
+ */
+export interface FocusedMoment extends Moment {
+  id: number
+}
+
+/**
+ * - `shown`: a widget that shows moments (manifest `showsMoments`) is on the
+ *   board it was shown on.
+ * - `no-viewer`: there is no such widget (on this board, or with
+ *   `elsewhere`, on any board). The recording is still focused.
+ */
+export type ShowMomentResult = 'shown' | 'no-viewer'
+
+export interface ShowMomentOptions {
+  /**
+   * Switch to a board that has a moment viewer (preferring one already
+   * focused on the recording) instead of showing it on this board.
+   */
+  elsewhere?: boolean
+}
 
 export interface LensProps {
   panelId: string
+  /**
+   * The board dimensions this widget declares `filter` or `target`. Safe to
+   * pass straight to substrate readers: it never contains a dimension the
+   * widget only highlights.
+   */
   scope: Scope
+  /**
+   * The board dimensions this widget declares `highlight`. For styling only
+   * (emphasise in-scope items, dim the rest); never pass it to readers, or
+   * the widget would hide what it is meant to show. Optional because hosts
+   * such as component tests may not supply it.
+   */
+  highlight?: Scope
   config: Record<string, unknown>
   /**
    * Patch the panel's persisted config. Shallow-merged with current config.
@@ -23,4 +115,23 @@ export interface LensProps {
    * for the same reason as `onConfigChange`.
    */
   onScopeChange?: (patch: Partial<Scope>) => void
+  /**
+   * Jump to a recording moment ("click a study block, land on the lecture
+   * moment"): the shell focuses the recording on the board (as
+   * `onScopeChange` would) and hands the moment to every widget whose manifest
+   * declares `showsMoments` via `focusedMoment`. Resolves `no-viewer` when the
+   * board has none, so the caller can offer `{ elsewhere: true }`. Optional
+   * for the same reason as `onConfigChange`.
+   */
+  onShowMoment?: (moment: Moment, options?: ShowMomentOptions) => Promise<ShowMomentResult>
+  /**
+   * For widgets that declare `showsMoments`: the moment last asked to be
+   * shown, on any board. Scroll to and highlight it once it belongs to the
+   * recording the widget shows; act once per `id`, then call
+   * `onMomentShown(id)` so the shell drops it (a later remount, e.g. on
+   * another board, then doesn't jump there again).
+   */
+  focusedMoment?: FocusedMoment
+  /** For `showsMoments` widgets: the moment with this `id` has been shown. */
+  onMomentShown?: (id: number) => void
 }
