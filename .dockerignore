@@ -1,4 +1,4 @@
-node_modules
+**/node_modules
 .cache
 dist
 test-results
@@ -17,3 +17,5 @@ packages/lens-framework
 packages/substrate-client
 playwright
 e2e
+.claude
+plans
