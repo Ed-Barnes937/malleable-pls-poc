@@ -71,3 +71,17 @@ export function andInCourse(
 ): Fragment {
   return course ? tx`AND ${inCourse(tx, userId, course, target, targetId)}` : tx``
 }
+
+/**
+ * A lecture's course as a column (`... AS course`): its first course tag,
+ * or NULL when it is filed under none. `recordingId` is the SQL expression
+ * for the recording's id, e.g. tx`r.id`.
+ */
+export function recordingCourse(tx: TxSql, recordingId: Fragment): Fragment {
+  return tx`(
+    SELECT t.label FROM tags t
+    WHERE t.target_type = 'recording' AND t.target_id = ${recordingId}
+      AND t.label IN ${tx(COURSE_LABELS)}
+    ORDER BY t.created_at, t.id LIMIT 1
+  )`
+}

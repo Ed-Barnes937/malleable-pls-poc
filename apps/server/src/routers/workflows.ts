@@ -48,6 +48,22 @@ export const workflowsRouter = router({
       })
     }),
 
+  /** One automation with its jobs, e.g. the one that made a plan item; null if it is gone. */
+  byId: publicProcedure
+    .input(z.string().max(255))
+    .query(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const [workflow] = await tx`
+          SELECT w.*, ${workflowJobsJson(tx)} AS jobs
+          FROM workflows w
+          LEFT JOIN workflow_jobs wj ON wj.workflow_id = w.id
+          WHERE w.id = ${input} AND w.user_id = ${ctx.userId}
+          GROUP BY w.id
+        `
+        return workflow ?? null
+      })
+    }),
+
   forWorkspace: publicProcedure
     .input(z.object({ workspaceId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {

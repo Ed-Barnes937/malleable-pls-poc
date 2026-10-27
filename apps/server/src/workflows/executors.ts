@@ -138,7 +138,7 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       const { topic } = await llm.run(reviewTask, taskInput)
       const title = reviewTitle(topic, taskInput)
 
-      const result = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now() }))
+      const result = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now(), workflowId: ctx.jobRun.workflow_id }))
       if (!result.created) return alreadyReviewed(result.item.id)
       const { item, slot } = result
       return {

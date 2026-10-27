@@ -1,4 +1,4 @@
-import type { TranscriptSegment } from '@pls/substrate'
+import type { TranscriptSegment } from './types'
 
 /**
  * The segment a moment falls in: the last one starting at or before

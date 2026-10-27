@@ -57,7 +57,7 @@ Every ticket in the plan landed on `feat/student-planning-demo`, plus tickets th
 
 - UX review recommendations (type scale, softer surfaces, ripple, split-across-days, Day view on phones, etc.): see the T12 artifact and the mock-ups artifact.
 - Re-fit preview ignores the daily study budget (server change).
-- Stale popover after the automation moves a block (runbook: press Escape first); lingering "added" toast; duplicate "Maternal inheritance" weak-topic row (seeded + today's lecture).
+- ~~Stale popover after the automation moves a block~~ (fixed in U4); lingering "added" toast; duplicate "Maternal inheritance" weak-topic row (seeded + today's lecture).
 - `key-point` tag yellow has low contrast in light mode; click-added widget can land under the open board menu.
 - Escape doesn't close the Automations dialog while a sentence dropdown has focus.
 - Live Whisper accepts only webm/wav up to 25 MB (the formats you verified).

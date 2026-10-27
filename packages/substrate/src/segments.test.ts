@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import type { TranscriptSegment } from '@pls/substrate'
-import { segmentAtOffset } from './moments'
+import type { TranscriptSegment } from './types'
+import { segmentAtOffset } from './segments'
 
 const seg = (id: string, start_ms: number, end_ms: number): TranscriptSegment => ({
   id, recording_id: 'rec', start_ms, end_ms, text: id, speaker: null,

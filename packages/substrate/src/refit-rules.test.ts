@@ -21,6 +21,7 @@ function item(overrides: Partial<PlanItem>): PlanItem {
     source_type: null,
     source_id: null,
     source_offset_ms: null,
+    created_by_workflow_id: null,
     course: null,
     created_at: '2026-10-01T00:00:00.000Z',
     updated_at: '2026-10-01T00:00:00.000Z',

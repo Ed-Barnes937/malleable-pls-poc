@@ -19,6 +19,7 @@ export {
   useRecentJobs,
   useRunningJobCount,
   useRetryJob,
+  useWorkflow,
   useWorkflowsForLens,
   useWorkflowsForWorkspace,
   useToggleWorkflow,

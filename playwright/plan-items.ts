@@ -16,6 +16,7 @@ export function seedPlanItem(
   const stored = {
     starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open' as const,
     recurrence: null, subtype: null, source_type: null, source_id: null, source_offset_ms: null,
+    created_by_workflow_id: null,
     created_at: now, updated_at: now,
     ...rest,
   }
