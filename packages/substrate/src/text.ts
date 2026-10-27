@@ -25,6 +25,7 @@ const DEFINITION_CUES = [
   /\bknown as\s+([^.,;:!?]+)/i,
   /\breferred to as\s+([^.,;:!?]+)/i,
   /\bthe term\s+([^.,;:!?]+)/i,
+  /\b(?:let me|I'll|I will|to)\s+(?:try to\s+)?explain\s+(?!(?:it|this|that|why|how|what)\b)([^.,;:!?]+)/i,
 ]
 
 const MAX_TOPIC_WORDS = 3
@@ -57,10 +58,17 @@ function candidatePhrases(text: string): string[][] {
   return phrases
 }
 
+/**
+ * The concept a cue names, taking the cue that comes first in the moment:
+ * "let me explain maternal inheritance ... which we call heteroplasmy" is
+ * about maternal inheritance.
+ */
 function cuePhrase(text: string): string | null {
-  for (const cue of DEFINITION_CUES) {
-    const match = cue.exec(text)
-    if (!match) continue
+  const matches = DEFINITION_CUES
+    .map((cue) => cue.exec(text))
+    .filter((m): m is RegExpExecArray => m != null)
+    .sort((a, b) => a.index - b.index)
+  for (const match of matches) {
     const phrase = words(match[1]).filter((w, i, all) => isContent(w) || (i > 0 && i < all.length - 1))
     const trimmed = phrase.slice(0, MAX_TOPIC_WORDS)
     while (trimmed.length && !isContent(trimmed[trimmed.length - 1])) trimmed.pop()

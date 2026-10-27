@@ -23,6 +23,14 @@ describe('keyPhrase', () => {
     expect(keyPhrase('This process is known as the Krebs cycle, and it runs in the matrix.')).toBe('krebs cycle')
   })
 
+  it('takes the concept named first when a moment names several', () => {
+    // The demo lecture's confusing moment (demo/lecture-mitochondrial-dna.segments.json).
+    const demo = 'Now, here is the part people find tricky, so let me try to explain maternal inheritance. You inherit your mitochondria from your mother. '
+      + 'And if some of the egg\'s own mitochondria are different from each other, which we call heteroplasmy, then which ones you get is partly down to chance.'
+    expect(keyPhrase(demo)).toBe('maternal inheritance')
+    expect(keyPhrase('To explain it properly, first a structure that is called the matrix.')).toBe('matrix')
+  })
+
   it('takes a concept named right after the moment when the moment names none', () => {
     expect(keyPhrase(SEG_04, { after: SEG_05 })).toBe('maternal inheritance')
   })

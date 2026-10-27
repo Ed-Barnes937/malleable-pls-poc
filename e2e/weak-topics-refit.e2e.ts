@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { SEED_MISSED_IDS } from './seed-week'
 import { trpcMutation, trpcQuery } from './api'
 
 /**
@@ -120,7 +121,11 @@ test.describe('To-do source link', () => {
 })
 
 test.describe('Re-fit blocks that did not happen', () => {
-  test.beforeEach(async () => { await reseed() })
+  test.beforeEach(async ({ request }) => {
+    await reseed()
+    // Each test makes its own missed blocks: set aside the seeded ones.
+    for (const id of SEED_MISSED_IDS) await trpcMutation(request, 'planItems.delete', id)
+  })
   test.afterAll(async () => { await reseed() })
 
   test('To-do asks calmly, previews new times and moves only the missed study blocks', async ({ page, request }) => {
