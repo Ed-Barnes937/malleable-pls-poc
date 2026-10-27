@@ -72,6 +72,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   /** A calm note in the header, e.g. a move that didn't save. */
   const [notice, setNotice] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
+  const planButtonRef = useRef<HTMLButtonElement>(null)
   /** What had focus when the popover opened, to return focus to on close. */
   const openerRef = useRef<HTMLElement | null>(null)
 
@@ -404,6 +405,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           </button>
           {view === 'week' && (
             <HelpMePlanButton
+              buttonRef={planButtonRef}
               open={planOpen}
               onToggle={() => {
                 setPlanCollapsed(false)
@@ -455,8 +457,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         />
         {planLayout && planCollapsed && (
           // Bottom corner, clear of the day headers.
+          // Takes focus when Hide tucks the panel away (it only appears then).
           <button
             type="button"
+            autoFocus
             onClick={() => setPlanCollapsed(false)}
             className="absolute bottom-3 right-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90"
           >
@@ -476,7 +480,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               todos={todos}
               autofill={autofill}
               onAutofillChange={setAutofill}
-              onClose={() => setPlanOpen(false)}
+              onClose={() => {
+                setPlanOpen(false)
+                requestAnimationFrame(() => planButtonRef.current?.focus())
+              }}
               onCollapse={() => setPlanCollapsed(true)}
               onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
               onDragTodo={setIncoming}

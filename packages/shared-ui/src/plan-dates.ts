@@ -43,10 +43,16 @@ export function dayLabel(t: number | string | Date, now: number | Date = Date.no
   return shortDate.format(new Date(typeof t === 'string' ? Date.parse(t) : t))
 }
 
-/** "Do by today", "Do by tomorrow", "Do by Fri 30 Oct": when a to-do should be done. */
+/**
+ * "Do by today", "Do by tomorrow", "Do by Fri 30 Oct": when a to-do should
+ * be done. A day already gone reads like any slipped plan: "Still to do from
+ * yesterday" (never "overdue").
+ */
 export function doByLabel(t: number | string | Date, now: number | Date = Date.now()): string {
+  const days = daysFromToday(t, now)
+  if (days < 0) return stillToDoLabel(t, now)
   const label = dayLabel(t, now)
-  return `Do by ${Math.abs(daysFromToday(t, now)) <= 1 ? label.toLowerCase() : label}`
+  return `Do by ${days <= 1 ? label.toLowerCase() : label}`
 }
 
 /** "14:00". */

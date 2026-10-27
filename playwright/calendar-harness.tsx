@@ -11,15 +11,18 @@ import { TestProviders } from './mount-wrapper'
 export function CalendarHarness({
   highlight,
   result = 'shown',
+  width = 1000,
 }: {
   highlight?: Scope
+  /** The Calendar panel's width (the demo board's is about 900). */
+  width?: number
   /** `fail` makes the stub reject, like a failed scope update. */
   result?: ShowMomentResult | 'fail'
 }) {
   const [calls, setCalls] = useState<string[]>([])
   return (
     <TestProviders>
-      <div className="flex flex-col bg-surface p-3" style={{ width: 1000, height: 640 }}>
+      <div className="flex flex-col bg-surface p-3" style={{ width, height: 640 }}>
         <CalendarLens
           panelId="calendar-test"
           scope={{}}

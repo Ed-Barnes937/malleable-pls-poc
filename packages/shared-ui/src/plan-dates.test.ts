@@ -35,6 +35,9 @@ describe('doByLabel', () => {
     expect(doByLabel(at(26), now)).toBe('Do by today')
     expect(doByLabel(at(27), now)).toBe('Do by tomorrow')
     expect(doByLabel(at(30), now)).toBe('Do by Fri 30 Oct')
+    // A day already gone reads calmly, never "Do by yesterday" or "overdue".
+    expect(doByLabel(at(25), now)).toBe('Still to do from yesterday')
+    expect(doByLabel(at(22), now)).toBe('Still to do from Thursday')
   })
 })
 

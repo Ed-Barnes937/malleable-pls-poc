@@ -507,17 +507,28 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 /**
  * The draft's own numbers, from what was actually placed: "Drafted 6h of
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
- * contradict the ghosts beside it. `leftoverMin` is study time the headline
- * counted that the draft could not use (free, but in gaps too short, or too
- * late, for what didn't fit): named, so drafted + leftover adds up to the
- * headline's free time and drafted + didn't fit to what the to-dos need.
+ * contradict the ghosts beside it. `shortGapMin` (see `shortGapMinutes`)
+ * is free time the draft couldn't use because every gap left is too short:
+ * named, so drafted + that adds up to the headline's free time.
  */
-export function draftCopy(placedMin: number, unplacedMin: number, leftoverMin = 0): string {
+export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
   if (unplacedMin <= 0) return `${drafted} Everything fits.`
   const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
-  if (leftoverMin < 15) return missed
-  return `${missed} The other ${formatMinutes(leftoverMin)} of free time is in gaps too short for it.`
+  if (shortGapMin < 15) return missed
+  const the = placedMin > 0 ? 'The other' : 'The'
+  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for it.`
+}
+
+/**
+ * Study time the headline counts (`freeMin`) that a draft placing
+ * `placedMin` left unused, but only when that is down to short gaps: every
+ * to-do that didn't fit had no gap long enough. Any other reason (too long
+ * for a day, due too soon) is named on its own line instead, so this is 0.
+ */
+export function shortGapMinutes(freeMin: number, placedMin: number, unplacedReasons: ReadonlyArray<UnplacedReason>): number {
+  if (unplacedReasons.length === 0 || unplacedReasons.some((r) => r !== 'no-free-slot')) return 0
+  return Math.max(0, freeMin - placedMin)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
@@ -12,6 +12,7 @@ import {
   planCapacity,
   planTasks,
   rankForPlan,
+  shortGapMinutes,
   studyDays,
   suggestTaskSlots,
   type PlanItemOccurrence,
@@ -27,9 +28,14 @@ import type { ProposalLayer } from './proposals'
 import { firstFreeStart, formatClock, formatWeekday, startOfDay } from './time'
 
 /** The Help me plan toggle in the week view header. */
-export function HelpMePlanButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+export function HelpMePlanButton({ open, onToggle, buttonRef }: {
+  open: boolean
+  onToggle: () => void
+  buttonRef?: RefObject<HTMLButtonElement | null>
+}) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-pressed={open}
       aria-label="Help me plan"
@@ -202,8 +208,13 @@ export function HelpMePlanPanel({
   }
 
   // "Pick a time" starts at the first free gap ahead long enough for the to-do
-  // (else the first free moment), 15-minute aligned, not "now".
-  const open = useMemo(() => openTime(layout, now), [layout, now])
+  // (else the first free moment), 15-minute aligned, not "now", and never on
+  // a time the draft has already given another to-do.
+  const draftBlocks = useMemo(
+    () => layer.proposals.filter((p) => !layer.savedIds.has(p.id)).map((p) => ({ start: Date.parse(p.startsAt), end: Date.parse(p.endsAt) })),
+    [layer.proposals, layer.savedIds],
+  )
+  const open = useMemo(() => openTime(layout, now, draftBlocks), [layout, now, draftBlocks])
   const pickDefaultFor = (durationMin: number) => firstFreeStart(open, durationMin) ?? layout.week.start + 9 * 3_600_000
 
   const ghostFor = (id: string) => layer.proposals.find((p) => p.taskId === id)
@@ -212,16 +223,45 @@ export function HelpMePlanPanel({
     layer.dismissAll()
     setAutofill({ state: 'idle' })
   }
-  const openDraftBlocks = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
+  const openDraftBlocks = draftBlocks.length
+
+  // Focus follows the panel: into it when it opens (or is shown again), to the
+  // draft when Auto-fill finishes, and back to Auto-fill when the draft ends,
+  // so keyboard users never land on the page body.
+  const headingId = useId()
+  const panelRef = useRef<HTMLElement>(null)
+  const headingRef = useRef<HTMLHeadingElement>(null)
+  const draftHeadingRef = useRef<HTMLHeadingElement>(null)
+  const autofillRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    headingRef.current?.focus()
+  }, [])
+  const prevState = useRef(autofill.state)
+  useEffect(() => {
+    const prev = prevState.current
+    prevState.current = autofill.state
+    if (prev === autofill.state) return
+    const active = document.activeElement
+    const focusIsOurs = !active || active === document.body || !!panelRef.current?.contains(active)
+    if (!focusIsOurs) return
+    if (autofill.state === 'drafted') draftHeadingRef.current?.focus()
+    else if (autofill.state === 'idle' || autofill.state === 'error') autofillRef.current?.focus()
+  }, [autofill.state])
 
   return (
     <aside
+      ref={panelRef}
       data-testid="help-me-plan-panel"
-      aria-label="Help me plan"
-      className="flex h-full min-h-0 w-[300px] max-w-full shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
+      aria-labelledby={headingId}
+      className="flex h-full min-h-0 w-[280px] max-w-full shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
       <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5">
-        <h3 className="flex min-w-0 flex-1 items-center gap-2 text-heading font-semibold text-text-primary">
+        <h3
+          ref={headingRef}
+          id={headingId}
+          tabIndex={-1}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-item text-heading font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
           <Sparkles className="h-[18px] w-[18px] shrink-0 text-accent" aria-hidden />
           Plan your time
         </h3>
@@ -269,6 +309,7 @@ export function HelpMePlanPanel({
             pickDefaultFor={pickDefaultFor}
             onPick={(todo, start, durationMin) => void schedule(todo, start, durationMin)}
             freeMin={cap.freeMin}
+            headingRef={draftHeadingRef}
           />
         ) : (
           (otherDraft || autofill.state === 'confirm-estimates' || autofill.state === 'error') && (
@@ -285,7 +326,8 @@ export function HelpMePlanPanel({
                     I'll assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} each.
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    <button type="button" onClick={assumeAndRun} className={primaryButton}>
+                    {/* The Auto-fill button that asked has gone: focus the answer. */}
+                    <button type="button" onClick={assumeAndRun} autoFocus className={primaryButton}>
                       Assume {formatMinutes(ASSUMED_ESTIMATE_MIN)} and Auto-fill
                     </button>
                     <button type="button" onClick={() => setAutofill({ state: 'idle' })} className={quietButton}>Cancel</button>
@@ -338,7 +380,7 @@ export function HelpMePlanPanel({
             type="button"
             onClick={() => void layer.acceptAll()}
             disabled={layer.saving || openDraftBlocks === 0}
-            className={cn(primaryButton, 'flex-1 justify-center')}
+            className={cn(primaryButton, 'flex-1 justify-center gap-1.5 whitespace-nowrap px-3')}
           >
             <Check className="h-4 w-4" />
             Accept draft
@@ -350,6 +392,7 @@ export function HelpMePlanPanel({
       ) : autofill.state !== 'confirm-estimates' && (
         <div className="flex shrink-0 border-t border-border-subtle px-4 pb-4 pt-3">
           <button
+            ref={autofillRef}
             type="button"
             data-testid="autofill"
             onClick={startAutofill}
@@ -367,7 +410,7 @@ export function HelpMePlanPanel({
 
 const primaryButton = 'inline-flex h-10 items-center gap-2 rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
 const quietButton = 'inline-flex h-8 items-center gap-1.5 rounded-item border border-border bg-surface-raised px-2.5 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'
-const ghostButton = 'inline-flex h-10 items-center rounded-control px-3 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-50'
+const ghostButton = 'inline-flex h-10 items-center rounded-control px-2 text-body whitespace-nowrap font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-50'
 const linkButton = 'font-semibold text-accent hover:underline'
 const sectionLabel = 'text-meta font-semibold text-text-muted'
 
@@ -424,9 +467,12 @@ function DraftSummary({
   pickDefaultFor,
   onPick,
   freeMin,
+  headingRef,
 }: {
   /** Study time left, as the capacity headline counts it. */
   freeMin: number
+  /** Focused when Auto-fill finishes. */
+  headingRef: RefObject<HTMLHeadingElement | null>
   minutesPerDay: number
   overCapacity: boolean
   now: number
@@ -446,7 +492,8 @@ function DraftSummary({
   const assumed = Object.keys(estimates).map(title)
   const blocks = layer.proposals.filter((p) => !layer.savedIds.has(p.id))
   // Every to-do too long for one day gets a trim offer, at the current budget.
-  const offers = completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay })
+  // With no study time left nothing can fit, however short: no Shrink offers.
+  const offers = freeMin > 0 ? completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay }) : []
   const shown = [
     ...offers,
     // Applied trims stay listed (with Undo) even if the offer moved on.
@@ -457,8 +504,8 @@ function DraftSummary({
   // The numbers come from the draft itself, so they always match the ghosts.
   const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
   const placedMin = proposalMinutes(layer.proposals)
-  // Study time the headline counts that the draft couldn't use (gaps too short for what is left).
-  const summary = draftCopy(placedMin, unplacedMin, Math.max(0, freeMin - placedMin))
+  // Study time the headline counts that the draft left in gaps too short for what is left.
+  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)))
 
   return (
     <div data-testid="autofill-draft" className="flex flex-col gap-3.5">
@@ -470,9 +517,9 @@ function DraftSummary({
         return (
           <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-3">
             {applied ? (
-              <div className="flex items-center gap-2 text-body text-text-primary">
+              <div className="flex flex-wrap items-center gap-2 text-body text-text-primary">
                 <Scissors className="h-4 w-4 shrink-0 text-attn" aria-hidden />
-                <span className="min-w-0 flex-1">
+                <span className="min-w-0 flex-1 basis-40">
                   Shrunk <span className="font-semibold">{title(trim.taskId)}</span> to {formatMinutes(trims.get(trim.taskId)!)}.
                 </span>
                 <button type="button" onClick={() => onTrim(trim.taskId, null)} className={quietButton}>
@@ -499,9 +546,11 @@ function DraftSummary({
       })}
 
       <section className="flex flex-col gap-1.5">
-        <h4 className={sectionLabel}>Draft · {blocks.length === 1 ? '1 block' : `${blocks.length} blocks`}</h4>
+        <h4 ref={headingRef} tabIndex={-1} className={cn(sectionLabel, 'rounded-item outline-none focus-visible:ring-2 focus-visible:ring-accent')}>
+          {blocks.length === 0 ? 'Draft' : `Draft · ${blocks.length === 1 ? '1 block' : `${blocks.length} blocks`}`}
+        </h4>
         <p data-testid="autofill-summary" className="text-meta text-text-secondary">{summary}</p>
-        <ul className="flex flex-col gap-1.5">
+        <ul className={cn('flex flex-col gap-1.5', blocks.length === 0 && 'hidden')}>
           {blocks.map((p) => (
             <li
               key={p.id}
@@ -698,13 +747,21 @@ function PickTime({ title, defaultStart, onPick, onCancel, className = 'pl-[22px
   className?: string
 }) {
   const [value, setValue] = useState(() => toLocalInput(defaultStart))
+  // The button that opened it (focused when this first renders): cancelling hands focus back.
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null))
+  const cancel = () => {
+    onCancel()
+    requestAnimationFrame(() => {
+      if (opener?.isConnected) opener.focus()
+    })
+  }
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const start = new Date(value)
     if (!Number.isNaN(start.getTime())) onPick(start)
   }
   return (
-    <form onSubmit={submit} className={cn('flex flex-wrap items-center gap-1.5', className)} onKeyDown={(e) => e.key === 'Escape' && onCancel()}>
+    <form onSubmit={submit} className={cn('flex flex-wrap items-center gap-1.5', className)} onKeyDown={(e) => e.key === 'Escape' && cancel()}>
       <input
         type="datetime-local"
         step={900}
@@ -715,7 +772,7 @@ function PickTime({ title, defaultStart, onPick, onCancel, className = 'pl-[22px
         className="h-7 rounded-item border border-border bg-surface-inset px-2 text-meta text-text-primary"
       />
       <button type="submit" className="h-7 rounded-item bg-accent px-2.5 text-meta font-semibold text-accent-foreground hover:opacity-90">Add</button>
-      <button type="button" onClick={onCancel} className={pickButton}>Cancel</button>
+      <button type="button" onClick={cancel} className={pickButton}>Cancel</button>
     </form>
   )
 }

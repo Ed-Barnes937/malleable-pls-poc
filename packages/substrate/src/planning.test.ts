@@ -16,6 +16,7 @@ import {
   planTasks,
   rankForPlan,
   sanitizeAdvice,
+  shortGapMinutes,
   studyDays,
   suggestTaskSlots,
   weekLayout,
@@ -120,10 +121,20 @@ describe('capacity and copy', () => {
     expect(draftCopy(360, 150)).toBe("Drafted 6h of study time. 2h 30m didn't fit.")
     expect(draftCopy(90, 0)).toBe('Drafted 1h 30m of study time. Everything fits.')
     expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
-    // Free time the draft couldn't use is named, so the numbers add up to the headline's.
+    // Free time left in gaps too short is named, so the numbers add up to the headline's.
     expect(draftCopy(420, 300, 120)).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
+    expect(draftCopy(0, 120, 90)).toBe("Nothing fits as it is. 2h didn't fit. The 1h 30m of free time is in gaps too short for it.")
     expect(draftCopy(420, 300, 10)).toBe("Drafted 7h of study time. 5h didn't fit.")
     expect(draftCopy(420, 0, 120)).toBe('Drafted 7h of study time. Everything fits.')
+  })
+
+  it('blames short gaps only when that is why every to-do did not fit', () => {
+    expect(shortGapMinutes(540, 420, ['no-free-slot', 'no-free-slot'])).toBe(120)
+    // Too long for a day, or due too soon: those reasons are named instead.
+    expect(shortGapMinutes(540, 420, ['no-free-slot', 'over-daily-budget'])).toBe(0)
+    expect(shortGapMinutes(720, 60, ['window-closed'])).toBe(0)
+    expect(shortGapMinutes(540, 540, [])).toBe(0)
+    expect(shortGapMinutes(100, 120, ['no-free-slot'])).toBe(0)
     expect(formatMinutes(90)).toBe('1h 30m')
     expect(formatMinutes(45)).toBe('45m')
     expect(formatMinutes(120)).toBe('2h')

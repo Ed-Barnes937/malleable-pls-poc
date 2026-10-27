@@ -102,13 +102,42 @@ test.describe('Help me plan', () => {
     for (const minutes of perDay.values()) expect(minutes).toBeLessThanOrEqual(120)
   })
 
-  test('over capacity: the headline and the Auto-fill draft agree on the numbers and the daily cap', async ({ page, request }) => {
-    // Same week (2h of study time on each of three mornings), but every to-do fits in a day.
-    const { lab, quiz, reading, cards } = await seedWeek(request)
-    for (const t of [lab, quiz, reading, cards]) await trpcMutation(request, 'planItems.delete', t.id)
-    for (const [title, duration_min] of [['Essay draft', 120], ['Problem set', 120], ['Past paper', 120], ['Flashcards', 60], ['Reading', 60]] as const) {
+  /** The same week (2h of study time on each of three mornings) with these to-dos instead. */
+  async function seedTodos(request: APIRequestContext, todos: ReadonlyArray<readonly [string, number]>) {
+    const seeded = await seedWeek(request)
+    for (const t of Object.values(seeded)) await trpcMutation(request, 'planItems.delete', t.id)
+    for (const [title, duration_min] of todos) {
       await trpcMutation(request, 'planItems.create', { kind: 'task', title, duration_min, due_at: null, course: 'biology' })
     }
+  }
+
+  test('free time left in gaps too short is named, so the draft adds up to the headline', async ({ page, request }) => {
+    // Four 90-minute to-dos in three 2h days: each day keeps a 30-minute piece.
+    await seedTodos(request, [['Essay draft', 90], ['Problem set', 90], ['Past paper', 90], ['Reading', 90]])
+    const { panel } = await openPlanner(page)
+    await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 6.')
+    await panel.getByTestId('autofill').click()
+    // 4h 30m drafted + 1h 30m in short pieces = the 6h free; + 1h 30m that didn't fit = the 6h needed.
+    await expect(panel.getByTestId('autofill-summary')).toHaveText(
+      "Drafted 4h 30m of study time. 1h 30m didn't fit. The other 1h 30m of free time is in gaps too short for it.",
+      { timeout: 15000 },
+    )
+    await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: no free gap long enough.")
+  })
+
+  test('a to-do too long for a day is named as the reason, not short gaps', async ({ page, request }) => {
+    await seedTodos(request, [['Essay draft', 180], ['Reading', 60]])
+    const { panel } = await openPlanner(page)
+    await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 4.')
+    await panel.getByTestId('autofill').click()
+    await expect(panel.getByTestId('autofill-summary')).toHaveText("Drafted 1h of study time. 3h didn't fit.", { timeout: 15000 })
+    await expect(panel.getByTestId('autofill-unplaced')).toContainText("Essay draft (3h) didn't fit: longer than your 2h a day.")
+    await expect(panel.getByTestId('autofill-draft')).not.toContainText('gaps too short')
+  })
+
+  test('over capacity: the headline and the Auto-fill draft agree on the numbers and the daily cap', async ({ page, request }) => {
+    // Every to-do fits in a day.
+    await seedTodos(request, [['Essay draft', 120], ['Problem set', 120], ['Past paper', 120], ['Flashcards', 60], ['Reading', 60]])
     const { calendar, panel } = await openPlanner(page)
 
     await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 8.')

@@ -337,22 +337,96 @@ test('with nothing to plan, the panel says so calmly and Auto-fill waits', async
 
 test('the panel floats over the weekend, so Monday to Friday keep their width', async ({ mount, page, simulator }) => {
   seedBusyWeek(simulator)
-  await mount(<CalendarHarness />)
+  // The demo board's Calendar is about 900px wide, beside To-do and Coming up.
+  await mount(<CalendarHarness width={900} />)
   const days = page.getByTestId('calendar-day')
   const before = await days.nth(0).boundingBox()
   const panel = await openPlan(page)
-  await expect(panel.getByRole('heading', { name: 'Plan your time' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: 'Plan your time' })).toBeVisible()
   const after = await days.nth(0).boundingBox()
   expect(after!.width).toBeCloseTo(before!.width, 0)
-  // It covers the weekend, not the weekdays.
+  // It covers the weekend and at most the end of Friday.
   const friday = await days.nth(4).boundingBox()
   const box = await panel.boundingBox()
-  expect(box!.x).toBeGreaterThan(friday!.x)
+  expect(box!.x).toBeGreaterThan(friday!.x + friday!.width * 0.6)
   // Hide tucks it away to see what is under it.
   await panel.getByRole('button', { name: 'Hide the plan to see the calendar' }).click()
   await expect(panel).toHaveCount(0)
   await page.getByRole('button', { name: 'Show plan' }).click()
   await expect(panel).toBeVisible()
+})
+
+test('keyboard: focus moves into the panel, follows Hide, Show plan and Auto-fill, and comes back from Pick a time', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await page.getByTestId('help-me-plan').focus()
+  await page.keyboard.press('Enter')
+  const panel = page.getByTestId('help-me-plan-panel')
+  await expect(panel.getByRole('heading', { name: 'Plan your time' })).toBeFocused()
+
+  // Hide hands focus to Show plan, and Show plan back into the panel.
+  await panel.getByRole('button', { name: 'Hide the plan to see the calendar' }).press('Enter')
+  await expect(page.getByRole('button', { name: 'Show plan' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(panel.getByRole('heading', { name: 'Plan your time' })).toBeFocused()
+
+  // Auto-fill asks about the missing estimate, then lands on the draft.
+  await panel.getByTestId('autofill').press('Enter')
+  await expect(panel.getByRole('button', { name: 'Assume 1h and Auto-fill' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(panel.getByRole('heading', { name: /^Draft · / })).toBeFocused()
+
+  // Escape from Pick a time goes back to the button that opened it.
+  const pick = panel.getByRole('button', { name: 'Pick a time for Lab report write-up' })
+  await pick.press('Enter')
+  await expect(panel.getByLabel('Start time for Lab report write-up')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(pick).toBeFocused()
+
+  // Keep my plan ends the draft: focus goes to Auto-fill, not the page.
+  await panel.getByRole('button', { name: 'Keep my plan' }).press('Enter')
+  await expect(panel.getByTestId('autofill')).toBeFocused()
+
+  // Closing hands focus back to Help me plan.
+  await panel.getByRole('button', { name: 'Close Help me plan' }).press('Enter')
+  await expect(page.getByTestId('help-me-plan')).toBeFocused()
+})
+
+/** Monday and Tuesday mornings free (2h a day); three 90-minute to-dos, so each day keeps a 30-minute piece. */
+function seedFragmentedWeek(simulator: BackendSimulator) {
+  seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+    id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 2 ? 12 : 8), ends_at: iso(d, 22),
+  })))
+  seed(simulator, [
+    { id: 'essay', title: 'Essay plan', duration_min: 90, course: 'biology' },
+    { id: 'sheet', title: 'Problem sheet', duration_min: 90, course: 'chemistry' },
+    { id: 'paper', title: 'Past paper', duration_min: 90, course: 'chemistry' },
+  ])
+}
+
+test('free time left in short gaps is named, and Pick a time never defaults onto a drafted block', async ({ mount, page, simulator }) => {
+  seedFragmentedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await expect(panel.getByTestId('plan-capacity')).toContainText('About 4 hours of study time left next week (2h a day). Your to-dos need 4.5.')
+  await panel.getByTestId('autofill').click()
+  const draft = panel.getByTestId('autofill-draft')
+  // 3h drafted + 1h in two 30-minute pieces = the 4h the headline counts.
+  await expect(draft.getByTestId('autofill-summary')).toHaveText(
+    "Drafted 3h of study time. 1h 30m didn't fit. The other 1h of free time is in gaps too short for it.",
+  )
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
+
+  // The one that didn't fit: Pick a time starts clear of both drafted blocks,
+  // so adding it straight away takes nothing out of the draft.
+  const unplaced = draft.getByTestId('autofill-unplaced')
+  await unplaced.getByRole('button', { name: /^Pick a time for / }).click()
+  await unplaced.getByRole('button', { name: 'Add' }).click()
+  await expect(unplaced).toHaveCount(0)
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
+  await expect(page.getByTestId('calendar-notice')).toHaveCount(0)
+  expect(simulator.db.planItems.filter((i) => i.kind === 'task' && i.starts_at)).toHaveLength(1)
 })
 
 test('a draft lists its blocks, hatches the shortfall, offers Shrink only and a time for what did not fit', async ({ mount, page, simulator }) => {
@@ -368,7 +442,8 @@ test('a draft lists its blocks, hatches the shortfall, offers Shrink only and a 
   await expect(draft.getByRole('heading', { name: 'Draft · 2 blocks' })).toBeVisible()
   await expect(draft.getByTestId('autofill-block')).toHaveText([/Biology quiz prep/, /Flashcards: organelles/])
   await expect(draft.getByTestId('autofill-summary')).toHaveText(
-    "Drafted 2h of study time. 4h didn't fit. The other 2h of free time is in gaps too short for it.",
+    // Only the lab report (too long for a day) didn't fit: short gaps aren't blamed.
+    "Drafted 2h of study time. 4h didn't fit.",
   )
   // Over capacity offers Shrink, never a split.
   await expect(draft.getByRole('button', { name: /^Shrink to/ })).toHaveCount(1)
@@ -402,4 +477,20 @@ test('a draft lists its blocks, hatches the shortfall, offers Shrink only and a 
   await panel.getByRole('button', { name: 'Accept draft' }).click()
   await expect.poll(() => stored(simulator, 'quiz')?.starts_at).not.toBeNull()
   await expect(ghosts).toHaveCount(0)
+})
+
+test('with no study time left, a draft says nothing fits and offers no Shrink', async ({ mount, page, simulator }) => {
+  seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+    id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, 0), ends_at: iso(d, 23, 59),
+  })))
+  seed(simulator, [{ id: 'lab', title: 'Lab report write-up', duration_min: 240, course: 'chemistry' }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await expect(panel.getByTestId('plan-capacity')).toContainText('No study time left next week (2h a day).')
+  await panel.getByTestId('autofill').click()
+  const draft = panel.getByTestId('autofill-draft')
+  await expect(draft.getByTestId('autofill-summary')).toHaveText("Nothing fits as it is. 4h didn't fit.")
+  await expect(draft.getByRole('heading', { name: 'Draft', exact: true })).toBeVisible()
+  await expect(draft.getByTestId('autofill-block')).toHaveCount(0)
+  await expect(draft.getByTestId('autofill-trim')).toHaveCount(0)
 })
