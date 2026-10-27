@@ -28,6 +28,7 @@ import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
+import { AutomationDialog } from './AutomationDialog'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
@@ -84,6 +85,8 @@ export function WorkspaceShell() {
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** An automation a widget asked to open (`LensProps.onEditAutomation`). */
+  const [automationId, setAutomationId] = useState<string | null>(null)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -338,6 +341,7 @@ export function WorkspaceShell() {
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
+            onEditAutomation={setAutomationId}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -440,6 +444,9 @@ export function WorkspaceShell() {
           </div>
         )}
       </main>
+      {automationId && (
+        <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
+      )}
       <ToastHost />
     </div>
   )

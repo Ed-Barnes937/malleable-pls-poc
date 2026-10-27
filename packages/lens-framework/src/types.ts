@@ -70,23 +70,17 @@ export interface Moment {
  */
 export interface FocusedMoment extends Moment {
   id: number
+  /** Move keyboard focus to the moment as well (the shell switched boards to show it). */
+  takeFocus?: boolean
 }
 
 /**
  * - `shown`: a widget that shows moments (manifest `showsMoments`) is on the
- *   board it was shown on.
- * - `no-viewer`: there is no such widget (on this board, or with
- *   `elsewhere`, on any board). The recording is still focused.
+ *   board it was shown on: this one, or another board the shell switched to.
+ * - `no-viewer`: no board has such a widget. The recording is still focused
+ *   on this board.
  */
 export type ShowMomentResult = 'shown' | 'no-viewer'
-
-export interface ShowMomentOptions {
-  /**
-   * Switch to a board that has a moment viewer (preferring one already
-   * focused on the recording) instead of showing it on this board.
-   */
-  elsewhere?: boolean
-}
 
 export interface LensProps {
   panelId: string
@@ -119,11 +113,12 @@ export interface LensProps {
    * Jump to a recording moment ("click a study block, land on the lecture
    * moment"): the shell focuses the recording on the board (as
    * `onScopeChange` would) and hands the moment to every widget whose manifest
-   * declares `showsMoments` via `focusedMoment`. Resolves `no-viewer` when the
-   * board has none, so the caller can offer `{ elsewhere: true }`. Optional
+   * declares `showsMoments` via `focusedMoment`. When this board has none, the
+   * shell opens the moment on a board that does (with a toast offering the way
+   * back); `no-viewer` means no board has one. Optional
    * for the same reason as `onConfigChange`.
    */
-  onShowMoment?: (moment: Moment, options?: ShowMomentOptions) => Promise<ShowMomentResult>
+  onShowMoment?: (moment: Moment) => Promise<ShowMomentResult>
   /**
    * For widgets that declare `showsMoments`: the moment last asked to be
    * shown, on any board. Scroll to and highlight it once it belongs to the
@@ -134,4 +129,10 @@ export interface LensProps {
   focusedMoment?: FocusedMoment
   /** For `showsMoments` widgets: the moment with this `id` has been shown. */
   onMomentShown?: (id: number) => void
+  /**
+   * Open the automation with this id (a workflow id, e.g. a plan item's
+   * `created_by_workflow_id`) so the student can see and edit it. Optional
+   * for the same reason as `onConfigChange`.
+   */
+  onEditAutomation?: (workflowId: string) => void
 }

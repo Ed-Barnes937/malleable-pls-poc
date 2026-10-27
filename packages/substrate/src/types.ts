@@ -5,6 +5,11 @@ export interface Recording {
   duration: number
   audio_url: string | null
   status: string
+  /**
+   * Course tag label (e.g. 'biology'), stored as a 'recording' tag. Null for a
+   * lecture filed under no course.
+   */
+  course: string | null
   /** By-id reads only: what the lecture's AI jobs are still doing, if anything. */
   processing?: LectureProcessing | null
 }
@@ -139,6 +144,8 @@ export interface PlanItem {
   source_type: string | null
   source_id: string | null
   source_offset_ms: number | null
+  /** The automation (workflow id) that made this item; null when a person did, or it is gone. */
+  created_by_workflow_id: string | null
   /** Course tag label (e.g. 'biology'), stored as a 'plan_item' tag. */
   course: string | null
   created_at: string
@@ -195,6 +202,7 @@ export interface NewPlanItem {
   source_type?: string | null
   source_id?: string | null
   source_offset_ms?: number | null
+  created_by_workflow_id?: string | null
   course?: string | null
 }
 

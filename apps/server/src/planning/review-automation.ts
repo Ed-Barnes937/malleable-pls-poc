@@ -3,6 +3,7 @@ import { freeSlots, place, startOfLocalDay, type Interval } from '@pls/scheduler
 import { REVIEW_SUBTYPE, REVIEW_TASK_JOB, STUDY_DAY, busyTime, padded, type PlanItem, type ReviewTaskParams } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
+import { recordingCourse } from '../routers/_shared'
 
 // The confusion automation's server side: where a review goes in time
 // ("AI suggests, code decides": the LLM only names it), and moving the
@@ -110,9 +111,7 @@ export interface MarkedMoment {
 export async function loadMoment(tx: TransactionSql, segmentId: string): Promise<MarkedMoment | null> {
   const [seg] = await tx`
     SELECT ts.id, ts.recording_id, ts.start_ms, ts.text, r.title,
-      (SELECT t.label FROM tags t
-        WHERE t.target_type = 'recording' AND t.target_id = ts.recording_id
-        ORDER BY t.created_at, t.id LIMIT 1) AS course
+      ${recordingCourse(tx, tx`ts.recording_id`)} AS course
     FROM transcript_segments ts
     JOIN recordings r ON r.id = ts.recording_id
     WHERE ts.id = ${segmentId}
@@ -153,13 +152,14 @@ export async function findOpenReview(tx: TransactionSql, userId: string, moment:
 
 /**
  * Adds the review to-do for a marked moment, linked to it (recording +
- * offset) and filed under the lecture's course, and places it. If no slot
- * fits it stays unscheduled (still on the to-do list, never dropped).
+ * offset), filed under the lecture's course and credited to the automation
+ * (`workflowId`) that made it, and places it. If no slot fits it stays
+ * unscheduled (still on the to-do list, never dropped).
  */
 export async function createReview(
   tx: TransactionSql,
   userId: string,
-  args: { moment: MarkedMoment; title: string; params: ReviewTaskParams; now: number },
+  args: { moment: MarkedMoment; title: string; params: ReviewTaskParams; now: number; workflowId: string | null },
 ): Promise<{ item: PlanItem; slot: ReviewSlot | undefined; created: true } | { item: PlanItem; created: false }> {
   const { moment, params, now } = args
   // One review per moment even when two marks race: serialise on the moment,
@@ -178,6 +178,7 @@ export async function createReview(
     source_type: 'recording',
     source_id: moment.recordingId,
     source_offset_ms: moment.startMs,
+    created_by_workflow_id: args.workflowId,
     course: moment.course,
   })
   const slots = await findReviewSlots(

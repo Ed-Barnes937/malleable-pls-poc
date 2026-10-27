@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, Select, TextField, cn } from '@pls/shared-ui'
 import { Check, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
+import { useEscapeToClose, usePopoverPosition } from './popover-position'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
@@ -36,32 +37,12 @@ export function EventPopover({
   const ref = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<Draft>(initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [pos, setPos] = useState({ left: x, top: y })
+  const pos = usePopoverPosition(ref, { x, y, bounds, width: WIDTH })
   const isCreate = !row
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
 
-  useLayoutEffect(() => {
-    const height = ref.current?.offsetHeight ?? 320
-    const left = x + 12 + WIDTH > bounds.width ? x - WIDTH - 12 : x + 12
-    setPos({
-      left: Math.max(8, Math.min(left, bounds.width - WIDTH - 8)),
-      top: Math.max(8, Math.min(y - 24, bounds.height - height - 8)),
-    })
-  }, [x, y, bounds.width, bounds.height])
-
-  // One listener for the popover's lifetime: re-subscribing on every render
-  // (onClose is often a fresh function) could drop an Escape mid-dispatch when
-  // the shell's own Escape handling re-renders the board.
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  useEscapeToClose(onClose)
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
   const setDate = (value: string) => {

@@ -1,7 +1,7 @@
 export { cn, formatTime } from './utils'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
 export { ProgressBar, type ProgressBarProps } from './ProgressBar'
-export { TagPill, TAG_STYLES } from './TagPill'
+export { TagPill, TAG_STYLES, leadingTag } from './TagPill'
 export { Badge, type BadgeProps } from './Badge'
 export { Spinner, type SpinnerProps } from './Spinner'
 export { StatusDot, type StatusDotProps, type StatusDotStatus } from './StatusDot'

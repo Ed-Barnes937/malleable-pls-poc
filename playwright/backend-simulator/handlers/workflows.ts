@@ -26,6 +26,15 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
       .sort((a, b) => a.created_at.localeCompare(b.created_at))
   })
 
+  router.register('workflows.byId', (input) => {
+    const workflow = db.workflows.find((w) => w.id === (input as string))
+    if (!workflow) return null
+    return {
+      ...workflow,
+      jobs: db.workflowJobs.filter((j) => j.workflow_id === workflow.id).sort((a, b) => a.sort_order - b.sort_order),
+    }
+  })
+
   router.register('workflows.forWorkspace', (input) => {
     const { workspaceId } = input as { workspaceId: string }
     const matching = effectiveOnBoard(db.workflows, workspaceId)
@@ -134,6 +143,10 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
     const { workflowId } = input as { workflowId: string }
     db.workflows = db.workflows.filter((w) => w.id !== workflowId)
     db.workflowJobs = db.workflowJobs.filter((j) => j.workflow_id !== workflowId)
+    // As ON DELETE SET NULL on the server: what it made stays, uncredited.
+    for (const item of db.planItems) {
+      if (item.created_by_workflow_id === workflowId) item.created_by_workflow_id = null
+    }
   })
 
   router.register('workflows.toggle', (input) => {

@@ -10,7 +10,6 @@ export type {
   Moment,
   FocusedMoment,
   ShowMomentResult,
-  ShowMomentOptions,
 } from './types'
 export {
   usesScopeDim,

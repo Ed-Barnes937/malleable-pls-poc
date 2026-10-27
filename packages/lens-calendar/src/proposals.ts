@@ -360,6 +360,7 @@ export function ghostRow(p: Proposal): PlanItemOccurrence {
     source_type: null,
     source_id: null,
     source_offset_ms: null,
+    created_by_workflow_id: null,
     course: p.course ?? null,
     created_at: p.startsAt,
     updated_at: p.startsAt,
