@@ -19,3 +19,8 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 ## 2026-10-27 (Ed, from U4 questions)
 9. "Go to moment" prefers a board whose Transcript is in review mode, then falls back to tab order. No new data.
 10. Recording course is read from the recording's course-label tags (oldest first). No new column; this replaces the "migration" wording of decision 6.
+
+## 2026-10-27 (Ed, from U3 and U6 questions)
+11. A confusion review respects the daily budget when any day in its window has room. If none does, it goes in the earliest free slot anyway (over budget as a last resort). It is unscheduled only when there is no free slot at all.
+12. The server's review placement uses the default 2h/day until S1's study-hours preference exists.
+13. The phone top bar follows the mock-up (menu, tabs, widgets button), with Automations, Theme and Settings moved into the menu. Small follow-up ticket U6b after U6 merges; it also covers showing the today line on the phone (mock-up 5).

@@ -32,14 +32,25 @@ function seedWeek(simulator: BackendSimulator) {
     { id: 'quiz', kind: 'deadline', title: 'Biology quiz', due_at: iso(3, 9), course: 'biology' },
     { id: 'revise', kind: 'task', title: 'Revise respiration', starts_at: iso(2, 16), ends_at: iso(2, 17), duration_min: 60, course: 'biology' },
     {
+      // Made by the confusion automation from a moment marked confusing (seg-bio4-04, 9:00).
       id: 'review', kind: 'task', title: 'Review: maternal inheritance', starts_at: iso(2, 20), ends_at: iso(2, 20, 30), duration_min: 30,
-      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 760000, course: 'biology',
+      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, course: 'biology',
+      created_by_workflow_id: 'wf-confused-review',
     },
   ])
 }
 
 /** Viewport point for a day column and time on the grid. */
 async function point(page: Page, dayIndex: number, hours: number) {
+  // The grid re-fits its hour height as rows load: measure only once it has
+  // stopped moving (as CalendarPom does in e2e).
+  let last = ''
+  await expect.poll(async () => {
+    const box = JSON.stringify(await page.getByTestId('calendar-grid').boundingBox())
+    const settled = box === last
+    last = box
+    return settled
+  }, { intervals: [100] }).toBe(true)
   const grid = await page.getByTestId('calendar-grid').boundingBox()
   const day = await page.getByTestId('calendar-day').nth(dayIndex).boundingBox()
   return { x: day!.x + day!.width / 2, y: grid!.y + (hours / 24) * grid!.height }
@@ -264,27 +275,108 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
 })
 
-test('clicking a block from a lecture moment asks the board to show that moment', async ({ mount, page, simulator }) => {
+test('a block from a lecture moment leads with where it came from', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   await block(page, 'Review: maternal inheritance').click()
-  await expect(page.getByTestId('moment-calls')).toHaveText('rec-bio-4@760000')
-  const moment = page.getByTestId('calendar-moment')
-  await expect(moment).toContainText('Biology Lecture: Mitochondrial DNA')
-  await expect(moment).toContainText('12:40')
-  await expect(moment).toContainText('Showing this moment in the Transcript.')
+  const popover = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+  await expect(popover.getByTestId('calendar-moment-source')).toHaveText('From Biology Lecture: Mitochondrial DNA · 9:00')
+  const quote = popover.getByTestId('calendar-moment-quote')
+  // Marked both confusing and a key point: confusion leads.
+  await expect(quote).toContainText('You marked this confusing')
+  await expect(quote).toContainText('"Here\'s the critical point: mitochondrial DNA is inherited exclusively from the maternal line.')
+  await expect(popover).toContainText('Biology')
+  await expect(popover).toContainText('20:00-20:30')
+  await expect(popover).toContainText('30 min')
+  // Nothing opens until the student asks: "Go to moment" leads, and has focus.
+  await expect(page.getByTestId('moment-calls').locator('li')).toHaveCount(0)
+  await expect(popover.getByRole('button', { name: 'Go to moment' })).toBeFocused()
+  // The date and time pickers wait behind "Edit time".
+  await expect(popover.getByLabel('Start time')).toHaveCount(0)
+  await expect(popover.getByTestId('calendar-made-by')).toHaveText(
+    'Made by "When I mark something confusing, add a 20-min review within 3 days". Edit',
+  )  // Stays inside the calendar once everything in it has loaded.
+  const box = (await popover.boundingBox())!
+  const cal = (await page.getByTestId('calendar').boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(cal.y + cal.height)
 })
 
-test('without a Transcript on the board it offers one elsewhere', async ({ mount, page, simulator }) => {
+test('"Go to moment" asks the board to show that moment', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').click()
+  await page.getByRole('button', { name: 'Go to moment' }).click()
+  await expect(page.getByTestId('moment-calls').locator('li')).toHaveText(['rec-bio-4@540000'])
+  await expect(page.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
+})
+
+test('when no board has a Transcript, "Go to moment" says how to get one', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  // `no-viewer`: the shell found no board with a Transcript (it opens one elsewhere when it can).
   await mount(<CalendarHarness result="no-viewer" />)
   await block(page, 'Review: maternal inheritance').click()
+  await page.getByRole('button', { name: 'Go to moment' }).click()
   const moment = page.getByTestId('calendar-moment')
-  await expect(moment).toContainText('This board has no Transcript.')
-  await moment.getByRole('button', { name: 'Open in a board with Transcript' }).click()
-  await expect(page.getByTestId('moment-calls').locator('li')).toHaveText(['rec-bio-4@760000', 'rec-bio-4@760000 elsewhere'])
-  // The stub has no board with a Transcript either.
-  await expect(moment).toContainText('None of your boards has a Transcript yet')
+  await expect(moment).toHaveText('None of your boards has a Transcript yet. Add one from the widget drawer to see this moment.')
+  await expect(page.getByTestId('moment-calls').locator('li')).toHaveText(['rec-bio-4@540000'])
+})
+
+test('"Edit" in the footer opens the automation that made the block', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').click()
+  await page.getByTestId('calendar-made-by').getByRole('button', { name: 'Edit automation' }).click()
+  await expect(page.getByTestId('moment-calls').locator('li')).toHaveText(['edit wf-confused-review'])
+})
+
+test('a block no automation made has no "Made by" footer', async ({ mount, page, simulator }) => {
+  seed(simulator, [{
+    id: 'by-hand', kind: 'task', title: 'Review: by hand', starts_at: iso(2, 20), ends_at: iso(2, 20, 30), duration_min: 30,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 760000, course: 'biology',
+  }])
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: by hand').click()
+  const popover = page.getByRole('dialog', { name: 'Review: by hand' })
+  await expect(popover.getByTestId('calendar-moment-source')).toHaveText('From Biology Lecture: Mitochondrial DNA · 12:40')
+  // An untagged moment: the line, with no mark.
+  await expect(popover.getByTestId('calendar-moment-quote')).not.toContainText('You marked')
+  await expect(popover.getByTestId('calendar-made-by')).toHaveCount(0)
+})
+
+test('"Mark done" and "Edit time" on a block from a lecture moment', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').click()
+  await page.getByRole('button', { name: 'Mark done' }).click()
+  await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('aria-label', /, done$/)
+
+  await block(page, 'Review: maternal inheritance').click()
+  await page.getByRole('button', { name: 'Edit time' }).click()
+  const form = page.getByRole('dialog', { name: 'Edit Review: maternal inheritance' })
+  await form.getByLabel('Start time').fill('21:00')
+  await form.getByRole('button', { name: 'Save' }).click()
+  await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('aria-label', /21:00 - 21:30/)
+  expect(simulator.db.planItems.find((p) => p.id === 'review')?.starts_at).toBe(iso(2, 21))
+})
+
+test('an open popover follows its block when something else moves it', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').click()
+  const popover = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+  await expect(popover).toContainText('20:00-20:30')
+
+  // The automation moves it (as editing its params does on the server), and the calendar refetches.
+  const stored = simulator.db.planItems.find((p) => p.id === 'review')!
+  Object.assign(stored, { starts_at: iso(3, 9), ends_at: iso(3, 9, 20), duration_min: 20, updated_at: new Date().toISOString() })
+  // Coming back to the tab refetches (React Query's refetch on focus).
+  await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+
+  await expect(popover).toContainText('09:00-09:20')
+  await expect(popover).toContainText('20 min')
+  // The time form, opened now, starts from the new time too.
+  await popover.getByRole('button', { name: 'Edit time' }).click()
+  await expect(page.getByLabel('Start time')).toHaveValue('09:00')
 })
 
 test('the next and previous weeks are fetched by date range', async ({ mount, page, simulator }) => {
@@ -320,6 +412,7 @@ test('a moment that fails to open offers to try again', async ({ mount, page, si
   seedWeek(simulator)
   await mount(<CalendarHarness result="fail" />)
   await block(page, 'Review: maternal inheritance').click()
+  await page.getByRole('button', { name: 'Go to moment' }).click()
   const moment = page.getByTestId('calendar-moment')
   await expect(moment).toContainText("Couldn't open the moment just now.")
   await expect(moment).not.toContainText('Opening the moment')

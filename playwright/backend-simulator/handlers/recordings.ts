@@ -1,12 +1,23 @@
 import type { ProcedureRouter } from '../trpc-protocol'
-import type { InMemoryDb } from '../in-memory-db'
+import type { InMemoryDb, StoredRecording } from '../in-memory-db'
+
+/** Mirrors `recordingCourse` on the server (apps/server/src/routers/_shared.ts). */
+const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
 
 export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemoryDb): void {
+  // A lecture's course: its first course tag, as on the server.
+  const withCourse = (r: StoredRecording) => {
+    const tag = db.tags
+      .filter((t) => t.target_type === 'recording' && t.target_id === r.id && COURSE_LABELS.has(t.label))
+      .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]
+    return { ...r, course: tag?.label ?? null }
+  }
+
   router.register('recordings.list', (input) => {
     const opts = input as { courseTag?: string; recordingId?: string } | undefined
 
     if (opts?.recordingId) {
-      return db.recordings.filter((r) => r.id === opts.recordingId)
+      return db.recordings.filter((r) => r.id === opts.recordingId).map(withCourse)
     }
 
     if (opts?.courseTag) {
@@ -18,9 +29,10 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
       return db.recordings
         .filter((r) => taggedIds.has(r.id))
         .sort((a, b) => b.created_at.localeCompare(a.created_at))
+        .map(withCourse)
     }
 
-    return [...db.recordings].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    return [...db.recordings].sort((a, b) => b.created_at.localeCompare(a.created_at)).map(withCourse)
   })
 
   router.register('recordings.byId', (input) => {
@@ -36,6 +48,6 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
     const processing = busy.some((j) => j.job_type === 'ai:transcribe')
       ? 'transcribing'
       : busy.some((j) => j.job_type === 'ai:summarize-lecture') ? 'summarising' : null
-    return { ...recording, processing }
+    return { ...withCourse(recording), processing }
   })
 }

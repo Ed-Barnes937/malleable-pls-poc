@@ -9,7 +9,7 @@ function deadline(id: string, due_at: string): PlanItemOccurrence {
   return {
     id, kind: 'deadline', title: id, starts_at: null, ends_at: null, due_at, duration_min: null,
     status: 'open', recurrence: null, subtype: null, source_type: null, source_id: null,
-    source_offset_ms: null, course: null, created_at: iso(1), updated_at: iso(1),
+    source_offset_ms: null, created_by_workflow_id: null, course: null, created_at: iso(1), updated_at: iso(1),
     occurrence_key: id, series_starts_at: null, series_ends_at: null, series_due_at: due_at,
   }
 }

@@ -5,6 +5,7 @@
  * params, their defaults and the words used for them.
  */
 import { z } from 'zod'
+import type { WorkflowJob, WorkflowWithJobs } from '@pls/workflows'
 
 /** Job type that turns a tagged transcript moment into a scheduled review to-do. */
 export const REVIEW_TASK_JOB = 'plan:review-task'
@@ -97,4 +98,24 @@ export const REVIEW_TRIGGER_LABELS: Record<string, string> = {
   confused: 'confusing',
   'key-point': 'as a key point',
   question: 'as a question',
+}
+
+/** The confusion automation's review job, when `workflow` is one. */
+export function reviewJobOf(workflow: WorkflowWithJobs): WorkflowJob | undefined {
+  if (workflow.trigger_event !== 'tag:created' || workflow.condition_field !== 'label') return undefined
+  return workflow.jobs.find((j) => j.job_type === REVIEW_TASK_JOB)
+}
+
+/**
+ * The automation as the sentence the student edits, in plain text:
+ * "When I mark something confusing, add a 20-min review within 3 days".
+ * Null when `workflow` is not a review automation.
+ */
+export function reviewAutomationSentence(workflow: WorkflowWithJobs): string | null {
+  const job = reviewJobOf(workflow)
+  if (!job) return null
+  const label = workflow.condition_value ?? 'confused'
+  const mark = REVIEW_TRIGGER_LABELS[label] ?? `as "${label}"`
+  const params = parseReviewParams(job.params)
+  return `When I mark something ${mark}, add a ${params.durationMin}-min review ${reviewWindowLabel(params.windowDays)}`
 }

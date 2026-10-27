@@ -8,9 +8,9 @@ const LENSES = { 'weakest-topics': WeakestTopicsLens, todo: TodoLens } as const
 
 /**
  * Mounts a widget that links to lecture moments with a stub `onShowMoment`
- * that records each request (as "recordingId@offsetMs [elsewhere]") in a
- * list the test can read, and answers `result` on this board (`shown`
- * elsewhere). The Calendar has its own (calendar-harness.tsx).
+ * that records each request (as "recordingId@offsetMs") in a list the test
+ * can read, and answers `result`. The Calendar has its own
+ * (calendar-harness.tsx).
  */
 export function MomentHarness({ lens, result = 'shown' }: { lens: keyof typeof LENSES; result?: ShowMomentResult }) {
   const [calls, setCalls] = useState<string[]>([])
@@ -22,9 +22,9 @@ export function MomentHarness({ lens, result = 'shown' }: { lens: keyof typeof L
           panelId="moment-test"
           scope={{}}
           config={{}}
-          onShowMoment={async (moment, options) => {
-            setCalls((c) => [...c, `${moment.recordingId}@${moment.offsetMs}${options?.elsewhere ? ' elsewhere' : ''}`])
-            return options?.elsewhere ? 'shown' : result
+          onShowMoment={async (moment) => {
+            setCalls((c) => [...c, `${moment.recordingId}@${moment.offsetMs}`])
+            return result
           }}
         />
       </div>

@@ -109,20 +109,22 @@ test.describe('Weak topics', () => {
     await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
   })
 
-  test('from a board without a Transcript, it opens the moment in one that has it', async ({ page }) => {
+  test('from a board without a Transcript, it opens the moment on one that has it, with a way back', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Exam Prep')
     const weakest = new PanelGridPom(page).panelByLabel('Weakest Topics')
 
     await weakest.getByRole('button', { name: /^Maternal inheritance: go to this moment/ }).click()
-    await expect(weakest.getByText('This board has no Transcript.')).toBeVisible()
-    await weakest.getByRole('button', { name: 'Open in a board with Transcript' }).click()
 
     await topBar.expectActiveWorkspace('Evening Review')
     const moment = new PanelGridPom(page).panelByLabel('Transcript').locator('[data-moment]')
     await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
     await expect(moment).toBeInViewport()
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Opened 9:00 in Evening Review')
+    await toast.getByRole('button', { name: 'Back to Exam Prep' }).click()
+    await topBar.expectActiveWorkspace('Exam Prep')
   })
 })
 
