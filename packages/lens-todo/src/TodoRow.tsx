@@ -1,6 +1,6 @@
 import type { LensProps } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, dayAndTime, dayLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
+import { cn, courseTone, dayAndTime, doByLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
 import { CalendarClock, Check, Clock, Hourglass, Undo2, X } from 'lucide-react'
 import { slippedAt } from './todo-items'
 import { SourceLink } from './SourceLink'
@@ -71,7 +71,7 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, onToggle
                 {dayAndTime(item.starts_at, now)}
               </span>
             ) : item.due_at ? (
-              <span>Due {dayLabel(item.due_at, now)}</span>
+              <span>{doByLabel(item.due_at, now)}</span>
             ) : null}
             {item.duration_min != null && (
               <span className="flex items-center gap-1" title="Time estimate">

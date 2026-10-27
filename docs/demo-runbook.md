@@ -21,10 +21,10 @@ What the reseed gives you: weekly Biology lectures (Mon, Wed 10-12), Chemistry (
 - Calendar shows the week with lectures and both shifts as fixed blocks, the planned weekend study, and yesterday's two blocks. Coming up: Biology quiz (Thu), Chemistry lab report (Fri). To-do (and the Calendar) already ask "2 blocks didn't happen. Re-fit them?": **leave it for step 6, don't click Not now** (if you do, reload the tab to bring it back).
 
 **2. Plan the week**
-- In the Calendar, **Help me plan**. The panel reads "About 9 hours of study time left this week. Your to-dos need 12." (2h of study a day).
+- In the Calendar, **Help me plan**. The panel ("Plan your time", floating over the weekend) reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."; the bar hatches the 3h short. Free gaps on the grid show their length ("2h free").
 - Assign one by hand: on "Revise for the Biology quiz", click its first suggested time (e.g. "Today 10:30"). Copy updates to 7 hours / 10.
-- **Auto-fill**. Ghost blocks appear; the note says what is due soonest; "Shrink 'Lab report write-up' to 2h? (now 3h)". Click **Shrink to 2h**: "Drafted ... of study time. ... didn't fit." (the to-dos that don't fit are listed honestly).
-- **Accept all**. Close the panel (x), then drag any accepted study block to a new time (e.g. to Saturday afternoon).
+- **Auto-fill**. Ghost blocks appear; the note says what is due soonest; "Lab report write-up (3h) is too long for one day." Click **Shrink to 2h**: the draft lists its blocks and says "Drafted ... of study time. ... didn't fit." (plus any free time left in gaps too short), and names each to-do that didn't fit with **Pick a time**.
+- **Accept draft**. Close the panel (x), then drag any accepted study block to a new time (e.g. to Saturday afternoon).
 
 **3. Scope**
 - Board menu > Showing > Course: **Biology**, then Escape. Chip "Showing: Biology"; the calendar says "Biology highlighted" (Chemistry dimmed, shifts kept); Coming up shows the quiz and "+1 in other courses".

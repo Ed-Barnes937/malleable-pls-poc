@@ -31,6 +31,7 @@ export {
   completeTrims,
   defaultTrims,
   draftCopy,
+  shortGapMinutes,
   longestBlockMin,
   noteWithoutAmounts,
   draftPlan,

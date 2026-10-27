@@ -12,6 +12,8 @@ export class TopBarPom {
   readonly newWorkspaceButton: Locator
   readonly drawerTrigger: Locator
   readonly scopeChip: Locator
+  /** "Tuesday · Chemistry 14:00 · ...": today at a glance, wide screens only. */
+  readonly todayLine: Locator
 
   constructor(private page: Page) {
     this.root = page.getByTestId('top-bar')
@@ -19,6 +21,7 @@ export class TopBarPom {
     this.newWorkspaceButton = this.root.getByRole('button', { name: 'New board' })
     this.drawerTrigger = this.root.getByTestId('drawer-trigger')
     this.scopeChip = this.root.getByTestId('scope-chip')
+    this.todayLine = this.root.getByTestId('today-line')
   }
 
   async switchToWorkspace(name: string) {

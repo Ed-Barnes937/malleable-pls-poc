@@ -18,6 +18,7 @@ export {
   daysFromToday,
   localDayKey,
   dayLabel,
+  doByLabel,
   clockTime,
   dayAndTime,
   dayMonthAndTime,

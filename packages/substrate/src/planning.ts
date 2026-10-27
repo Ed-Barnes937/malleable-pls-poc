@@ -126,9 +126,12 @@ export function padded(block: Interval, minutes: number = STUDY_DAY.bufferMin): 
   return { start: block.start - pad, end: block.end + pad }
 }
 
-/** Free time still ahead of `now`, around busy blocks (the budget is not applied). */
-export function openTime(layout: WeekLayout, now: number): Interval[] {
-  return subtract(layout.free, [...layout.busy, { start: -Infinity, end: now }])
+/**
+ * Free time still ahead of `now`, around busy blocks (the budget is not
+ * applied) and anything in `alsoBusy` (e.g. drafted blocks not saved yet).
+ */
+export function openTime(layout: WeekLayout, now: number, alsoBusy: ReadonlyArray<Interval> = []): Interval[] {
+  return subtract(layout.free, [...layout.busy, ...alsoBusy, { start: -Infinity, end: now }])
 }
 
 export interface StudyDay {
@@ -443,14 +446,18 @@ function amount(min: number, round: 'down' | 'up'): { n: string; unit: 'hour' | 
 const plural = (n: string, unit: string) => `${unit}${n === '1' ? '' : 's'}`
 
 /**
- * "About 9 hours of study time left this week. Your to-dos need 12." `when`
- * names the week ("this week", "next week", "that week").
+ * "About 9 hours of study time left this week (2h a day). Your to-dos need
+ * 12." `when` names the week ("this week", "next week", "that week").
+ * `minutesPerDay` names the daily cap the free time is counted with, the
+ * same one Auto-fill drafts with, so a draft that leaves something out
+ * never contradicts the headline.
  */
-export function capacityCopy(cap: Pick<Capacity, 'freeMin' | 'neededMin'>, when = 'this week'): string {
+export function capacityCopy(cap: Pick<Capacity, 'freeMin' | 'neededMin'>, when = 'this week', minutesPerDay?: number): string {
   const free = amount(cap.freeMin, 'down')
+  const perDay = minutesPerDay ? ` (${formatMinutes(minutesPerDay)} a day)` : ''
   const freePart = cap.freeMin <= 0
-    ? `No study time left ${when}.`
-    : `About ${free.n} ${plural(free.n, free.unit)} of study time left ${when}.`
+    ? `No study time left ${when}${perDay}.`
+    : `About ${free.n} ${plural(free.n, free.unit)} of study time left ${when}${perDay}.`
   if (cap.neededMin <= 0) return `${freePart} Nothing left to plan.`
   const need = amount(cap.neededMin, 'up')
   const needPart = need.unit === free.unit && cap.freeMin > 0 ? need.n : `${need.n} ${plural(need.n, need.unit)}`
@@ -500,11 +507,28 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 /**
  * The draft's own numbers, from what was actually placed: "Drafted 6h of
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
- * contradict the ghosts beside it.
+ * contradict the ghosts beside it. `shortGapMin` (see `shortGapMinutes`)
+ * is free time the draft couldn't use because every gap left is too short:
+ * named, so drafted + that adds up to the headline's free time.
  */
-export function draftCopy(placedMin: number, unplacedMin: number): string {
+export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
-  return unplacedMin > 0 ? `${drafted} ${formatMinutes(unplacedMin)} didn't fit.` : `${drafted} Everything fits.`
+  if (unplacedMin <= 0) return `${drafted} Everything fits.`
+  const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
+  if (shortGapMin < 15) return missed
+  const the = placedMin > 0 ? 'The other' : 'The'
+  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for it.`
+}
+
+/**
+ * Study time the headline counts (`freeMin`) that a draft placing
+ * `placedMin` left unused, but only when that is down to short gaps: every
+ * to-do that didn't fit had no gap long enough. Any other reason (too long
+ * for a day, due too soon) is named on its own line instead, so this is 0.
+ */
+export function shortGapMinutes(freeMin: number, placedMin: number, unplacedReasons: ReadonlyArray<UnplacedReason>): number {
+  if (unplacedReasons.length === 0 || unplacedReasons.some((r) => r !== 'no-free-slot')) return 0
+  return Math.max(0, freeMin - placedMin)
 }
 
 // ---------------------------------------------------------------------------

@@ -16,11 +16,12 @@ export function CalendarHarness({
   width = 1000,
 }: {
   highlight?: Scope
+  /** The Calendar panel's width (the demo board's is about 900), or e.g. '100%'. */
+  width?: number | string
   /** `fail` makes the stub reject, like a failed scope update. */
   result?: ShowMomentResult | 'fail'
   /** The panel's saved config, e.g. `{ view: 'week' }`. */
   config?: Record<string, unknown>
-  width?: number | string
 }) {
   const [calls, setCalls] = useState<string[]>([])
   const [configCalls, setConfigCalls] = useState<string[]>([])
