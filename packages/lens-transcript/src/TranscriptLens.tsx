@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { LECTURE_SUMMARY_ANCHOR, type PlanItemOccurrence, type Tag } from '@pls/substrate'
+import { createPortal } from 'react-dom'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, TagPill, TAG_STYLES, useArrivals } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
@@ -32,7 +33,7 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
     <button
       type="button"
       data-testid="review-chip"
-      title={`${review.title}: show it on the calendar`}
+      title="Show on calendar"
       onClick={onShow}
       className={cn(className, 'transition-colors hover:border-attn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-attn')}
     >
@@ -53,50 +54,68 @@ function prefersReducedMotion(): boolean {
  * Decorative only; never shown under reduced motion.
  */
 function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrence; recordingTitle: string; onDone: (id: string) => void }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [path, setPath] = useState<{ x: number; y: number } | null>(null)
+  // Drawn over the whole page (the transcript list would clip it), starting
+  // at the moment's top-right corner.
+  const anchorRef = useRef<HTMLSpanElement>(null)
+  const [flight, setFlight] = useState<{ left: number; top: number; x: number; y: number } | null>(null)
   const tone = courseTone(review.course)
   useLayoutEffect(() => {
-    const card = ref.current?.getBoundingClientRect()
+    const anchor = anchorRef.current?.getBoundingClientRect()
+    if (!anchor) return
+    const left = anchor.right - LIFT_OFF_WIDTH_PX
+    const top = anchor.top
     const calendar = document.querySelector('[data-testid="calendar"]')?.getBoundingClientRect()
-    if (!card) return
-    setPath(calendar
+    setFlight(calendar
       ? {
-          x: calendar.left + calendar.width / 2 - (card.left + card.width / 2),
-          y: calendar.top + calendar.height / 3 - (card.top + card.height / 2),
+          left,
+          top,
+          x: calendar.left + calendar.width / 2 - (left + LIFT_OFF_WIDTH_PX / 2),
+          y: calendar.top + calendar.height / 3 - top,
         }
-      : { x: 160, y: 0 })
+      : { left, top, x: 160, y: 0 })
   }, [])
-  // Gone after its run, even if the animation never starts (reduced motion, hidden tab).
+  // Gone after its run, even if the animation never ends (e.g. a hidden tab).
   useEffect(() => {
     const t = setTimeout(() => onDone(review.id), 1400)
     return () => clearTimeout(t)
   }, [onDone, review.id])
   return (
-    <div
-      ref={ref}
-      aria-hidden
-      data-testid="review-lift-off"
-      className={cn(
-        'pointer-events-none absolute right-2 top-1 z-20 hidden w-64 rounded-item border-l-4 bg-surface-raised px-3 py-2 shadow-pop motion-safe:block',
-        tone.stripeBorder,
-        path ? 'motion-safe:animate-lift-off' : 'opacity-0',
+    <>
+      <span ref={anchorRef} aria-hidden className="pointer-events-none absolute right-2 top-1" />
+      {flight && createPortal(
+        <div
+          aria-hidden
+          data-testid="review-lift-off"
+          className={cn(
+            'pointer-events-none fixed z-50 hidden rounded-item border-l-4 bg-surface-raised px-3 py-2 shadow-pop motion-safe:block motion-safe:animate-lift-off',
+            tone.stripeBorder,
+          )}
+          style={{
+            left: flight.left,
+            top: flight.top,
+            width: LIFT_OFF_WIDTH_PX,
+            '--lift-x': `${flight.x}px`,
+            '--lift-y': `${flight.y}px`,
+          } as CSSProperties}
+        >
+          <p className={cn('flex items-center gap-1 text-meta font-semibold', tone.ink)}>
+            <Sparkles className="h-3 w-3" />
+            Adding to your plan
+          </p>
+          <p className="truncate text-body font-semibold text-text-primary">{review.title}</p>
+          <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
+            <Clock className="h-3 w-3 shrink-0" />
+            {review.duration_min ? <span className="shrink-0">{review.duration_min} min</span> : null}
+            <span className="truncate">{fromMomentLabel(recordingTitle, review.source_offset_ms)}</span>
+          </p>
+        </div>,
+        document.body,
       )}
-      style={path ? ({ '--lift-x': `${path.x}px`, '--lift-y': `${path.y}px` } as CSSProperties) : undefined}
-    >
-      <p className={cn('flex items-center gap-1 text-meta font-semibold', tone.ink)}>
-        <Sparkles className="h-3 w-3" />
-        Adding to your plan
-      </p>
-      <p className="truncate text-body font-semibold text-text-primary">{review.title}</p>
-      <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
-        <Clock className="h-3 w-3 shrink-0" />
-        {review.duration_min ? <span className="shrink-0">{review.duration_min} min</span> : null}
-        <span className="truncate">{fromMomentLabel(recordingTitle, review.source_offset_ms)}</span>
-      </p>
-    </div>
+    </>
   )
 }
+
+const LIFT_OFF_WIDTH_PX = 256
 
 /** The lecture summary: one line until opened. */
 function Summary({ lines }: { lines: string[] }) {
@@ -322,7 +341,20 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
           const isMoment = momentSegmentId === seg.id
 
           return (
-            <div key={seg.id} data-segment-id={seg.id} data-moment={isMoment || undefined} className="relative">
+            <div
+              key={seg.id}
+              data-segment-id={seg.id}
+              data-moment={isMoment || undefined}
+              // The moment's box holds its tags, its review chip and the tag buttons.
+              className={cn(
+                'relative rounded-item border transition-all',
+                isSelected || isMoment
+                  ? tone ? cn(tone.soft, tone.stripeBorder) : 'border-accent bg-accent-soft'
+                  : 'border-transparent',
+                // A shown moment also gets a soft halo, so it reads as "you landed here".
+                isMoment && !isSelected && cn('ring-4', tone ? tone.ring : 'ring-accent-line'),
+              )}
+            >
               <button
                 onClick={() => {
                   setMomentSegmentId(null)
@@ -330,12 +362,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                 }}
                 aria-current={isMoment ? 'location' : undefined}
                 className={cn(
-                  'group flex w-full gap-3 rounded-item border px-2.5 py-2 text-left transition-all',
-                  isSelected || isMoment
-                    ? tone ? cn(tone.soft, tone.stripeBorder) : 'border-accent bg-accent-soft'
-                    : 'border-transparent hover:bg-surface-inset',
-                  // A shown moment also gets a soft halo, so it reads as "you landed here".
-                  isMoment && !isSelected && cn('ring-4', tone ? tone.ring : 'ring-accent-line'),
+                  'group flex w-full gap-3 rounded-item px-2.5 py-2 text-left transition-colors',
+                  !(isSelected || isMoment) && 'hover:bg-surface-inset',
                 )}
               >
                 <span className={cn(

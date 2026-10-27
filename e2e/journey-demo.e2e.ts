@@ -135,7 +135,8 @@ test.describe('Journey: the demo script (mock AI)', () => {
 
     // The ripple: a review card lifts off the moment (too quick to poll for,
     // so it is recorded), the To-do row slides in, and the toast offers "See it".
-    await transcript.evaluate((el) => {
+    // The card is drawn over the page, outside the widget.
+    await page.locator('body').evaluate((el) => {
       const w = window as unknown as { liftedOff: boolean }
       w.liftedOff = false
       new MutationObserver(() => {

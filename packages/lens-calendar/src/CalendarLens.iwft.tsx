@@ -281,7 +281,7 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
   const callout = page.getByTestId('calendar-reveal')
   await expect(callout).toContainText('Review: paternal leakage')
   await expect(callout).toContainText('From Biology Lecture: Mitochondrial DNA · 1:18')
-  await expect(callout).toContainText('21:15 - 21:35 · 20m')
+  await expect(callout).toContainText('Wed 21:15 - 21:35 · 20 min')
   // It glows once, in its course colour.
   await expect(target).toHaveCSS('animation-name', 'glow-once')
   // Then settles.

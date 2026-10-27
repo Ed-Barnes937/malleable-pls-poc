@@ -40,7 +40,8 @@ test.describe('The confused-to-calendar ripple', () => {
     const transcript = grid.panelByLabel('Transcript')
     const calendar = grid.panelByLabel('Calendar')
     await expect(transcript.getByText('14 segments')).toBeVisible({ timeout: 10000 })
-    await recordAppearances(transcript, 'review-lift-off')
+    // The card would be drawn over the page, outside the widget.
+    await recordAppearances(page.locator('body'), 'review-lift-off')
 
     const moment = transcript.locator('[data-segment-id]').filter({ hasText: /Today we're continuing our discussion/ })
     await moment.getByText(/Today we're continuing our discussion/).click()

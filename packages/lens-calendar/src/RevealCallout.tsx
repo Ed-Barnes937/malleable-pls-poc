@@ -1,6 +1,7 @@
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone, formatDuration, fromMomentLabel } from '@pls/shared-ui'
+import { cn, courseTone, fromMomentLabel } from '@pls/shared-ui'
 import { AudioLines } from 'lucide-react'
 import { formatSpan, formatWeekday } from './time'
 
@@ -23,15 +24,27 @@ export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const minutes = Math.round((end.getTime() - start.getTime()) / 60_000)
+  // Kept inside the grid: a narrow (phone) week has no room either side of a column.
+  const ref = useRef<HTMLDivElement>(null)
+  const [shift, setShift] = useState(0)
+  useLayoutEffect(() => {
+    const el = ref.current
+    const grid = el?.closest('[data-testid="calendar-grid"]')?.getBoundingClientRect()
+    if (!el || !grid) return
+    const box = el.getBoundingClientRect()
+    if (box.right > grid.right - 4) setShift(grid.right - 4 - box.right)
+    else if (box.left < grid.left + 4) setShift(grid.left + 4 - box.left)
+  }, [])
   return (
     <div
+      ref={ref}
       data-testid="calendar-reveal"
       role="status"
       className={cn(
         'pointer-events-none absolute z-30 w-max max-w-64 rounded-item border border-border-subtle bg-surface-raised px-3 py-2 shadow-pop',
         alignRight ? 'right-1' : 'left-1',
       )}
-      style={{ top }}
+      style={{ top, transform: shift ? `translateX(${shift}px)` : undefined }}
     >
       <p className="text-body font-semibold text-text-primary">{item.title}</p>
       {recordingId && (
@@ -41,7 +54,7 @@ export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
         </p>
       )}
       <p className="text-meta tabular-nums text-text-secondary">
-        {formatWeekday(start)} {formatSpan(start, end)} · {formatDuration(minutes)}
+        {formatWeekday(start)} {formatSpan(start, end)} · {minutes} min
       </p>
     </div>
   )
