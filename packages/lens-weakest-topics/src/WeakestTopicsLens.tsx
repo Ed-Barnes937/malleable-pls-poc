@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
 import { type LensProps, type ShowMomentResult, useSubstrate } from '@pls/lens-framework'
 import { cn, EmptyState, HiddenElsewhere, COURSE_PILL_COLORS, formatTime } from '@pls/shared-ui'
@@ -17,11 +17,13 @@ export function lectureName(title: string): string {
 export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   const substrate = useSubstrate()
   const { data: topics } = substrate.useWeakestTopics(scope, LIMIT)
-  // Of the weakest topics across every course, how many the filter leaves out.
-  const { data: allTopics } = substrate.useWeakestTopics({}, LIMIT)
-  const overall = allTopics ?? []
-  const overallInCourse = scope.courseTag ? overall.filter((t) => t.course === scope.courseTag).length : overall.length
-  const hidden = <HiddenElsewhere scopedCount={overallInCourse} unscopedCount={overall.length} />
+  // True totals (the list is capped): the same per-course "to review" counts
+  // Your Progress and All courses show, so the three always agree.
+  const { data: progress } = substrate.useWeeklyOverview(scope)
+  const { data: allProgress } = substrate.useWeeklyOverview({})
+  const toReview = (rows: typeof progress) => (rows ?? []).reduce((sum, c) => sum + c.reviewMoments, 0)
+  const total = Math.max(toReview(progress), topics?.length ?? 0)
+  const hidden = <HiddenElsewhere scopedCount={toReview(progress)} unscopedCount={toReview(allProgress)} />
 
   // One row at a time shows where its moment went.
   const [opened, setOpened] = useState<{ segmentId: string; state: MomentState } | null>(null)
@@ -48,9 +50,9 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-x-2">
         <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
-          {topics.length} to review
+          {total > topics.length ? `Weakest ${topics.length} of ${total} to review` : `${total} to review`}
         </span>
         {hidden}
       </div>
@@ -86,24 +88,30 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
   const where = `${lectureName(topic.recordingTitle)} · ${formatTime(topic.offsetMs)}`
   const linkButton = 'inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline'
 
+  // Keep where the click went in view, even for a row low in a short panel.
+  const messageRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (state && state !== 'shown') messageRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [state])
+
   const body = (
     <>
       <span className={cn(
         'flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-xs font-bold',
-        topic.rank <= 3 ? 'bg-tag-confused/15 text-tag-confused' : 'bg-neutral-800 text-neutral-600',
+        topic.rank <= 3 ? 'bg-amber-200/10 text-amber-200/80' : 'bg-neutral-800 text-neutral-600',
       )}>
         {topic.rank}
       </span>
 
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="line-clamp-2 text-[13px] text-neutral-300">{topic.label}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-2">
+        <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
           {showCourse && (
             <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium capitalize ring-1', pillStyle)}>
               {topic.course}
             </span>
           )}
-          <span className="truncate text-[10px] text-neutral-500">{where}</span>
+          <span className="min-w-0 break-words text-[10px] text-neutral-500">{where}</span>
         </span>
       </span>
 
@@ -117,18 +125,18 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
         <button
           type="button"
           onClick={onShow}
-          title="Go to this moment"
+          title={`Go to this moment: ${where}`}
           aria-label={`${topic.label}: go to this moment in ${where}`}
           className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-overlay/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
         >
           {body}
         </button>
       ) : (
-        <div className="flex items-center gap-3 rounded-lg px-2.5 py-2">{body}</div>
+        <div className="flex items-center gap-3 rounded-lg px-2.5 py-2" title={where}>{body}</div>
       )}
 
       {state && state !== 'shown' && (
-        <div data-testid="weak-topic-moment" className="ml-11 flex flex-col gap-1 pb-1.5 text-[11px] text-text-muted">
+        <div ref={messageRef} data-testid="weak-topic-moment" className="ml-11 flex flex-col gap-1 pb-1.5 text-[11px] text-text-muted">
           {state === 'opening' && <span>Opening the moment...</span>}
           {state === 'failed' && (
             <>
@@ -157,11 +165,15 @@ function TopicRow({ topic, showCourse, state, canShow, onShow, onShowElsewhere }
   )
 }
 
-/** "How sure you feel": the latest rating, or that it was marked confusing and not rated since. */
+/**
+ * "How sure you feel": the latest rating, or that it was marked confusing and
+ * not rated since. Calm colours only: a weak topic is something to look at
+ * again, not a failure.
+ */
 function Sureness({ topic }: { topic: WeakTopic }) {
   if (topic.confidence == null) {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[10px] text-tag-confused" title="You marked this confusing">
+      <span className="flex shrink-0 items-center gap-1 text-[10px] text-amber-200/70" title="You marked this confusing">
         <CircleHelp className="h-3 w-3" />
         Confusing
       </span>
@@ -170,23 +182,13 @@ function Sureness({ topic }: { topic: WeakTopic }) {
   const sure = topic.confidence
   return (
     <span
-      className="flex w-20 shrink-0 flex-col items-end gap-0.5"
+      className="flex w-[4.5rem] shrink-0 flex-col items-end gap-0.5"
       title={topic.confused ? `You felt ${sure}% sure, and marked it confusing` : `You felt ${sure}% sure`}
     >
-      <span className={cn('font-mono text-[11px] font-bold tabular-nums', sure < 30 ? 'text-tag-confused' : 'text-tag-key-point')}>
-        {sure}% sure
-      </span>
+      <span className="font-mono text-[11px] font-bold tabular-nums text-amber-200/70">{sure}% sure</span>
       <span className="flex h-1 w-full gap-px" aria-hidden>
         {Array.from({ length: 5 }).map((_, i) => (
-          <span
-            key={i}
-            className={cn(
-              'flex-1 rounded-sm',
-              i < Math.round(sure / 20)
-                ? sure < 30 ? 'bg-tag-confused/60' : 'bg-tag-key-point/50'
-                : 'bg-neutral-800',
-            )}
-          />
+          <span key={i} className={cn('flex-1 rounded-sm', i < Math.round(sure / 20) ? 'bg-amber-200/50' : 'bg-neutral-800')} />
         ))}
       </span>
     </span>

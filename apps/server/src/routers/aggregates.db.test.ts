@@ -105,4 +105,70 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
     expect(topics[1]).toMatchObject({ confidence: 30, confused: false })
     expect(topics[2]).toMatchObject({ label: 'The citric acid cycle', confidence: 85, confused: true })
   })
+
+  it('the SQL and momentStatus agree on every case of one fixture table', async () => {
+    const { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM } = await import('@pls/substrate')
+    // Each case: what the student did, in order (r = rating, c = confusing mark).
+    type Event = ['r', number] | ['c']
+    const scores = [0, WEAK_BELOW - 1, WEAK_BELOW, SOLID_FROM - 1, SOLID_FROM, 100]
+    const cases: Event[][] = [[]]
+    for (const s of scores) {
+      cases.push([['r', s]], [['c'], ['r', s]], [['r', s], ['c']], [['r', 90], ['r', s]], [['c'], ['r', 90], ['r', s]])
+    }
+    cases.push([['c']], [['c'], ['c']])
+
+    const other = `test-agg-table-${randomUUID().slice(0, 8)}`
+    const tableRec = `rec-${other}`
+    const segOf = (i: number) => `seg-${other}-${i}`
+    const at = (step: number) => new Date(Date.UTC(2026, 9, 1, 10, step)).toISOString()
+    const expected = new Map<string, { status: string; confused: boolean }>()
+    try {
+      await db.withUser(other, async (tx) => {
+        await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${tableRec}, ${other}, 'Table', 'ready')`
+        await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${other}, 'recording', ${tableRec}, 'chemistry')`
+        for (const [i, events] of cases.entries()) {
+          await tx`
+            INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text)
+            VALUES (${segOf(i)}, ${other}, ${tableRec}, ${i * 1000}, ${(i + 1) * 1000}, 'A moment.')
+          `
+          let latestScore: number | null = null
+          let latestAt: string | null = null
+          let confusedAt: string | null = null
+          for (const [step, ev] of events.entries()) {
+            if (ev[0] === 'r') {
+              await tx`
+                INSERT INTO confidence_signals (user_id, target_type, target_id, score, created_at)
+                VALUES (${other}, 'transcript_segment', ${segOf(i)}, ${ev[1]}, ${at(step)})
+              `
+              latestScore = ev[1]
+              latestAt = at(step)
+            } else {
+              await tx`
+                INSERT INTO tags (user_id, target_type, target_id, label, created_at)
+                VALUES (${other}, 'transcript_segment', ${segOf(i)}, 'confused', ${at(step)})
+              `
+              confusedAt = at(step)
+            }
+          }
+          const signals = { latestScore, latestAt, confusedAt }
+          expected.set(segOf(i), { status: momentStatus(signals), confused: stillConfused(signals) })
+        }
+      })
+
+      const api = caller(other)
+      const review = [...expected].filter(([, e]) => e.status === 'review')
+      const [progress] = await api.aggregates.weeklyOverview({})
+      expect(progress).toMatchObject({
+        totalMoments: cases.length,
+        solidMoments: [...expected.values()].filter((e) => e.status === 'solid').length,
+        reviewMoments: review.length,
+      })
+      const topics = await api.aggregates.weakestTopics({ limit: 100 })
+      expect(new Map(topics.map((t) => [t.segmentId, t.confused]))).toEqual(new Map(review.map(([id, e]) => [id, e.confused])))
+    } finally {
+      for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'recordings']) {
+        await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [other])
+      }
+    }
+  })
 })

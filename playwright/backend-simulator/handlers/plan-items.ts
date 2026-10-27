@@ -17,7 +17,7 @@ import {
   refitRange,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
-import type { ProcedureRouter } from '../trpc-protocol'
+import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
 
 /**
@@ -139,13 +139,13 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const now = Date.now()
     const missed = new Map(missedNow(now).map((p) => [p.id, p]))
     const accepted = blocks.map((b) => {
-      if (!missed.has(b.id)) throw new Error('A block was already moved, done or removed.')
+      if (!missed.has(b.id)) throw new SimulatorError('CONFLICT', 'A block was already moved, done or removed.')
       return { id: b.id, start: Date.parse(b.starts_at), end: Date.parse(b.ends_at) }
     })
     const { commitments, busy } = busyTime(rangeItems([...missed.values()], { now, timeZone }), new Set(accepted.map((a) => a.id)))
     const taken = [...commitments, ...busy]
     for (const a of accepted) {
-      if (refitConflict(a, taken, now)) throw new Error('Your week changed since this re-fit was suggested.')
+      if (refitConflict(a, taken, now)) throw new SimulatorError('CONFLICT', 'Your week changed since this re-fit was suggested.')
       taken.push(a)
     }
     for (const a of accepted) {

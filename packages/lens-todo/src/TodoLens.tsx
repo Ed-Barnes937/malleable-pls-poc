@@ -9,7 +9,7 @@ import { RefitBanner } from './RefitBanner'
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
 
-export default function TodoLens({ scope, highlight, onScopeChange }: LensProps) {
+export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment }: LensProps) {
   const reader = useSubstrate()
   const writer = useSubstrateMutations()
   const course = scope.courseTag
@@ -79,6 +79,7 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
             onToggle={() => complete.mutate(item.id)}
             onDismiss={() => dismiss.mutate(item.id)}
             onScopeChange={onScopeChange}
+            onShowMoment={onShowMoment}
           />
         ))}
         {done.length > 0 && (
@@ -93,6 +94,7 @@ export default function TodoLens({ scope, highlight, onScopeChange }: LensProps)
             highlighted={false}
             onToggle={() => update.mutate({ id: item.id, patch: { status: 'open' } })}
             onScopeChange={onScopeChange}
+            onShowMoment={onShowMoment}
           />
         ))}
         {!isLoading && open.length === 0 && done.length === 0 && (

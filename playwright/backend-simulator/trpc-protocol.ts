@@ -11,7 +11,16 @@ export interface TrpcResult {
   error?: { message: string; code: string }
 }
 
-type ProcedureHandler = (input: unknown) => unknown | Promise<unknown>
+/** A handler error with a tRPC code, e.g. CONFLICT, as the server's TRPCError carries. */
+export class SimulatorError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message)
+  }
+}
+
+const HTTP_STATUS: Record<string, number> = { BAD_REQUEST: 400, NOT_FOUND: 404, CONFLICT: 409 }
+
+type ProcedureHandler =(input: unknown) => unknown | Promise<unknown>
 
 export class ProcedureRouter {
   private handlers = new Map<string, ProcedureHandler>()
@@ -30,7 +39,7 @@ export class ProcedureRouter {
       return { data }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
-      return { error: { message, code: 'INTERNAL_SERVER_ERROR' } }
+      return { error: { message, code: err instanceof SimulatorError ? err.code : 'INTERNAL_SERVER_ERROR' } }
     }
   }
 }
@@ -103,12 +112,14 @@ function deserializeInput(raw: unknown): unknown {
 
 function serializeResult(result: TrpcResult): object {
   if (result.error) {
+    // Serialised like the server's errors (superjson transformer), so the
+    // client sees `error.data.code` (e.g. CONFLICT).
     return {
-      error: {
+      error: superjson.serialize({
         message: result.error.message,
         code: -32603,
-        data: { code: result.error.code, httpStatus: 500 },
-      },
+        data: { code: result.error.code, httpStatus: HTTP_STATUS[result.error.code] ?? 500 },
+      }),
     }
   }
   const serialized = superjson.serialize(result.data)

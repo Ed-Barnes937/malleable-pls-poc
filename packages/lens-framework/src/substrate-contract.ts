@@ -98,6 +98,16 @@ export interface SubstrateReader {
   useRefitPreview: (timeZone: string) => QueryResult<RefitPreview>
 }
 
+/**
+ * A mutation refused because the data changed since the widget last read it
+ * (the server's CONFLICT, e.g. a stale re-fit preview), as opposed to a
+ * network or server failure worth retrying as is.
+ */
+export function isConflictError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'CONFLICT'
+}
+
 // ---------------------------------------------------------------------------
 // SubstrateWriter — extends reader with mutation capabilities for tools
 // ---------------------------------------------------------------------------

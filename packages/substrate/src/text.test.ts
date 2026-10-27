@@ -51,6 +51,12 @@ describe('topicLabel', () => {
     expect(topicLabel('krebs cycle', 'This is known as the Krebs cycle.')).toBe('Krebs cycle')
   })
 
+  it('keeps a name capitalised anywhere in the label, once the lecture uses it mid-sentence', () => {
+    expect(topicLabel('gradient mitchell', 'This gradient was shown by Mitchell.')).toBe('Gradient Mitchell')
+    expect(topicLabel('chemiosmosis peter mitchell', 'Peter Mitchell won a Nobel Prize. This is chemiosmosis, as Peter Mitchell showed.'))
+      .toBe('Chemiosmosis Peter Mitchell')
+  })
+
   it('ignores capitals that only start a sentence', () => {
     expect(topicLabel('mitochondrial diseases', 'Mitochondrial diseases are rare. Mitochondrial DNA is small.')).toBe('Mitochondrial diseases')
     expect(topicLabel('cell membrane', 'The cell membrane. Cell walls too.')).toBe('Cell membrane')

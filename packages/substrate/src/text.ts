@@ -145,10 +145,15 @@ export function extractiveSummary(text: string, count = 3): string[] {
  */
 export function topicLabel(phrase: string, source: string): string {
   const cased = new Map<string, string>()
-  for (const word of source.match(/[A-Za-z][A-Za-z'-]*/g) ?? []) {
+  for (const match of source.matchAll(/[A-Za-z][A-Za-z'-]*/g)) {
+    const word = match[0]
     const lower = word.toLowerCase()
-    // An acronym or a name ("ATP", "Krebs") everywhere, not just at a sentence start.
-    if (word.slice(1) !== lower.slice(1) && !cased.has(lower)) cased.set(lower, word)
+    if (word === lower || cased.has(lower)) continue
+    // An acronym ("ATP"), or a capitalised word mid-sentence, i.e. a name
+    // ("the Krebs cycle"). A capital that only starts a sentence doesn't count.
+    const before = source.slice(0, match.index).trimEnd()
+    const startsSentence = before === '' || /[.!?:]["')\]]*$/.test(before)
+    if (word.slice(1) !== lower.slice(1) || !startsSentence) cased.set(lower, word)
   }
   const label = phrase.split(' ').map((w) => cased.get(w) ?? w).join(' ')
   return label.charAt(0).toUpperCase() + label.slice(1)

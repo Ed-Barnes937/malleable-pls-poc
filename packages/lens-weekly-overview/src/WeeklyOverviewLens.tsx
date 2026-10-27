@@ -22,7 +22,7 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-2">
         {totalToReview > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-tag-confused/10 px-2 py-0.5 text-[10px] font-medium text-tag-confused ring-1 ring-tag-confused/20">
+          <span className="flex items-center gap-1 rounded-full bg-amber-200/5 px-2 py-0.5 text-[10px] font-medium text-amber-200/80 ring-1 ring-amber-200/15">
             <CircleHelp className="h-2.5 w-2.5" />
             {totalToReview} moment{totalToReview !== 1 ? 's' : ''} to review
           </span>
@@ -39,7 +39,7 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
                 <span className="text-xs font-medium capitalize text-neutral-300">{course.course}</span>
                 <div className="flex items-center gap-2">
                   {course.reviewMoments > 0 && (
-                    <span className="text-[10px] text-tag-confused">{course.reviewMoments} to review</span>
+                    <span className="text-[10px] text-amber-200/70">{course.reviewMoments} to review</span>
                   )}
                   <span className="font-mono text-xs tabular-nums text-neutral-500">{course.percentage}%</span>
                 </div>

@@ -97,6 +97,27 @@ test.describe('Weak topics', () => {
   })
 })
 
+test.describe('To-do source link', () => {
+  test.beforeEach(async () => { await reseed() })
+  test.afterAll(async () => { await reseed() })
+
+  test('a review to-do jumps to the exact lecture moment it came from', async ({ page, request }) => {
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Review: maternal inheritance', duration_min: 20, course: 'biology',
+      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
+    })
+    await board(request, 'Revision', ['todo', 'transcript'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Revision')
+    const grid = new PanelGridPom(page)
+
+    await grid.panelByLabel('To-do').getByRole('button', { name: 'from: Biology Lecture: Mitochondrial DNA, 9:00' }).click()
+    const moment = grid.panelByLabel('Transcript').locator('[data-moment]')
+    await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
+    await expect(moment).toBeInViewport()
+  })
+})
+
 test.describe('Re-fit blocks that did not happen', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
