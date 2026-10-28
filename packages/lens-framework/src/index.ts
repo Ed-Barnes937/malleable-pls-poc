@@ -9,6 +9,8 @@ export type {
   LensProps,
   Moment,
   FocusedMoment,
+  FocusedPlanItem,
+  PlanItemRef,
   ShowMomentResult,
 } from './types'
 export {

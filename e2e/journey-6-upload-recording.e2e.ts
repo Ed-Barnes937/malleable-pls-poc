@@ -57,7 +57,9 @@ test.describe('Journey: Upload a lecture recording', () => {
     await expect(transcript.getByText(/^Welcome back\./)).toHaveCount(0)
     // The (fake) summary is built from the real script.
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
-    await expect(summary.getByRole('listitem')).toHaveCount(3, { timeout: 20000 })
+    await expect(summary.getByTestId('summary-line')).toBeVisible({ timeout: 20000 })
+    await summary.getByRole('button', { name: 'Show summary' }).click()
+    await expect(summary.getByRole('listitem')).toHaveCount(3)
     await expect(summary).toContainText(/mitochondrial DNA/i)
 
     const sidebar = new SidebarPom(page)

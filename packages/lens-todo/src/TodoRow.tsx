@@ -12,6 +12,8 @@ export interface TodoRowProps {
   showCourse: boolean
   /** Linked to the board's focused lecture. */
   highlighted: boolean
+  /** Arrived while the list was on screen (e.g. a review just added): it slides in. */
+  fresh?: boolean
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
@@ -19,7 +21,7 @@ export interface TodoRowProps {
   onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, fresh, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
   const done = item.status === 'done'
   const slipped = done ? null : slippedAt(item, now)
 
@@ -27,8 +29,10 @@ export function TodoRow({ item, now, showCourse, highlighted, onToggle, onDismis
     <li
       data-testid="todo-item"
       data-highlighted={highlighted || undefined}
+      data-fresh={fresh || undefined}
       className={cn(
         'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-colors last:border-b-0 hover:bg-surface-inset',
+        fresh && 'motion-safe:animate-slide-in',
         highlighted && 'rounded-item bg-accent-soft ring-1 ring-accent-line',
       )}
     >

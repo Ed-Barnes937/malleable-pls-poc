@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, leadingTag } from '@pls/shared-ui'
+import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
 
@@ -100,7 +100,7 @@ export function StudyBlockPopover({
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
           <AudioLines className="h-4 w-4 shrink-0" />
-          <span className="line-clamp-2">From {recording?.title ?? 'a lecture'} · {formatTime(offsetMs)}</span>
+          <span className="line-clamp-2">{fromMomentLabel(recording?.title ?? 'a lecture', offsetMs)}</span>
         </p>
         <button
           type="button"

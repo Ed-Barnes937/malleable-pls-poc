@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { cn } from './utils'
+import { cn, fromMomentLabel } from './utils'
 
 describe('cn', () => {
   it('keeps a type token next to a text colour', () => {
@@ -16,5 +16,12 @@ describe('cn', () => {
     expect(cn('rounded-md', 'rounded-item')).toBe('rounded-item')
     expect(cn('shadow-panel', 'shadow-pop')).toBe('shadow-pop')
     expect(cn('rounded-item shadow-pop')).toBe('rounded-item shadow-pop')
+  })
+})
+
+describe('fromMomentLabel', () => {
+  it('names the lecture and the moment', () => {
+    expect(fromMomentLabel('Mitochondrial DNA', 78_000)).toBe('From Mitochondrial DNA · 1:18')
+    expect(fromMomentLabel('Mitochondrial DNA', null)).toBe('From Mitochondrial DNA')
   })
 })

@@ -194,6 +194,20 @@ A plan item an automation made records it (`created_by_workflow_id`, null for
 items a person made). The study block popover names that automation ("Made by
 ...") and `LensProps.onEditAutomation(workflowId)` asks the shell to open it.
 
+### Showing a block ("See it")
+
+The reverse gesture, for a time block: the toast after a job placed one
+("Review added to your plan · See it", from the run's `output.plan_item_id` /
+`starts_at`, carried on the `job:completed` event as `planItem`) and the
+Transcript's "Review planned" chip call `LensProps.onShowPlanItem({ id,
+startsAt })`. The shell keeps it as ephemeral `focusedPlanItem` (a fresh
+`requestId` per request) and hands it to widgets whose manifest declares
+`showsPlanItems: true` (the Calendar), which open that week, scroll the block
+into view, glow it once (a still ring under reduced motion) and call
+`onPlanItemShown(requestId)`. It only works on the board in view: the shell
+passes `onShowPlanItem`, and the toast offers "See it", only when that board
+has a Calendar.
+
 ---
 
 ## Architecture Overview

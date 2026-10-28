@@ -19,19 +19,19 @@ describe('buildAutofillDraft', () => {
   it('places in the advised order, reports what did not fit, and applies trims', () => {
     const advice = { order: ['quiz', 'lab', 'cards'] }
     const draft = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, estimates: { cards: 60 } })
-    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['quiz', iso(0, 8)], ['cards', iso(0, 9, 15)]])
+    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['quiz', iso(0, 9)], ['cards', iso(0, 10, 15)]])
     expect(draft.unplaced.map((u) => [u.taskId, u.reason])).toEqual([['lab', 'over-daily-budget']])
 
     const trimmed = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, trims: new Map([['lab', 120]]), estimates: { cards: 60 } })
     const lab = trimmed.proposals.find((p) => p.taskId === 'lab')!
-    expect(lab).toMatchObject({ startsAt: iso(1, 8), endsAt: iso(1, 10), note: 'Shrunk from 4h', course: 'chemistry' })
+    expect(lab).toMatchObject({ startsAt: iso(1, 9), endsAt: iso(1, 11), note: 'Shrunk from 4h', course: 'chemistry' })
   })
 
   it('keeps pinned (dragged) ghosts where they are and places around them', () => {
-    const pinned: Proposal = { id: 'quiz', taskId: 'quiz', title: 'quiz', startsAt: iso(0, 8), endsAt: iso(0, 10), adjusted: true }
+    const pinned: Proposal = { id: 'quiz', taskId: 'quiz', title: 'quiz', startsAt: iso(0, 9), endsAt: iso(0, 11), adjusted: true }
     const draft = buildAutofillDraft({ todos: [todo('quiz', { duration_min: 120 }), todo('cards')], layout, now: at(0, 0), advice: { order: ['cards', 'quiz'] }, pinned: [pinned] })
     // Monday's 2h are spent by the pinned ghost, so cards goes to Tuesday.
-    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['quiz', iso(0, 8)], ['cards', iso(1, 8)]])
+    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['quiz', iso(0, 9)], ['cards', iso(1, 9)]])
   })
 
   it('words the reasons calmly', () => {

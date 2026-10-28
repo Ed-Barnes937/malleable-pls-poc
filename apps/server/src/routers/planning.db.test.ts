@@ -109,7 +109,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
 
     const { findReviewSlots } = await import('../planning/review-automation')
     const slots = await db.withUser(alice, (tx) =>
-      findReviewSlots(tx, alice, [{ id: 'new-review', durationMin: 20, latest: Date.parse(at(2, 0)) }], { now, timeZone: TZ }))
+      findReviewSlots(tx, alice, [{ id: 'new-review', durationMin: 20, markedAt: now, latest: Date.parse(at(2, 0)) }], { now, timeZone: TZ }))
     const slot = slots.get('new-review') as { start: number; end: number }
     expect(slot.end <= first.start || slot.start >= first.end).toBe(true)
   })

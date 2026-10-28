@@ -8,6 +8,8 @@ export interface JobTypeInfo {
   triggers: readonly string[]
   /** Toast shown when a run finishes. */
   doneMessage: string
+  /** Toast instead when the run made a to-do it could not put on the calendar. */
+  unplacedMessage?: string
 }
 
 /**
@@ -19,7 +21,7 @@ export function getAvailableJobTypes(): JobTypeInfo[] {
   return [
     { type: 'ai:transcribe', label: 'Write a transcript', category: 'AI', triggers: ['recording:completed'], doneMessage: 'Transcript ready' },
     { type: 'ai:summarize-lecture', label: 'Write a 3-line summary', category: 'AI', triggers: ['recording:transcribed'], doneMessage: 'Lecture summary ready' },
-    { type: REVIEW_TASK_JOB, label: 'Add a review to my plan', category: 'Plan', triggers: ['tag:created'], doneMessage: 'Review added to your plan' },
+    { type: REVIEW_TASK_JOB, label: 'Add a review to my plan', category: 'Plan', triggers: ['tag:created'], doneMessage: 'Review added to your plan', unplacedMessage: 'Review added to your to-do list' },
   ]
 }
 

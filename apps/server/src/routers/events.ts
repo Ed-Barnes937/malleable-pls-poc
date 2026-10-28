@@ -15,6 +15,10 @@ export interface ServerEvent {
   willRetry?: boolean
   /** job:completed only - the run changed nothing worth telling the student (e.g. a duplicate mark). */
   quiet?: boolean
+  /** job:completed only - the time block the run placed (e.g. a new review), so the UI can offer "See it". */
+  planItem?: { id: string; startsAt: string }
+  /** job:completed only - the run made a to-do but found no time for it. */
+  unplaced?: true
   userId: string
 }
 
