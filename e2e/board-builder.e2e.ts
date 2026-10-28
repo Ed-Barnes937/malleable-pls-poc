@@ -220,12 +220,16 @@ test.describe('Building a board', () => {
     await page.keyboard.press('Tab')
     await expect(topBar.root.getByRole('button', { name: 'Exam Prep', exact: true })).toBeFocused()
 
-    // Board menu: Tab reaches its controls, including widget tiles.
+    // Board menu: Tab reaches its controls, the Showing pickers first, then widget tiles.
     await topBar.drawerTrigger.click()
     const drawer = page.getByTestId('drawer-sidebar')
     await expect(drawer).toBeInViewport()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Close board menu' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(drawer.getByRole('combobox', { name: 'Course' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(drawer.getByRole('combobox', { name: 'Lecture' })).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Add Audio Capture' })).toBeFocused()
 

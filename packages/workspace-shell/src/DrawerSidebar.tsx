@@ -51,10 +51,10 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
   )
 
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2">
       {activeDims.has('courseTag') && (
-        <div>
-          <label htmlFor="scope-course" className="mb-1 block text-meta font-semibold text-text-secondary">
+        <div className={pickerRow}>
+          <label htmlFor="scope-course" className={pickerLabel}>
             Course
           </label>
           <Select
@@ -72,8 +72,8 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
       )}
 
       {activeDims.has('recordingId') && (
-        <div>
-          <label htmlFor="scope-lecture" className="mb-1 block text-meta font-semibold text-text-secondary">
+        <div className={pickerRow}>
+          <label htmlFor="scope-lecture" className={pickerLabel}>
             Lecture
           </label>
           <Select
@@ -93,6 +93,10 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
     </div>
   )
 }
+
+/** One picker per row, its label beside it, so the section stays short. */
+const pickerRow = 'flex items-center gap-2 [&>:last-child]:min-w-0 [&>:last-child]:flex-1'
+const pickerLabel = 'w-14 shrink-0 px-1 text-meta font-semibold text-text-secondary'
 
 /* ── Widget Palette ── */
 
@@ -183,6 +187,14 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
 
+  // The menu opens at the top, Showing first. It stays mounted while closed,
+  // so without this it keeps an old scroll position (e.g. the one scroll
+  // anchoring gave it when adding the first widget brought Showing in above).
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (open && scrollRef.current) scrollRef.current.scrollTop = 0
+  }, [open])
+
   useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement
@@ -266,23 +278,24 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
+            {/* Scope first: a few compact rows, always in view without scrolling
+                past the palette. Hidden when every widget on the board ignores scope. */}
+            {activeScopeDims.size > 0 && (
+              <section data-testid="scope-section">
+                <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
+                <p className="mb-2.5 px-1 text-meta text-text-muted">What the widgets on this board focus on.</p>
+                <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
+              </section>
+            )}
+
             {/* Widgets */}
             <section data-testid="widget-palette">
               <SectionLabel className="mb-1 px-1">Add widgets</SectionLabel>
               <p className="mb-3 px-1 text-meta text-text-muted">Click to add, or drag onto your board.</p>
               <WidgetPalette onAdd={onAddWidget} onDragStart={handleWidgetDragStart} />
             </section>
-
-            {/* Scope - hidden when every widget on the board ignores scope */}
-            {activeScopeDims.size > 0 && (
-              <section data-testid="scope-section">
-                <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
-                <p className="mb-3 px-1 text-meta text-text-muted">Choose what the widgets on this board focus on.</p>
-                <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
-              </section>
-            )}
 
             {/* Automations */}
             <section>

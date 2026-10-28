@@ -28,10 +28,24 @@ describe('todayLine', () => {
     })
   })
 
-  it('leaves blocks that are over out of the short form, and keeps one still going', () => {
-    expect(todayLine([shift, chemistry], { now: Date.parse(at('16:00')), timeZone: TZ })?.short.upcoming).toEqual(['shift 17:00'])
-    expect(todayLine([shift, chemistry], { now: Date.parse(at('21:59')), timeZone: TZ })?.short.upcoming).toEqual(['shift 17:00'])
-    expect(todayLine([shift, chemistry], { now: Date.parse(at('22:00')), timeZone: TZ })?.short.upcoming).toEqual([])
+  it('leaves blocks that are over out, in both forms, and keeps one still going', () => {
+    const at16 = todayLine([shift, chemistry], { now: Date.parse(at('16:00')), timeZone: TZ })
+    expect(at16?.events).toEqual(['shift 17:00-22:00'])
+    expect(at16?.short.upcoming).toEqual(['shift 17:00'])
+    const at2159 = todayLine([shift, chemistry], { now: Date.parse(at('21:59')), timeZone: TZ })
+    expect(at2159?.events).toEqual(['shift 17:00-22:00'])
+    expect(at2159?.short.upcoming).toEqual(['shift 17:00'])
+    const at22 = todayLine([shift, chemistry], { now: Date.parse(at('22:00')), timeZone: TZ })
+    expect(at22?.events).toEqual([])
+    expect(at22?.short.upcoming).toEqual([])
+  })
+
+  it('at noon, no longer lists a lecture that ended (the rehearsal: "Biology 10:00" at 12:00)', () => {
+    const biology = row({ title: 'Biology lecture', subtype: 'class', course: 'biology', starts_at: at('10:00', '2026-10-28'), ends_at: at('12:00', '2026-10-28') })
+    const line = todayLine([biology], { now: Date.parse(at('12:00', '2026-10-28')), timeZone: TZ })
+    expect(line?.weekday).toBe('Wednesday')
+    expect(line?.events).toEqual([])
+    expect(line?.studyLeftMin).toBe(120)
   })
 
   it('counts study time left the way Help me plan does: capped by the day budget, less study already planned', () => {

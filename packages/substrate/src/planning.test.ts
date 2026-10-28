@@ -125,6 +125,8 @@ describe('capacity and copy', () => {
     expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
     // Free time left in gaps too short is named, so the numbers add up to the headline's.
     expect(draftCopy(420, 300, 120)).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
+    // It agrees in number with the to-dos that didn't fit.
+    expect(draftCopy(300, 240, 120, 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 2h of free time is in gaps too short for them.")
     expect(draftCopy(0, 120, 90)).toBe("Nothing fits as it is. 2h didn't fit. The 1h 30m of free time is in gaps too short for it.")
     expect(draftCopy(420, 300, 10)).toBe("Drafted 7h of study time. 5h didn't fit.")
     expect(draftCopy(420, 0, 120)).toBe('Drafted 7h of study time. Everything fits.')
