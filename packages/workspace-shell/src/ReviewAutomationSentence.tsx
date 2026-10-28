@@ -31,7 +31,7 @@ export function savedMessage(reviews: { moved: number; resized: number; unschedu
   if (moved > 0) parts.push(`Moved ${moved === 1 ? '1 review' : `${moved} reviews`} to fit.`)
   if (resized > 0) parts.push(`${resized === 1 ? 'Your review is' : `${resized} reviews are`} now ${durationMin} min.`)
   if (unscheduled > 0) {
-    parts.push(`${unscheduled === 1 ? '1 review no longer fits' : `${unscheduled} reviews no longer fit`} - it's on your to-do list.`)
+    parts.push(unscheduled === 1 ? '1 review no longer fits and is on your to-do list.' : `${unscheduled} reviews no longer fit and are on your to-do list.`)
   }
   if (parts.length === 0) return 'Saved. New reviews will follow this.'
   return `Saved. ${parts.join(' ')}`

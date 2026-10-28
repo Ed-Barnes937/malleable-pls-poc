@@ -8,9 +8,9 @@ describe('savedMessage', () => {
     expect(savedMessage({ moved: 1, resized: 0, unscheduled: 0 }, 30)).toBe('Saved. Moved 1 review to fit.')
     expect(savedMessage({ moved: 1, resized: 1, unscheduled: 0 }, 30)).toBe('Saved. Moved 1 review to fit. Your review is now 30 min.')
     expect(savedMessage({ moved: 2, resized: 3, unscheduled: 0 }, 30)).toBe('Saved. Moved 2 reviews to fit. 3 reviews are now 30 min.')
-    expect(savedMessage({ moved: 0, resized: 0, unscheduled: 1 }, 30)).toBe("Saved. 1 review no longer fits - it's on your to-do list.")
+    expect(savedMessage({ moved: 0, resized: 0, unscheduled: 1 }, 30)).toBe("Saved. 1 review no longer fits and is on your to-do list.")
     expect(savedMessage({ moved: 1, resized: 1, unscheduled: 2 }, 30)).toBe(
-      "Saved. Moved 1 review to fit. Your review is now 30 min. 2 reviews no longer fit - it's on your to-do list.",
+      "Saved. Moved 1 review to fit. Your review is now 30 min. 2 reviews no longer fit and are on your to-do list.",
     )
     expect(savedMessage({ moved: 0, resized: 0, unscheduled: 0 }, 30)).toBe('Saved. New reviews will follow this.')
   })

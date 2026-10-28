@@ -492,8 +492,11 @@ function DraftSummary({
   // hand focus to its replacement (Undo after Shrink, Shrink after Undo).
   const rootRef = useRef<HTMLDivElement>(null)
   const focusAfterTrim = useRef<{ taskId: string; action: 'shrink' | 'undo' } | null>(null)
+  const [announcement, setAnnouncement] = useState('')
   const trimTask = (taskId: string, durationMin: number | null) => {
     focusAfterTrim.current = { taskId, action: durationMin === null ? 'shrink' : 'undo' }
+    const name = draft.tasks.find((t) => t.id === taskId)?.title ?? 'a to-do'
+    setAnnouncement(durationMin === null ? `Undid the shrink of ${name}.` : `Shrunk ${name} to ${formatMinutes(durationMin)}.`)
     onTrim(taskId, durationMin)
   }
   useLayoutEffect(() => {
@@ -501,7 +504,7 @@ function DraftSummary({
     if (!pending) return
     const next = [...(rootRef.current?.querySelectorAll<HTMLButtonElement>('[data-trim-action]') ?? [])]
       .find((el) => el.dataset.trimAction === pending.action && el.dataset.taskId === pending.taskId)
-    if (next) focusAfterTrim.current = null
+    focusAfterTrim.current = null
     next?.focus()
   }, [trims, autofill])
   const title = (id: string) => draft.tasks.find((t) => t.id === id)?.title ?? 'a to-do'
@@ -525,6 +528,8 @@ function DraftSummary({
 
   return (
     <div ref={rootRef} data-testid="autofill-draft" className="flex flex-col gap-3.5">
+      {/* Always mounted, so a screen reader announces what Shrink and Undo did. */}
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
 
       {shown.map((trim) => {
         const applied = trims.has(trim.taskId)

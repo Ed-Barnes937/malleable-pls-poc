@@ -61,28 +61,29 @@ export function ScrollRail({ marks, lectureEnd, onGo }: { marks: RailMark[]; lec
       role="group"
       aria-label="Tagged moments"
       data-testid="transcript-rail"
-      className="w-6 shrink-0 overflow-y-auto overflow-x-hidden [scrollbar-width:thin]"
+      // No scrollbar: a classic one would eat into the 24px targets. Wheel and keyboard focus still scroll it.
+      className="w-6 shrink-0 overflow-y-auto overflow-x-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
     >
-     <div className="relative" style={{ height: trackHeight || undefined, minHeight: '100%' }}>
-      {/* The track: a thin line down the middle. */}
-      <div aria-hidden className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-surface-overlay" />
-      {height > 0 && marks.map((mark, i) => {
-        const name = `${TAG_WORDS[mark.label] ?? mark.label} at ${formatTime(mark.startMs)}`
-        return (
-          <button
-            key={mark.segmentId}
-            type="button"
-            aria-label={name}
-            title={name}
-            onClick={() => onGo(mark.segmentId)}
-            className="group absolute inset-x-0 flex items-center justify-center rounded-item focus-visible:outline-2 focus-visible:outline-accent"
-            style={{ top: tops[i], height: RAIL_TARGET_PX }}
-          >
-            <span aria-hidden className={cn('h-2 w-2 rounded-full transition-transform group-hover:scale-150', TAG_STYLES[mark.label]?.mark)} />
-          </button>
-        )
-      })}
-     </div>
+      <div className="relative" style={{ height: trackHeight || undefined, minHeight: '100%' }}>
+        {/* The track: a thin line down the middle. */}
+        <div aria-hidden className="absolute inset-y-0 left-1/2 w-2 -translate-x-1/2 rounded-full bg-surface-overlay" />
+        {height > 0 && marks.map((mark, i) => {
+          const name = `${TAG_WORDS[mark.label] ?? mark.label} at ${formatTime(mark.startMs)}`
+          return (
+            <button
+              key={mark.segmentId}
+              type="button"
+              aria-label={name}
+              title={name}
+              onClick={() => onGo(mark.segmentId)}
+              className="group absolute inset-x-0 flex items-center justify-center rounded-item focus-visible:outline-2 focus-visible:outline-accent"
+              style={{ top: tops[i], height: RAIL_TARGET_PX }}
+            >
+              <span aria-hidden className={cn('h-2 w-2 rounded-full transition-transform group-hover:scale-150', TAG_STYLES[mark.label]?.mark)} />
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

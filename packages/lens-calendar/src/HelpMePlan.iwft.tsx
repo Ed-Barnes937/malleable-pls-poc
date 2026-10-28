@@ -233,6 +233,8 @@ test('Shrink and Undo hand keyboard focus to each other', async ({ mount, page, 
   await shrink.focus()
   await page.keyboard.press('Enter')
   await expect(draft.getByRole('button', { name: 'Undo' })).toBeFocused()
+  // A polite live region announces it for screen readers.
+  await expect(draft.getByRole('status')).toHaveText(/^Shrunk Lab report write-up to 2h\.$/)
   await page.keyboard.press('Enter')
   await expect(draft.getByRole('button', { name: 'Shrink to 2h' })).toBeFocused()
 })
