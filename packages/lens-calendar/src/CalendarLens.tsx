@@ -13,7 +13,8 @@ import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposa
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
-import { addDays, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
+import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
+import { useNarrowScreen } from './useNarrowScreen'
 
 type View = 'week' | 'day'
 
@@ -60,7 +61,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const deleteItem = mutations.useDeletePlanItem()
 
   const now = useNow()
-  const [view, setViewState] = useState<View>(config.view === 'day' ? 'day' : 'week')
+  const narrow = useNarrowScreen()
+  const savedView: View = config.view === 'day' ? 'day' : 'week'
+  // A phone opens in Day view: seven columns don't fit.
+  const [view, setViewState] = useState<View>(() => (narrow ? 'day' : savedView))
   const [anchorDay, setAnchorDay] = useState(() => startOfDay(new Date()))
   const [popover, setPopover] = useState<Popover | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -106,8 +110,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const setView = (next: View) => {
     setViewState(next)
     if (next !== 'week') setPlanOpen(false)
-    onConfigChange?.({ view: next })
+    // A view picked on a phone stays on the phone: the saved view is the wide screen's.
+    if (!narrow) onConfigChange?.({ view: next })
   }
+
+  // Crossing the phone width (a rotated tablet, a resized window): Day view
+  // when narrow, the saved view again when wide.
+  const wasNarrow = useRef(narrow)
+  useEffect(() => {
+    if (wasNarrow.current === narrow) return
+    wasNarrow.current = narrow
+    setViewState(narrow ? 'day' : savedView)
+    if (narrow) setPlanOpen(false)
+  }, [narrow, savedView])
 
   const days = useMemo(() => {
     if (view === 'day') return [anchorDay]
@@ -324,6 +339,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }, [popover, data, editing])
 
   const step = view === 'week' ? 7 : 1
+  const phoneDay = narrow && view === 'day'
   const today = startOfDay(now)
   const showingToday = days.some((d) => d.getTime() === today.getTime())
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
@@ -343,41 +359,57 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     handleCreate(start, new Date(start.getTime() + 60 * 60_000), { clientX: rect.right, clientY: rect.bottom + 8 })
   }
 
+  const stepButton = (dir: -1 | 1, size: string) => {
+    const label = `${dir < 0 ? 'Previous' : 'Next'} ${view === 'week' ? 'week' : 'day'}`
+    const Icon = dir < 0 ? ChevronLeft : ChevronRight
+    return (
+      <button type="button" aria-label={label} title={label} onClick={() => setAnchorDay((d) => addDays(d, dir * step))} className={cn(navButton, size)}>
+        <Icon className="h-4 w-4" />
+      </button>
+    )
+  }
+
   return (
     <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3">
       <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            aria-label={view === 'week' ? 'Previous week' : 'Previous day'}
-            title={view === 'week' ? 'Previous week' : 'Previous day'}
-            onClick={() => setAnchorDay((d) => addDays(d, -step))}
-            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 w-8"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setAnchorDay(today)}
-            disabled={showingToday && view === 'day'}
-            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 px-2.5"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            aria-label={view === 'week' ? 'Next week' : 'Next day'}
-            title={view === 'week' ? 'Next week' : 'Next day'}
-            onClick={() => setAnchorDay((d) => addDays(d, step))}
-            className="inline-flex h-8 items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50 w-8"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
+        {phoneDay ? (
+          // Phone: the day in the middle, a step either side.
+          <div className="flex w-full items-center gap-2">
+            {stepButton(-1, 'h-9 w-10')}
+            <div className="flex min-w-0 flex-1 flex-col items-center">
+              <h2 data-testid="calendar-title" className="max-w-full truncate text-title font-semibold text-text-primary">
+                {formatFullDay(anchorDay)}
+              </h2>
+              {showingToday ? (
+                <span className="text-meta text-text-muted">Today</span>
+              ) : (
+                <button type="button" onClick={() => setAnchorDay(today)} className="text-meta font-semibold text-accent hover:underline">
+                  Back to today
+                </button>
+              )}
+            </div>
+            {stepButton(1, 'h-9 w-10')}
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1">
+              {stepButton(-1, 'h-8 w-8')}
+              <button
+                type="button"
+                onClick={() => setAnchorDay(today)}
+                disabled={showingToday && view === 'day'}
+                className={cn(navButton, 'h-8 px-2.5')}
+              >
+                Today
+              </button>
+              {stepButton(1, 'h-8 w-8')}
+            </div>
 
-        <h2 data-testid="calendar-title" className="ml-1 min-w-0 truncate text-heading font-semibold text-text-primary">
-          {formatRangeTitle(days[0], days[days.length - 1])}
-        </h2>
+            <h2 data-testid="calendar-title" className="ml-1 min-w-0 truncate text-heading font-semibold text-text-primary">
+              {formatRangeTitle(days[0], days[days.length - 1])}
+            </h2>
+          </>
+        )}
 
         {highlight?.courseTag && (
           <span
@@ -396,7 +428,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           <span className="text-meta text-text-muted">Nothing planned. Click or drag on the grid to add something.</span>
         )}
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className={cn('flex flex-wrap items-center gap-2', phoneDay ? 'w-full justify-between' : 'ml-auto')}>
           <div role="tablist" aria-label="Calendar view" className="flex rounded-control bg-surface-overlay p-[3px]">
             {(['week', 'day'] as const).map((v) => (
               <button
@@ -596,3 +628,5 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     </div>
   )
 }
+
+const navButton = 'inline-flex items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'

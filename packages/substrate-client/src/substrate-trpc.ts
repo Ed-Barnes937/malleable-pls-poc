@@ -176,14 +176,13 @@ export const substrateTrpc: SubstrateWriter = {
 /**
  * Plan item mutations refresh every plan item list (Calendar, To-do and
  * Coming up all read the same data) plus tags, which carry the course.
+ * A save resolves once the lists on screen have refetched, so they already
+ * show the server's state (including anything changed elsewhere meanwhile).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function usePlanItemMutation(procedure: { useMutation: (opts: { onSuccess: () => void }) => any }) {
+function usePlanItemMutation(procedure: { useMutation: (opts: { onSuccess: () => Promise<unknown> }) => any }) {
   const utils = trpc.useUtils()
   return procedure.useMutation({
-    onSuccess: () => {
-      utils.planItems.invalidate()
-      utils.tags.invalidate()
-    },
+    onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate()]),
   })
 }

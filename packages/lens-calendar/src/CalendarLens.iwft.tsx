@@ -3,7 +3,7 @@ import { test, expect } from '../../../playwright/fixtures'
 import { CalendarHarness } from '../../../playwright/calendar-harness'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredPlanItem } from '../../../playwright/backend-simulator/in-memory-db'
-import { startOfWeek } from './time'
+import { addDays, formatFullDay, startOfDay, startOfWeek } from './time'
 
 const monday = startOfWeek(new Date())
 const at = (day: number, h: number, m = 0) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m)
@@ -122,6 +122,54 @@ test('day view shows one day and navigates by day', async ({ mount, page, simula
   await page.getByRole('tab', { name: 'Day' }).click()
   await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   await expect(page.getByTestId('help-me-plan')).toHaveCount(0)
+})
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 400, height: 800 } })
+
+  test('opens in Day view on today, with the previous and next day either side', async ({ mount, page, simulator }) => {
+    seedWeek(simulator)
+    // Saved as Week on a wide screen: a phone still opens on the day.
+    await mount(<CalendarHarness config={{ view: 'week' }} width="100%" />)
+
+    await expect(page.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+    const today = new Date()
+    await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(today))
+    await expect(page.getByText('Today', { exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Next day' }).click()
+    await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(addDays(startOfDay(today), 1)))
+    await page.getByRole('button', { name: 'Back to today' }).click()
+    await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(today))
+    await page.getByRole('button', { name: 'Previous day' }).click()
+    await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(addDays(startOfDay(today), -1)))
+
+    // Week is a tap away, and picking a view on the phone leaves the saved one alone.
+    await page.getByRole('tab', { name: 'Week' }).click()
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
+    await expect(page.getByTestId('config-calls').getByRole('listitem')).toHaveCount(0)
+  })
+
+  test('back on a wide screen, the saved view returns', async ({ mount, page, simulator }) => {
+    seedWeek(simulator)
+    await mount(<CalendarHarness config={{ view: 'week' }} width="100%" />)
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+
+    await page.setViewportSize({ width: 1200, height: 800 })
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
+    await expect(page.getByRole('button', { name: 'Today', exact: true })).toBeVisible()
+
+    await page.setViewportSize({ width: 400, height: 800 })
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+  })
+})
+
+test('on a wide screen, picking a view saves it', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await page.getByRole('tab', { name: 'Day' }).click()
+  await expect(page.getByTestId('config-calls')).toHaveText('{"view":"day"}')
 })
 
 test('a course highlight dims other courses but never hides them', async ({ mount, page, simulator }) => {

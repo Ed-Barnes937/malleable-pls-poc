@@ -1,8 +1,10 @@
+import type { Page } from '@playwright/test'
 import { test, expect } from '../../../playwright/fixtures'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import { daysFromNow, seedPlanItem } from '../../../playwright/plan-items'
 import { MomentHarness } from '../../../playwright/moment-harness'
 import TodoLens from './TodoLens'
+import { JUST_DONE_FADE_MS, JUST_DONE_MS } from './useJustDone'
 
 const defaultProps = {
   panelId: 'test-panel',
@@ -78,8 +80,10 @@ test('an unscoped board shows every course with its pill', async ({ mount, page,
   await expect(page.getByTestId('hidden-elsewhere')).toHaveCount(0)
 })
 
-test('ticking a to-do moves it to Done today, and unticking brings it back', async ({ mount, page, simulator }) => {
-  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+test('a ticked to-do strikes through in place with Done · Undo, then fades to Done today', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards', duration_min: 60, course: 'biology', created_at: daysFromNow(-2, 9) })
+  seedPlanItem(simulator, { id: 'todo-2', kind: 'task', title: 'Lab notes', created_at: daysFromNow(-1, 9) })
+  await page.clock.install()
 
   await mount(
     <TestProviders>
@@ -88,13 +92,151 @@ test('ticking a to-do moves it to Done today, and unticking brings it back', asy
   )
 
   await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
-  await expect(page.getByText('Done today')).toBeVisible()
-  await expect(page.getByRole('checkbox', { name: 'Not done yet: Flashcards' })).toHaveAttribute('aria-checked', 'true')
-  expect(simulator.db.planItems[0].status).toBe('done')
+  // Saved straight away, but it stays where it was, struck through, for a moment.
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'todo-1')!.status).toBe('done')
+  const rows = page.getByTestId('todo-item')
+  await expect(rows.first()).toContainText('Flashcards')
+  await expect(rows.first()).toHaveAttribute('data-just-done', 'shown')
+  await expect(rows.first().getByText('Flashcards')).toHaveCSS('text-decoration-line', 'line-through')
+  await expect(rows.first().getByText('Done', { exact: true })).toBeVisible()
+  await expect(rows.first().getByRole('button', { name: 'Undo: Flashcards' })).toBeVisible()
+  await expect(rows.first().getByText('1h')).toBeVisible()
+  await expect(page.getByText('1 to do')).toBeVisible()
+  await expect(page.getByText('Done today')).toHaveCount(0)
 
+  // Then it fades and moves down to Done today, without the Undo chip.
+  await page.clock.runFor(JUST_DONE_MS)
+  await expect(rows.first()).toHaveAttribute('data-just-done', 'fading')
+  await page.clock.runFor(JUST_DONE_FADE_MS)
+  await expect(page.getByText('Done today')).toBeVisible()
+  await expect(rows.last()).toContainText('Flashcards')
+  await expect(page.getByRole('checkbox', { name: 'Not done yet: Flashcards' })).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByRole('button', { name: 'Undo: Flashcards' })).toHaveCount(0)
+
+  // Unticking from Done today brings it back.
   await page.getByRole('checkbox', { name: 'Not done yet: Flashcards' }).click()
   await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toBeVisible()
   await expect(page.getByText('Done today')).toHaveCount(0)
+})
+
+test('Undo right after ticking reopens the to-do where it was', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+  await page.clock.install()
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await page.getByRole('button', { name: 'Undo: Flashcards' }).click()
+
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Flashcards' })
+  await expect(row).not.toHaveAttribute('data-just-done')
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('open')
+
+  // Nothing fades or moves later.
+  await page.clock.runFor(JUST_DONE_MS + JUST_DONE_FADE_MS)
+  await expect(page.getByText('Done today')).toHaveCount(0)
+  await expect(row).toBeVisible()
+})
+
+/** Holds every request to `procedure` (alone or in a batch) until `release()`; the simulator answers it then. */
+async function hold(page: Page, procedure: string) {
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  // Registered after the simulator's route, so it runs first and hands over.
+  await page.route((url) => url.pathname.split(/[/,]/).includes(procedure), async (route) => {
+    await held
+    await route.fallback()
+  })
+  return release
+}
+
+test('tick, Undo, tick again on a slow connection saves in that order and ends done', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+  const releaseComplete = await hold(page, 'planItems.complete')
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Flashcards' })
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await row.getByRole('button', { name: 'Undo: Flashcards' }).click()
+  await expect(row).not.toHaveAttribute('data-just-done')
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await expect(row).toHaveAttribute('data-just-done', 'shown')
+
+  // The first save lands; the Undo and the second tick follow it, in order.
+  releaseComplete()
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('done')
+  await expect(row).toHaveAttribute('data-just-done', 'shown')
+  await expect(page.getByRole('checkbox', { name: 'Not done yet: Flashcards' })).toHaveAttribute('aria-checked', 'true')
+  // And stays done: nothing late reopens it.
+  await page.waitForLoadState('networkidle')
+  expect(simulator.db.planItems[0].status).toBe('done')
+})
+
+test('after an Undo, a late save never flashes the to-do into Done today', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+  const releaseComplete = await hold(page, 'planItems.complete')
+  const releaseReopen = await hold(page, 'planItems.update')
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await page.getByRole('button', { name: 'Undo: Flashcards' }).click()
+
+  // The tick lands (and the list refetches it as done) while the reopen is still on its way.
+  const refetched = page.waitForResponse((r) => r.url().includes('planItems.list'))
+  releaseComplete()
+  await refetched
+  expect(simulator.db.planItems[0].status).toBe('done')
+  // Give the refetched rows a couple of frames to render.
+  await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByText('Done today')).toHaveCount(0)
+
+  releaseReopen()
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('open')
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByText('Done today')).toHaveCount(0)
+})
+
+test('a to-do reopened elsewhere while its tick is saving ends open', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards' })
+
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Flashcards' })
+  await expect(row).toBeVisible()
+
+  // The tick saves, but the lists' refetch is slow...
+  const releaseLists = await hold(page, 'planItems.list')
+  await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  await expect.poll(() => simulator.db.planItems[0].status).toBe('done')
+  await expect(row).toHaveAttribute('data-just-done', 'shown')
+
+  // ...and meanwhile another device reopens it.
+  simulator.db.planItems[0].status = 'open'
+  releaseLists()
+
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toHaveAttribute('aria-checked', 'false')
+  await expect(row).not.toHaveAttribute('data-just-done')
+  await expect(page.getByText('Done today')).toHaveCount(0)
+  await expect(page.getByText('1 to do')).toBeVisible()
 })
 
 test('dismissing a to-do removes it without fuss', async ({ mount, page, simulator }) => {

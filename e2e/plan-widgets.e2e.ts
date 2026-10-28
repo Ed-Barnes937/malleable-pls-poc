@@ -78,6 +78,8 @@ test.describe('Plan widgets: To-do and Coming up', () => {
 
     // Ticking it off on one board is reflected on the other.
     await row.getByRole('checkbox', { name: 'Done: Review enzymes' }).click()
+    // It says "Done · Undo" in place for a moment, then moves to Done today.
+    await expect(row).toHaveAttribute('data-just-done', 'shown')
     await expect(allTodo.getByText('Done today')).toBeVisible({ timeout: 10000 })
     await topBar.switchToWorkspace('Biology week')
     await expect(grid.panelByLabel('To-do').getByRole('checkbox', { name: 'Not done yet: Review enzymes' })).toBeVisible({ timeout: 10000 })

@@ -209,7 +209,8 @@ export function RefitBanner({
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <RotateCcw className="h-4 w-4 shrink-0 text-attn" aria-hidden />
-        <p className="min-w-0 flex-1 text-body text-text-primary">
+        {/* Wide enough to read as a sentence; on a phone the buttons wrap below. */}
+        <p className="min-w-0 flex-1 basis-56 text-body text-text-primary">
           {missedQuestion(asked)}{' '}
           {previewing
             ? `${plural(open, 'Here is where it could go', 'Here is where they could go')} - drag to adjust, nothing moves until you accept.`

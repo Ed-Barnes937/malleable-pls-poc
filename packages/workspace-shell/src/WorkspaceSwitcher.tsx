@@ -11,6 +11,11 @@ const WORKSPACE_ICONS: Record<string, typeof BookOpen> = {
   'ws-exam-prep': GraduationCap,
 }
 
+/** Fades the strip's edges that have more tabs past them. */
+function fadeMask({ start, end }: { start: boolean; end: boolean }): string {
+  return `linear-gradient(to right, transparent, #000 ${start ? 28 : 0}px, #000 calc(100% - ${end ? 28 : 0}px), transparent)`
+}
+
 export function WorkspaceSwitcher() {
   const { data: workspaces } = useWorkspaces()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -96,11 +101,38 @@ export function WorkspaceSwitcher() {
     resetDrag()
   }, [resetDrag])
 
-  // Keep the open board's tab visible when the tab strip scrolls (narrow screens).
+  // On a narrow screen the strip scrolls sideways; each edge with more tabs
+  // past it fades out, so the strip reads as "there's more".
+  const [edges, setEdges] = useState({ start: false, end: false })
+  const updateEdges = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return
+    const start = el.scrollLeft > 1
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+  }, [])
+  const tabCount = workspaces?.length ?? 0
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    updateEdges()
+    const observer = new ResizeObserver(updateEdges)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [updateEdges, tabCount])
+
+  // Keep the open board's tab in view, centred clear of the fades. Scrolls
+  // the strip only, never the page.
   const activeIdx = workspaces?.findIndex((ws) => ws.id === activeWorkspaceId) ?? -1
   useEffect(() => {
-    tabRefs.current[activeIdx]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-  }, [activeIdx])
+    const strip = containerRef.current
+    const tab = tabRefs.current[activeIdx]?.parentElement
+    if (!strip || !tab || strip.scrollWidth <= strip.clientWidth) return
+    const s = strip.getBoundingClientRect()
+    const t = tab.getBoundingClientRect()
+    strip.scrollLeft += t.left + t.width / 2 - (s.left + s.width / 2)
+    updateEdges()
+  }, [activeIdx, tabCount, updateEdges])
 
   if (!workspaces) return null
 
@@ -110,7 +142,12 @@ export function WorkspaceSwitcher() {
         ref={containerRef}
         role="group"
         aria-label="Boards"
-        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-[14px] bg-surface-overlay p-1 touch-none [scrollbar-width:none]"
+        data-fade-start={edges.start || undefined}
+        data-fade-end={edges.end || undefined}
+        onScroll={updateEdges}
+        // pan-x: a finger swipes the strip sideways; a mouse drag still reorders.
+        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-[14px] bg-surface-overlay p-1 touch-pan-x [scrollbar-width:none]"
+        style={edges.start || edges.end ? { maskImage: fadeMask(edges), WebkitMaskImage: fadeMask(edges) } : undefined}
       >
         {workspaces.map((ws, idx) => {
           const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
