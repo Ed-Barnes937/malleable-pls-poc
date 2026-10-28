@@ -12,7 +12,7 @@
     "dev:server": "node scripts/with-db-url.mts pnpm --filter @pls/server run dev",
     "dev:web": "VITE_API_URL=http://localhost:3001 VITE_USER_ID=dev-user-1 pnpm --filter @pls/web run dev",
     "e2e:server": "(pnpm run dev:db || echo 'dev:db failed - assuming postgres already up on :${PG_PORT:-5433}') && AI_MODE=mock OPENROUTER_API_KEY= node scripts/with-db-url.mts pnpm --filter @pls/server run migrate-and-start",
-    "typecheck": "tsc --noEmit -p apps/web && tsc --noEmit -p apps/server && tsc --noEmit -p packages/scheduler && tsc --noEmit -p scripts/demo",
+    "typecheck": "tsc --noEmit -p apps/web && tsc --noEmit -p apps/server && tsc --noEmit -p packages/scheduler && tsc --noEmit -p scripts/demo && tsc --noEmit -p scripts",
     "demo:make-lecture": "scripts/demo/make-lecture.sh",
     "demo:live-smoke": "pnpm --filter @pls/server exec tsx ../../scripts/demo/live-smoke.mts",
     "test": "vitest run",

@@ -7,7 +7,7 @@
 import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { resolve } from 'path'
-import { resolveDatabaseUrl } from './db-url'
+import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 

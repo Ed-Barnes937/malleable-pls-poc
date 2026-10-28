@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveDatabaseUrl } from './db-url'
+import { resolveDatabaseUrl } from './db-url.mts'
 
 describe('resolveDatabaseUrl', () => {
   it('defaults to the dev database on 5433', () => {
