@@ -32,3 +32,7 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 ## 2026-10-28 (orchestrator, cheap to reverse)
 16. U6b: on a phone, Activity and the theme toggle move into the existing board menu rather than a new dropdown.
 17. U6b: the phone today line keeps U5's rule and hides when today has no class or shift, even if study time is left.
+
+## 2026-10-28 (Ed, from the pass-1 rehearsal)
+18. The app follows the confused-to-calendar ripple: when a review is placed, the board scrolls so the Calendar block (or the To-do row) is in view as the card lands, and the card starts from the moment's visible position. Works for any layout.
+19. Mid-week, the floating Plan your time panel covers days already past (e.g. Mon-Tue on a Wednesday), falling back to the weekend early in the week.

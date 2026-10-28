@@ -56,3 +56,6 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U6b merged into `feat/student-planning-ux` (PR #88) after re-review PASS. Failed-save after close shows an inline Calendar alert (orchestrator accepted inline over a shell toast).
 - Follow-up ticket dispatched: TodayLine ResizeObserver warning (flushSync only on change), `useFocusTrap` CT/unit tests, popover fields read-only while a save is pending.
 - Pass-1 wrap-up dispatched in parallel: dress rehearsal storyboard + runbook update.
+- PR #89 (TodayLine RO warning, useFocusTrap CT, popover read-only while saving) merged after reviewer PASS (mutation-tested).
+- Pass-1 rehearsal PR #90 (storyboard + runbook) opened; held until rehearsal fixes land, then re-rehearse. Findings F1-F14: F1 high (ripple off screen), F2/F3 medium, rest low; F12 deferred to U7.
+- Dispatched R1 (ripple visibility: F1, F4, F7, F9, F10) and R2 (calendar/planning: F2, F3, F5, F6, F8, F11, F13, F14).
