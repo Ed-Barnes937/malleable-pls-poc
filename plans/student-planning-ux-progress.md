@@ -49,3 +49,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - Dispatched U6b (Opus): phone top bar menu, today line on phone, phone toast placement, Calendar popover "Saving..." state.
 - Dispatched pass-1 nits sweep (Sonnet): runbook copy, summary `aria-controls`, rail overlap with many tags, `savedMessage` for move+resize, Shrink/Undo focus.
 - Next: pass-1 wrap-up (dress rehearsal storyboard, runbook) once U6b, nits and #86 merge; then open `feat/student-planning-ux` -> `main` PR for Ed.
+- PR #86 (DB URL footgun: scripts honour DATABASE_URL, wrapper forwards signals) merged into `feat/student-planning-ux` after re-review PASS. PR #87 (nits) in review; U6b in progress.
