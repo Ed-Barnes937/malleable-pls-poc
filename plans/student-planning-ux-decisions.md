@@ -24,3 +24,7 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 11. A confusion review respects the daily budget when any day in its window has room. If none does, it goes in the earliest free slot anyway (over budget as a last resort). It is unscheduled only when there is no free slot at all.
 12. The server's review placement uses the default 2h/day until S1's study-hours preference exists.
 13. The phone top bar follows the mock-up (menu, tabs, widgets button), with Automations, Theme and Settings moved into the menu. Small follow-up ticket U6b after U6 merges; it also covers showing the today line on the phone (mock-up 5).
+
+## 2026-10-28 (Ed)
+14. Migrations 014 and 015 accidentally applied to the default `malleable_pls` DB stay in place (additive, needed by pass 1 anyway).
+15. Fix the DB URL footgun: scripts honour `DATABASE_URL` when set (small fix ticket).

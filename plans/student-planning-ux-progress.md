@@ -37,3 +37,9 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - PR #84 (test flake fixes: scheduler time/property tests, DB test timeouts) merged into `feat/student-planning-ux` (e82fe9c) after reviewer PASS. `expected 4 to be 3` not reproduced; likely follow-on from DB test timeouts.
 - INCIDENT: the #84 reviewer ran `pnpm dev:migrate` with only `DATABASE_URL` set; the script builds its URL from `PG_DB` (default `malleable_pls`), so migrations 014 and 015 were applied to Ed's default DB at 22:35 UTC. Reported to Ed; no revert without his say. Footgun to fix: agents must set `PG_DB`, and `dev:migrate` should honour `DATABASE_URL` or refuse.
 - U6 re-review: fix confirmed; still needs U4 merge and stuck-status fix. Sent back.
+
+## 2026-10-28
+- U3 merged into `feat/student-planning-ux` (9638103, PR #83) after re-review PASS. Nits for later: runbook line 34 still says "More"; `aria-controls` dangles while summary collapsed; `savedMessage` reports only moves when an edit both moves and resizes.
+- U6 round 3 pushed (039c764: U4 merge, stuck-status fix via `usePlanItemMutation` resolving after refetch - affects every plan item save). Merging U3 next, then final re-review.
+- PR #85 (first-run flake: `flushSync` in TodayLine + painted-frame test reads) opened; reviewer running.
+- DB URL footgun fix ticket dispatched (Sonnet).
