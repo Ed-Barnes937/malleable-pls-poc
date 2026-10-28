@@ -253,7 +253,7 @@ export function HelpMePlanPanel({
       ref={panelRef}
       data-testid="help-me-plan-panel"
       aria-labelledby={headingId}
-      className="flex h-full min-h-0 w-[280px] max-w-full shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
       <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5">
         <h3
@@ -524,7 +524,7 @@ function DraftSummary({
   const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
   const placedMin = proposalMinutes(layer.proposals)
   // Study time the headline counts that the draft left in gaps too short for what is left.
-  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)))
+  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)), unplaced.length)
 
   return (
     <div ref={rootRef} data-testid="autofill-draft" className="flex flex-col gap-3.5">

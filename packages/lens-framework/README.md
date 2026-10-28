@@ -19,7 +19,7 @@ Defines the contract that every lens must satisfy and provides the registry infr
 | `LensRegistry` / `LensRegistryProvider` | React context for the active set of lenses |
 | `getLensComponent()` | Lazy-loads and caches a lens component by key |
 | `PlaceholderLens` | Fallback rendered while a lens is loading |
-| `useMissedBlocks()` | Study blocks that didn't happen, for any widget that offers to re-fit them (To-do, Calendar): the server's preview, an atomic accept, the shared copy (`missedQuestion`, `movedNote`, ...) and which blocks the student already answered for (shared by every widget until the page is reloaded) |
+| `useMissedBlocks()` | Study blocks that didn't happen, for any widget that offers to re-fit them (To-do, Calendar): the server's preview, an atomic accept, the shared copy (`missedQuestion`, `movedNote`, ...) which blocks the student already answered for (shared by every widget until the page is reloaded), and which a widget is previewing (`startPreview` / `endPreview`: other widgets stop asking about them meanwhile) |
 
 ## Usage
 

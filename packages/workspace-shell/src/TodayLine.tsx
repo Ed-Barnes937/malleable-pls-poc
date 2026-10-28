@@ -56,6 +56,8 @@ export function TodayLine({ workspaceId, short = false }: { workspaceId: string;
     // Keeps 40% of the row: a long "Showing" chip truncates rather than crowd it out.
     return <TodayLineText options={options} strong={study} className="min-w-[40%] flex-1 basis-0" textClassName="text-meta" />
   }
+  // Nothing left of the day to mention: like the phone, say nothing.
+  if (line.events.length === 0 && !study) return null
   // The whole line, else without the weekday, which the student knows anyway.
   const full = [line.weekday, ...line.events, ...(study ? [study] : [])]
   return (

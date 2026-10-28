@@ -1,5 +1,5 @@
-import { useCallback, useState, useSyncExternalStore } from 'react'
-import type { RefitProposal } from '@pls/substrate'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { DEFAULT_STUDY_MIN_PER_DAY, formatMinutes, type RefitProposal } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from './substrate-context'
 
 /**
@@ -12,7 +12,8 @@ import { useSubstrate, useSubstrateMutations } from './substrate-context'
  * Answering ("Not now", "Keep my plan", moving them, or being told one
  * doesn't fit) holds in every widget until the page is reloaded (it is
  * module state), so the question is never raised twice. Only a newly missed block
- * (a new miss of the same to-do counts) brings it back.
+ * (a new miss of the same to-do counts) brings it back. While one widget
+ * shows new times ("Re-fit"), the others stop asking about those blocks.
  */
 
 /** One missed block as it is now: a new miss of the same to-do is a new signature. */
@@ -29,8 +30,13 @@ function noFitWhen(p: RefitProposal): 'before it is due' | 'this week' {
   return dueAhead ? 'before it is due' : 'this week'
 }
 
-/** "No free time before it is due. It stays on your list." */
+/**
+ * "No free time before it is due. It stays on your list." A block longer than
+ * a day's study time (re-fit keeps to Help me plan's 2h a day) says so, in
+ * Help me plan's words.
+ */
 export function noFitLabel(p: RefitProposal): string {
+  if (p.reason === 'over-daily-budget') return `Longer than your ${formatMinutes(DEFAULT_STUDY_MIN_PER_DAY)} a day. It stays on your list.`
   return `No free time ${noFitWhen(p)}. It stays on your list.`
 }
 
@@ -71,12 +77,44 @@ const subscribe = (listener: () => void) => {
   return () => listeners.delete(listener)
 }
 const getHandled = () => handled
+const notify = () => {
+  for (const listener of listeners) listener()
+}
 
 /** Marks blocks as answered for: no widget asks about them again until a reload. */
 export function markMissedBlocksHandled(ps: ReadonlyArray<RefitProposal>) {
   if (ps.every((p) => handled.has(missedBlockSignature(p)))) return
   handled = new Set([...handled, ...ps.map(missedBlockSignature)])
-  for (const listener of listeners) listener()
+  notify()
+}
+
+// Blocks a widget is showing new times for right now, by widget: one preview
+// at a time per block, so no other widget asks about them meanwhile.
+let previewing: ReadonlyMap<symbol, ReadonlySet<string>> = new Map()
+const getPreviewing = () => previewing
+
+/** `owner` is showing new times for `ps`: other widgets stop asking about them until it releases them. */
+export function claimMissedBlocksPreview(owner: symbol, ps: ReadonlyArray<RefitProposal>) {
+  const next = new Map(previewing)
+  next.set(owner, new Set(ps.map(missedBlockSignature)))
+  previewing = next
+  notify()
+}
+
+/** `owner`'s preview ended: blocks it did not answer for are asked about again everywhere. */
+export function releaseMissedBlocksPreview(owner: symbol) {
+  if (!previewing.has(owner)) return
+  const next = new Map(previewing)
+  next.delete(owner)
+  previewing = next
+  notify()
+}
+
+/** Whether another widget than `owner` is showing new times for `p`. */
+function previewedElsewhere(p: RefitProposal, owner: symbol, claims: ReadonlyMap<symbol, ReadonlySet<string>>): boolean {
+  const signature = missedBlockSignature(p)
+  for (const [other, signatures] of claims) if (other !== owner && signatures.has(signature)) return true
+  return false
 }
 
 /** The browser's zone: the student's study day is read in it. */
@@ -103,6 +141,13 @@ export interface MissedBlocks {
   toAsk: (ps: ReadonlyArray<RefitProposal>) => RefitProposal[]
   markHandled: (ps: ReadonlyArray<RefitProposal>) => void
   /**
+   * This widget is showing new times for `ps` ("Here is where they could
+   * go"): until `endPreview`, no other widget asks about them, so the two
+   * never disagree. Ends by itself when the widget unmounts.
+   */
+  startPreview: (ps: ReadonlyArray<RefitProposal>) => void
+  endPreview: () => void
+  /**
    * Moves blocks to their new times in one atomic `planItems.refit`; the
    * server refuses (a CONFLICT, see `isConflictError`) if the week changed
    * since the preview, and the preview refreshes either way.
@@ -118,17 +163,30 @@ export function useMissedBlocks({ course }: { course?: string | null } = {}): Mi
   const reader = useSubstrate()
   const acceptRefit = useSubstrateMutations().useAcceptRefit()
   const [timeZone] = useState(localTimeZone)
+  const [owner] = useState(() => Symbol('refit preview'))
   const { data, refetch } = reader.useRefitPreview(timeZone)
   const answered = useSyncExternalStore(subscribe, getHandled, getHandled)
+  const claims = useSyncExternalStore(subscribe, getPreviewing, getPreviewing)
   const all = data ?? []
-  const toAsk = useCallback(
-    (ps: ReadonlyArray<RefitProposal>) => ps.filter((p) => (!course || p.item.course === course) && !getHandled().has(missedBlockSignature(p))),
-    [course],
+  const asks = useCallback(
+    (p: RefitProposal, done: ReadonlySet<string>, inPreview: ReadonlyMap<symbol, ReadonlySet<string>>) =>
+      (!course || p.item.course === course) && !done.has(missedBlockSignature(p)) && !previewedElsewhere(p, owner, inPreview),
+    [course, owner],
   )
-  const proposals = all.filter((p) => (!course || p.item.course === course) && !answered.has(missedBlockSignature(p)))
+  const toAsk = useCallback(
+    (ps: ReadonlyArray<RefitProposal>) => ps.filter((p) => asks(p, getHandled(), getPreviewing())),
+    [asks],
+  )
+  const proposals = all.filter((p) => asks(p, answered, claims))
   const accept = useCallback(
     (blocks: { id: string; starts_at: string; ends_at: string }[]) => acceptRefit.mutateAsync({ timeZone, blocks }),
     [acceptRefit, timeZone],
   )
-  return { timeZone, proposals, all, preview: data ?? undefined, refresh: refetch, toAsk, markHandled: markMissedBlocksHandled, accept }
+  const startPreview = useCallback((ps: ReadonlyArray<RefitProposal>) => claimMissedBlocksPreview(owner, ps), [owner])
+  const endPreview = useCallback(() => releaseMissedBlocksPreview(owner), [owner])
+  useEffect(() => endPreview, [endPreview])
+  return {
+    timeZone, proposals, all, preview: data ?? undefined, refresh: refetch, toAsk,
+    markHandled: markMissedBlocksHandled, startPreview, endPreview, accept,
+  }
 }

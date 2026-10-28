@@ -6,7 +6,7 @@ type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | '
 export interface TodayLine {
   /** "Tuesday" */
   weekday: string
-  /** Today's fixed blocks, in time order: "Chemistry 14:00", "shift 17:00-22:00". */
+  /** Today's fixed blocks not over yet, in time order: "Chemistry 14:00", "shift 17:00-22:00". */
   events: string[]
   /** Study time left today, as Help me plan counts it (free time capped by the day's budget). */
   studyLeftMin: number
@@ -41,7 +41,8 @@ function shortEventLabel(row: Row): string {
 /**
  * The top bar's quiet summary of today, from today's plan item rows
  * (`listPlanItems` with today's `from`/`to`, so weekly classes are expanded):
- * the weekday, each class and shift, and the study time left. Study time
+ * the weekday, each class and shift not over yet, and the study time left
+ * (a lecture that ended at 12:00 is no longer news at noon). Study time
  * comes from the same `weekLayout` / `studyDays` Help me plan uses, so the
  * two never disagree. Null when today has no class or shift: an empty day
  * has nothing worth a line.
@@ -62,13 +63,14 @@ export function todayLine(
 
   const layout = weekLayout(rows, day, { timeZone: opts.timeZone, studyMinPerDay: opts.studyMinPerDay })
   const today = studyDays(layout, opts.now).find((d) => d.day === day.start)
+  const upcoming = commitments.filter((r) => Date.parse(r.ends_at!) > opts.now)
   return {
     weekday: weekdayFormat.format(new Date(opts.now)),
-    events: commitments.map(eventLabel),
+    events: upcoming.map(eventLabel),
     studyLeftMin: today?.leftMin ?? 0,
     short: {
       weekday: shortWeekdayFormat.format(new Date(opts.now)),
-      upcoming: commitments.filter((r) => Date.parse(r.ends_at!) > opts.now).map(shortEventLabel),
+      upcoming: upcoming.map(shortEventLabel),
     },
   }
 }

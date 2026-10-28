@@ -178,6 +178,11 @@ gesture, not lens-to-lens messaging, and it works like scope:
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
+On a board already focused on another lecture, that focus changes under the
+student (e.g. a Weakest Topics row from an older lecture), so the shell says
+so with a toast ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") whose
+action ("Back to Mitochondrial DNA - today") puts the board's lecture back.
+
 When the board has no moment viewer, the shell switches to a board that has
 one: a viewer set up for reviewing (not a Transcript in capture mode) first,
 then one already focused on that recording, then tab order. It shows the

@@ -14,7 +14,6 @@ import {
   freeSlots,
   minutesByDay,
   place,
-  refit,
   startOfLocalDay,
   subtract,
   suggestSlots,
@@ -573,14 +572,15 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
  * contradict the ghosts beside it. `shortGapMin` (see `shortGapMinutes`)
  * is free time the draft couldn't use because every gap left is too short:
  * named, so drafted + that adds up to the headline's free time.
+ * `unplacedCount` is how many to-dos didn't fit ("too short for it" / "for them").
  */
-export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0): string {
+export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0, unplacedCount = 1): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
   if (unplacedMin <= 0) return `${drafted} Everything fits.`
   const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
   if (shortGapMin < 15) return missed
   const the = placedMin > 0 ? 'The other' : 'The'
-  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for it.`
+  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for ${unplacedCount === 1 ? 'it' : 'them'}.`
 }
 
 /**
@@ -635,10 +635,14 @@ export interface RefitProposal {
 }
 
 /**
- * New times for the missed blocks, oldest first, earliest free fit from now,
- * around every commitment and every other block in `items` (the range from
- * `refitRange`, expanded). A to-do still due later must fit before it is due;
- * one whose due date has passed just goes in the next free time. Read-only.
+ * New times for the missed blocks, oldest first, placed by the same rules as
+ * a Help me plan draft (`weekLayout` + `draftPlan`): the earliest free fit
+ * from now inside the study day, around every commitment and every other
+ * block in `items` (the range from `refitRange`, expanded), 10 minutes clear
+ * of other study blocks and within each day's study time (the default 2h,
+ * as the server's review placement uses). A to-do still due later must fit
+ * before it is due; one whose due date has passed just goes in the next
+ * free time. Read-only.
  */
 export function planRefit(
   missed: ReadonlyArray<PlanItem>,
@@ -647,23 +651,21 @@ export function planRefit(
 ): RefitProposal[] {
   if (missed.length === 0) return []
   const range = refitRange(missed, opts)
-  const { commitments, busy } = busyTime(items, new Set(missed.map((m) => m.id)))
-  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
-  const result = refit(
-    missed.map((item) => ({
-      taskId: item.id,
-      start: Date.parse(item.starts_at!),
-      end: Date.parse(item.ends_at!),
-      durationMin: item.duration_min ?? undefined,
-      latest: latestFor(item, opts.now),
+  const oldestFirst = [...missed].sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
+  const layout = weekLayout(items, range, { timeZone: opts.timeZone, except: new Set(missed.map((m) => m.id)) })
+  const result = draftPlan(
+    oldestFirst.map((item) => ({
+      id: item.id,
+      // A block keeps its length when the to-do has no estimate.
+      durationMin: item.duration_min ?? (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
+      latest: latestFor(item, opts.now) ?? range.end,
     })),
-    free,
-    { now: opts.now, existingPlacements: busy },
+    layout,
+    { now: opts.now },
   )
   const placed = new Map(result.placements.map((p) => [p.taskId, p]))
   const unplaced = new Map(result.unplaced.map((u) => [u.taskId, u.reason]))
-  return [...missed]
-    .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
+  return oldestFirst
     .map((item) => {
       const p = placed.get(item.id)
       return p

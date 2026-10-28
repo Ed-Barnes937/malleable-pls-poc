@@ -350,7 +350,89 @@ test('with nothing to plan, the panel says so calmly and Auto-fill waits', async
   await expect(panel.getByTestId('autofill')).toBeDisabled()
 })
 
-test('the panel floats over the weekend, so Monday to Friday keep their width', async ({ mount, page, simulator }) => {
+test.describe('where the panel floats, by day of the week (frozen clock)', () => {
+  // The week of Mon 2 Nov 2026 (GMT, no clock change), busy 13:00-22:00 every
+  // day: each morning has 2h of study time.
+  const day = (d: number, h: number, m = 0) => new Date(2026, 10, 2 + d, h, m)
+  const MON = 0, TUE = 1, WED = 2, FRI = 4
+
+  async function planAt(page: Page, simulator: BackendSimulator, now: Date, todos: number) {
+    seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+      id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: day(d, 13).toISOString(), ends_at: day(d, 22).toISOString(),
+    })))
+    seed(simulator, Array.from({ length: todos }, (_, i) => ({ id: `todo-${i}`, title: `Essay part ${i + 1}`, duration_min: 120, course: 'biology' })))
+    await page.clock.setFixedTime(now)
+  }
+
+  async function autofill(page: Page) {
+    await page.getByTestId('help-me-plan').click()
+    const panel = page.getByTestId('help-me-plan-panel')
+    await panel.getByTestId('autofill').click()
+    await expect(panel.getByTestId('autofill-draft')).toBeVisible()
+    await expect(page.getByTestId('calendar-ghost').first()).toBeVisible()
+    return panel
+  }
+
+  /** No drafted block is under the panel, even partly. */
+  async function expectNoGhostUnder(page: Page, panel: ReturnType<Page['getByTestId']>) {
+    const box = (await panel.boundingBox())!
+    const ghosts = page.getByTestId('calendar-ghost')
+    expect(await ghosts.count()).toBeGreaterThan(0)
+    for (const g of await ghosts.all()) {
+      const b = (await g.boundingBox())!
+      const overlaps = b.x < box.x + box.width && box.x < b.x + b.width && b.y < box.y + box.height && box.y < b.y + b.height
+      expect(overlaps, `${await g.getAttribute('aria-label')} is under the panel`).toBe(false)
+    }
+  }
+
+  for (const [name, weekday, hour] of [['Wednesday', WED, 12], ['Friday', FRI, 10]] as const) {
+    test(`on a ${name}, it covers the days already past and none of today`, async ({ mount, page, simulator }) => {
+      await planAt(page, simulator, day(weekday, hour), 4)
+      // The demo board's Calendar is about 900px wide, beside To-do and Coming up.
+      await mount(<CalendarHarness width={900} />)
+      const days = page.getByTestId('calendar-day')
+      const before = await days.nth(weekday).boundingBox()
+      const panel = await autofill(page)
+      await expect(page.getByTestId('help-me-plan-panel').locator('..')).toHaveAttribute('data-placement', 'left')
+      const box = (await panel.boundingBox())!
+      const today = (await days.nth(weekday).boundingBox())!
+      const grid = (await page.getByTestId('calendar').boundingBox())!
+      expect(box.x).toBeGreaterThanOrEqual(grid.x)
+      expect(box.x + box.width).toBeLessThanOrEqual(today.x + 1)
+      expect(box.width).toBeGreaterThanOrEqual(256)
+      // The days being planned keep their width.
+      expect(today.width).toBeCloseTo(before!.width, 0)
+      await expectNoGhostUnder(page, panel)
+    })
+  }
+
+  for (const [name, weekday] of [['Monday', MON], ['Tuesday', TUE]] as const) {
+    test(`on a ${name}, with too few days past, it floats over the weekend`, async ({ mount, page, simulator }) => {
+      // Two to-dos: drafted on the next two mornings, clear of the weekend.
+      await planAt(page, simulator, day(weekday, 9), 2)
+      await mount(<CalendarHarness width={900} />)
+      const panel = await autofill(page)
+      await expect(panel.locator('..')).toHaveAttribute('data-placement', 'right')
+      const friday = (await page.getByTestId('calendar-day').nth(FRI).boundingBox())!
+      expect((await panel.boundingBox())!.x).toBeGreaterThan(friday.x + friday.width * 0.6)
+      await expectNoGhostUnder(page, panel)
+    })
+  }
+
+  test('early in the week, a draft on the weekend is never hidden: the panel docks beside the grid', async ({ mount, page, simulator }) => {
+    // Seven 2h to-dos from Monday 09:00: one a day, Sunday's included.
+    await planAt(page, simulator, day(MON, 9), 7)
+    await mount(<CalendarHarness width={900} />)
+    const panel = await autofill(page)
+    await expect(page.getByTestId('calendar-ghost')).toHaveCount(7)
+    await expect(panel.locator('..')).toHaveAttribute('data-placement', 'docked')
+    const sunday = (await page.getByTestId('calendar-day').nth(6).boundingBox())!
+    expect(sunday.x + sunday.width).toBeLessThanOrEqual((await panel.boundingBox())!.x)
+    await expectNoGhostUnder(page, panel)
+  })
+})
+
+test('a week ahead, the panel floats over the weekend, so Monday to Friday keep their width', async ({ mount, page, simulator }) => {
   seedBusyWeek(simulator)
   // The demo board's Calendar is about 900px wide, beside To-do and Coming up.
   await mount(<CalendarHarness width={900} />)

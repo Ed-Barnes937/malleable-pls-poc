@@ -580,9 +580,31 @@ test('a 20-minute block keeps a legible title and its time in the tooltip', asyn
   seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])
   await mount(<CalendarHarness />)
   const short = block(page, 'Quick review')
-  expect((await short.boundingBox())!.height).toBeGreaterThanOrEqual(22)
   await expect(short).toHaveAttribute('title', /19:00 - 19:20/)
-  await expect(short.getByText('Quick review')).toBeVisible()
+  const title = short.getByTestId('calendar-block-title')
+  await expect(title).toHaveText('Quick review')
+  await expect(title).toBeVisible()
+  // One whole line of 12px text, not cut by the short box.
+  expect(await title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12)
+  expect((await title.boundingBox())!.height).toBeGreaterThanOrEqual(12)
+  expect(await short.evaluate((el) => getComputedStyle(el).overflowY)).toBe('visible')
+})
+
+test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute one at the default zoom', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [
+    { id: 'twenty', kind: 'task', title: 'Review twenty', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 },
+    { id: 'thirty', kind: 'task', title: 'Review thirty', starts_at: iso(5, 19), ends_at: iso(5, 19, 30), duration_min: 30 },
+    { id: 'hour', kind: 'task', title: 'Review hour', starts_at: iso(6, 19), ends_at: iso(6, 20), duration_min: 60 },
+  ])
+  await mount(<CalendarHarness />)
+  await expect(block(page, 'Review hour')).toBeVisible()
+  const heightOf = async (title: string) => (await block(page, title).boundingBox())!.height
+  const hourPx = (await heightOf('Review hour')) + 2
+  // The default zoom fits 08:00-22:00, so short blocks are small: they still differ.
+  expect(await heightOf('Review twenty')).toBeCloseTo(hourPx / 3 - 2, 0)
+  expect(await heightOf('Review thirty')).toBeCloseTo(hourPx / 2 - 2, 0)
+  expect((await heightOf('Review thirty')) - (await heightOf('Review twenty'))).toBeGreaterThanOrEqual(4)
 })
 
 test("resizing stays within the block's own day", async ({ mount, page, simulator }) => {

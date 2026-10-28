@@ -15,6 +15,7 @@ import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
 import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
+import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
 
@@ -240,8 +241,18 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       : undefined),
     [planLayout, now, layer.proposals],
   )
+  // Where the panel floats: over the days already past, else the weekend,
+  // never over a draft (see plan-panel.ts).
+  const gridAreaRef = useRef<HTMLDivElement>(null)
+  const geometry = useWeekGeometry(gridAreaRef, !!planLayout)
+  const pastDays = days.filter((d) => d.getTime() < startOfDay(now).getTime()).length
+  const draftDays = layer.proposals
+    .filter((p) => !layer.savedIds.has(p.id))
+    .map((p) => days.findIndex((d) => d.getTime() === startOfDay(new Date(p.startsAt)).getTime()))
+    .filter((i) => i >= 0)
+  const placement = geometry ? planPanelPlacement(geometry, pastDays, draftDays) : { side: 'right' as const, width: PLAN_PANEL_PX }
   const thisWeek = startOfWeek(now).getTime()
-  const weekLabel = days[0].getTime() === thisWeek ? 'this week'
+  const weekLabel =days[0].getTime() === thisWeek ? 'this week'
     : days[0].getTime() === addDays(new Date(thisWeek), 7).getTime() ? 'next week' : 'that week'
 
   /**
@@ -517,7 +528,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       />
       {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
-      <div className="@container/cal relative flex min-h-0 flex-1 gap-3">
+      <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
         <TimeGrid
           days={days}
           items={items}
@@ -553,16 +564,28 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             type="button"
             autoFocus
             onClick={() => setPlanCollapsed(false)}
-            className="absolute bottom-3 right-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90"
+            className={cn(
+              'absolute bottom-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90',
+              placement.side === 'left' ? 'left-3' : 'right-3',
+            )}
           >
             <Sparkles className="h-4 w-4" />
             Show plan
           </button>
         )}
         {planLayout && !planCollapsed && (
-          // Floats over the weekend columns, so Monday to Friday keep their
-          // full width; "Hide" tucks it away to see what is under it.
-          <div className="absolute inset-y-0 right-0 z-30 flex max-w-full rounded-widget shadow-pop">
+          // Floats over the days already past or the weekend, so the days
+          // being planned keep their full width; docks beside the grid
+          // rather than hide a draft. "Hide" tucks it away.
+          <div
+            data-placement={placement.side}
+            className={cn(
+              'z-30 flex max-w-full rounded-widget shadow-pop',
+              placement.side === 'docked' ? 'relative shrink-0' : 'absolute inset-y-0',
+              placement.side === 'right' && 'right-0',
+            )}
+            style={{ width: placement.width, ...(placement.side === 'left' ? { left: placement.left } : {}) }}
+          >
             <HelpMePlanPanel
               layout={planLayout}
               weekLabel={weekLabel}
