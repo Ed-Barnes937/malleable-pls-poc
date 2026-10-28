@@ -373,7 +373,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
             <button
               type="button"
               aria-expanded={summaryOpen}
-              aria-controls={`summary-${recordingId}`}
+              aria-controls={summaryOpen ? `summary-${recordingId}` : undefined}
               onClick={() => setSummaryOpen((open) => !open)}
               className="inline-flex shrink-0 items-center gap-0.5 text-body font-semibold text-accent hover:underline"
             >

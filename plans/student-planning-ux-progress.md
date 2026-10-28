@@ -44,3 +44,12 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - PR #85 (first-run flake: `flushSync` in TodayLine + painted-frame test reads) opened; reviewer running.
 - DB URL footgun fix ticket dispatched (Sonnet).
 - PR #85 (first-run flake) merged into `feat/student-planning-ux` (d1ef883) after reviewer PASS. PR #86 (DB URL footgun) in review.
+- U6 merged into `feat/student-planning-ux` (329ae9b, PR #82) after round-3 PASS. All six pass-1 tickets are now merged.
+- PR #86 (DB URL footgun): CHANGES NEEDED (wrapper doesn't forward signals, orphaning `tsx watch`; module-type warning; typecheck coverage). Sent back.
+- Dispatched U6b (Opus): phone top bar menu, today line on phone, phone toast placement, Calendar popover "Saving..." state.
+- Dispatched pass-1 nits sweep (Sonnet): runbook copy, summary `aria-controls`, rail overlap with many tags, `savedMessage` for move+resize, Shrink/Undo focus.
+- Next: pass-1 wrap-up (dress rehearsal storyboard, runbook) once U6b, nits and #86 merge; then open `feat/student-planning-ux` -> `main` PR for Ed.
+- PR #86 (DB URL footgun: scripts honour DATABASE_URL, wrapper forwards signals) merged into `feat/student-planning-ux` after re-review PASS. PR #87 (nits) in review; U6b in progress.
+- PR #87 (pass-1 nits incl. reviewer follow-ups: hidden rail scrollbar, live region for Shrink, plural copy) merged into `feat/student-planning-ux`.
+- U6b PR #88 opened (suites green); fresh reviewer running. Orchestrator answered its two questions (decisions 16-17).
+- U6b review round 1: CHANGES NEEDED (Activity not really modal and stacked under the menu; pending label contrast; silent failure after Escape during slow save; safe-area padding inert without viewport-fit=cover). Sent back.

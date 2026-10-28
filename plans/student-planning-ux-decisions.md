@@ -28,3 +28,7 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 ## 2026-10-28 (Ed)
 14. Migrations 014 and 015 accidentally applied to the default `malleable_pls` DB stay in place (additive, needed by pass 1 anyway).
 15. Fix the DB URL footgun: scripts honour `DATABASE_URL` when set (small fix ticket).
+
+## 2026-10-28 (orchestrator, cheap to reverse)
+16. U6b: on a phone, Activity and the theme toggle move into the existing board menu rather than a new dropdown.
+17. U6b: the phone today line keeps U5's rule and hides when today has no class or shift, even if study time is left.
