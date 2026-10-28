@@ -43,3 +43,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U6 round 3 pushed (039c764: U4 merge, stuck-status fix via `usePlanItemMutation` resolving after refetch - affects every plan item save). Merging U3 next, then final re-review.
 - PR #85 (first-run flake: `flushSync` in TodayLine + painted-frame test reads) opened; reviewer running.
 - DB URL footgun fix ticket dispatched (Sonnet).
+- PR #85 (first-run flake) merged into `feat/student-planning-ux` (d1ef883) after reviewer PASS. PR #86 (DB URL footgun) in review.
