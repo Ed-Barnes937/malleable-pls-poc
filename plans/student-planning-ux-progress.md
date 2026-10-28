@@ -51,3 +51,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - Next: pass-1 wrap-up (dress rehearsal storyboard, runbook) once U6b, nits and #86 merge; then open `feat/student-planning-ux` -> `main` PR for Ed.
 - PR #86 (DB URL footgun: scripts honour DATABASE_URL, wrapper forwards signals) merged into `feat/student-planning-ux` after re-review PASS. PR #87 (nits) in review; U6b in progress.
 - PR #87 (pass-1 nits incl. reviewer follow-ups: hidden rail scrollbar, live region for Shrink, plural copy) merged into `feat/student-planning-ux`.
+- U6b PR #88 opened (suites green); fresh reviewer running. Orchestrator answered its two questions (decisions 16-17).
