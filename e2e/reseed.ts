@@ -7,14 +7,11 @@
 import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { resolve } from 'path'
+import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 
-const pgPort = process.env.PG_PORT ?? '5433'
-// PG_DB isolates parallel checkouts/agents (see e2e/README.md).
-const pgDb = process.env.PG_DB ?? 'malleable_pls'
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? `postgres://pls:pls@localhost:${pgPort}/${pgDb}`
+const DATABASE_URL = resolveDatabaseUrl()
 
 const TABLES = [
   'plan_items',
