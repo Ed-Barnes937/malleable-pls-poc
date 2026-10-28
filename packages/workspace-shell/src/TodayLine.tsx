@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { usePlanItemList, useWorkspacePanels } from '@pls/substrate-client'
+import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { todayLine, todayRange } from './today-line'
@@ -70,17 +71,22 @@ function TodayLineText({ weekday, events, study }: { weekday: string; events: st
   useLayoutEffect(() => {
     const box = boxRef.current
     if (!box) return
-    const measure = () => {
+    const fitNow = (): Fit => {
       const room = box.clientWidth
-      setFit((fullRef.current?.offsetWidth ?? Infinity) <= room ? 'full'
-        : (shortRef.current?.offsetWidth ?? Infinity) <= room ? 'no-weekday' : 'none')
+      return (fullRef.current?.offsetWidth ?? Infinity) <= room ? 'full'
+        : (shortRef.current?.offsetWidth ?? Infinity) <= room ? 'no-weekday' : 'none'
     }
-    measure()
+    // Before the first paint (a layout effect's update is synchronous).
+    setFit(fitNow())
+    // A resize is seen after layout, before paint: commit the new fit in that
+    // same frame (flushSync), or React renders it a task later and the
+    // clipped line can show for a frame or more on a busy machine.
+    const refit = () => flushSync(() => setFit(fitNow()))
     // The copies change size when the web font swaps in, the box when the bar does.
-    const observer = new ResizeObserver(measure)
+    const observer = new ResizeObserver(refit)
     for (const el of [box, fullRef.current, shortRef.current]) if (el) observer.observe(el)
     let live = true
-    void document.fonts?.ready.then(() => { if (live) measure() })
+    void document.fonts?.ready.then(() => { if (live) refit() })
     return () => {
       live = false
       observer.disconnect()
