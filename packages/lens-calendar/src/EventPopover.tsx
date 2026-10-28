@@ -5,7 +5,7 @@ import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
-import { PendingStatus, pendingLabel, type PendingAction } from './pending'
+import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
@@ -74,7 +74,7 @@ export function EventPopover({
       data-testid="calendar-popover"
       onSubmit={(e) => {
         e.preventDefault()
-        if (!invalid && canEdit) onSubmit(draft)
+        if (!invalid && canEdit && !busy) onSubmit(draft)
       }}
       onPointerDown={(e) => e.stopPropagation()}
       className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
@@ -183,9 +183,7 @@ export function EventPopover({
           {onDelete && (confirmDelete ? (
             <button
               type="button"
-              onClick={onDelete}
-              disabled={busy}
-              aria-busy={pending === 'delete'}
+              {...pendingProps(busy, pending === 'delete', onDelete)}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >
               {pending === 'delete' && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
@@ -205,9 +203,7 @@ export function EventPopover({
           {onToggleDone && (
             <button
               type="button"
-              onClick={onToggleDone}
-              disabled={busy}
-              aria-busy={pending === 'done'}
+              {...pendingProps(busy, pending === 'done', onToggleDone)}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay"
             >
               {pending === 'done' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
@@ -216,8 +212,8 @@ export function EventPopover({
           )}
           <button
             type="submit"
-            disabled={!!invalid || busy}
-            aria-busy={pending === 'add' || pending === 'save'}
+            {...pendingProps(busy, pending === 'add' || pending === 'save')}
+            disabled={!!invalid || (busy && pending !== 'add' && pending !== 'save')}
             title={invalid ?? undefined}
             className="ml-auto inline-flex h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
           >

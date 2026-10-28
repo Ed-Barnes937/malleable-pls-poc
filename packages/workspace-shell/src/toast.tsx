@@ -122,7 +122,7 @@ export function ToastHost() {
         data-layout={narrow ? 'bar' : 'float'}
         className={
           narrow
-            ? cn('flex shrink-0 flex-col gap-2', toasts.length > 0 && 'px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]')
+            ? cn('flex shrink-0 flex-col gap-2', toasts.length > 0 && 'px-3 pt-2 pb-3')
             : 'fixed bottom-4 right-4 z-[20000] flex flex-col items-end gap-2'
         }
       >

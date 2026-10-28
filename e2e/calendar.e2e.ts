@@ -119,10 +119,17 @@ test.describe('Calendar', () => {
     const calendar = new CalendarPom(page)
     await calendar.block('Read chapter 3').click()
 
-    await calendar.popover.getByRole('button', { name: 'Mark done' }).click()
+    // From the keyboard: focus stays on the pressed button while it waits.
+    await calendar.popover.getByRole('button', { name: 'Mark done' }).focus()
+    await page.keyboard.press('Enter')
     const pressed = calendar.popover.getByRole('button', { name: 'Marking done...' })
-    await expect(pressed).toBeDisabled()
     await expect(pressed).toHaveAttribute('aria-busy', 'true')
+    await expect(pressed).toHaveAttribute('aria-disabled', 'true')
+    await expect(pressed).toBeFocused()
+    // Pending is not disabled to the eye: the label stays fully legible.
+    await expect(pressed).toHaveCSS('opacity', '1')
+    // Pressing it again does nothing; the other buttons wait.
+    await page.keyboard.press('Enter')
     await expect(calendar.popover.getByRole('button', { name: 'Save' })).toBeDisabled()
     await expect(calendar.popover.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-busy', 'false')
     // Screen readers hear it too.
@@ -133,6 +140,35 @@ test.describe('Calendar', () => {
     await calendar.block('Read chapter 3').click()
     await expect(calendar.popover.getByRole('button', { name: 'Not done yet' })).toBeEnabled()
     await expect(calendar.popover.getByRole('status')).toHaveText('')
+  })
+
+  test('a save that fails after its popover was closed says so above the calendar', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await call(request, 'planItems.create', { kind: 'task', title: 'Read chapter 3', starts_at: at(5, 10), ends_at: at(5, 11), duration_min: 60 })
+    let fail!: () => void
+    const held = new Promise<void>((resolve) => { fail = resolve })
+    await page.route(/planItems\.complete/, async (route) => {
+      await held
+      await route.fulfill({ status: 500, contentType: 'text/plain', body: 'Internal Server Error' })
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    await calendar.block('Read chapter 3').click()
+    await calendar.popover.getByRole('button', { name: 'Mark done' }).click()
+    await expect(calendar.popover.getByRole('button', { name: 'Marking done...' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
+
+    fail()
+    const alert = calendar.root.getByRole('alert').filter({ hasText: 'Read chapter 3' })
+    await expect(alert).toHaveText('Couldn\'t mark "Read chapter 3" done. Try again.')
+    await expect.poll(async () => {
+      const items = await trpcQuery<{ title: string; status: string }[]>(request, 'planItems.list', { kinds: ['task'] })
+      return items.find((item) => item.title === 'Read chapter 3')?.status
+    }).toBe('open')
+    await alert.getByRole('button', { name: 'Dismiss' }).click()
+    await expect(alert).toHaveCount(0)
   })
 
   test('drag study time to a new slot', async ({ page, request }) => {

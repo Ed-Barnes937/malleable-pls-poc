@@ -147,10 +147,35 @@ test.describe('Phone top bar', () => {
     const activity = page.getByRole('dialog', { name: 'Activity' })
     await expect(activity).toBeVisible()
     await expect(activity.getByRole('button', { name: 'Close activity' })).toBeFocused()
+    await expect(activity).toHaveAttribute('aria-modal', 'true')
+    await expect(activityButton).toHaveAttribute('aria-haspopup', 'dialog')
+    // Modal: Tab and Shift+Tab stay inside it.
+    for (const key of ['Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+      await page.keyboard.press(key)
+      expect(await activity.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    }
     await page.keyboard.press('Escape')
     await expect(activity).toHaveCount(0)
     await expect(topBar.drawerTrigger).toHaveAttribute('aria-expanded', 'true')
     await expect(activityButton).toBeFocused()
+
+    // Its backdrop sits over the menu too: a tap on the menu's visible edge
+    // closes Activity and reaches nothing in the menu.
+    await activityButton.click()
+    await expect(activity).toBeVisible()
+    await page.mouse.click(20, 400)
+    await expect(activity).toHaveCount(0)
+    await expect(topBar.drawerTrigger).toHaveAttribute('aria-expanded', 'true')
+
+    // The board menu is modal too: Tab and Shift+Tab stay inside it.
+    await expect(drawer).toHaveAttribute('aria-modal', 'true')
+    await expect(topBar.drawerTrigger).toHaveAttribute('aria-haspopup', 'dialog')
+    await drawer.getByRole('button', { name: 'Close board menu' }).focus()
+    for (const key of ['Shift+Tab', 'Shift+Tab', 'Tab', 'Tab', 'Tab']) {
+      await page.keyboard.press(key)
+      expect(await drawer.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    }
+
     await page.keyboard.press('Escape')
     await expect(topBar.drawerTrigger).toHaveAttribute('aria-expanded', 'false')
     await expect(topBar.drawerTrigger).toBeFocused()

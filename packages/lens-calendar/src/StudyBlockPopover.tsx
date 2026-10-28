@@ -4,7 +4,7 @@ import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } fr
 import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
-import { PendingStatus, pendingLabel, type PendingAction } from './pending'
+import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 /** Where a block's lecture moment went after "Go to moment". */
 export type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
@@ -179,9 +179,7 @@ export function StudyBlockPopover({
           {onToggleDone && (
             <button
               type="button"
-              onClick={onToggleDone}
-              disabled={busy}
-              aria-busy={pending === 'done'}
+              {...pendingProps(busy, pending === 'done', onToggleDone)}
               className={cn(button, 'border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay')}
             >
               {pending === 'done' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}

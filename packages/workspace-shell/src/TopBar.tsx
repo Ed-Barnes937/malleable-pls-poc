@@ -167,6 +167,7 @@ function MenuButton({ onClick, open, showRunning }: { onClick: () => void; open:
       type="button"
       onClick={onClick}
       aria-label={running ? `Board menu, ${count} running` : 'Board menu'}
+      aria-haspopup="dialog"
       aria-expanded={open}
       title={running ? `Board menu: ${count} running` : "Board menu: add widgets, choose what's shown"}
       className={cn(ICON_BUTTON, 'relative')}

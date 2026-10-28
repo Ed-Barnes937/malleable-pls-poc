@@ -12,6 +12,16 @@ export function pendingLabel(action: PendingAction, done = false): string {
 }
 
 /**
+ * A popover button's state while the popover is busy. The pressed one stays
+ * enabled to the browser (focus stays on it, and its label stays legible) but
+ * reads as busy and ignores presses; the others are disabled.
+ */
+export function pendingProps(busy: boolean | undefined, pressed: boolean, onClick?: () => void) {
+  if (busy && pressed) return { 'aria-busy': true, 'aria-disabled': true, onClick: undefined }
+  return { 'aria-busy': false, disabled: !!busy, onClick }
+}
+
+/**
  * Says the pending label to screen readers too (a changed button label isn't
  * announced). Always mounted, so the first change is heard.
  */

@@ -7,7 +7,7 @@ import {
   useFocusedRecording,
   decodeScope,
 } from '@pls/substrate-client'
-import { COURSES, SectionLabel, Select, useNarrowScreen } from '@pls/shared-ui'
+import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { useBoardScopeDims } from './useBoardScopeDims'
@@ -164,6 +164,8 @@ export interface DrawerSidebarProps {
 
 export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps) {
   const asideRef = useRef<HTMLElement>(null)
+  // Modal while open: focus stays in the menu (or in Activity, opened from it).
+  useFocusTrap(asideRef, open)
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
@@ -224,6 +226,8 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         ref={asideRef}
         tabIndex={-1}
         data-testid="drawer-sidebar"
+        role="dialog"
+        aria-modal={open}
         aria-label="Board menu"
         aria-hidden={!open}
         inert={!open}
