@@ -53,3 +53,6 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - PR #87 (pass-1 nits incl. reviewer follow-ups: hidden rail scrollbar, live region for Shrink, plural copy) merged into `feat/student-planning-ux`.
 - U6b PR #88 opened (suites green); fresh reviewer running. Orchestrator answered its two questions (decisions 16-17).
 - U6b review round 1: CHANGES NEEDED (Activity not really modal and stacked under the menu; pending label contrast; silent failure after Escape during slow save; safe-area padding inert without viewport-fit=cover). Sent back.
+- U6b merged into `feat/student-planning-ux` (PR #88) after re-review PASS. Failed-save after close shows an inline Calendar alert (orchestrator accepted inline over a shell toast).
+- Follow-up ticket dispatched: TodayLine ResizeObserver warning (flushSync only on change), `useFocusTrap` CT/unit tests, popover fields read-only while a save is pending.
+- Pass-1 wrap-up dispatched in parallel: dress rehearsal storyboard + runbook update.
