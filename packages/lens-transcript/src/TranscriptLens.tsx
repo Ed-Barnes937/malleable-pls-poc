@@ -61,24 +61,36 @@ function scrollWithin(list: HTMLElement, el: Element) {
   else if (r.top < l.top) list.scrollTop -= l.top - r.top + MOMENT_TOP_GAP
 }
 
-/** Where the card is headed, looked up each frame (the board and the calendar scroll while it flies). */
-function rippleTarget(review: PlanItemOccurrence): Element | null {
-  const id = CSS.escape(review.id)
-  return review.starts_at
-    ? document.querySelector(`[data-testid="calendar-block"][data-plan-item-id="${id}"]`) ?? document.querySelector('[data-testid="calendar"]')
-    : document.querySelector(`[data-testid="todo-item"][data-plan-item-id="${id}"]`) ?? document.querySelector('ul[aria-label="To-dos"]')
+/** The review's row in the board's To-do list, once it is there. */
+function todoRow(review: PlanItemOccurrence): Element | null {
+  return document.querySelector(`[data-testid="todo-item"][data-plan-item-id="${CSS.escape(review.id)}"]`)
 }
+
+/**
+ * Where the card is headed, looked up each frame (the board and the calendar
+ * scroll while it flies): the review's Calendar block, or with no Calendar
+ * on the board, its To-do row.
+ */
+function rippleTarget(review: PlanItemOccurrence, toCalendar: boolean): Element | null {
+  return toCalendar
+    ? document.querySelector(`[data-testid="calendar-block"][data-plan-item-id="${CSS.escape(review.id)}"]`) ?? document.querySelector('[data-testid="calendar"]')
+    : todoRow(review) ?? document.querySelector('ul[aria-label="To-dos"]')
+}
+
+/** Roughly the card's height, to keep it on screen from its first frame. */
+const LIFT_OFF_HEIGHT_PX = 76
 
 const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
 
 /**
  * The ripple of marking a moment confusing, once per new review. The moment
  * scrolls its review chip into view; the board follows the review to its
- * Calendar block (or To-do row), keeping the moment in view too when both
- * fit, unless the student scrolls the board meanwhile; and the one signature
- * motion: a card lifts off the visible part of the moment and flies to the
- * block, which glows as it lands. Under reduced motion the board jumps and
- * no card flies.
+ * Calendar block (or, with no Calendar on the board or no time found, its
+ * To-do row), keeping the moment in view too when both fit, unless the
+ * student scrolls the board meanwhile; and the one signature motion: a card
+ * lifts off the visible part of the moment and flies there, and the block
+ * glows as it lands. No card when the board has neither widget, or under
+ * reduced motion (the board jumps).
  */
 function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanItem, onDone }: {
   review: PlanItemOccurrence
@@ -96,6 +108,8 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
   const chipRef = useRef<Element | null>(null)
   const [flight, setFlight] = useState<{ left: number; top: number } | null>(null)
   const tone = courseTone(review.course)
+  // The shell offers to show a block only on a board with a Calendar.
+  const toCalendar = !!review.starts_at && !!onShowPlanItem
 
   useLayoutEffect(() => {
     if (started.current) return
@@ -107,42 +121,48 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
     const chip = moment.querySelector('[data-testid="review-chip"]')
     chipRef.current = chip
     if (chip) scrollWithin(list, chip)
-    if (review.starts_at) {
-      onShowPlanItem?.({
-        id: review.id,
-        startsAt: review.starts_at,
-        keepInView: chip,
-        landsInMs: reducedMotion ? 0 : RIPPLE_MS,
-        scrolledSince: since.current,
-      })
+    if (toCalendar) {
+      // Next frame, so the Calendar's work doesn't hold up this one (the card's first).
+      const item = { id: review.id, startsAt: review.starts_at!, keepInView: chip, landsInMs: reducedMotion ? 0 : RIPPLE_MS, scrolledSince: since.current }
+      requestAnimationFrame(() => onShowPlanItem?.(item))
     }
-    if (reducedMotion) return
-    // From the part of the moment that is on screen, never from above the list.
+    if (reducedMotion || !rippleTarget(review, toCalendar)) return
+    // From the part of the moment that is on screen: inside the list and the
+    // board's view, even if the moment has been scrolled away.
     const m = moment.getBoundingClientRect()
     const l = list.getBoundingClientRect()
-    const top = Math.min(Math.max(m.top, l.top), Math.min(m.bottom, l.bottom) - 40)
-    setFlight({ left: Math.min(m.right, l.right) - LIFT_OFF_WIDTH_PX - 8, top: Math.max(0, top) })
-  }, [review, onShowPlanItem, reducedMotion, markedAt])
+    const b = list.closest('[data-canvas-scroll]')?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+    const viewTop = Math.max(b.top, 0)
+    const viewBottom = Math.min(b.bottom, window.innerHeight) - LIFT_OFF_HEIGHT_PX
+    const highest = Math.max(l.top, viewTop)
+    const lowest = Math.min(l.bottom - LIFT_OFF_HEIGHT_PX, viewBottom)
+    const top = highest <= lowest
+      ? Math.min(Math.max(m.top, highest), Math.max(highest, m.bottom - 40), lowest)
+      // The list is (almost) off screen: from the board's edge nearest it.
+      : l.top >= viewBottom ? Math.max(viewTop, viewBottom) : viewTop
+    setFlight({ left: Math.max(b.left, Math.min(m.right, l.right) - LIFT_OFF_WIDTH_PX - 8), top })
+  }, [review, onShowPlanItem, reducedMotion, markedAt, toCalendar])
 
-  // A review with no time: the board shows its new To-do row once it is there.
+  // The new To-do row, once it is there: in full view in its list, and when
+  // the board isn't following the Calendar, on screen too.
   useEffect(() => {
-    if (review.starts_at) return
     const until = performance.now() + TODO_ROW_WAIT_MS
     let frame = 0
     const look = () => {
-      const row = document.querySelector(`[data-testid="todo-item"][data-plan-item-id="${CSS.escape(review.id)}"]`)
+      const row = todoRow(review)
       if (!row) {
         if (performance.now() < until) frame = requestAnimationFrame(look)
         return
       }
       const list = row.closest('ul')
       if (list) scrollWithin(list, row)
+      if (toCalendar) return
       const chip = chipRef.current?.isConnected ? chipRef.current.getBoundingClientRect() : null
       showOnBoard(row, row.getBoundingClientRect(), { keep: [chip], since: since.current, smooth: !reducedMotion })
     }
     frame = requestAnimationFrame(look)
     return () => cancelAnimationFrame(frame)
-  }, [review, reducedMotion])
+  }, [review, reducedMotion, toCalendar])
 
   // The card: rises, then flies to wherever its target is now.
   useEffect(() => {
@@ -154,7 +174,7 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
       const t = Math.min(1, (now - t0) / RIPPLE_MS)
       const lift = Math.min(1, (now - t0) / LIFT_MS)
       const fly = easeInOut(Math.max(0, (now - t0 - LIFT_MS) / (RIPPLE_MS - LIFT_MS)))
-      const box = rippleTarget(review)?.getBoundingClientRect()
+      const box = rippleTarget(review, toCalendar)?.getBoundingClientRect()
       const fromX = flight.left + LIFT_OFF_WIDTH_PX / 2
       const fromY = flight.top + card.offsetHeight / 2
       const dx = box ? box.left + box.width / 2 - fromX : 160
@@ -166,13 +186,14 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
     }
     frame = requestAnimationFrame(step)
     return () => cancelAnimationFrame(frame)
-  }, [flight, review])
+  }, [flight, review, toCalendar])
 
   // Gone after its run, even if the animation never ends (e.g. a hidden tab).
   useEffect(() => {
-    const t = setTimeout(() => onDone(review.id), review.starts_at ? RIPPLE_MS + 100 : TODO_ROW_WAIT_MS)
+    // Long enough for the card and for the new To-do row to arrive.
+    const t = setTimeout(() => onDone(review.id), Math.max(RIPPLE_MS + 100, TODO_ROW_WAIT_MS))
     return () => clearTimeout(t)
-  }, [onDone, review.id, review.starts_at])
+  }, [onDone, review.id])
 
   return (
     <>

@@ -7,38 +7,105 @@
 /** Air kept between what is shown and the edge of the board's view. */
 export const BOARD_VIEW_GAP = 16
 
-/** Keys that scroll whatever has focus. */
-const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '])
+/** Longest a browser's smooth scroll of the board takes. */
+const GLIDE_MS = 1000
+
+/** Keys that scroll whatever has focus, and which way (+1 down, -1 up). */
+const SCROLL_KEYS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, PageUp: -1, PageDown: 1, Home: -1, End: 1, ' ': 1 }
+
+const BOARD = '[data-canvas-scroll]'
 
 let lastUserScroll = -Infinity
 let watching = false
+let touchY: number | null = null
+/** The board's own smooth scroll in flight (`showOnBoard`), and when it is done by. */
+let glide: { scroller: HTMLElement; until: number } | null = null
 
-function markUserScroll() {
+/**
+ * The board, when input at `target` moving `dy` (down positive) scrolls it:
+ * not when a scrolling list inside a widget (the transcript, the calendar
+ * grid) can still move that way and so takes it, nor outside the board.
+ */
+function scrollsBoard(target: EventTarget | null, dy: number): HTMLElement | null {
+  const start = target instanceof Element ? target : null
+  const page = start === document.body || start === document.documentElement
+  const board = page ? document.querySelector<HTMLElement>(BOARD) : start?.closest<HTMLElement>(BOARD) ?? null
+  if (!board || page) return board
+  for (let el: Element | null = start; el && el !== board; el = el.parentElement) {
+    const { overflowY } = getComputedStyle(el)
+    if (overflowY !== 'auto' && overflowY !== 'scroll') continue
+    if (dy > 0 && el.scrollTop + el.clientHeight < el.scrollHeight - 1) return null
+    if (dy < 0 && el.scrollTop > 0) return null
+  }
+  return board
+}
+
+/**
+ * The student is scrolling the board: note it, and stop any glide of ours.
+ * A wheel the browser would drop while our glide runs is applied from where
+ * the glide stopped (`wheelBy`, in pixels).
+ */
+function userScrolls(board: HTMLElement | null, wheelBy = 0) {
+  if (!board) return
   lastUserScroll = performance.now()
+  if (glide?.scroller === board && performance.now() < glide.until) {
+    board.scrollTo({ top: board.scrollTop + wheelBy, behavior: 'instant' })
+  }
+  glide = null
+}
+
+/** A wheel's movement in pixels. */
+function wheelPixels(e: WheelEvent, el: HTMLElement): number {
+  if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) return e.deltaY * 40
+  if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) return e.deltaY * el.clientHeight
+  return e.deltaY
+}
+
+function onWheel(e: WheelEvent) {
+  const board = scrollsBoard(e.target, e.deltaY)
+  userScrolls(board, board ? wheelPixels(e, board) : 0)
+}
+
+function onTouchStart(e: TouchEvent) {
+  touchY = e.touches[0]?.clientY ?? null
+}
+
+function onTouchMove(e: TouchEvent) {
+  const y = e.touches[0]?.clientY
+  if (y === undefined || touchY === null) return
+  // A finger moving up scrolls the content down.
+  const dy = touchY - y
+  touchY = y
+  if (dy !== 0) userScrolls(scrollsBoard(e.target, dy))
 }
 
 function onKey(e: KeyboardEvent) {
   const t = e.target as HTMLElement | null
   // Typing in a field moves its caret, not the board.
   if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return
-  if (SCROLL_KEYS.has(e.key)) markUserScroll()
+  const dy = SCROLL_KEYS[e.key]
+  if (dy) userScrolls(scrollsBoard(t, dy))
 }
 
 /**
- * Starts noting the student's own scrolling (wheel, touch, scroll keys) and
- * returns now, to pass to `userScrolledSince` later. Safe to call often.
+ * Starts noting the student's own scrolling of the board (wheel, touch,
+ * scroll keys) and returns now, to pass to `userScrolledSince` later. A
+ * scroll a list inside a widget takes (the transcript, the calendar grid)
+ * doesn't count; neither does dragging the scrollbar, which no event tells
+ * apart from ours. Safe to call often.
  */
 export function watchUserScroll(): number {
   if (!watching && typeof document !== 'undefined') {
     watching = true
-    document.addEventListener('wheel', markUserScroll, { capture: true, passive: true })
-    document.addEventListener('touchmove', markUserScroll, { capture: true, passive: true })
+    document.addEventListener('wheel', onWheel, { capture: true, passive: true })
+    document.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
+    document.addEventListener('touchmove', onTouchMove, { capture: true, passive: true })
     document.addEventListener('keydown', onKey, { capture: true })
   }
   return performance.now()
 }
 
-/** The student has scrolled since `since` (from `watchUserScroll`). */
+/** The student has scrolled the board since `since` (from `watchUserScroll`). */
 export function userScrolledSince(since: number): boolean {
   return lastUserScroll >= since
 }
@@ -97,8 +164,12 @@ export function showOnBoard(
   if (top === null) return false
   const clamped = Math.max(0, Math.min(top, scroller.scrollHeight - scroller.clientHeight))
   if (clamped === scroller.scrollTop) return false
-  if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: clamped, behavior: opts.smooth === false ? 'auto' : 'smooth' })
+  const smooth = opts.smooth !== false
+  watchUserScroll()
+  if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: clamped, behavior: smooth ? 'smooth' : 'auto' })
   else scroller.scrollTop = clamped
+  // A scroll of the student's own while this glides stops it, so theirs takes.
+  glide = smooth ? { scroller, until: performance.now() + GLIDE_MS } : null
   return true
 }
 

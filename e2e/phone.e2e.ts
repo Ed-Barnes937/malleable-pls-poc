@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
-import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
+import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 import { trpcMutation, trpcQuery } from './api'
 
 /**
@@ -188,6 +189,15 @@ test.describe('Phone top bar', () => {
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toBeVisible()
     await expect(drawer.getByTestId('drawer-app-controls')).toHaveCount(0)
     await expect(drawer.getByTestId('drawer-appearance')).toHaveCount(0)
+  })
+
+  test('a toast leaving while the board is scrolled to its bottom moves nothing under the finger', async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Coming up')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('toast-host')).toContainText('Coming up added')
+    await expectStillAtBottomAsToastLeaves(page, new PanelGridPom(page))
   })
 
   test('a "Back to ..." toast sits under the board instead of covering it, and is reachable from the keyboard', async ({ page, request }) => {

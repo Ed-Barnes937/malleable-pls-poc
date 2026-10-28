@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
+import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 
 type Box = { x: number; y: number; width: number; height: number }
 
@@ -134,6 +135,19 @@ test.describe('First run on an empty board', () => {
     await expect(host.getByTestId('toast')).toHaveCount(0)
     // With nothing to say, the bar takes no room.
     await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
+  })
+
+  test('a toast leaving while the board is scrolled to its bottom moves nothing under the pointer', async ({ page }) => {
+    const { topBar, grid } = await newBoard(page)
+    await grid.starter('Plan my time').click()
+    await grid.expectPanelCount(3)
+    // Added on a full board: it lands below the others and the board scrolls down to it (the demo's step 4).
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Transcript')
+    await page.keyboard.press('Escape')
+    const host = page.getByTestId('toast-host')
+    await expect(host).toContainText('Transcript added')
+    await expectStillAtBottomAsToastLeaves(page, grid)
   })
 
   test('a starter that fails says so once and comes back', async ({ page }) => {

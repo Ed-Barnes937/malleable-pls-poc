@@ -29,7 +29,7 @@ async function recordAppearances(root: Locator, testId: string) {
  * review window, so a new review lands at 09:00, in that morning, as in the
  * rehearsal (Fri 09:00), whatever the time now.
  */
-async function demoLikeBoard(request: APIRequestContext) {
+async function demoLikeBoard(request: APIRequestContext, { calendar = true } = {}) {
   const now = Date.now()
   for (let day = 0; day < 4; day++) {
     await trpcMutation(request, 'planItems.create', {
@@ -45,7 +45,7 @@ async function demoLikeBoard(request: APIRequestContext) {
     { lensType: 'coming-up', pos_x: 940, pos_y: 480, width: 360, height: 320 },
     { lensType: 'transcript', pos_x: 420, pos_y: 800, width: 420, height: 380 },
   ]
-  for (const p of panels) {
+  for (const p of panels.filter((panel) => calendar || panel.lensType !== 'calendar')) {
     await trpcMutation(request, 'workspaces.addPanel', { workspaceId: board.id, slotName: p.lensType, ...p })
   }
   await trpcMutation(request, 'workspaces.setScope', { workspaceId: board.id, scopeType: 'tag', scopeValue: 'biology' })
@@ -72,14 +72,15 @@ async function settledScrollTop(scroller: Locator): Promise<number> {
  * part-scrolled out of the top of the list (as in the rehearsal), and selects
  * it by clicking the part still showing.
  */
-async function selectMomentHalfScrolled(page: Page) {
+async function selectMomentHalfScrolled(page: Page, { withCalendar = true } = {}) {
   await page.goto('/')
   await new TopBarPom(page).switchToWorkspace('My week')
   const grid = new PanelGridPom(page)
   const transcript = grid.panelByLabel('Transcript')
   const calendar = new CalendarPom(page)
   await expect(transcript.getByText('14 segments')).toBeVisible({ timeout: 10000 })
-  await expect(calendar.block('Cafe shift').first()).toBeVisible({ timeout: 10000 })
+  if (withCalendar) await expect(calendar.block('Cafe shift').first()).toBeVisible({ timeout: 10000 })
+  else await expect(grid.panelByLabel('To-do').getByTestId('todo-item').first()).toBeVisible({ timeout: 10000 })
   // The board at its bottom: the Transcript on screen, the Calendar's morning not.
   await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight })
   await settledScrollTop(grid.root)
@@ -101,12 +102,55 @@ async function selectMomentHalfScrolled(page: Page) {
  * depends on whether both fit; the block wins (see `boardScrollFor`).
  */
 async function expectChipShownInList(chip: Locator) {
-  const [inList] = await chip.evaluateAll((els) => els.map((el) => {
-    const c = el.getBoundingClientRect()
-    const l = el.closest('[data-segment-id]')!.parentElement!.getBoundingClientRect()
-    return c.top >= l.top && c.bottom <= l.bottom
-  }))
-  expect(inList).toBe(true)
+  await expectShownInList(chip)
+}
+
+/** Shown in full in the scrolling list it is in (the transcript, the To-do list). */
+async function expectShownInList(el: Locator) {
+  await expect.poll(() => el.evaluate((node) => {
+    const r = node.getBoundingClientRect()
+    let list = node.parentElement
+    while (list && !['auto', 'scroll'].includes(getComputedStyle(list).overflowY)) list = list.parentElement
+    const l = list!.getBoundingClientRect()
+    return r.top >= l.top - 0.5 && r.bottom <= l.bottom + 0.5
+  })).toBe(true)
+}
+
+type Box = { x: number; y: number; width: number; height: number }
+const overlaps = (a: Box, b: Box) =>
+  a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+
+/** Starts recording the lift-off card's box every frame (it lives about a second). */
+async function recordCard(page: Page) {
+  await page.evaluate(() => {
+    type Rec = { first: DOMRect | null; last: DOMRect | null; list: DOMRect | null; done: boolean }
+    const w = window as unknown as { card: Rec }
+    w.card = { first: null, last: null, list: null, done: false }
+    const tick = () => {
+      const el = document.querySelector('[data-testid="review-lift-off"]')
+      if (el) {
+        const r = el.getBoundingClientRect().toJSON()
+        if (!w.card.first) {
+          w.card.first = r
+          w.card.list = document.querySelector('[data-segment-id]')!.parentElement!.getBoundingClientRect().toJSON()
+        }
+        w.card.last = r
+      } else if (w.card.first) {
+        w.card.done = true
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+}
+
+/** The card's first and last boxes, once it has gone. */
+async function recordedCard(page: Page) {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { card: { done: boolean } }).card.done), { timeout: 10000 }).toBe(true)
+  const { first, last, list } = await page.evaluate(() => (window as unknown as { card: { first: DOMRect; last: DOMRect; list: DOMRect } }).card)
+  const box = (r: DOMRect) => ({ ...r, x: r.left, y: r.top })
+  return { first: box(first), last: box(last), list: box(list) }
 }
 
 /** The review the student just made from the seeded lecture. */
@@ -189,17 +233,7 @@ test.describe('The confused-to-calendar ripple', () => {
   test('on the demo board the board follows the review to its block, from the visible moment, keeping the chip in view', async ({ page, request }) => {
     await demoLikeBoard(request)
     const { transcript, moment, calendar, grid } = await selectMomentHalfScrolled(page)
-    // Where the card first appears, and the transcript list then.
-    await page.locator('body').evaluate((body) => {
-      const w = window as unknown as { liftOff: { card: DOMRect; list: DOMRect } | null }
-      w.liftOff = null
-      new MutationObserver(() => {
-        const card = body.querySelector('[data-testid="review-lift-off"]')
-        if (!card || w.liftOff) return
-        const list = document.querySelector('[data-segment-id]')!.parentElement!
-        w.liftOff = { card: card.getBoundingClientRect().toJSON(), list: list.getBoundingClientRect().toJSON() }
-      }).observe(body, { subtree: true, childList: true })
-    })
+    await recordCard(page)
     const boardBefore = await grid.root.evaluate((el) => el.scrollTop)
 
     const markedAt = Date.now()
@@ -207,12 +241,6 @@ test.describe('The confused-to-calendar ripple', () => {
     const review = await newReview(request, markedAt)
     const chip = moment.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned · ')
-
-    // The card lifts off the part of the moment on screen: inside the list, never over the widget's header.
-    await expect.poll(() => page.evaluate(() => (window as unknown as { liftOff: unknown }).liftOff), { timeout: 10000 }).not.toBeNull()
-    const { card, list } = await page.evaluate(() => (window as unknown as { liftOff: { card: DOMRect; list: DOMRect } }).liftOff)
-    expect(card.top).toBeGreaterThanOrEqual(list.top - 1)
-    expect(card.top).toBeLessThan(list.bottom)
 
     // It lands on the block, which glows: the board has scrolled up to it,
     // inside the board's visible area (not under the top bar or the toast bar).
@@ -226,6 +254,93 @@ test.describe('The confused-to-calendar ripple', () => {
     expect(landed.y).toBeGreaterThanOrEqual(board.y)
     expect(landed.y + landed.height).toBeLessThanOrEqual(board.y + board.height)
     await expectChipShownInList(chip)
+
+    // The card lifted off the part of the moment on screen (inside the list,
+    // never over the widget's header) and, though the board moved under it,
+    // came down on the block.
+    const card = await recordedCard(page)
+    expect(card.first.top).toBeGreaterThanOrEqual(card.list.top - 1)
+    expect(card.first.top).toBeLessThan(card.list.bottom)
+    expect(overlaps(card.last, landed)).toBe(true)
+
+    // The new To-do row shows in full in its list.
+    await expectShownInList(grid.panelByLabel('To-do').locator(`[data-plan-item-id="${review.id}"]`))
+  })
+
+  test('a scroll of the board while it glides to the block stops the glide, and the scroll takes', async ({ page, request }) => {
+    await demoLikeBoard(request)
+    const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    await grid.root.evaluate((board) => {
+      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number | null }
+      w.glide = []
+      w.wheelAt = null
+      board.addEventListener('scroll', () => w.glide.push({ at: performance.now(), top: board.scrollTop }))
+      document.addEventListener('wheel', () => { w.wheelAt ??= performance.now() }, { capture: true })
+    })
+    const markedAt = Date.now()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    // As soon as the board starts gliding up to the block, the student scrolls it up further, past it.
+    await expect.poll(() => page.evaluate(() => (window as unknown as { glide: unknown[] }).glide.length), { intervals: [5], timeout: 15000 }).toBeGreaterThan(0)
+    await page.mouse.move(1380, 600)
+    await page.mouse.wheel(0, -300)
+    const final = await settledScrollTop(grid.root)
+    const review = await newReview(request, markedAt)
+    await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
+    const { glide, wheelAt } = await page.evaluate(() => {
+      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number }
+      return { glide: w.glide, wheelAt: w.wheelAt }
+    })
+    // The wheel came while the glide was under way...
+    expect(wheelAt - glide[0].at).toBeLessThan(150)
+    const atWheel = glide.filter((g) => g.at <= wheelAt).at(-1)!.top
+    // ...and moved the board its 300px from where it was then (once, not
+    // lost to the glide, which would have stopped about 170px up).
+    expect(final).toBeLessThan(atWheel - 250)
+    expect(final).toBeGreaterThan(atWheel - 350)
+    expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(final)
+  })
+
+  test('with no Calendar on the board, a scheduled review is followed to its To-do row', async ({ page, request }) => {
+    await demoLikeBoard(request, { calendar: false })
+    const { transcript, grid } = await selectMomentHalfScrolled(page, { withCalendar: false })
+    await recordCard(page)
+    const markedAt = Date.now()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    const review = await newReview(request, markedAt)
+    const row = grid.panelByLabel('To-do').locator(`[data-plan-item-id="${review.id}"]`)
+    await expect(row).toBeVisible()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { card: { done: boolean } }).card.done), { timeout: 10000 }).toBe(true)
+    await expect(row).toBeInViewport({ ratio: 1 })
+    await expectShownInList(row)
+    // The card flew to the row, not into empty board.
+    const card = await recordedCard(page)
+    expect(overlaps(card.last, (await row.boundingBox())!)).toBe(true)
+  })
+
+  test('a moment scrolled off screen before its review arrives: the card still starts on screen', async ({ page, request }) => {
+    await demoLikeBoard(request)
+    const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    await recordCard(page)
+    // The new review reaches the page only once the student has finished scrolling.
+    let release = () => {}
+    const scrolled = new Promise<void>((resolve) => { release = resolve })
+    await page.route((url) => url.pathname.includes('planItems.list'), async (route) => { await scrolled; await route.continue() })
+    const markedAt = Date.now()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    // The student scrolls the board up to the top straight away: the Transcript goes off screen, and the board stays there.
+    await page.mouse.move(1380, 600)
+    await page.mouse.wheel(0, -2000)
+    await expect.poll(() => grid.root.evaluate((el) => el.scrollTop)).toBe(0)
+    await settledScrollTop(grid.root)
+    release()
+    const review = await newReview(request, markedAt)
+    await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
+    await expect.poll(() => page.evaluate(() => (window as unknown as { card: { done: boolean } }).card.done), { timeout: 10000 }).toBe(true)
+    expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(0)
+    const card = await recordedCard(page)
+    const board = (await grid.root.boundingBox())!
+    expect(card.first.top).toBeGreaterThanOrEqual(board.y - 1)
+    expect(card.first.bottom).toBeLessThanOrEqual(board.y + board.height + 1)
   })
 
   test('when the block and the moment both fit on screen, the board shows both', async ({ page, request }) => {

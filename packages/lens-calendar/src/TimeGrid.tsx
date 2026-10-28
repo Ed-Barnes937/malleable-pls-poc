@@ -135,6 +135,8 @@ export function TimeGrid({
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
+  const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
 
   // Size hours so the working day fits the panel, then start scrolled to it.
@@ -145,10 +147,16 @@ export function TimeGrid({
     const fit = () => {
       // A little headroom so the 08:00 and 22:00 labels are not clipped.
       const px = Math.max(MIN_HOUR_PX, (el.clientHeight - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
-      setHourPx(px)
-      if (!userScrolled.current) el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
-      // Scrolled (by the student or to a block): the same time stays at the top as the hours resize.
-      else if (fitted && px !== fitted) el.scrollTop = ((el.scrollTop + LABEL_ROOM_PX) * px) / fitted - LABEL_ROOM_PX
+      // The hour to keep at the top: the day's start until the student (or a
+      // block shown) scrolls, then whatever is there, as the hours resize.
+      const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
+      if (px !== fitted) {
+        // Scrolled once the grid has re-rendered at the new size, so the scroll isn't clamped to the old height.
+        keepTopHour.current = topHour
+        setHourPx(px)
+      } else if (!userScrolled.current) {
+        el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+      }
       fitted = px
     }
     const markScrolled = () => { userScrolled.current = true }
@@ -165,6 +173,12 @@ export function TimeGrid({
       el.removeEventListener('keydown', markScrolled)
     }
   }, [])
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || keepTopHour.current === null) return
+    el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    keepTopHour.current = null
+  }, [hourPx])
 
   // Ghosts are laid out with real blocks, so a dragged one never hides another.
   const segments = useMemo(

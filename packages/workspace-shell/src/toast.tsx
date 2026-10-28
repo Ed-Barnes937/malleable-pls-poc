@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { create } from 'zustand'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
@@ -91,6 +91,66 @@ export const useToastStore = create<ToastState>((set, get) => {
   }
 })
 
+/** The board's scrolling area (see `CanvasEngine`). */
+const BOARD = '[data-canvas-scroll]'
+
+/**
+ * Keeps the board's content where it is on screen as the toast bar under it
+ * grows and shrinks. Growing only hides the board's bottom edge (the content
+ * stays put). Shrinking at the board's bottom would let the scroll position
+ * fall back and move everything under the pointer, so the board gets just
+ * enough slack at its bottom (`--board-slack`, laid out by `CanvasEngine`) to
+ * stay where it was; the slack goes again as the student scrolls up, or
+ * leaves the board.
+ */
+function useBoardStaysPut(hostRef: RefObject<HTMLElement | null>, board: string) {
+  useLayoutEffect(() => {
+    const host = hostRef.current
+    if (!host || typeof ResizeObserver === 'undefined') return
+    const scroller = () => document.querySelector<HTMLElement>(BOARD)
+    const slackOf = (el: HTMLElement) => parseFloat(el.style.getPropertyValue('--board-slack')) || 0
+    const setSlack = (el: HTMLElement, px: number) => el.style.setProperty('--board-slack', `${Math.max(0, Math.round(px))}px`)
+    /** No more slack than holding the current position needs. */
+    const trim = (el: HTMLElement) => {
+      const slack = slackOf(el)
+      if (slack > 0) setSlack(el, el.scrollTop + el.clientHeight - (el.scrollHeight - slack))
+    }
+    let height = host.offsetHeight
+    // Where the board was just before the toasts changed: read as the store
+    // changes, before React removes a toast and the layout clamps the scroll.
+    let lastTop = scroller()?.scrollTop ?? 0
+    const unsubscribe = useToastStore.subscribe(() => {
+      lastTop = scroller()?.scrollTop ?? 0
+    })
+    const onScroll = (e: Event) => {
+      const el = e.target
+      if (el instanceof HTMLElement && el.matches(BOARD)) trim(el)
+    }
+    const observer = new ResizeObserver(() => {
+      const next = host.offsetHeight
+      const shrank = next < height
+      height = next
+      const el = scroller()
+      if (!el) return
+      if (!shrank) return trim(el)
+      const top = lastTop
+      setSlack(el, top + el.clientHeight - (el.scrollHeight - slackOf(el)))
+      el.scrollTop = top
+    })
+    observer.observe(host)
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
+    return () => {
+      unsubscribe()
+      observer.disconnect()
+      document.removeEventListener('scroll', onScroll, { capture: true })
+    }
+  }, [hostRef])
+  // Another board starts without slack.
+  useEffect(() => {
+    document.querySelector<HTMLElement>(BOARD)?.style.removeProperty('--board-slack')
+  }, [board])
+}
+
 /**
  * Toasts sit in a bar under the board, which makes room for them rather than
  * covering the widgets at the bottom of the board (a "Back to My week" toast
@@ -112,9 +172,13 @@ export function ToastHost() {
     for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
   }, [toasts, activeBoard, dismiss])
 
+  const hostRef = useRef<HTMLDivElement>(null)
+  useBoardStaysPut(hostRef, activeBoard)
+
   return (
     <section aria-label="Notifications" className="contents">
       <div
+        ref={hostRef}
         role="status"
         aria-live="polite"
         data-testid="toast-host"
