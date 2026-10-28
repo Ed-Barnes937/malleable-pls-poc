@@ -154,6 +154,8 @@ const TEXT_PAIRS: [string, string][] = [
   ...['text-primary', 'text-secondary', 'text-muted'].flatMap((ink) => SURFACES.map((s): [string, string] => [ink, s])),
   ['accent', 'surface-raised'],
   ['accent', 'surface-overlay'],
+  // The summary's More / Less, on its inset well.
+  ['accent', 'surface-inset'],
   ['accent', 'accent-soft'],
   ['accent-foreground', 'accent'],
   ['attn', 'surface-raised'],
@@ -176,6 +178,8 @@ const TEXT_PAIRS: [string, string][] = [
     [`course-${c}-ink`, `course-${c}-tint`],
     [`course-${c}-ink`, `course-${c}-soft`],
     [`course-${c}-ink`, 'surface-raised'],
+    // A to-do's "From <lecture> · m:ss" link on a hovered row.
+    [`course-${c}-ink`, 'surface-inset'],
     // A study block's quote of its lecture moment (Calendar popover) and a
     // landed moment (Transcript): the line and the mark that made it, on the
     // course's soft tint.

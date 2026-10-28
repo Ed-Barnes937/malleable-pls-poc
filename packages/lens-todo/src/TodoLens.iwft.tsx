@@ -281,7 +281,7 @@ test('a to-do from a lecture moment links back to it and focuses the lecture', a
     </TestProviders>,
   )
 
-  const link = page.getByRole('button', { name: 'from: Biology Lecture: Mitochondrial DNA, 9:00' })
+  const link = page.getByRole('button', { name: 'From Biology Lecture: Mitochondrial DNA · 9:00' })
   await expect(link).toBeVisible()
   await link.click()
   await expect.poll(() => focused).toEqual(['rec-bio-4'])
@@ -295,7 +295,7 @@ test('a to-do from a lecture moment jumps to that moment, or says no board has a
   // `no-viewer`: the shell found no board with a Transcript to open it on.
   await mount(<MomentHarness lens="todo" result="no-viewer" />)
 
-  await page.getByRole('button', { name: 'from: Biology Lecture: Mitochondrial DNA, 9:00' }).click()
+  await page.getByRole('button', { name: 'From Biology Lecture: Mitochondrial DNA · 9:00' }).click()
   await expect(page.getByTestId('moment-calls').getByRole('listitem')).toHaveText(['rec-bio-4@540000'])
   await expect(page.getByTestId('todo-moment')).toHaveText('None of your boards has a Transcript yet.')
 })

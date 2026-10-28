@@ -82,6 +82,22 @@ export interface FocusedMoment extends Moment {
  */
 export type ShowMomentResult = 'shown' | 'no-viewer'
 
+/** A scheduled plan item to show, e.g. the review block the confusion automation just placed. */
+export interface PlanItemRef {
+  id: string
+  /** Its block's start (ISO), so a viewer can open the right week. */
+  startsAt: string
+}
+
+/**
+ * The plan item most recently asked to be shown (see
+ * `LensProps.onShowPlanItem`). Ephemeral shell state; `requestId` is new on
+ * every request, so showing the same block twice reveals it again.
+ */
+export interface FocusedPlanItem extends PlanItemRef {
+  requestId: number
+}
+
 export interface LensProps {
   panelId: string
   /**
@@ -129,6 +145,21 @@ export interface LensProps {
   focusedMoment?: FocusedMoment
   /** For `showsMoments` widgets: the moment with this `id` has been shown. */
   onMomentShown?: (id: number) => void
+  /**
+   * Reveal a scheduled block ("Review planned · Wed 19:30" -> the block on
+   * the calendar): the shell hands it to every widget on the board whose
+   * manifest declares `showsPlanItems` via `focusedPlanItem`. Returns false
+   * when the board has none. Optional for the same reason as `onConfigChange`.
+   */
+  onShowPlanItem?: (item: PlanItemRef) => boolean
+  /**
+   * For widgets that declare `showsPlanItems`: the block last asked to be
+   * shown. Bring it into view and highlight it once, then call
+   * `onPlanItemShown(requestId)` so the shell drops it.
+   */
+  focusedPlanItem?: FocusedPlanItem
+  /** For `showsPlanItems` widgets: the request with this id has been shown. */
+  onPlanItemShown?: (requestId: number) => void
   /**
    * Open the automation with this id (a workflow id, e.g. a plan item's
    * `created_by_workflow_id`) so the student can see and edit it. Optional

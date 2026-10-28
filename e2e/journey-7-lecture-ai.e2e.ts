@@ -5,6 +5,7 @@ import type { PlanItem, PlanItemOccurrence, Recording } from '../packages/substr
 import { AudioCapturePom, PanelGridPom, TopBarPom } from './pom'
 import { trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
+import { expectedReviewSlots } from './review-placement'
 
 const FIXTURE = path.join(__dirname, 'fixtures', 'lecture-tone.wav')
 // The seeded automation and the browser both use London days, so "within 3
@@ -23,17 +24,18 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
   // The journey adds a board, a shift and a review; put the seed back after.
   test.afterAll(async () => { await reseed() })
 
-  test('upload -> summary; confused -> linked review around a shift; edit the automation -> the review moves', async ({ page, request }) => {
+  test('upload -> summary; confused -> linked review in the earliest free time around a shift; edit the automation', async ({ page, request }) => {
     const title = `Mito lecture ${Date.now()}`
     const now = Date.now()
-    // A shift filling the last evening of the "within 3 days" window.
-    const lastDay = startOfLocalDay(now, TZ, 3)
+    // A shift over tomorrow morning's study time: if today has no room, the
+    // review must still go around it.
+    const tomorrow = startOfLocalDay(now, TZ, 1)
     const shift = await trpcMutation<PlanItem>(request, 'planItems.create', {
       kind: 'commitment',
       title: 'Cafe shift',
       subtype: 'shift',
-      starts_at: new Date(atLocal(lastDay, 17)).toISOString(),
-      ends_at: new Date(atLocal(lastDay, 22)).toISOString(),
+      starts_at: new Date(atLocal(tomorrow, 9)).toISOString(),
+      ends_at: new Date(atLocal(tomorrow, 12)).toISOString(),
     })
 
     // A board the student built: capture, transcript and their to-do list.
@@ -69,8 +71,11 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     await audio.submitUpload({ title, course: 'Biology' })
     await expect(transcript.getByText(title)).toBeVisible({ timeout: 10000 })
     await expect(transcript.getByText('6 segments')).toBeVisible({ timeout: 20000 })
+    // The summary shows one line; More opens all three.
     const summary = transcript.getByRole('region', { name: 'Lecture summary' })
-    await expect(summary.getByRole('listitem')).toHaveCount(3, { timeout: 20000 })
+    await expect(summary.getByTestId('summary-line')).toBeVisible({ timeout: 20000 })
+    await summary.getByRole('button', { name: 'Show summary' }).click()
+    await expect(summary.getByRole('listitem')).toHaveCount(3)
     await expect(summary).toContainText(/mitochondrial DNA/i)
     // The summary job waits for the job runner's next pass, so its note always
     // shows; the transcript note can be too quick to catch. Never a blank "0 segments".
@@ -86,12 +91,14 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
 
     // 2. Mark the maternal-inheritance moment as confusing.
     await transcript.getByText(/This is what we call maternal inheritance/).click()
+    const markedFrom = Date.now()
     await transcript.getByRole('button', { name: 'confused', exact: true }).click()
     const chip = transcript.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned', { timeout: 15000 })
+    const markedTo = Date.now()
     await expect(chip).toContainText('20 min')
-    // A 24-hour time, like the rest of the app ("Review planned Tomorrow 19:40").
-    await expect(chip).toHaveText(/^Review planned \S.* \d{2}:\d{2} · 20 min$/)
+    // A 24-hour time, like the rest of the app ("Review planned · Tomorrow 11:15 · 20 min").
+    await expect(chip).toHaveText(/^Review planned · \S.* \d{2}:\d{2} · 20 min$/)
 
     const [review] = await reviewsOf()
     expect(review).toMatchObject({
@@ -106,16 +113,24 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     const start = Date.parse(review.starts_at!)
     const end = Date.parse(review.ends_at!)
     expect(end - start).toBe(20 * MIN)
-    expect(start).toBeGreaterThanOrEqual(now)
-    // Within 3 days, late in the window, clear of the shift (and its buffer).
+    // At least an hour after the mark, from 09:00, within 3 days, clear of the shift (and its buffer).
+    expect(start).toBeGreaterThanOrEqual(markedFrom + 60 * MIN)
+    expect(wallClock(start, TZ).hour).toBeGreaterThanOrEqual(9)
     expect(end).toBeLessThanOrEqual(startOfLocalDay(now, TZ, 4))
-    expect(end).toBeLessThanOrEqual(Date.parse(shift.starts_at!) - 10 * MIN)
-    expect(start).toBeGreaterThanOrEqual(startOfLocalDay(now, TZ, 3))
+    expect(end <= Date.parse(shift.starts_at!) - 10 * MIN || start >= Date.parse(shift.ends_at!) + 10 * MIN).toBe(true)
+    // ...and the earliest such time around everything else on the calendar.
+    const expected = await expectedReviewSlots(
+      request,
+      { id: review.id, durationMin: 20, latest: startOfLocalDay(markedFrom, TZ, 4) },
+      { from: markedFrom, to: markedTo },
+      TZ,
+    )
+    expect(expected.map((slot) => slot?.start)).toContain(start)
     const chipBefore = await chip.textContent()
 
     // The review is on the To-do list, linked back to the moment it came from.
     await expect(todo.getByText('Review: maternal inheritance')).toBeVisible()
-    await expect(todo.getByRole('button', { name: `from: ${title}, 1:35` })).toBeVisible()
+    await expect(todo.getByRole('button', { name: `From ${title} · 1:35` })).toBeVisible()
 
     // 3. Edit the automation in the Transcript widget: 30 min, by tomorrow.
     await transcript.locator('[data-testid^="panel-automations-"]').click()
@@ -124,19 +139,21 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     await expect(sentence).toContainText('When I mark something')
     await sentence.getByLabel('Review length in minutes').selectOption('30')
     // Earlier journeys mark moments too, so this may move more than our review.
-    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
+    // Each review either keeps its start and gets longer, or moves to fit.
+    await expect(sentence).toContainText(/Saved\. (Moved \d+ reviews? to fit|Your review is now 30 min|\d+ reviews are now 30 min)\./)
+    // Earliest placement: "by tomorrow" usually moves nothing (it is already that soon).
     await sentence.getByLabel('When the review should happen by').selectOption({ label: 'by tomorrow' })
-    await expect(sentence).toContainText(/Moved \d+ reviews? to fit/)
+    await expect(sentence).toContainText(/^.*Saved\. (Moved \d+ reviews? to fit\.|New reviews will follow this\.)$/)
     await dialog.getByRole('button', { name: /close/i }).click()
     await expect(dialog).toBeHidden()
 
-    // The block visibly moves: tomorrow, 30 minutes.
+    // The review is now 30 minutes, by the end of tomorrow, still an hour after the mark.
     await expect(chip).toContainText('30 min')
     await expect(chip).not.toHaveText(chipBefore!)
     const [moved] = await reviewsOf()
     expect(moved.id).toBe(review.id)
     expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * MIN)
-    expect(Date.parse(moved.starts_at!)).toBeGreaterThanOrEqual(startOfLocalDay(now, TZ, 1))
+    expect(Date.parse(moved.starts_at!)).toBeGreaterThanOrEqual(Date.parse(review.created_at) + 60 * MIN)
     expect(Date.parse(moved.ends_at!)).toBeLessThanOrEqual(startOfLocalDay(now, TZ, 2))
 
     // The shift never moves.

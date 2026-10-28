@@ -23,6 +23,8 @@ export interface CourseTone {
   ink: string
   /** Tint as an inset outline (`ring-`), for soft fills that need an edge. */
   ring: string
+  /** The solid colour as a CSS value, for effects classes can't name (e.g. `--glow`). */
+  solid: string
   /** Diagonal hatching in the soft tint (`hatch-`, see index.css): drafted, unsaved blocks. */
   hatch: string
 }
@@ -35,6 +37,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-biology-soft',
     ink: 'text-course-biology-ink',
     ring: 'ring-course-biology-tint',
+    solid: 'var(--color-course-biology)',
     hatch: 'hatch-course-biology-soft',
   },
   chemistry: {
@@ -44,6 +47,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-chemistry-soft',
     ink: 'text-course-chemistry-ink',
     ring: 'ring-course-chemistry-tint',
+    solid: 'var(--color-course-chemistry)',
     hatch: 'hatch-course-chemistry-soft',
   },
   physics: {
@@ -53,6 +57,7 @@ export const COURSE_TONES: Record<string, CourseTone> = {
     soft: 'bg-course-physics-soft',
     ink: 'text-course-physics-ink',
     ring: 'ring-course-physics-tint',
+    solid: 'var(--color-course-physics)',
     hatch: 'hatch-course-physics-soft',
   },
 }
@@ -65,6 +70,7 @@ export const NEUTRAL_TONE: CourseTone = {
   soft: 'bg-surface-inset',
   ink: 'text-text-secondary',
   ring: 'ring-border-subtle',
+  solid: 'var(--color-accent)',
   hatch: 'hatch-surface-overlay',
 }
 

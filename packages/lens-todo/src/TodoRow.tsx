@@ -14,6 +14,8 @@ export interface TodoRowProps {
   highlighted: boolean
   /** Ticked a moment ago: shown done in place, with "Done · Undo", until it fades. */
   justDone?: { fading: boolean; onUndo: () => void }
+  /** Arrived while the list was on screen (e.g. a review just added): it slides in. */
+  fresh?: boolean
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
@@ -21,7 +23,7 @@ export interface TodoRowProps {
   onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, justDone, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
   // A just-ticked row is done straight away, before the save comes back.
   const done = item.status === 'done' || !!justDone
   const slipped = done ? null : slippedAt(item, now)
@@ -31,8 +33,10 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, onToggle
       data-testid="todo-item"
       data-highlighted={highlighted || undefined}
       data-just-done={justDone ? (justDone.fading ? 'fading' : 'shown') : undefined}
+      data-fresh={fresh || undefined}
       className={cn(
         'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-[background-color,opacity] duration-300 last:border-b-0 hover:bg-surface-inset motion-reduce:transition-none',
+        fresh && 'motion-safe:animate-slide-in',
         highlighted && 'rounded-item bg-accent-soft ring-1 ring-accent-line',
         justDone?.fading && 'opacity-0',
       )}

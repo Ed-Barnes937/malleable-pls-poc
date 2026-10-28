@@ -24,11 +24,14 @@ function browserTimeZone(): string | undefined {
   }
 }
 
-function savedMessage(moved: number, unscheduled: number): string {
+/** What saving did to the reviews it already made, in the words of what happened. */
+export function savedMessage(reviews: { moved: number; resized: number; unscheduled: number }, durationMin: number): string {
+  const { moved, resized, unscheduled } = reviews
   if (unscheduled > 0) {
     return `Saved. ${unscheduled === 1 ? '1 review no longer fits' : `${unscheduled} reviews no longer fit`} - it's on your to-do list.`
   }
   if (moved > 0) return `Saved. Moved ${moved === 1 ? '1 review' : `${moved} reviews`} to fit.`
+  if (resized > 0) return `Saved. ${resized === 1 ? 'Your review is' : `${resized} reviews are`} now ${durationMin} min.`
   return 'Saved. New reviews will follow this.'
 }
 
@@ -67,7 +70,7 @@ export function ReviewAutomationSentence({ workflow, job }: { workflow: Workflow
         ...(nextParams ? { jobParams: [{ workflowJobId: job.id, params: { ...nextParams } }] } : {}),
       },
       {
-        onSuccess: ({ reviews }) => setStatus({ tone: 'ok', text: savedMessage(reviews.moved, reviews.unscheduled) }),
+        onSuccess: ({ reviews }) => setStatus({ tone: 'ok', text: savedMessage(reviews, (nextParams ?? params).durationMin) }),
         onError: () => {
           setLabel(workflow.condition_value ?? 'confused')
           setParams(stored)

@@ -9,6 +9,7 @@ Calendar widget: a view over plan items (classes and other commitments, study ti
 - **Create** with the header "Add" button (keyboard friendly), or by clicking (one hour at the half hour) or dragging (15-minute snap) on empty time: title, kind (class / commitment, study time, due), course (defaults to the board's course), "Repeats weekly" for commitments (stored with the browser's time zone so it keeps its wall-clock time across DST).
 - **Edit / delete / mark done** from a popover. Editing a weekly occurrence shifts the whole series by the same delta (`movePatch` in `src/drafts.ts`); turning "Repeats weekly" off keeps just that occurrence.
 - **Drag** study time to move it (across days in week view) and drag its bottom edge to resize (within its day); `duration_min` follows the block length. A move that doesn't save says so in the header instead of silently snapping back. Commitments do not drag: moving them is an explicit edit. Moving a weekly occurrence shifts the series by the wall-clock difference in its time zone, so it stays put across a DST change.
+- **Reveal a block** ("See it"): declares `showsPlanItems`. Given `focusedPlanItem` it opens that block's week (or day), scrolls it into view, glows it once in its course colour (a still ring under reduced motion) and shows a short card with where it came from ("From Mitochondrial DNA · 1:18") and when, then reports `onPlanItemShown`. See "Showing a block" in `docs/technical-guidance.md`.
 - **Keyboard**: blocks are focusable; Enter opens the popover with focus inside, Escape closes it and returns focus.
 - **Click-through to source**: a block with a lecture moment (`source_type = 'recording'`) calls `onShowMoment` on click, so the Transcript scrolls to and highlights that moment; without a Transcript on the board the popover offers "Open in a board with Transcript". See "Showing a Moment" in `docs/technical-guidance.md`.
 - **Help me plan** (week view header): see below.
@@ -56,7 +57,7 @@ The calendar asks about every course's missed blocks (it shows every course; its
 - Accepting (all, or one ghost with Enter or its button) writes through `planItems.refit` (`saveTogether`), never per-item updates, so the server's atomic, stale-preview check applies. If it refuses (the week changed), every block of the preview the student hasn't answered for and that is still missed gets the fresh preview's time ("Your week changed, so here are fresh times."), including one whose ghost was just taken out because a commitment landed on it. A ghost whose to-do is no longer a missed block, or whose time has started, is taken out.
 - When the preview ends: "Moved 2 blocks. They're in your calendar." (plus any that didn't fit). "Keep my plan" moves nothing.
 - One draft at a time: while Auto-fill's ghosts are waiting, **Re-fit** waits ("Accept or keep the suggested blocks first - one draft at a time."), and Auto-fill likewise waits for re-fit ghosts.
-- The re-fit preview does not apply Help me plan's study time per day (the server places missed blocks in the earliest free time, 08:00-22:00).
+- The re-fit preview does not apply Help me plan's study time per day (the server places missed blocks in the earliest free time, 09:00-22:00).
 
 ## Scope
 

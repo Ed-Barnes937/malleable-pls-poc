@@ -427,6 +427,45 @@ test('an open popover follows its block when something else moves it', async ({ 
   await expect(page.getByLabel('Start time')).toHaveValue('09:00')
 })
 
+test('"See it" opens the week of the block, scrolls to it and glows it once with where it came from', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  // A review two weeks ahead, late in the evening (below the opening scroll).
+  seed(simulator, [{
+    id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(16, 21, 15), ends_at: iso(16, 21, 35),
+    duration_min: 20, subtype: 'review', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 78000, course: 'biology',
+  }])
+  await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(16, 21, 15) }]} />)
+  await expect(block(page, 'Biology lecture')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Reveal later-review' }).click()
+  const target = block(page, 'Review: paternal leakage')
+  await expect(target).toHaveAttribute('data-revealed', 'true')
+  await expect(page.getByTestId('plan-item-calls').locator('li')).toHaveText(['1'])
+  await expect(page.getByTestId('calendar-day-header').nth(2)).toContainText(String(at(16, 0).getDate()))
+  await expect(target).toBeInViewport()
+  const callout = page.getByTestId('calendar-reveal')
+  await expect(callout).toContainText('Review: paternal leakage')
+  await expect(callout).toContainText('From Biology Lecture: Mitochondrial DNA · 1:18')
+  await expect(callout).toContainText('Wed 21:15 - 21:35 · 20 min')
+  // It glows once, in its course colour.
+  await expect(target).toHaveCSS('animation-name', 'glow-once')
+  // Then settles.
+  await expect(target).not.toHaveAttribute('data-revealed', 'true', { timeout: 6000 })
+  await expect(callout).toHaveCount(0)
+})
+
+test('with reduced motion a revealed block holds a still ring instead of glowing', async ({ mount, page, simulator }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  seedWeek(simulator)
+  await mount(<CalendarHarness reveal={[{ id: 'review', startsAt: iso(2, 20) }]} />)
+  await page.getByRole('button', { name: 'Reveal review' }).click()
+  const target = block(page, 'Review: maternal inheritance')
+  await expect(target).toHaveAttribute('data-revealed', 'true')
+  await expect(target).toHaveCSS('animation-name', 'none')
+  await expect(target).not.toHaveCSS('box-shadow', 'none')
+  await expect(target).toBeInViewport()
+})
+
 test('the next and previous weeks are fetched by date range', async ({ mount, page, simulator }) => {
   seed(simulator, [{ id: 'later', kind: 'commitment', title: 'Field trip', starts_at: iso(9, 9), ends_at: iso(9, 12) }])
   await mount(<CalendarHarness />)

@@ -1,6 +1,14 @@
 import type { JSONValue, TransactionSql } from 'postgres'
-import { freeSlots, place, startOfLocalDay, type Interval } from '@pls/scheduler'
-import { REVIEW_SUBTYPE, REVIEW_TASK_JOB, STUDY_DAY, busyTime, padded, type PlanItem, type ReviewTaskParams } from '@pls/substrate'
+import { startOfLocalDay, type Interval } from '@pls/scheduler'
+import {
+  REVIEW_SUBTYPE,
+  REVIEW_TASK_JOB,
+  placeReviews,
+  type PlanItem,
+  type ReviewSlot,
+  type ReviewTaskParams,
+  type ReviewToPlace,
+} from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
 import { recordingCourse } from '../routers/_shared'
@@ -13,8 +21,10 @@ import { recordingCourse } from '../routers/_shared'
 // and placed, still where it put them. Commitments never move; every other
 // block (accepted, dragged by hand, made by anything else) is fixed and busy.
 
-// The study day (08:00-22:00, breathing room around classes and shifts) is
-// shared with Help me plan: STUDY_DAY in @pls/substrate's planning module.
+// Placement (`placeReviews` in @pls/substrate's planning module, shared with
+// Help me plan's study day, gap and budget): the earliest free time in the
+// review's window, at least an hour after the mark, from 09:00, on a day with
+// study time left.
 
 const MINUTE_MS = 60_000
 
@@ -28,19 +38,12 @@ function dueAtFor(deadline: number): string {
   return new Date(deadline - MINUTE_MS).toISOString()
 }
 
-export interface ReviewToPlace {
-  id: string
-  durationMin: number
-  /** Must end by (UTC ms). */
-  latest: number
-}
-
-export type ReviewSlot = { start: number; end: number } | { reason: string }
+export type { ReviewSlot, ReviewToPlace }
 
 /**
- * Finds a slot for each review, latest-first inside its window (spaced
- * review), around every commitment of every course and every other scheduled
- * task. Earlier entries get first pick. Read-only.
+ * Finds a slot for each review, earliest-first inside its window, around
+ * every commitment of every course and every other scheduled task. Earlier
+ * entries get first pick. Read-only.
  */
 export async function findReviewSlots(
   tx: TransactionSql,
@@ -48,13 +51,9 @@ export async function findReviewSlots(
   reviews: ReviewToPlace[],
   opts: { now: number; timeZone: string },
 ): Promise<Map<string, ReviewSlot>> {
-  const slots = new Map<string, ReviewSlot>()
-  if (reviews.length === 0) return slots
+  if (reviews.length === 0) return new Map()
   const horizon = Math.max(...reviews.map((r) => r.latest))
-  if (horizon <= opts.now) {
-    for (const r of reviews) slots.set(r.id, { reason: 'window-closed' })
-    return slots
-  }
+  if (horizon <= opts.now) return new Map(reviews.map((r) => [r.id, { reason: 'window-closed' as const }]))
 
   const range: Interval = { start: startOfLocalDay(opts.now, opts.timeZone), end: horizon }
   // Scope never applies here: a Biology review still avoids Chemistry and shifts.
@@ -63,25 +62,9 @@ export async function findReviewSlots(
     to: new Date(range.end).toISOString(),
     statuses: ['open', 'done'],
   })
-  // The reviews being placed can all move: their current blocks are not busy.
-  const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)))
-  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
-  // One at a time, in priority order, so each placed review pads the next.
-  for (const r of reviews) {
-    const result = place([{ id: r.id, durationMin: r.durationMin, latest: r.latest }], free, {
-      now: opts.now,
-      existingPlacements: busy,
-      anchor: 'latest',
-    })
-    const [p] = result.placements
-    if (p) {
-      slots.set(r.id, { start: p.start, end: p.end })
-      busy.push({ ...padded(p), taskId: `placed:${r.id}` })
-    } else {
-      slots.set(r.id, { reason: result.unplaced[0]?.reason ?? 'no-free-slot' })
-    }
-  }
-  return slots
+  // The daily budget is the default (2h): the board's Calendar setting is
+  // panel config the server can't see. Moves to a user preference with S1.
+  return placeReviews(items, reviews, range, opts)
 }
 
 /** The fields a placement result writes on the review. */
@@ -184,7 +167,7 @@ export async function createReview(
   const slots = await findReviewSlots(
     tx,
     userId,
-    [{ id: created.id, durationMin: params.durationMin, latest: deadline }],
+    [{ id: created.id, durationMin: params.durationMin, markedAt: now, latest: deadline }],
     { now, timeZone: params.timeZone },
   )
   const slot = slots.get(created.id)
@@ -203,8 +186,10 @@ export async function createReview(
 // ---------------------------------------------------------------------------
 
 export interface ReplaceResult {
-  /** Reviews whose time block or length changed. */
+  /** Reviews now at a different time (or newly on the calendar). */
   moved: number
+  /** Reviews that kept their start and only changed length. */
+  resized: number
   /** Reviews that no longer fit their window and are now unscheduled. */
   unscheduled: number
 }
@@ -234,7 +219,7 @@ export async function replaceAutomationReviews(
     const id = output.plan_item_id as string
     if (!placedAt.has(id)) placedAt.set(id, (output.starts_at as string | null | undefined) ?? null)
   }
-  if (placedAt.size === 0) return { moved: 0, unscheduled: 0 }
+  if (placedAt.size === 0) return { moved: 0, resized: 0, unscheduled: 0 }
 
   const rows = await tx`
     SELECT id FROM plan_items
@@ -249,17 +234,22 @@ export async function replaceAutomationReviews(
     const autoPlaced = placedAt.get(item.id) ?? null
     if (sameInstant(item.starts_at, autoPlaced)) movable.push(item)
   }
-  if (movable.length === 0) return { moved: 0, unscheduled: 0 }
+  if (movable.length === 0) return { moved: 0, resized: 0, unscheduled: 0 }
 
   const deadlines = new Map(movable.map((item) => [item.id, reviewDeadline(Date.parse(item.created_at), params)]))
   const slots = await findReviewSlots(
     tx,
     userId,
-    movable.map((item) => ({ id: item.id, durationMin: params.durationMin, latest: deadlines.get(item.id)! })),
+    movable.map((item) => ({
+      id: item.id,
+      durationMin: params.durationMin,
+      markedAt: Date.parse(item.created_at),
+      latest: deadlines.get(item.id)!,
+    })),
     { now, timeZone: params.timeZone },
   )
 
-  const result: ReplaceResult = { moved: 0, unscheduled: 0 }
+  const result: ReplaceResult = { moved: 0, resized: 0, unscheduled: 0 }
   for (const before of movable) {
     const placed = placementColumns(slots.get(before.id))
     await tx`
@@ -277,8 +267,9 @@ export async function replaceAutomationReviews(
         AND output->>'plan_item_id' = ${before.id} AND NOT (output ? 'deduplicated')
     `
     const after = await fetchOne(tx, userId, before.id)
-    if (!sameInstant(before.starts_at, after.starts_at) || before.duration_min !== after.duration_min) result.moved++
     if (before.starts_at && !after.starts_at) result.unscheduled++
+    else if (!sameInstant(before.starts_at, after.starts_at)) result.moved++
+    else if (before.duration_min !== after.duration_min) result.resized++
     await dispatchWorkflows(tx, userId, 'plan-item:updated', eventPayload(after), null)
   }
   return result

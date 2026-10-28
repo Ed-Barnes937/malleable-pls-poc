@@ -63,16 +63,25 @@ test('shows the lecture summary at the top and the review a confused moment beca
     </TestProviders>,
   )
 
+  // One line until opened.
   const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await expect(summary.getByTestId('summary-line')).toHaveText('Mitochondria carry their own DNA.')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+  const more = summary.getByRole('button', { name: 'Show summary' })
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await more.click()
   await expect(summary.getByRole('listitem')).toHaveText([
     'Mitochondria carry their own DNA.',
     'It is passed down the maternal line.',
     'Know two mitochondrial diseases.',
   ])
+  await summary.getByRole('button', { name: 'Hide summary' }).click()
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
+
   const chip = page.getByTestId('review-chip')
   await expect(chip).toHaveCount(1)
   // 24-hour en-GB times, like every other widget.
-  await expect(chip).toHaveText('Review planned Wed 22 Apr 19:40 · 20 min')
+  await expect(chip).toHaveText('Review planned · Wed 22 Apr 19:40 · 20 min')
   await expect(chip).toHaveAttribute('title', 'Review: maternal inheritance')
 })
 
@@ -91,7 +100,9 @@ test('a long summary in a short widget leaves the transcript room to take clicks
     </TestProviders>,
   )
 
-  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(6)
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await summary.getByRole('button', { name: 'Show summary' }).click()
+  await expect(summary.getByRole('listitem')).toHaveCount(6)
   // Nothing covers the first moment: it can take a click.
   await page.getByText(/continuing our discussion of mitochondria/).click({ trial: true, timeout: 3000 })
 })
@@ -267,7 +278,8 @@ test('landing on a moment folds the summary to one line and outlines the moment 
   const moment = page.locator('[data-moment]')
   await expect(moment).toContainText('inherited exclusively from the maternal line')
   await expect(moment).toBeInViewport()
-  await expect(moment.getByRole('button').first()).toHaveClass(/border-course-biology/)
+  // The moment's box (with its tags and chips) is outlined in course colour.
+  await expect(moment).toHaveClass(/border-course-biology/)
   await expect(page.getByText('Biology', { exact: true })).toBeVisible()
 
   const summary = page.getByRole('region', { name: 'Lecture summary' })
@@ -312,7 +324,7 @@ test('a moment shown on the same board leaves focus where it was', async ({ moun
   await expect(page.locator('[data-moment]').getByRole('button').first()).not.toBeFocused()
 })
 
-test('the summary stays open when nothing landed', async ({ mount, page, simulator }) => {
+test('the summary shows one line when nothing landed', async ({ mount, page, simulator }) => {
   simulator.db.annotations.push({
     id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',
     anchor_start_ms: null, anchor_end_ms: null, body: 'One.\nTwo.\nThree.',
@@ -323,7 +335,9 @@ test('the summary stays open when nothing landed', async ({ mount, page, simulat
       <TranscriptLens {...defaultProps} />
     </TestProviders>,
   )
-  await expect(page.getByRole('region', { name: 'Lecture summary' }).getByRole('listitem')).toHaveCount(3)
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await expect(summary.getByTestId('summary-line')).toHaveText('One.')
+  await expect(summary.getByRole('listitem')).toHaveCount(0)
 })
 
 test('gutter marks and a scroll rail show every tagged moment', async ({ mount, page, simulator }) => {

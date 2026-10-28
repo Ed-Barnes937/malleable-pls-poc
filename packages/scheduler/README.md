@@ -33,7 +33,7 @@ never moved.
 
 | Function | What it does |
 |---|---|
-| `freeSlots(commitments, range, prefs?)` | Study-day windows in `range` minus commitments (padded by `bufferMin`), keeping gaps of at least `minSlotMin`. Defaults: `08:00`-`22:00`, UTC, 15 min, no buffer. |
+| `freeSlots(commitments, range, prefs?)` | Study-day windows in `range` minus commitments (padded by `bufferMin`), keeping gaps of at least `minSlotMin`. Defaults: `08:00`-`22:00`, UTC, 15 min, no buffer (the app's own study day, `STUDY_DAY` in `@pls/substrate`, is 09:00-22:00 with a 10 min buffer). |
 | `place(tasks, freeSlots, { now, existingPlacements?, policy?, anchor?, alignMin?, gapMin?, dailyBudget? })` | One contiguous block per task, earliest-fit (or latest-fit with `anchor: 'latest'`). Returns `{ placements, unplaced: [{ taskId, reason }] }`. |
 | `suggestSlots(task, freeSlots, n, { now, existingPlacements?, anchor?, alignMin?, gapMin?, dailyBudget? })` | Up to `n` candidate blocks, one per separate free gap, in the anchor's preference order (the first is where `place` would put it). |
 | `capacity(freeSlots, tasks, { now, existingPlacements?, dailyBudget? })` | `{ freeMin, neededMin, shortfallMin, spareMin, fits }`. Free time before `now` is not counted, so a whole week's `freeSlots` is fine mid-week. With a budget, each day counts at most what is left of it. |
@@ -68,7 +68,7 @@ run back to back (space around commitments is `freeSlots`' `bufferMin`).
 
 **Daily budget:** `dailyBudget: { minutesPerDay, timeZone }` caps study time
 per local day, so a plan is one a student would actually follow rather than
-every free minute from 08:00 to 22:00. Fixed existing placements count
+every free minute of the study day. Fixed existing placements count
 against the day they are on (before `now` too: what is scheduled today is
 spent). With a budget a block never crosses local midnight, and a task
 longer than `minutesPerDay` is `'over-daily-budget'` (it can never fit in one

@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField, formatDuration } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
 import { doneToday, isFromRecording, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
@@ -62,6 +62,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const listed = orderTodos(shown.filter((item) => item.status === 'open' || justDone.stages.has(item.id)))
   const done = doneToday(shown.filter((item) => !justDone.stages.has(item.id)), now)
 
+  // To-dos that arrive while the list is open (e.g. a review just added) slide in.
+  const arrived = useArrivals(items?.map((i) => i.id), course ?? '')
+
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
 
@@ -113,6 +116,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               now={now}
               showCourse={!course}
               highlighted={!stage && isFromRecording(item, highlight?.recordingId)}
+              fresh={arrived.has(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}

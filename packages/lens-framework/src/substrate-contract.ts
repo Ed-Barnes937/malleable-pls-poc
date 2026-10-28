@@ -194,6 +194,11 @@ export interface PanelManifest {
    * the Transcript. Decides where `LensProps.onShowMoment` can land.
    */
   showsMoments?: boolean
+  /**
+   * The widget can show a scheduled plan item (`LensProps.focusedPlanItem`),
+   * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
+   */
+  showsPlanItems?: boolean
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

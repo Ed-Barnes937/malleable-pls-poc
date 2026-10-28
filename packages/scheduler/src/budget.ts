@@ -3,8 +3,8 @@ import { startOfLocalDay } from './time'
 
 /**
  * A cap on study time per local day ("2 hours a day"), so a plan is one a
- * student would actually follow rather than every free minute from 08:00 to
- * 22:00. Blocks already on the calendar that day (accepted study time) count
+ * student would actually follow rather than every free minute of the study
+ * day. Blocks already on the calendar that day (accepted study time) count
  * against it.
  */
 export interface DailyBudget {

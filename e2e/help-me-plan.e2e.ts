@@ -29,7 +29,7 @@ async function seedWeek(request: APIRequestContext) {
   await trpcMutation(request, 'workspaces.addPanel', {
     workspaceId: ws.id, lensType: 'calendar', slotName: 'calendar', pos_x: 24, pos_y: 24, width: 1100, height: 680,
   })
-  // A full week: free study time only Mon-Wed mornings (08:00-11:50).
+  // A full week: free study time only Mon-Wed mornings (09:00-11:50: the study day starts at 09:00).
   for (let d = 0; d < 7; d++) {
     await trpcMutation(request, 'planItems.create', {
       kind: 'commitment', title: d < 3 ? 'Lab placement' : 'Away', subtype: 'other', starts_at: at(d, d < 3 ? 12 : 8), ends_at: at(d, 22),
@@ -70,7 +70,7 @@ test.describe('Help me plan', () => {
 
     // Assign one by hand first: the quiz prep goes in its first suggested slot.
     await panel.getByTestId('plan-todo').filter({ hasText: 'Biology quiz prep' }).getByTestId('plan-suggestion').first().click()
-    await expect(calendar.block('Biology quiz prep')).toHaveAttribute('aria-label', /08:00 - 10:00/)
+    await expect(calendar.block('Biology quiz prep')).toHaveAttribute('aria-label', /09:00 - 11:00/)
 
     await panel.getByTestId('autofill').click()
     await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()

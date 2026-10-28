@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chooseMomentBoard, hasMomentViewer, hasReviewViewer, openedElsewhereMessage } from './moments'
+import { chooseMomentBoard, hasMomentViewer, hasPlanItemViewer, hasReviewViewer, openedElsewhereMessage } from './moments'
 import { useWorkspaceStore } from './store'
 
 const manifests = [
@@ -14,6 +14,14 @@ describe('hasMomentViewer', () => {
     expect(hasMomentViewer(['calendar', 'test-me'], manifests)).toBe(false)
     expect(hasMomentViewer([], manifests)).toBe(false)
     expect(hasMomentViewer(['unknown'], manifests)).toBe(false)
+  })
+})
+
+describe('hasPlanItemViewer', () => {
+  it('is true only when a widget declares showsPlanItems', () => {
+    const flags = [{ id: 'calendar', showsPlanItems: true }, { id: 'transcript' }]
+    expect(hasPlanItemViewer(['transcript', 'calendar'], flags)).toBe(true)
+    expect(hasPlanItemViewer(['transcript'], flags)).toBe(false)
   })
 })
 
@@ -70,6 +78,21 @@ describe('focused moment', () => {
     expect(useWorkspaceStore.getState().focusedMoment?.offsetMs).toBe(2000)
     clearMoment(useWorkspaceStore.getState().focusedMoment!.id)
     expect(useWorkspaceStore.getState().focusedMoment).toBeNull()
+  })
+})
+
+describe('focusPlanItem', () => {
+  it('issues a new request each time, and clears only the one shown', () => {
+    const { focusPlanItem, clearPlanItem } = useWorkspaceStore.getState()
+    focusPlanItem({ id: 'r1', startsAt: '2026-11-04T19:30:00Z' })
+    const first = useWorkspaceStore.getState().focusedPlanItem!
+    focusPlanItem({ id: 'r1', startsAt: '2026-11-04T19:30:00Z' })
+    const second = useWorkspaceStore.getState().focusedPlanItem!
+    expect(second.requestId).toBeGreaterThan(first.requestId)
+    clearPlanItem(first.requestId)
+    expect(useWorkspaceStore.getState().focusedPlanItem).toEqual(second)
+    clearPlanItem(second.requestId)
+    expect(useWorkspaceStore.getState().focusedPlanItem).toBeNull()
   })
 })
 
