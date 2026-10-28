@@ -19,9 +19,13 @@ Every checkout and worktree shares the one Postgres container (`docker-compose.y
 | Variable | Default | Used by |
 |---|---|---|
 | `PG_DB` | `malleable_pls` | `dev:migrate`, `dev:server`, `e2e:server`, `db:reseed`, e2e global setup |
+| `PG_PORT` | `5433` | same as `PG_DB` |
+| `DATABASE_URL` | built from `PG_PORT` / `PG_DB` | same as `PG_DB`; **wins over `PG_DB` / `PG_PORT` when set** |
 | `API_PORT` | e2e `3901`, browse `3001` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
 | `WEB_PORT` | e2e `5901`, browse `5173` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
 | `CT_PORT` | `3100` | Playwright component tests (`pnpm test:ct`) |
+
+Those scripts resolve the URL in one place (`e2e/db-url.ts`, applied by `scripts/with-db-url.mts`): an exported `DATABASE_URL` is honoured as-is, otherwise it is `postgres://pls:pls@localhost:$PG_PORT/$PG_DB`. Check `echo $DATABASE_URL` if a script seems to hit the wrong database.
 
 The default `malleable_pls` database is Ed's dev data: never reseed or migrate it from a ticket branch. For ticket `T<N>` use database `malleable_pls_t<N>` and ports `31<NN>` (API) / `52<NN>` (web) / `33<NN>` (CT), NN = two-digit ticket number, so T5 is 3105 / 5205 / 3305:
 
