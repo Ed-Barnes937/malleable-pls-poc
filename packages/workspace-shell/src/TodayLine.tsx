@@ -3,7 +3,7 @@ import { usePlanItemList, useWorkspacePanels } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { todayLine, todayRange } from './today-line'
+import { shortLineOptions, todayLine, todayRange } from './today-line'
 
 const MINUTE_MS = 60_000
 
@@ -28,12 +28,13 @@ function useBoardStudyMinPerDay(workspaceId: string): number | undefined {
 }
 
 /**
- * "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study": a
- * quiet summary of today in the top bar. Shown only where the bar has room
- * (wide screens, and only when the whole line fits) and only on a day with
- * a class or shift.
+ * "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study": a quiet
+ * summary of today in the top bar. Shown only on a day with a class or shift,
+ * and only in a form that fits whole. Wide screens get the full line (and
+ * nothing between phone and wide, where the bar has no room); a phone gets
+ * the `short` form under the tabs, "Tue · shift 17:00 · 2h to study".
  */
-export function TodayLine({ workspaceId }: { workspaceId: string }) {
+export function TodayLine({ workspaceId, short = false }: { workspaceId: string; short?: boolean }) {
   const now = useMinuteClock()
   const day = todayRange(now)
   const from = new Date(day.start).toISOString()
@@ -49,32 +50,48 @@ export function TodayLine({ workspaceId }: { workspaceId: string }) {
   if (!line) return null
 
   const study = line.studyLeftMin > 0 ? `${formatMinutes(line.studyLeftMin)} to study` : null
-  return <TodayLineText weekday={line.weekday} events={line.events} study={study} />
+  if (short) {
+    const options = shortLineOptions(line.short, study)
+    if (options.length === 0) return null
+    // Keeps 40% of the row: a long "Showing" chip truncates rather than crowd it out.
+    return <TodayLineText options={options} strong={study} className="min-w-[40%] flex-1 basis-0" textClassName="text-meta" />
+  }
+  // The whole line, else without the weekday, which the student knows anyway.
+  const full = [line.weekday, ...line.events, ...(study ? [study] : [])]
+  return (
+    <TodayLineText
+      options={[full, full.slice(1)]}
+      strong={study}
+      className="hidden min-w-0 grow-[100] basis-0 xl:block"
+      textClassName="text-body"
+    />
+  )
 }
 
-type Fit = 'full' | 'no-weekday' | 'none'
-
 /**
- * Takes the bar's free space (never space the tabs or scope chip need). The
- * whole line if it fits; else without the weekday, which the student knows
- * anyway; else nothing, since a half-cut "Tues..." helps no one.
+ * Takes the bar's free space (never space the tabs or scope chip need) and
+ * shows the first of `options` that fits whole, else nothing, since a
+ * half-cut "Tues..." helps no one.
  */
-function TodayLineText({ weekday, events, study }: { weekday: string; events: string[]; study: string | null }) {
+function TodayLineText({ options, strong, className, textClassName }: {
+  options: string[][]
+  strong: string | null
+  className: string
+  textClassName: string
+}) {
   const boxRef = useRef<HTMLDivElement>(null)
-  const fullRef = useRef<HTMLParagraphElement>(null)
-  const shortRef = useRef<HTMLParagraphElement>(null)
-  const [fit, setFit] = useState<Fit>('full')
-  const full = [weekday, ...events, ...(study ? [study] : [])]
-  const short = full.slice(1)
-  const key = full.join('|')
+  const copyRefs = useRef<(HTMLParagraphElement | null)[]>([])
+  /** Index of the option shown; -1 when none fits. */
+  const [fit, setFit] = useState(0)
+  const key = options.map((parts) => parts.join('|')).join('/')
 
   useLayoutEffect(() => {
     const box = boxRef.current
     if (!box) return
-    const fitNow = (): Fit => {
+    const copies = copyRefs.current.slice(0, options.length)
+    const fitNow = () => {
       const room = box.clientWidth
-      return (fullRef.current?.offsetWidth ?? Infinity) <= room ? 'full'
-        : (shortRef.current?.offsetWidth ?? Infinity) <= room ? 'no-weekday' : 'none'
+      return copies.findIndex((el) => (el?.offsetWidth ?? Infinity) <= room)
     }
     // Before the first paint (a layout effect's update is synchronous).
     setFit(fitNow())
@@ -84,26 +101,34 @@ function TodayLineText({ weekday, events, study }: { weekday: string; events: st
     const refit = () => flushSync(() => setFit(fitNow()))
     // The copies change size when the web font swaps in, the box when the bar does.
     const observer = new ResizeObserver(refit)
-    for (const el of [box, fullRef.current, shortRef.current]) if (el) observer.observe(el)
+    for (const el of [box, ...copies]) if (el) observer.observe(el)
     let live = true
     void document.fonts?.ready.then(() => { if (live) refit() })
     return () => {
       live = false
       observer.disconnect()
     }
-  }, [key])
+  }, [key, options.length])
 
   return (
-    <div ref={boxRef} className="relative hidden min-w-0 grow-[100] basis-0 overflow-hidden xl:block">
+    <div ref={boxRef} className={cn('relative overflow-hidden', className)}>
       {/* Off-screen copies, measured to pick what fits. */}
-      <LineText ref={fullRef} parts={full} strong={study} className="invisible absolute" aria-hidden />
-      <LineText ref={shortRef} parts={short} strong={study} className="invisible absolute" aria-hidden />
+      {options.map((parts, i) => (
+        <LineText
+          key={i}
+          ref={(el) => { copyRefs.current[i] = el }}
+          parts={parts}
+          strong={strong}
+          className={cn('invisible absolute', textClassName)}
+          aria-hidden
+        />
+      ))}
       <LineText
-        parts={fit === 'full' ? full : short}
-        strong={study}
+        parts={options[Math.max(fit, 0)] ?? options[0]}
+        strong={strong}
         data-testid="today-line"
-        title={full.join(' · ')}
-        className={cn(fit === 'none' && 'invisible')}
+        title={options[0].join(' · ')}
+        className={cn(textClassName, fit < 0 && 'invisible')}
       >
         <span className="sr-only">Today: </span>
       </LineText>
@@ -119,7 +144,7 @@ function LineText({ parts, strong, className, children, ...rest }: {
   ref?: React.Ref<HTMLParagraphElement>
 } & React.HTMLAttributes<HTMLParagraphElement>) {
   return (
-    <p {...rest} className={cn('w-max whitespace-nowrap text-body text-text-secondary', className)}>
+    <p {...rest} className={cn('w-max whitespace-nowrap text-text-secondary', className)}>
       {children}
       {parts.map((part, i) => (
         <Fragment key={i}>

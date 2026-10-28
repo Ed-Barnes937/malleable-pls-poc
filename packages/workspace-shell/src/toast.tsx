@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { createPortal } from 'react-dom'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
-import { cn } from '@pls/shared-ui'
+import { cn, useNarrowScreen } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export type ToastTone = 'success' | 'error'
@@ -93,14 +93,19 @@ export const useToastStore = create<ToastState>((set, get) => {
 })
 
 /**
- * Toasts, bottom right. The live region is always mounted (empty when there
- * is nothing to say), so a screen reader announces the first toast too. A
- * toast stops counting down while the pointer or focus is on it.
+ * Toasts, bottom right. On a phone they sit in a bar under the board instead,
+ * which makes room for them rather than covering the bottom of the board (a
+ * "Back to My week" toast stays until dismissed). Render it last in the
+ * page's full-height column. The live region is always mounted (empty, and
+ * no height, when there is nothing to say), so a screen reader announces the
+ * first toast too. A toast stops counting down while the pointer or focus is
+ * on it.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
   const { dismiss, hold, release } = useToastStore.getState()
   const activeBoard = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const narrow = useNarrowScreen()
 
   // A toast about one board (e.g. "Back to My week" after opening a moment
   // there) goes once the student leaves it.
@@ -108,13 +113,18 @@ export function ToastHost() {
     for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
   }, [toasts, activeBoard, dismiss])
 
-  return createPortal(
+  const host = (
     <section aria-label="Notifications" className="contents">
       <div
         role="status"
         aria-live="polite"
         data-testid="toast-host"
-        className="fixed bottom-4 left-4 right-4 z-[20000] flex flex-col items-end gap-2 sm:left-auto"
+        data-layout={narrow ? 'bar' : 'float'}
+        className={
+          narrow
+            ? cn('flex shrink-0 flex-col gap-2', toasts.length > 0 && 'px-3 pt-2 pb-3')
+            : 'fixed bottom-4 right-4 z-[20000] flex flex-col items-end gap-2'
+        }
       >
         {toasts.map((toast) => {
           const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
@@ -130,11 +140,14 @@ export function ToastHost() {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) release(toast.id)
               }}
               className={cn(
-                'flex items-center gap-3 rounded-[14px] bg-inverse py-3 pr-3 pl-4 text-inverse-foreground shadow-pop',
+                'flex items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
+                // A phone's narrow bar: the message keeps a readable width and
+                // the action (with the dismiss) drops under it when it must.
+                narrow ? 'flex-wrap gap-y-1 py-2 pr-2 pl-3.5' : 'py-3 pr-3 pl-4 shadow-pop',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="text-body">{toast.message}</span>
+              <span className={cn('text-body', narrow && 'min-w-48 flex-1')}>{toast.message}</span>
               {toast.action && (
                 <button
                   type="button"
@@ -142,7 +155,10 @@ export function ToastHost() {
                     dismiss(toast.id)
                     toast.action?.onClick()
                   }}
-                  className="inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-item px-1.5 py-1 text-body font-semibold text-inverse-accent transition-colors hover:underline"
+                  className={cn(
+                    'inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-item px-1.5 py-1 text-body font-semibold text-inverse-accent transition-colors hover:underline',
+                    narrow && 'ml-auto',
+                  )}
                 >
                   {ActionIcon && <ActionIcon className="h-4 w-4" />}
                   {toast.action.label}
@@ -161,7 +177,7 @@ export function ToastHost() {
           )
         })}
       </div>
-    </section>,
-    document.body,
+    </section>
   )
+  return narrow ? host : createPortal(host, document.body)
 }

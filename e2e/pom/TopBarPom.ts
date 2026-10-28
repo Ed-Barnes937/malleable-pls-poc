@@ -12,7 +12,7 @@ export class TopBarPom {
   readonly newWorkspaceButton: Locator
   readonly drawerTrigger: Locator
   readonly scopeChip: Locator
-  /** "Tuesday · Chemistry 14:00 · ...": today at a glance, wide screens only. */
+  /** "Tuesday · Chemistry 14:00 · ...": today at a glance, on wide screens and (short) on a phone. */
   readonly todayLine: Locator
 
   constructor(private page: Page) {

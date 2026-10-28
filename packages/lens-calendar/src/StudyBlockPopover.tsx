@@ -2,8 +2,9 @@ import { useMemo, useRef } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
-import { AudioLines, CalendarClock, Check, Clock, Play, RotateCcw, X, Zap } from 'lucide-react'
+import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
+import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 /** Where a block's lecture moment went after "Go to moment". */
 export type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
@@ -19,6 +20,8 @@ export interface StudyBlockPopoverProps {
   canShowMoment: boolean
   canEdit: boolean
   busy?: boolean
+  /** The action this popover is waiting on, named on its button while it saves. */
+  pending?: PendingAction | null
   error?: string | null
   onGoToMoment: () => void
   onToggleDone?: () => void
@@ -51,7 +54,7 @@ function minutesLabel(minutes: number): string {
  * when an automation moves the block the popover follows.
  */
 export function StudyBlockPopover({
-  x, y, bounds, row, moment, canShowMoment, canEdit, busy, error,
+  x, y, bounds, row, moment, canShowMoment, canEdit, busy, pending, error,
   onGoToMoment, onToggleDone, onEditTime, onEditAutomation, onClose,
 }: StudyBlockPopoverProps) {
   const ref = useRef<HTMLDivElement>(null)
@@ -176,12 +179,11 @@ export function StudyBlockPopover({
           {onToggleDone && (
             <button
               type="button"
-              onClick={onToggleDone}
-              disabled={busy}
+              {...pendingProps(busy, pending === 'done', onToggleDone)}
               className={cn(button, 'border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay')}
             >
-              {done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-              {done ? 'Not done yet' : 'Mark done'}
+              {pending === 'done' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              {pending === 'done' ? pendingLabel('done', done) : done ? 'Not done yet' : 'Mark done'}
             </button>
           )}
           <button
@@ -195,6 +197,7 @@ export function StudyBlockPopover({
         </div>
       )}
       {error && <p role="alert" className="text-meta text-confused">{error}</p>}
+      <PendingStatus pending={pending} done={done} />
 
       {row.created_by_workflow_id && automation && (
         <p data-testid="calendar-made-by" className="flex items-start gap-1.5 border-t border-border-subtle pt-3 text-meta text-text-secondary">

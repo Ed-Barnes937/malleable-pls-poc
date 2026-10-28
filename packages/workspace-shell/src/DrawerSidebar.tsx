@@ -7,12 +7,15 @@ import {
   useFocusedRecording,
   decodeScope,
 } from '@pls/substrate-client'
-import { COURSES, SectionLabel, Select } from '@pls/shared-ui'
+import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 import { groupWidgets } from './widget-groups'
+import { JobStatusIndicator } from './JobStatusIndicator'
+import { ThemeToggle } from './ThemeToggle'
+import { BoardAppearance } from './BoardAppearance'
 
 /* ── Constants ── */
 
@@ -161,14 +164,20 @@ export interface DrawerSidebarProps {
 
 export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps) {
   const asideRef = useRef<HTMLElement>(null)
+  // Modal while open: focus stays in the menu (or in Activity, opened from it).
+  useFocusTrap(asideRef, open)
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
+  // On a phone the top bar keeps only the menu, the tabs and the widgets
+  // button: Activity, the theme and the board's appearance move in here.
+  const narrow = useNarrowScreen()
 
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      // Activity, opened from in here, closes first.
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
@@ -217,6 +226,8 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         ref={asideRef}
         tabIndex={-1}
         data-testid="drawer-sidebar"
+        role="dialog"
+        aria-modal={open}
         aria-label="Board menu"
         aria-hidden={!open}
         inert={!open}
@@ -237,8 +248,14 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
           overflow: 'hidden',
         }}
       >
-        <div className="flex shrink-0 items-center justify-between px-5 pt-4 pb-2">
-          <h2 className="text-title font-semibold text-text-primary">Board menu</h2>
+        <div className="flex shrink-0 items-center gap-1 px-5 pt-4 pb-2">
+          <h2 className="mr-auto text-title font-semibold text-text-primary">Board menu</h2>
+          {narrow && (
+            <div data-testid="drawer-app-controls" className="flex items-center gap-1">
+              <JobStatusIndicator />
+              <ThemeToggle />
+            </div>
+          )}
           <button
             type="button"
             onClick={onClose}
@@ -272,6 +289,15 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
               <SectionLabel className="mb-2 px-1">Automations</SectionLabel>
               <WorkflowSettingsPanel />
             </section>
+
+            {narrow && (
+              <section data-testid="drawer-appearance">
+                <SectionLabel className="mb-2 px-1">Board appearance</SectionLabel>
+                <div className="px-1">
+                  <BoardAppearance />
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </aside>

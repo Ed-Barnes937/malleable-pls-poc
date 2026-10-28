@@ -10,9 +10,12 @@ export interface TodayLine {
   events: string[]
   /** Study time left today, as Help me plan counts it (free time capped by the day's budget). */
   studyLeftMin: number
+  /** The phone's shorter form: "Tue" and the blocks not over yet, by start time ("shift 17:00"). */
+  short: { weekday: string; upcoming: string[] }
 }
 
 const weekdayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'long' })
+const shortWeekdayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short' })
 
 /** Today's local day as [start, end), DST-safe. */
 export function todayRange(now: number): { start: number; end: number } {
@@ -29,6 +32,10 @@ function eventLabel(row: Row): string {
     ? COURSES.find((c) => c.value === row.course)?.label
     : undefined
   return `${course ?? row.title} ${start}`
+}
+
+function shortEventLabel(row: Row): string {
+  return row.subtype === 'shift' ? `shift ${clockTime(row.starts_at!)}` : eventLabel(row)
 }
 
 /**
@@ -59,5 +66,25 @@ export function todayLine(
     weekday: weekdayFormat.format(new Date(opts.now)),
     events: commitments.map(eventLabel),
     studyLeftMin: today?.leftMin ?? 0,
+    short: {
+      weekday: shortWeekdayFormat.format(new Date(opts.now)),
+      upcoming: commitments.filter((r) => Date.parse(r.ends_at!) > opts.now).map(shortEventLabel),
+    },
   }
+}
+
+/**
+ * What the phone's today line can say, longest first; it shows the first
+ * that fits. Drops the weekday, then the later blocks (the next one matters
+ * most), and keeps the study time to the end. Empty when nothing is left of
+ * the day to mention.
+ */
+export function shortLineOptions(short: TodayLine['short'], study: string | null): string[][] {
+  const tail = study ? [study] : []
+  const { weekday, upcoming } = short
+  if (upcoming.length === 0 && !study) return []
+  const options = [[weekday, ...upcoming, ...tail]]
+  for (let n = upcoming.length; n >= 1; n--) options.push([...upcoming.slice(0, n), ...tail])
+  if (study) options.push(tail)
+  return options
 }

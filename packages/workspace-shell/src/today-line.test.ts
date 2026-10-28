@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { todayLine, todayRange } from './today-line'
+import { shortLineOptions, todayLine, todayRange } from './today-line'
 
 // Tests run in Europe/London (vitest.config.ts). Tue 27 Oct 2026 is GMT.
 const TZ = 'Europe/London'
@@ -20,7 +20,18 @@ const shift = row({ title: 'Cafe shift', subtype: 'shift', starts_at: at('17:00'
 describe('todayLine', () => {
   it('names the weekday, each class by course and each shift by its hours, in time order', () => {
     const line = todayLine([shift, chemistry], { now: NOW, timeZone: TZ })
-    expect(line).toEqual({ weekday: 'Tuesday', events: ['Chemistry 14:00', 'shift 17:00-22:00'], studyLeftMin: 120 })
+    expect(line).toEqual({
+      weekday: 'Tuesday',
+      events: ['Chemistry 14:00', 'shift 17:00-22:00'],
+      studyLeftMin: 120,
+      short: { weekday: 'Tue', upcoming: ['Chemistry 14:00', 'shift 17:00'] },
+    })
+  })
+
+  it('leaves blocks that are over out of the short form, and keeps one still going', () => {
+    expect(todayLine([shift, chemistry], { now: Date.parse(at('16:00')), timeZone: TZ })?.short.upcoming).toEqual(['shift 17:00'])
+    expect(todayLine([shift, chemistry], { now: Date.parse(at('21:59')), timeZone: TZ })?.short.upcoming).toEqual(['shift 17:00'])
+    expect(todayLine([shift, chemistry], { now: Date.parse(at('22:00')), timeZone: TZ })?.short.upcoming).toEqual([])
   })
 
   it('counts study time left the way Help me plan does: capped by the day budget, less study already planned', () => {
@@ -46,6 +57,29 @@ describe('todayLine', () => {
     const dismissed = row({ ...chemistry, id: 'dismissed', status: 'dismissed' })
     expect(todayLine([], { now: NOW, timeZone: TZ })).toBeNull()
     expect(todayLine([study, deadline, tomorrow, dismissed], { now: NOW, timeZone: TZ })).toBeNull()
+  })
+})
+
+describe('shortLineOptions', () => {
+  it('drops the weekday, then the later blocks, keeping the study time to the end', () => {
+    expect(shortLineOptions({ weekday: 'Tue', upcoming: ['Chemistry 14:00', 'shift 17:00'] }, '2h to study')).toEqual([
+      ['Tue', 'Chemistry 14:00', 'shift 17:00', '2h to study'],
+      ['Chemistry 14:00', 'shift 17:00', '2h to study'],
+      ['Chemistry 14:00', '2h to study'],
+      ['2h to study'],
+    ])
+  })
+
+  it('without study time, ends on the next block', () => {
+    expect(shortLineOptions({ weekday: 'Tue', upcoming: ['shift 17:00'] }, null)).toEqual([['Tue', 'shift 17:00'], ['shift 17:00']])
+  })
+
+  it('says only the study time once the blocks are over', () => {
+    expect(shortLineOptions({ weekday: 'Tue', upcoming: [] }, '1h to study')).toEqual([['Tue', '1h to study'], ['1h to study']])
+  })
+
+  it('has nothing to say once the blocks are over and there is no study time left', () => {
+    expect(shortLineOptions({ weekday: 'Tue', upcoming: [] }, null)).toEqual([])
   })
 })
 

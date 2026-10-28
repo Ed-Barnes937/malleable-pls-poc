@@ -2,8 +2,8 @@ import { createPortal } from 'react-dom'
 import { useRunningJobCount, useRecentJobs, useRetryJob } from '@pls/substrate-client'
 import { getAvailableJobTypes } from '@pls/substrate'
 import { Zap, X, RotateCcw } from 'lucide-react'
-import { cn, StatusDot, SectionLabel } from '@pls/shared-ui'
-import { useState, useCallback, useEffect } from 'react'
+import { cn, StatusDot, SectionLabel, useFocusTrap } from '@pls/shared-ui'
+import { useState, useCallback, useEffect, useRef } from 'react'
 
 const JOB_LABELS: Record<string, string> = Object.fromEntries(
   getAvailableJobTypes().map((j) => [j.type, j.label]),
@@ -135,13 +135,30 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
   const running = rows.filter((j) => j.status === 'running' || j.status === 'pending')
   const finished = rows.filter((j) => j.status === 'completed' || j.status === 'failed')
 
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLElement>(null)
+  useFocusTrap(panelRef)
+
+  // Escape closes Activity alone, even when the board menu (which opens it
+  // on a phone) is open underneath: caught first, and marked handled.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      onClose()
     }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
+    document.addEventListener('keydown', handler, true)
+    return () => document.removeEventListener('keydown', handler, true)
   }, [onClose])
+
+  // Focus moves in, and back to the Activity button on close.
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null
+    closeRef.current?.focus()
+    return () => {
+      if (opener?.isConnected) opener.focus()
+    }
+  }, [])
 
   // Tick once a second while jobs are running so elapsed time stays live.
   useEffect(() => {
@@ -152,10 +169,14 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
 
   return createPortal(
     <>
-      {/* Above the top bar (z 9999), like the board menu. */}
-      <div className="fixed inset-0 z-[10000] bg-black/25" onClick={onClose} />
+      {/* Above the top bar (z 9999) and the board menu (10000-10001), which
+          opens it on a phone. Tapping beside the panel closes it. */}
+      <div data-testid="activity-backdrop" className="fixed inset-0 z-[10002] bg-black/25" onClick={onClose} />
       <aside
-        className="fixed bottom-0 right-0 top-0 z-[10001] flex w-80 max-w-[calc(100vw-48px)] flex-col rounded-l-widget bg-surface-raised shadow-pop"
+        ref={panelRef}
+        className="fixed bottom-0 right-0 top-0 z-[10003] flex w-80 max-w-[calc(100vw-48px)] flex-col rounded-l-widget bg-surface-raised shadow-pop"
+        role="dialog"
+        aria-modal="true"
         aria-label="Activity"
       >
         <div className="flex items-center justify-between px-5 pt-4 pb-2">
@@ -164,6 +185,7 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
             <h2 className="text-title font-semibold text-text-primary">Activity</h2>
           </div>
           <button
+            ref={closeRef}
             type="button"
             onClick={onClose}
             aria-label="Close activity"
@@ -225,6 +247,7 @@ export function JobStatusIndicator() {
         data-testid="activity-button"
         onClick={toggle}
         aria-label={label}
+        aria-haspopup="dialog"
         aria-expanded={showDrawer}
         className={cn(
           'flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-control px-2 text-meta transition-colors',
