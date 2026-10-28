@@ -1,5 +1,6 @@
 export { cn, formatTime, fromMomentLabel } from './utils'
 export { useArrivals } from './useArrivals'
+export { useNarrowScreen } from './useNarrowScreen'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
 export { ProgressBar, type ProgressBarProps } from './ProgressBar'
 export { TagPill, TAG_STYLES, leadingTag } from './TagPill'

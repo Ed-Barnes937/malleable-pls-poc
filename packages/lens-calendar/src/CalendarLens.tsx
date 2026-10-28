@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, courseTone } from '@pls/shared-ui'
+import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles } from 'lucide-react'
 import { TimeGrid, type Anchor } from './TimeGrid'
 import { EventPopover } from './EventPopover'
+import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
@@ -14,7 +15,6 @@ import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
 import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
-import { useNarrowScreen } from './useNarrowScreen'
 
 type View = 'week' | 'day'
 
@@ -322,13 +322,18 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     })
   }
 
-  const run = async (action: () => Promise<unknown>) => {
+  /** The popover action waiting on the server: its button says so ("Saving...") until the save lands. */
+  const [popoverPending, setPopoverPending] = useState<PendingAction | null>(null)
+  const run = async (kind: PendingAction, action: () => Promise<unknown>) => {
     setError(null)
+    setPopoverPending(kind)
     try {
       await action()
       closePopover()
     } catch (e) {
       setError(e instanceof Error && e.message ? `Couldn't save: ${e.message}` : "Couldn't save - try again")
+    } finally {
+      setPopoverPending(null)
     }
   }
 
@@ -563,9 +568,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           initial={popover.draft}
           canEdit
           busy={busy}
+          pending={popoverPending}
           error={error}
           onClose={closePopover}
-          onSubmit={(draft) => run(() => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
+          onSubmit={(draft) => run('add', () => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
         />
       )}
       {popover?.mode === 'edit' && editing && fromMoment(editing) && !popover.editingTime && (
@@ -578,10 +584,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           canShowMoment={!!onShowMoment}
           canEdit
           busy={busy}
+          pending={popoverPending}
           error={error}
           onClose={closePopover}
           onGoToMoment={() => void showMoment(editing, editing.occurrence_key)}
-          onToggleDone={() => run(() =>
+          onToggleDone={() => run('done', () =>
             editing.status === 'done'
               ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
               : completeItem.mutateAsync(editing.id),
@@ -606,18 +613,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           initial={draftFromRow(editing)}
           canEdit
           busy={busy}
+          pending={popoverPending}
           error={error}
           onClose={closePopover}
           onSubmit={(draft) => {
             const patch = patchFromDraft(editing, draft, localTimeZone())
             if (Object.keys(patch).length === 0) return closePopover()
-            void run(() => updateItem.mutateAsync({ id: editing.id, patch }))
+            void run('save', () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
-          onDelete={() => run(() => deleteItem.mutateAsync(editing.id))}
+          onDelete={() => run('delete', () => deleteItem.mutateAsync(editing.id))}
           onToggleDone={
             editing.kind === 'commitment'
               ? undefined
-              : () => run(() =>
+              : () => run('done', () =>
                   editing.status === 'done'
                     ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
                     : completeItem.mutateAsync(editing.id),

@@ -135,9 +135,14 @@ test.describe('The today line', () => {
     await expect(topBar.todayLine).toBeVisible()
     await expect(topBar.todayLine).toHaveAttribute('title', 'Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study')
 
-    // Narrow: the top bar has no room, so the line steps aside.
-    await page.setViewportSize({ width: 400, height: 860 })
+    // Between phone and wide: the top bar has no room, so the line steps aside.
+    await page.setViewportSize({ width: 900, height: 900 })
     await expect(topBar.todayLine).toBeHidden()
+
+    // A phone has the short form, under the tabs (see phone.e2e.ts).
+    await page.setViewportSize({ width: 400, height: 860 })
+    await expect(topBar.todayLine).toBeVisible()
+    await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
   })
 
   test('drops the weekday, then steps aside, rather than cutting off when the bar is crowded', async ({ page }) => {
@@ -212,6 +217,10 @@ test.describe('The today line', () => {
     await page.goto('/')
     await loaded
     await expect(new TopBarPom(page).root).toBeVisible()
+    await expect(new TopBarPom(page).todayLine).toHaveCount(0)
+    // Nor on a phone.
+    await page.setViewportSize({ width: 400, height: 860 })
+    await expect(new TopBarPom(page).root).toHaveAttribute('data-layout', 'phone')
     await expect(new TopBarPom(page).todayLine).toHaveCount(0)
   })
 })

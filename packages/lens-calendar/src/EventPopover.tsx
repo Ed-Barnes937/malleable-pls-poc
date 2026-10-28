@@ -1,10 +1,11 @@
 import { useRef, useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, Select, TextField, cn } from '@pls/shared-ui'
-import { Check, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
+import { PendingStatus, pendingLabel, type PendingAction } from './pending'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
@@ -18,6 +19,8 @@ export interface EventPopoverProps {
   /** Can this widget write? Read-only hosts get a view-only popover. */
   canEdit: boolean
   busy?: boolean
+  /** The action this popover is waiting on, named on its button while it saves. */
+  pending?: PendingAction | null
   error?: string | null
   /** Shown between the form and the actions, e.g. the lecture moment. */
   children?: ReactNode
@@ -32,7 +35,7 @@ const KINDS: PlanItemKind[] = ['commitment', 'task', 'deadline']
 
 /** Create / edit card for a calendar item, anchored where the student clicked. */
 export function EventPopover({
-  x, y, bounds, row, initial, canEdit, busy, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  x, y, bounds, row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
 }: EventPopoverProps) {
   const ref = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<Draft>(initial)
@@ -173,6 +176,7 @@ export function EventPopover({
         <p className="text-meta text-text-muted">Changes apply to every week.</p>
       )}
       {error && <p role="alert" className="text-meta text-confused">{error}</p>}
+      <PendingStatus pending={pending} done={done} />
 
       {canEdit && (
         <div className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
@@ -181,9 +185,11 @@ export function EventPopover({
               type="button"
               onClick={onDelete}
               disabled={busy}
+              aria-busy={pending === 'delete'}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >
-              {row?.recurrence ? 'Delete every week?' : 'Delete it?'}
+              {pending === 'delete' && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+              {pending === 'delete' ? pendingLabel('delete') : row?.recurrence ? 'Delete every week?' : 'Delete it?'}
             </button>
           ) : (
             <button
@@ -201,19 +207,22 @@ export function EventPopover({
               type="button"
               onClick={onToggleDone}
               disabled={busy}
+              aria-busy={pending === 'done'}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay"
             >
-              {done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
-              {done ? 'Not done yet' : 'Mark done'}
+              {pending === 'done' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              {pending === 'done' ? pendingLabel('done', done) : done ? 'Not done yet' : 'Mark done'}
             </button>
           )}
           <button
             type="submit"
             disabled={!!invalid || busy}
+            aria-busy={pending === 'add' || pending === 'save'}
             title={invalid ?? undefined}
-            className="ml-auto inline-flex h-9 items-center rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {isCreate ? 'Add' : 'Save'}
+            {(pending === 'add' || pending === 'save') && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+            {pending === 'add' || pending === 'save' ? pendingLabel(pending) : isCreate ? 'Add' : 'Save'}
           </button>
         </div>
       )}

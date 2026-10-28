@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-/** Below Tailwind's `sm` (640px): a phone. Seven day columns don't fit there. */
+/** Below Tailwind's `sm` (640px): a phone. */
 const NARROW_SCREEN = '(max-width: 639.98px)'
 
 function subscribe(onChange: () => void): () => void {

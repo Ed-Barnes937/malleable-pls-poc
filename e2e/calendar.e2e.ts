@@ -104,6 +104,37 @@ test.describe('Calendar', () => {
     await expect(shift).toBeFocused()
   })
 
+  test('on a slow network the pressed button says it is saving until the save lands', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    // Saturday, clear of the seeded week's blocks.
+    await call(request, 'planItems.create', { kind: 'task', title: 'Read chapter 3', starts_at: at(5, 10), ends_at: at(5, 11), duration_min: 60 })
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route(/planItems\.complete/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    await calendar.block('Read chapter 3').click()
+
+    await calendar.popover.getByRole('button', { name: 'Mark done' }).click()
+    const pressed = calendar.popover.getByRole('button', { name: 'Marking done...' })
+    await expect(pressed).toBeDisabled()
+    await expect(pressed).toHaveAttribute('aria-busy', 'true')
+    await expect(calendar.popover.getByRole('button', { name: 'Save' })).toBeDisabled()
+    await expect(calendar.popover.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-busy', 'false')
+    // Screen readers hear it too.
+    await expect(calendar.popover.getByRole('status')).toHaveText('Marking done...')
+
+    release()
+    await expect(calendar.popover).toHaveCount(0)
+    await calendar.block('Read chapter 3').click()
+    await expect(calendar.popover.getByRole('button', { name: 'Not done yet' })).toBeEnabled()
+    await expect(calendar.popover.getByRole('status')).toHaveText('')
+  })
+
   test('drag study time to a new slot', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     const task = await call(request, 'planItems.create', {
