@@ -69,10 +69,12 @@ const LABEL_ROOM_PX = 8
  * 20-minute one; nothing shorter than this many minutes' worth, though.
  */
 const MIN_BLOCK_MIN = 15
-/** Shorter than this, a block is one compact line: its title, which may overhang the box by a pixel or two. */
+/**
+ * Shorter than this, a block is one compact line: its title, which may
+ * overhang the box by a pixel or two and is drawn above the blocks around it,
+ * so the next block never paints over it.
+ */
 const COMPACT_BLOCK_PX = 18
-/** A drafted block keeps room for one line of title, as its accept and dismiss buttons sit beside it. */
-const MIN_GHOST_PX = 22
 
 /** A block's height on the grid: proportional to its length, with a 2px gap below. */
 function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
@@ -609,7 +611,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
       className={cn(
         'group absolute rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
         // A compact block's one line may overhang its box rather than be cut.
-        compact ? 'overflow-visible' : 'overflow-hidden',
+        compact ? 'z-[5] overflow-visible' : 'overflow-hidden',
         isCommitment ? tone.commitment : tone.study,
         'focus-visible:ring-2 focus-visible:ring-accent',
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
@@ -710,7 +712,10 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const top = (seg.startMin / 60) * hourPx
-  const height = Math.max(MIN_GHOST_PX, blockHeight(seg, hourPx))
+  // Drawn to scale like a block; a short one shows its accept and dismiss
+  // buttons over it on hover or focus, overhanging rather than cut.
+  const height = blockHeight(seg, hourPx)
+  const compact = height < COMPACT_BLOCK_PX
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
@@ -744,7 +749,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
       className={cn(
-        'group absolute z-10 overflow-hidden rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
         tone.ghost,
         'transition-[opacity,box-shadow] duration-200',
         saved ? 'cursor-default opacity-70' : 'cursor-grab hover:shadow-[0_0_0_3px_var(--color-accent-soft)] active:cursor-grabbing',
@@ -760,7 +766,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       }}
     >
       <div className={cn('relative flex h-full min-w-0 flex-col pl-2 pr-1', roomy ? 'py-1' : 'justify-center')}>
-        <span className={cn('min-w-0 shrink-0 text-meta font-semibold leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
+        <span className={cn('min-w-0 shrink-0 text-meta font-semibold', compact ? 'leading-none' : 'leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
         {roomy && (
           <span className="shrink-0 truncate text-meta tabular-nums leading-tight opacity-85">
             {saved ? 'Saving...' : span}
@@ -803,7 +809,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
         <div
           aria-hidden
           onPointerDown={(e) => onPointerDown(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-current opacity-50" />
         </div>

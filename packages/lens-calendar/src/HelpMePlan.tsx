@@ -375,7 +375,7 @@ export function HelpMePlanPanel({
       </div>
 
       {showDraft ? (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
           <button
             type="button"
             onClick={() => void layer.acceptAll()}
@@ -385,7 +385,7 @@ export function HelpMePlanPanel({
             <Check className="h-4 w-4" />
             Accept draft
           </button>
-          <button type="button" onClick={keepPlan} disabled={layer.saving} className={ghostButton}>
+          <button type="button" onClick={keepPlan} disabled={layer.saving} className={cn(ghostButton, 'whitespace-nowrap')}>
             Keep my plan
           </button>
         </div>

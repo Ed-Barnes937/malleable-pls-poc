@@ -320,6 +320,37 @@ test.describe('Re-fit blocks that did not happen', () => {
     expect(await trpcQuery<Item[]>(request, 'planItems.list', {})).toEqual(before)
   })
 
+  test('a block due before any day with study time left goes over the 2h a day rather than off the calendar', async ({ page, request }) => {
+    // Away all today; tomorrow already has its 2h; due the day after at 09:30,
+    // before that day's study time can fit an hour.
+    await trpcMutation(request, 'planItems.create', { kind: 'commitment', title: 'Away today', starts_at: daysFromNow(0, 0), ends_at: daysFromNow(1, 0) })
+    const tomorrowStudy = await trpcMutation<Item>(request, 'planItems.create', {
+      kind: 'task', title: 'Essay plan', duration_min: 120, starts_at: daysFromNow(1, 7), ends_at: daysFromNow(1, 9),
+    })
+    const due = new Date(Date.parse(daysFromNow(2, 9)) + 30 * 60_000).toISOString()
+    const quizPrep = await trpcMutation<Item>(request, 'planItems.create', {
+      kind: 'task', title: 'Quiz prep', duration_min: 60, starts_at: daysFromNow(-1, 10), ends_at: daysFromNow(-1, 11), due_at: due,
+    })
+    await board(request, 'My week', ['todo'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const banner = new PanelGridPom(page).panelByLabel('To-do').getByTestId('refit-banner')
+    await expect(banner).toContainText("1 block didn't happen. Re-fit it?", { timeout: 10000 })
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    await expect(banner.getByTestId('refit-proposal')).not.toContainText('It stays on your list.')
+    await banner.getByRole('button', { name: 'Move it' }).click()
+    await expect(banner).toHaveCount(0)
+
+    const items = await trpcQuery<Item[]>(request, 'planItems.list', { from: daysFromNow(1, 0), to: daysFromNow(2, 0), statuses: ['open', 'done'] })
+    const moved = items.find((i) => i.id === quizPrep.id)!
+    // Tomorrow, before it is due, 10 minutes clear of the 2h already there: over the budget.
+    expect(Date.parse(moved.ends_at!)).toBeLessThanOrEqual(Date.parse(due))
+    expect(new Date(moved.starts_at!).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }))
+      .toBe(new Date(tomorrowStudy.starts_at!).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }))
+    const study = items.filter((i) => i.kind === 'task' && i.starts_at)
+    expect(study.reduce((sum, i) => sum + (Date.parse(i.ends_at!) - Date.parse(i.starts_at!)) / 60_000, 0)).toBeGreaterThan(120)
+  })
+
   test("Re-fit in the To-do: the Calendar stops asking while it shows the new times, and the moves keep Help me plan's rules", async ({ page, request }) => {
     const missed = await seedMissed(request)
     // Tomorrow already has its 2h of study: re-fit must not add to it.

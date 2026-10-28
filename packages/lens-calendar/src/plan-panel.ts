@@ -3,9 +3,10 @@
  * never hides a drafted block:
  * - over the days already past (e.g. Mon-Tue on a Wednesday), its right edge
  *   at the start of today, when they leave room for it;
- * - else (early in the week, or a week ahead) over the weekend;
- * - unless a draft sits under the weekend: then it docks beside the grid,
- *   which gives up some width rather than hide the draft.
+ * - else (early in the week, or a week ahead) over the weekend, sized to it
+ *   so Friday stays clear;
+ * - unless a draft is under it there: then it docks beside the grid, which
+ *   gives up some width rather than hide the draft.
  */
 
 import { useLayoutEffect, useState, type RefObject } from 'react'
@@ -13,7 +14,9 @@ import { useLayoutEffect, useState, type RefObject } from 'react'
 /** The panel's width when it has the room. */
 export const PLAN_PANEL_PX = 280
 /** The narrowest it goes to fit over the days already past. */
-export const PLAN_PANEL_MIN_PX = 256
+export const PLAN_PANEL_MIN_PX = 240
+/** The narrowest it goes to fit over the weekend (two columns of the demo board's ~860px Calendar). */
+export const PLAN_PANEL_WEEKEND_MIN_PX = 220
 
 export interface WeekGeometry {
   /** The grid area's width (px), panel not docked. */
@@ -45,18 +48,21 @@ export function planPanelPlacement(
     const width = Math.min(PLAN_PANEL_PX, todayLeft)
     return { side: 'left', left: Math.floor(todayLeft - width), width: Math.floor(width) }
   }
-  const panelLeft = grid.width - PLAN_PANEL_PX
-  const covered = (day: number) => grid.lead + (day + 1) * column > panelLeft
-  return draftDays.some(covered) ? { side: 'docked', width: PLAN_PANEL_PX } : { side: 'right', width: PLAN_PANEL_PX }
+  const weekend = Math.floor(2 * column + grid.trail)
+  const width = Math.min(PLAN_PANEL_PX, Math.max(PLAN_PANEL_WEEKEND_MIN_PX, weekend))
+  // A column is covered if the panel reaches into it (half a pixel of rounding aside).
+  const covered = (day: number) => grid.lead + (day + 1) * column > grid.width - width + 0.5
+  return draftDays.some(covered) ? { side: 'docked', width } : { side: 'right', width }
 }
 
 /**
  * The week grid's geometry inside `area` (the grid and, when docked, the
- * panel), measured while `active` and kept current as it resizes. The hour
- * labels and scrollbar gutter are the same docked or not, so the placement
- * never flips because docking squeezed the days.
+ * panel), measured while `active` and kept current as it or the grid
+ * resizes, and whenever `week` (the days shown) changes. The hour labels and
+ * scrollbar gutter are the same docked or not, so the placement never flips
+ * because docking squeezed the days.
  */
-export function useWeekGeometry(area: RefObject<HTMLElement | null>, active: boolean): WeekGeometry | null {
+export function useWeekGeometry(area: RefObject<HTMLElement | null>, active: boolean, week: string): WeekGeometry | null {
   const [geometry, setGeometry] = useState<WeekGeometry | null>(null)
   useLayoutEffect(() => {
     const el = area.current
@@ -76,7 +82,8 @@ export function useWeekGeometry(area: RefObject<HTMLElement | null>, active: boo
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
+    if (grid) observer.observe(grid)
     return () => observer.disconnect()
-  }, [area, active])
+  }, [area, active, week])
   return active ? geometry : null
 }

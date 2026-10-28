@@ -81,10 +81,19 @@ describe('planRefit', () => {
     ])
   })
 
-  it('says when a block is longer than a day of study time', () => {
+  it('goes over the 2h a day as a last resort, when no day before it is due has room (decision 20)', () => {
+    const revise = item({ id: 'revise', title: 'Revise for the quiz', starts_at: '2026-10-28T12:15:00.000Z', ends_at: '2026-10-28T14:15:00.000Z', duration_min: 120 })
+    // Due Thursday 09:30: only today is before it, and today already has its 2h.
+    const quizPrep = item({ id: 'prep', title: 'Quiz prep', starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z', duration_min: 60, due_at: '2026-10-29T09:30:00.000Z' })
+    const [p] = planRefit([quizPrep], [row(revise)], { now: NOW, timeZone: TZ })
+    // The earliest free slot, 10 minutes after the 2h block, over the budget.
+    expect(p).toMatchObject({ starts_at: '2026-10-28T14:30:00.000Z', ends_at: '2026-10-28T15:30:00.000Z', reason: null })
+  })
+
+  it('a block longer than a day of study time still goes in the earliest free slot', () => {
     const long = item({ id: 'long', title: 'Lab report write-up', starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T12:00:00.000Z', duration_min: 180 })
     const [p] = planRefit([long], [], { now: NOW, timeZone: TZ })
-    expect(p).toMatchObject({ starts_at: null, ends_at: null, reason: 'over-daily-budget' })
+    expect(p).toMatchObject({ starts_at: '2026-10-28T12:00:00.000Z', ends_at: '2026-10-28T15:00:00.000Z', reason: null })
   })
 
   it('fits a to-do still due later before it is due, and says when it cannot', () => {

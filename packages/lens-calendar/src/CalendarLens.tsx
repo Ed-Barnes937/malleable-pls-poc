@@ -153,15 +153,43 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
+  // Open to-dos with no time yet: what Help me plan offers, and what an
+  // Auto-fill ghost's to-do must still be when it is accepted.
+  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
+
+  /**
+   * To-dos being given a time by hand (a suggested slot, a drop, Pick a
+   * time), until the saved block arrives: already on the grid and busy for
+   * Help me plan, and no longer waiting for a time, so an Auto-fill started
+   * meanwhile drafts around them rather than over them.
+   */
+  const [assigning, setAssigning] = useState<ReadonlyMap<string, PlanItemOccurrence>>(new Map())
 
   const items = useMemo(() => {
     const rows = (data ?? []) as PlanItemOccurrence[]
-    if (pending.size === 0) return rows
-    return rows.map((r) => {
+    const moved = pending.size === 0 ? rows : rows.map((r) => {
       const p = pending.get(r.occurrence_key)
       return p && p.basis === r.updated_at ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
     })
-  }, [data, pending])
+    const extra = [...assigning.values()].filter((a) => !moved.some((r) => r.id === a.id && r.starts_at))
+    return extra.length ? [...moved, ...extra] : moved
+  }, [data, pending, assigning])
+
+  // An assignment is done once its block is in the week's rows and the to-do
+  // has left the unscheduled list.
+  useEffect(() => {
+    if (assigning.size === 0 || !data || !todoData) return
+    const shown = (at: string) => Date.parse(at) >= Date.parse(range.from) && Date.parse(at) < Date.parse(range.to)
+    const landed = [...assigning].filter(([id, at]) =>
+      (!shown(at.starts_at!) || (data as PlanItemOccurrence[]).some((r) => r.id === id && r.starts_at != null && Date.parse(r.starts_at) === Date.parse(at.starts_at!)))
+      && !(todoData as PlanItemOccurrence[]).some((t) => t.id === id))
+    if (landed.length === 0) return
+    setAssigning((prev) => {
+      const next = new Map(prev)
+      for (const [id] of landed) next.delete(id)
+      return next
+    })
+  }, [assigning, data, todoData, range])
 
   // Drop overrides once fresher rows arrive.
   useEffect(() => {
@@ -178,10 +206,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     })
   }, [data, pending])
 
-  // Open to-dos with no time yet: what Help me plan offers, and what an
-  // Auto-fill ghost's to-do must still be when it is accepted.
-  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
-  const todos = useMemo(() => (todoData ? (todoData as PlanItemOccurrence[]) : null), [todoData])
+  const todos = useMemo(
+    () => (todoData ? (todoData as PlanItemOccurrence[]).filter((t) => !assigning.has(t.id)) : null),
+    [todoData, assigning],
+  )
 
   /** The block a study block for `taskId` at [start, end) would overlap (commitments and other study time). */
   const clashAt = useCallback(
@@ -244,7 +272,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   // Where the panel floats: over the days already past, else the weekend,
   // never over a draft (see plan-panel.ts).
   const gridAreaRef = useRef<HTMLDivElement>(null)
-  const geometry = useWeekGeometry(gridAreaRef, !!planLayout)
+  const geometry = useWeekGeometry(gridAreaRef, !!planLayout, range.from)
   const pastDays = days.filter((d) => d.getTime() < startOfDay(now).getTime()).length
   const draftDays = layer.proposals
     .filter((p) => !layer.savedIds.has(p.id))
@@ -252,7 +280,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     .filter((i) => i >= 0)
   const placement = geometry ? planPanelPlacement(geometry, pastDays, draftDays) : { side: 'right' as const, width: PLAN_PANEL_PX }
   const thisWeek = startOfWeek(now).getTime()
-  const weekLabel =days[0].getTime() === thisWeek ? 'this week'
+  const weekLabel = days[0].getTime() === thisWeek ? 'this week'
     : days[0].getTime() === addDays(new Date(thisWeek), 7).getTime() ? 'next week' : 'that week'
 
   /**
@@ -264,10 +292,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     const end = start.getTime() + durationMin * 60_000
     const clash = clashAt(todo.id, start.getTime(), end)
     if (clash) throw new ScheduleClash(`"${todo.title}" would overlap ${clash.title} there. Pick a free time.`)
-    await updateItem.mutateAsync({
-      id: todo.id,
-      patch: { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin },
-    })
+    const patch = { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin }
+    const row = todos?.find((t) => t.id === todo.id)
+    if (row) setAssigning((prev) => new Map(prev).set(todo.id, { ...row, ...patch, occurrence_key: todo.id }))
+    try {
+      await updateItem.mutateAsync({ id: todo.id, patch })
+    } catch (e) {
+      setAssigning((prev) => {
+        const next = new Map(prev)
+        next.delete(todo.id)
+        return next
+      })
+      throw e
+    }
   }
 
   const isDimmed = useCallback(

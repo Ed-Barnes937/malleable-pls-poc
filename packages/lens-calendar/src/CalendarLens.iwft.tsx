@@ -607,6 +607,23 @@ test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute o
   expect((await heightOf('Review thirty')) - (await heightOf('Review twenty'))).toBeGreaterThanOrEqual(4)
 })
 
+test("a block straight after a 15-minute one never paints over the short one's title", async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [
+    { id: 'quick', kind: 'task', title: 'Quick check', starts_at: iso(4, 19), ends_at: iso(4, 19, 15), duration_min: 15 },
+    { id: 'next', kind: 'commitment', title: 'Next block', starts_at: iso(4, 19, 15), ends_at: iso(4, 20, 15) },
+  ])
+  await mount(<CalendarHarness />)
+  const title = block(page, 'Quick check').getByTestId('calendar-block-title')
+  await expect(title).toBeVisible()
+  const box = (await title.boundingBox())!
+  // What is drawn at the top and bottom of the title line is the short block itself.
+  for (const y of [box.y + 1, box.y + box.height - 1]) {
+    const owner = await page.evaluate(([x, yy]) => document.elementFromPoint(x, yy)?.closest('[data-testid="calendar-block"]')?.textContent, [box.x + 10, y])
+    expect(owner).toContain('Quick check')
+  }
+})
+
 test("resizing stays within the block's own day", async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)

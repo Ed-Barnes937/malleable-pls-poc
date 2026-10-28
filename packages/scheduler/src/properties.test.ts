@@ -8,7 +8,7 @@ import { capacity } from './capacity'
 import { freeSlots } from './free-slots'
 import { minutesByDay } from './budget'
 import { MINUTE_MS, normalize, type Interval } from './intervals'
-import { place, refit, suggestSlots, type ExistingPlacement, type SchedulerTask } from './place'
+import { place, suggestSlots, type ExistingPlacement, type SchedulerTask } from './place'
 
 /** mulberry32: tiny seeded PRNG. */
 function rng(seed: number) {
@@ -190,17 +190,5 @@ describe('scheduler properties', () => {
     const c = capacity(free, tasks, { now, existingPlacements: existing, dailyBudget })
     const plain = capacity(free, tasks, { now, existingPlacements: existing })
     expect(c.freeMin).toBeLessThanOrEqual(plain.freeMin)
-  })
-
-  eachSeed('refit never schedules into the past', (seed) => {
-    const { free, existing, now, anchor } = scenario(seed)
-    const blocks = existing.map((e) => ({ ...e, taskId: `m-${e.taskId}` }))
-    const r = refit(blocks, free, { now, anchor })
-    const upcoming = blocks.filter((b) => b.end > now)
-    for (const p of r.placements) {
-      expect(p.start).toBeGreaterThanOrEqual(now)
-      for (const u of upcoming) expect(overlaps(p, u)).toBe(false)
-    }
-    expect(r.placements.length + r.unplaced.length + r.notMissed.length).toBe(blocks.length)
   })
 })

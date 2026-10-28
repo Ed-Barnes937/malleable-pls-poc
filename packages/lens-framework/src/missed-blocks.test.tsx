@@ -62,12 +62,7 @@ describe('useMissedBlocks: one preview at a time', () => {
 })
 
 describe('noFitLabel', () => {
-  it("names a block longer than a day's study time in Help me plan's words", () => {
-    expect(noFitLabel(proposal('long', 'chemistry', { starts_at: null, ends_at: null, reason: 'over-daily-budget' })))
-      .toBe('Longer than your 2h a day. It stays on your list.')
-  })
-
-  it('otherwise says there is no free time', () => {
+  it('says there is no free time', () => {
     expect(noFitLabel(proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })))
       .toBe('No free time this week. It stays on your list.')
   })

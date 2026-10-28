@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
-import { DEFAULT_STUDY_MIN_PER_DAY, formatMinutes, type RefitProposal } from '@pls/substrate'
+import type { RefitProposal } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from './substrate-context'
 
 /**
@@ -30,13 +30,8 @@ function noFitWhen(p: RefitProposal): 'before it is due' | 'this week' {
   return dueAhead ? 'before it is due' : 'this week'
 }
 
-/**
- * "No free time before it is due. It stays on your list." A block longer than
- * a day's study time (re-fit keeps to Help me plan's 2h a day) says so, in
- * Help me plan's words.
- */
+/** "No free time before it is due. It stays on your list." */
 export function noFitLabel(p: RefitProposal): string {
-  if (p.reason === 'over-daily-budget') return `Longer than your ${formatMinutes(DEFAULT_STUDY_MIN_PER_DAY)} a day. It stays on your list.`
   return `No free time ${noFitWhen(p)}. It stays on your list.`
 }
 
