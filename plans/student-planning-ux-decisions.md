@@ -36,3 +36,5 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 ## 2026-10-28 (Ed, from the pass-1 rehearsal)
 18. The app follows the confused-to-calendar ripple: when a review is placed, the board scrolls so the Calendar block (or the To-do row) is in view as the card lands, and the card starts from the moment's visible position. Works for any layout.
 19. Mid-week, the floating Plan your time panel covers days already past (e.g. Mon-Tue on a Wednesday), falling back to the weekend early in the week.
+20. (Ed) Re-fit goes over the daily budget as a last resort, same rule as confusion reviews (decision 11): respect the cap when any day before the deadline has room, otherwise the earliest free slot before it is due.
+21. (Orchestrator, cheap to reverse) At 1440x900 with the Transcript below the Calendar, when the review block and the moment's chip can't both be on screen, the ripple shows the block; the chip stays visible inside the Transcript list.
