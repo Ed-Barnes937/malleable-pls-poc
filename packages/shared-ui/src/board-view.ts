@@ -15,7 +15,11 @@ const SCROLL_KEYS: Record<string, number> = { ArrowUp: -1, ArrowDown: 1, PageUp:
 
 const BOARD = '[data-canvas-scroll]'
 
-let lastUserScroll = -Infinity
+/**
+ * How many scrolls of the board the student has made: a count, not a time,
+ * so "since" holds whatever the clock does (a page with a frozen clock).
+ */
+let userScrolls_ = 0
 let watching = false
 let touchY: number | null = null
 /** The board's own smooth scroll in flight (`showOnBoard`), and when it is done by. */
@@ -49,7 +53,7 @@ function scrollsBoard(target: EventTarget | null, dy: number): HTMLElement | nul
  */
 function userScrolls(board: HTMLElement | null, wheelBy = 0) {
   if (!board) return
-  lastUserScroll = performance.now()
+  userScrolls_++
   const gliding = glide?.scroller === board && performance.now() < glide.until && Math.abs(board.scrollTop - glide.target) > 1
   if (gliding) board.scrollTo({ top: board.scrollTop + wheelBy, behavior: 'instant' })
   glide = null
@@ -90,7 +94,8 @@ function onKey(e: KeyboardEvent) {
 
 /**
  * Starts noting the student's own scrolling of the board (wheel, touch,
- * scroll keys) and returns now, to pass to `userScrolledSince` later. A
+ * scroll keys) and returns a mark of now, to pass to `userScrolledSince`
+ * later (marks only compare with each other, earlier being smaller). A
  * scroll a list inside a widget takes (the transcript, the calendar grid)
  * doesn't count; neither does dragging the scrollbar, which no event tells
  * apart from ours. Safe to call often.
@@ -103,12 +108,12 @@ export function watchUserScroll(): number {
     document.addEventListener('touchmove', onTouchMove, { capture: true, passive: true })
     document.addEventListener('keydown', onKey, { capture: true })
   }
-  return performance.now()
+  return userScrolls_
 }
 
 /** The student has scrolled the board since `since` (from `watchUserScroll`). */
 export function userScrolledSince(since: number): boolean {
-  return lastUserScroll >= since
+  return userScrolls_ > since
 }
 
 /** A vertical extent in viewport pixels, e.g. from `getBoundingClientRect()`. */

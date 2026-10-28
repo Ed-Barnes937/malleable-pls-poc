@@ -60,7 +60,7 @@ export interface TimeGridProps {
 export interface Reveal {
   id: string
   requestId: number
-  /** Board scrolls by the student after this (`watchUserScroll` time) win over ours. */
+  /** Board scrolls by the student after this (a `watchUserScroll` mark) win over ours. */
   requestedAt?: number
   /** Kept in view with the block when both fit (e.g. the moment it came from). */
   keepInView?: Element | null

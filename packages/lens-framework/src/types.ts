@@ -98,7 +98,7 @@ export interface PlanItemRef {
    */
   landsInMs?: number
   /**
-   * The student's own board scrolling since this time (`watchUserScroll`,
+   * The student's own board scrolling since this mark (`watchUserScroll`,
    * e.g. when they marked the moment) leaves the board where they put it.
    * Defaults to the time of the request.
    */
@@ -113,7 +113,7 @@ export interface PlanItemRef {
 export interface FocusedPlanItem extends PlanItemRef {
   requestId: number
   /**
-   * When it was asked for (`watchUserScroll()` time), or `scrolledSince`
+   * When it was asked for (a `watchUserScroll()` mark), or `scrolledSince`
    * when earlier: if the student scrolls the board after this, the viewer
    * leaves the board where they put it.
    */

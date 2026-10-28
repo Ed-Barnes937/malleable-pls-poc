@@ -96,7 +96,7 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
   review: PlanItemOccurrence
   recordingTitle: string
   reducedMotion: boolean
-  /** When the student last marked a moment (`watchUserScroll` time): their own scrolling since then wins. */
+  /** When the student last marked a moment (a `watchUserScroll` mark): their own scrolling since then wins. */
   markedAt: number | null
   onShowPlanItem?: LensProps['onShowPlanItem']
   onDone: (id: string) => void
