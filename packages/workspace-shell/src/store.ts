@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { FocusedMoment, FocusedPlanItem, Moment, PlanItemRef } from '@pls/lens-framework'
+import { watchUserScroll } from '@pls/shared-ui'
 
 interface WorkspaceUIState {
   activeWorkspaceId: string
@@ -41,7 +42,10 @@ export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
   clearMoment: (id) => set((s) => (s.focusedMoment?.id === id ? { focusedMoment: null } : s)),
 
   focusedPlanItem: null,
-  focusPlanItem: (item) => set({ focusedPlanItem: { ...item, requestId: ++nextPlanItemRequest } }),
+  focusPlanItem: (item) => {
+    const now = watchUserScroll()
+    set({ focusedPlanItem: { ...item, requestId: ++nextPlanItemRequest, requestedAt: Math.min(now, item.scrolledSince ?? now) } })
+  },
   clearPlanItem: (requestId) =>
     set((s) => (s.focusedPlanItem?.requestId === requestId ? { focusedPlanItem: null } : s)),
 }))

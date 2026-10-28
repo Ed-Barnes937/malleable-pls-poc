@@ -3,7 +3,7 @@ import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrenc
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
-import { TimeGrid, type Anchor } from './TimeGrid'
+import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
@@ -136,7 +136,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
   // A block another widget asked to show ("See it" on a new review): open
   // its week (or day), then the grid scrolls to it and it glows once.
-  const [reveal, setReveal] = useState<{ id: string; requestId: number } | null>(null)
+  const [reveal, setReveal] = useState<Reveal | null>(null)
   useEffect(() => {
     if (!focusedPlanItem) return
     const day = startOfDay(new Date(focusedPlanItem.startsAt))
@@ -145,7 +145,13 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       const until = view === 'day' ? addDays(current, 1) : addDays(startOfWeek(current), 7)
       return day >= shown && day < until ? current : day
     })
-    setReveal({ id: focusedPlanItem.id, requestId: focusedPlanItem.requestId })
+    setReveal({
+      id: focusedPlanItem.id,
+      requestId: focusedPlanItem.requestId,
+      requestedAt: focusedPlanItem.requestedAt,
+      keepInView: focusedPlanItem.keepInView,
+      landsInMs: focusedPlanItem.landsInMs,
+    })
     onPlanItemShown?.(focusedPlanItem.requestId)
   }, [focusedPlanItem, onPlanItemShown, view])
 
@@ -525,6 +531,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           isDimmed={isDimmed}
           isLinked={isLinked}
           activeKey={popover?.mode === 'edit' ? popover.key : undefined}
+          popoverOpen={!!popover}
           onCreate={handleCreate}
           onOpen={handleOpen}
           onMove={handleMove}

@@ -107,6 +107,35 @@ test.describe('First run on an empty board', () => {
     await expect(grid.emptyState).toBeHidden()
   })
 
+  test('the "added" toast sits in a bar under the board, covering no widget, and the keyboard reaches it', async ({ page }) => {
+    const { grid } = await newBoard(page)
+    await grid.starter('Plan my time').click()
+    await grid.expectPanelCount(3)
+    const host = page.getByTestId('toast-host')
+    await expect(host).toContainText('Calendar, To-do and Coming up added')
+    await expect(host).toHaveAttribute('data-layout', 'bar')
+    await expect(host).toHaveAttribute('aria-live', 'polite')
+    const toast = (await host.getByTestId('toast').boundingBox())!
+    // At the right, under the board: the board ends where the bar starts.
+    const board = (await grid.root.boundingBox())!
+    expect(board.y + board.height).toBeLessThanOrEqual(toast.y + 1)
+    expect(toast.x + toast.width).toBeGreaterThan(1440 - 40)
+    expect(toast.y + toast.height).toBeLessThanOrEqual(900)
+    // What shows of each widget (the board clips one that runs below its fold) stays clear of the toast.
+    for (const panel of await grid.panels.all()) {
+      const p = (await panel.boundingBox())!
+      const bottom = Math.min(p.y + p.height, board.y + board.height)
+      expect(overlaps({ ...p, height: Math.max(0, bottom - p.y) }, toast)).toBe(false)
+    }
+    // Reachable from the keyboard.
+    const dismiss = host.getByRole('button', { name: 'Dismiss' })
+    await dismiss.focus()
+    await page.keyboard.press('Enter')
+    await expect(host.getByTestId('toast')).toHaveCount(0)
+    // With nothing to say, the bar takes no room.
+    await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
+  })
+
   test('a starter that fails says so once and comes back', async ({ page }) => {
     const { grid } = await newBoard(page)
     await page.route('**/workspaces.addPanel**', (route) => route.fulfill({ status: 500, body: 'down' }))

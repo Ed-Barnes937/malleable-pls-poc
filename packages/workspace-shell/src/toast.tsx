@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { createPortal } from 'react-dom'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
@@ -93,13 +92,13 @@ export const useToastStore = create<ToastState>((set, get) => {
 })
 
 /**
- * Toasts, bottom right. On a phone they sit in a bar under the board instead,
- * which makes room for them rather than covering the bottom of the board (a
- * "Back to My week" toast stays until dismissed). Render it last in the
- * page's full-height column. The live region is always mounted (empty, and
- * no height, when there is nothing to say), so a screen reader announces the
- * first toast too. A toast stops counting down while the pointer or focus is
- * on it.
+ * Toasts sit in a bar under the board, which makes room for them rather than
+ * covering the widgets at the bottom of the board (a "Back to My week" toast
+ * stays until dismissed): full width on a phone, at the right on a wider
+ * screen. Render it last in the page's full-height column. The live region
+ * is always mounted (empty, and no height, when there is nothing to say), so
+ * a screen reader announces the first toast too. A toast stops counting down
+ * while the pointer or focus is on it.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
@@ -113,18 +112,18 @@ export function ToastHost() {
     for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
   }, [toasts, activeBoard, dismiss])
 
-  const host = (
+  return (
     <section aria-label="Notifications" className="contents">
       <div
         role="status"
         aria-live="polite"
         data-testid="toast-host"
-        data-layout={narrow ? 'bar' : 'float'}
-        className={
-          narrow
-            ? cn('flex shrink-0 flex-col gap-2', toasts.length > 0 && 'px-3 pt-2 pb-3')
-            : 'fixed bottom-4 right-4 z-[20000] flex flex-col items-end gap-2'
-        }
+        data-layout="bar"
+        className={cn(
+          'flex shrink-0 gap-2',
+          narrow ? 'flex-col' : 'flex-wrap-reverse items-center justify-end',
+          toasts.length > 0 && (narrow ? 'px-3 pt-2 pb-3' : 'px-5 pt-2 pb-3'),
+        )}
       >
         {toasts.map((toast) => {
           const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
@@ -143,7 +142,7 @@ export function ToastHost() {
                 'flex items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
                 // A phone's narrow bar: the message keeps a readable width and
                 // the action (with the dismiss) drops under it when it must.
-                narrow ? 'flex-wrap gap-y-1 py-2 pr-2 pl-3.5' : 'py-3 pr-3 pl-4 shadow-pop',
+                narrow ? 'flex-wrap gap-y-1 py-2 pr-2 pl-3.5' : 'py-2.5 pr-3 pl-4 shadow-pop',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
@@ -179,5 +178,4 @@ export function ToastHost() {
       </div>
     </section>
   )
-  return narrow ? host : createPortal(host, document.body)
 }

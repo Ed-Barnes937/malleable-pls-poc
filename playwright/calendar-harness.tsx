@@ -61,7 +61,7 @@ export function CalendarHarness({
           key={item.id}
           type="button"
           onClick={() => {
-            setFocused({ ...item, requestId: nextRequest })
+            setFocused({ ...item, requestId: nextRequest, requestedAt: performance.now() })
             setNextRequest((n) => n + 1)
           }}
         >

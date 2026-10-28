@@ -31,6 +31,7 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, o
   return (
     <li
       data-testid="todo-item"
+      data-plan-item-id={item.id}
       data-highlighted={highlighted || undefined}
       data-just-done={justDone ? (justDone.fading ? 'fading' : 'shown') : undefined}
       data-fresh={fresh || undefined}
