@@ -94,11 +94,20 @@ function TodayLineText({ options, strong, className, textClassName }: {
       return copies.findIndex((el) => (el?.offsetWidth ?? Infinity) <= room)
     }
     // Before the first paint (a layout effect's update is synchronous).
-    setFit(fitNow())
-    // A resize is seen after layout, before paint: commit the new fit in that
-    // same frame (flushSync), or React renders it a task later and the
-    // clipped line can show for a frame or more on a busy machine.
-    const refit = () => flushSync(() => setFit(fitNow()))
+    let shown = fitNow()
+    setFit(shown)
+    // A resize is seen after layout, before paint: commit a changed fit in
+    // that same frame (flushSync), or React renders it a task later and the
+    // clipped line can show for a frame or more on a busy machine. Only a
+    // change needs it: a flushSync that renders nothing new, as in the
+    // observer's initial callback, only trips the browser's "ResizeObserver
+    // loop completed with undelivered notifications" error.
+    const refit = () => {
+      const next = fitNow()
+      if (next === shown) return
+      shown = next
+      flushSync(() => setFit(next))
+    }
     // The copies change size when the web font swaps in, the box when the bar does.
     const observer = new ResizeObserver(refit)
     for (const el of [box, ...copies]) if (el) observer.observe(el)

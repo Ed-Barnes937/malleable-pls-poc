@@ -323,6 +323,52 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
 })
 
+test('while a save is pending the popover fields are read-only, still legible, and take no edits', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  // Registered after the simulator's route, so it wins for updates only.
+  await page.route('**/planItems.update**', async (route) => {
+    await held
+    await route.fallback()
+  })
+  await block(page, 'Biology lecture').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByLabel('Start time').fill('11:00')
+  await popover.getByRole('button', { name: 'Save' }).click()
+  await expect(popover.getByRole('button', { name: 'Saving...' })).toHaveAttribute('aria-busy', 'true')
+
+  const title = popover.getByLabel('Title')
+  const start = popover.getByLabel('Start time')
+  const course = popover.getByLabel('Course', { exact: true })
+  const weekly = popover.getByRole('checkbox', { name: 'Repeats weekly' })
+  for (const field of [title, start, popover.getByLabel('End time'), popover.getByLabel('Date')]) {
+    await expect(field).toHaveJSProperty('readOnly', true)
+    await expect(field).toBeEnabled()
+    // Not greyed out: still legible.
+    await expect(field).toHaveCSS('opacity', '1')
+  }
+  await expect(course).toHaveAttribute('aria-readonly', 'true')
+  await expect(weekly).toHaveAttribute('aria-readonly', 'true')
+
+  // Typing and picking do nothing.
+  await title.focus()
+  await page.keyboard.type('Zzz')
+  await expect(title).toHaveValue('Biology lecture')
+  await expect(title).toBeFocused()
+  await course.selectOption('physics')
+  await expect(course).toHaveValue('biology')
+  await weekly.click()
+  await expect(weekly).toBeChecked()
+  await expect(start).toHaveValue('11:00')
+
+  release()
+  await expect(popover).toHaveCount(0)
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.starts_at).toBe(iso(0, 11))
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.title).toBe('Biology lecture')
+})
+
 test('a block from a lecture moment leads with where it came from', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)

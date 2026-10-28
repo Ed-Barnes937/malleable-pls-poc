@@ -145,6 +145,31 @@ test.describe('The today line', () => {
     await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
   })
 
+  test('the today line raises no ResizeObserver loop error while the window is resized through every layout', async ({ page }) => {
+    await reseed({ now: TUESDAY })
+    await page.clock.setFixedTime(TUESDAY)
+    // The browser reports this one as a window `error` event that Playwright's
+    // `pageerror` does not surface, so count them in the page.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __roErrors: string[] }
+      w.__roErrors = []
+      window.addEventListener('error', (e) => { w.__roErrors.push(e.message) })
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.todayLine).toBeAttached()
+
+    // Down into the phone layout (where the line mounts) and back up, twice.
+    for (const width of [1440, 900, 400, 360, 639, 640, 1279, 1280, 1440, 400, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      // Let layout, the observers and paint run before the next size.
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))))
+    }
+    const errors = await page.evaluate(() => (window as unknown as { __roErrors: string[] }).__roErrors)
+    expect(errors.filter((m) => m.includes('ResizeObserver loop'))).toEqual([])
+  })
+
   test('drops the weekday, then steps aside, rather than cutting off when the bar is crowded', async ({ page }) => {
     await reseed({ now: TUESDAY })
     await page.clock.setFixedTime(TUESDAY)

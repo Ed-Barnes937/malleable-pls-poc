@@ -47,7 +47,17 @@ export function EventPopover({
 
   useEscapeToClose(onClose)
 
-  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
+  // While a save is in flight the fields stay readable and focusable but
+  // refuse edits: they would be lost when the save closes the popover.
+  const locked = !!busy
+  const set = (patch: Partial<Draft>) => {
+    if (locked) return
+    setDraft((d) => ({ ...d, ...patch }))
+  }
+  /** Props that make a native select/checkbox refuse changes without greying it out. */
+  const lockProps = locked
+    ? { 'aria-readonly': true as const, onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
+    : {}
   const setDate = (value: string) => {
     const start = fromInputs(value, toTimeInput(draft.start))
     const end = fromInputs(value, toTimeInput(draft.end))
@@ -88,6 +98,7 @@ export function EventPopover({
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}
           disabled={!canEdit}
+          readOnly={locked}
           onChange={(e) => set({ title: e.target.value })}
           className="border-transparent bg-transparent px-0 text-title font-semibold text-text-primary focus:border-transparent focus:ring-0"
         />
@@ -109,6 +120,7 @@ export function EventPopover({
               type="button"
               role="radio"
               aria-checked={draft.kind === kind}
+              aria-disabled={locked || undefined}
               onClick={() => set({ kind })}
               className={cn(
                 'rounded-item px-1.5 py-1.5 text-meta leading-tight transition-colors',
@@ -130,18 +142,18 @@ export function EventPopover({
         <div className="grid grid-cols-2 gap-2">
           <label className={cn('min-w-0', !isDue && 'col-span-2')}>
             <span className={fieldLabel}>{isDue ? 'Due' : 'Day'}</span>
-            <TextField type="date" aria-label="Date" value={toDateInput(draft.start)} disabled={!canEdit} onChange={(e) => setDate(e.target.value)} />
+            <TextField type="date" aria-label="Date" value={toDateInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label className="min-w-0">
             <span className={fieldLabel}>{isDue ? 'At' : 'From'}</span>
-            <TextField type="time" aria-label={isDue ? 'Due time' : 'Start time'} step={900} value={toTimeInput(draft.start)} disabled={!canEdit} onChange={(e) => setTime('start', e.target.value)} />
+            <TextField type="time" aria-label={isDue ? 'Due time' : 'Start time'} step={900} value={toTimeInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('start', e.target.value)} />
           </label>
           {!isDue && (
             <label className="min-w-0">
               <span className={fieldLabel}>
                 To{length > 0 && <span className="ml-1 font-normal">· {formatDuration(length)}</span>}
               </span>
-              <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} onChange={(e) => setTime('end', e.target.value)} />
+              <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('end', e.target.value)} />
             </label>
           )}
         </div>
@@ -150,7 +162,7 @@ export function EventPopover({
       <div className="flex items-end gap-2">
         <label className="min-w-0 flex-1">
           <span className={fieldLabel}>Course</span>
-          <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} onChange={(e) => set({ course: e.target.value || null })}>
+          <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} {...lockProps} onChange={(e) => set({ course: e.target.value || null })}>
             <option value="">No course</option>
             {COURSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </Select>
@@ -161,6 +173,7 @@ export function EventPopover({
               type="checkbox"
               checked={draft.repeatsWeekly}
               disabled={!canEdit}
+              {...lockProps}
               onChange={(e) => set({ repeatsWeekly: e.target.checked })}
               className="h-3.5 w-3.5 accent-[var(--color-accent)]"
             />
