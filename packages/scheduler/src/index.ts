@@ -3,14 +3,11 @@ export { parseTimeOfDay, startOfLocalDay, wallClock, zonedTimeToUtc, type WallCl
 export { DEFAULT_FREE_SLOT_PREFS, dayWindows, freeSlots, type FreeSlotPrefs } from './free-slots'
 export {
   place,
-  refit,
   suggestSlots,
   type ExistingPlacement,
-  type MissedBlock,
   type PlaceOptions,
   type PlaceResult,
   type Placement,
-  type RefitResult,
   type SchedulerTask,
   type Unplaced,
   type UnplacedReason,

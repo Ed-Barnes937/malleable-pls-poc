@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { freeSlots } from './free-slots'
-import { place, refit, suggestSlots, type SchedulerTask } from './place'
+import { place, suggestSlots, type SchedulerTask } from './place'
 
 const at = (iso: string) => Date.parse(iso)
 const iv = (a: string, b: string) => ({ start: at(a), end: at(b) })
@@ -301,71 +301,5 @@ describe('suggestSlots', () => {
 
   it('validates options', () => {
     expect(() => suggestSlots({ id: 't', durationMin: 60 }, slots, 1, { now: NaN })).toThrow(RangeError)
-  })
-})
-
-describe('refit', () => {
-  const now = at('2026-10-28T12:05:00Z') // Wednesday
-  const slots = freeSlots([], week)
-
-  it('re-places only blocks that already ended, oldest first, from now', () => {
-    const r = refit(
-      [
-        block('tue', '2026-10-27T18:00:00Z', '2026-10-27T18:30:00Z'),
-        block('mon', '2026-10-26T18:00:00Z', '2026-10-26T19:00:00Z'),
-        block('soon', '2026-10-28T12:00:00Z', '2026-10-28T13:00:00Z'), // still running
-      ],
-      slots,
-      { now },
-    )
-    // 'soon' is in progress: it stays put and nothing is re-fit on top of it.
-    expect(r.notMissed).toEqual(['soon'])
-    expect(r.placements).toEqual([
-      block('mon', '2026-10-28T13:00:00Z', '2026-10-28T14:00:00Z'),
-      block('tue', '2026-10-28T14:00:00Z', '2026-10-28T14:30:00Z'),
-    ])
-    expect(r.unplaced).toEqual([])
-  })
-
-  it('treats upcoming blocks as busy, even ones sharing a task id with a missed block', () => {
-    const r = refit(
-      [
-        block('a', '2026-10-28T09:00:00Z', '2026-10-28T10:00:00Z'),
-        block('a', '2026-10-28T12:15:00Z', '2026-10-28T13:15:00Z'), // a second, upcoming block
-        block('b', '2026-10-28T13:15:00Z', '2026-10-28T14:00:00Z'),
-      ],
-      slots,
-      { now, existingPlacements: [block('x', '2026-10-28T14:00:00Z', '2026-10-28T14:30:00Z')] },
-    )
-    expect(r.notMissed).toEqual(['a', 'b'])
-    expect(r.placements).toEqual([block('a', '2026-10-28T14:30:00Z', '2026-10-28T15:30:00Z')])
-  })
-
-  it('honours anchor "latest"', () => {
-    const r = refit(
-      [{ ...block('a', '2026-10-27T09:00:00Z', '2026-10-27T10:00:00Z'), latest: at('2026-10-29T12:00:00Z') }],
-      slots,
-      { now, anchor: 'latest' },
-    )
-    expect(r.placements).toEqual([block('a', '2026-10-29T11:00:00Z', '2026-10-29T12:00:00Z')])
-  })
-
-  it('uses durationMin when given and carries the deadline over', () => {
-    const r = refit(
-      [
-        { ...block('short', '2026-10-27T10:00:00Z', '2026-10-27T11:00:00Z'), durationMin: 20 },
-        { ...block('late', '2026-10-27T12:00:00Z', '2026-10-27T13:00:00Z'), latest: at('2026-10-28T12:30:00Z') },
-      ],
-      slots,
-      { now },
-    )
-    expect(r.placements).toEqual([block('short', '2026-10-28T12:15:00Z', '2026-10-28T12:35:00Z')])
-    expect(r.unplaced).toEqual([{ taskId: 'late', reason: 'window-closed' }])
-  })
-
-  it('treats a block ending exactly at now as missed', () => {
-    const r = refit([block('a', '2026-10-28T11:00:00Z', '2026-10-28T12:05:00Z')], slots, { now })
-    expect(r.notMissed).toEqual([])
-    expect(r.placements).toHaveLength(1)
   })
 })

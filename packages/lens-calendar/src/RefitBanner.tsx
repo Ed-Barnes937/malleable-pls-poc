@@ -139,6 +139,7 @@ export function RefitBanner({
   useEffect(() => {
     if (!session || previewing || stale) return
     missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
+    missed.endPreview()
     if (moved > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
     setSession(null)
     setChanged(false)
@@ -190,6 +191,8 @@ export function RefitBanner({
     reset()
     setSession({ asked: current, noFit })
     layer.propose(REFIT_SOURCE, fits.map(toProposal))
+    // The To-do stops asking about these while their new times show here.
+    missed.startPreview(current)
     onReveal(fits[0].starts_at!)
   }
 

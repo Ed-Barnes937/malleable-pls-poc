@@ -88,7 +88,13 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await expect(draft.getByTestId('autofill-trim')).toHaveCount(1, { timeout: 15000 })
     await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) is too long for one day.')
     await draft.getByRole('button', { name: 'Shrink to 2h' }).click()
-    await expect(draft.getByTestId('autofill-summary')).toHaveText(/^Drafted .+ of study time\. .+ didn't fit\.( The other .+ of free time is in gaps too short for it\.)?$/)
+    await expect(draft.getByTestId('autofill-summary')).toHaveText(/^Drafted .+ of study time\. .+ didn't fit\./)
+    // The short-gaps sentence agrees in number with the to-dos that didn't fit.
+    const didntFit = await draft.getByRole('button', { name: /^Pick a time for / }).count()
+    expect(didntFit).toBeGreaterThan(0)
+    await expect(draft.getByTestId('autofill-summary')).toHaveText(
+      new RegExp(`^Drafted .+ of study time\\. .+ didn't fit\\.( The other .+ of free time is in gaps too short for ${didntFit === 1 ? 'it' : 'them'}\\.)?$`),
+    )
     await plan.getByRole('button', { name: 'Accept draft' }).click()
     await expect(calendar.block('Lab report write-up')).toHaveCount(1)
     await plan.getByRole('button', { name: /close/i }).first().click()
@@ -235,14 +241,23 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const banner = todo.getByTestId('refit-banner')
     await expect(banner).toContainText(/\d+ blocks didn't happen\. Re-fit them\?/, { timeout: 10000 })
     await banner.getByRole('button', { name: 'Re-fit' }).click()
+    const proposals = banner.getByTestId('refit-proposal')
     for (const title of ['Read lecture notes: cell division', 'Practice questions: cell structure']) {
-      await expect(banner.getByTestId('refit-proposal').filter({ hasText: title })).toHaveCount(1)
+      // The seeded two always get a new time.
+      await expect(proposals.filter({ hasText: title })).toHaveCount(1)
+      await expect(proposals.filter({ hasText: title })).not.toContainText('It stays on your list.')
     }
     const missedBefore = (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))
       .filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     expect(missedBefore).toHaveLength(2)
+    // On the real clock, an accepted block that has passed too may have no
+    // room before it is due at 2h a day: the note then says so.
+    const noFit = await proposals.filter({ hasText: 'It stays on your list.' }).count()
+    const moved = (await proposals.count()) - noFit
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(todo.getByRole('status')).toHaveText(/^Moved \d+ blocks\. They're in your calendar\.$/)
+    await expect(todo.getByRole('status')).toHaveText(new RegExp(
+      `^Moved ${moved} blocks\\. They're in your calendar\\.${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}$`,
+    ))
     const missedAfter = (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))
       .filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     for (const item of missedAfter) {

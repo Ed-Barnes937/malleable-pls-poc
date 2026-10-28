@@ -56,7 +56,10 @@ export function chooseMomentBoard(
   return [...viewers].sort((a, b) => rank(a) - rank(b))[0]?.id
 }
 
-/** "Opened 1:18 in In Lecture": the toast after a moment opened on another board. */
+/**
+ * "Opened 1:18 in In Lecture": the toast after a moment opened on another
+ * board, or, by the lecture's title, in another lecture on this board.
+ */
 export function openedElsewhereMessage(offsetMs: number, boardName: string): string {
   return `Opened ${formatTime(offsetMs)} in ${boardName}`
 }
@@ -68,7 +71,9 @@ export function openedElsewhereMessage(offsetMs: number, boardName: string): str
  *
  * Shown on the active board when it has a moment viewer. Otherwise it
  * switches to the best board that has one (see `chooseMomentBoard`) and says
- * so in a toast that offers the way back.
+ * so in a toast that offers the way back. Showing a moment from another
+ * lecture than the board was focused on switches the board's lecture (its
+ * "Showing" focus), so that says so too, with a way back to the lecture.
  */
 export function useShowMoment(
   activeWorkspaceId: string,
@@ -85,6 +90,18 @@ export function useShowMoment(
     (workspaceId: string, recordingId: string) =>
       setScope({ workspaceId, scopeType: SCOPE_TYPE_BY_DIM.recordingId, scopeValue: recordingId }),
     [setScope],
+  )
+  const lectureShown = useCallback(
+    async (workspaceId: string) => {
+      const scopes = await utils.workspaces.scopes.fetch(workspaceId)
+      return decodeScope(scopes as unknown as { scope_type: string; scope_value: string }[]).recordingId
+    },
+    [utils],
+  )
+  /** A lecture's title, or undefined if it can't be read just now (the toast still says what happened). */
+  const lectureTitle = useCallback(
+    (recordingId: string) => utils.recordings.byId.fetch(recordingId).then((r) => r?.title, () => undefined),
+    [utils],
   )
 
   return useCallback(
@@ -120,6 +137,9 @@ export function useShowMoment(
 
       const workspaceId = target?.id ?? activeWorkspaceId
       const switching = workspaceId !== activeWorkspaceId
+      // On this board, the lecture it was showing (if another), for the way back.
+      const previous = switching ? undefined : await lectureShown(workspaceId)
+      const leaving = previous && previous !== moment.recordingId ? previous : undefined
       // Publish first: a viewer acts once its focused recording matches. On
       // another board, focus goes to the moment too (the widget that asked
       // is no longer on screen).
@@ -144,8 +164,25 @@ export function useShowMoment(
         })
       }
       await focusRecording(workspaceId, moment.recordingId)
+      if (leaving) {
+        // The board's lecture changed under the student (e.g. a weak topic
+        // from another lecture): say so, and offer the lecture it showed.
+        const [to, from] = await Promise.all([lectureTitle(moment.recordingId), lectureTitle(leaving)])
+        pushToast({
+          message: openedElsewhereMessage(moment.offsetMs, to ?? 'another lecture'),
+          tone: 'success',
+          icon: AudioLines,
+          key: 'moment-opened',
+          board: workspaceId,
+          action: {
+            label: from ? `Back to ${from}` : 'Back to the last lecture',
+            icon: ChevronLeft,
+            onClick: () => void focusRecording(workspaceId, leaving),
+          },
+        })
+      }
       return 'shown'
     },
-    [activeWorkspaceId, activeLensTypes, manifests, utils, focusMoment, setActiveWorkspaceId, focusRecording, pushToast],
+    [activeWorkspaceId, activeLensTypes, manifests, utils, focusMoment, setActiveWorkspaceId, focusRecording, pushToast, lectureShown, lectureTitle],
   )
 }

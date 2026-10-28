@@ -37,7 +37,6 @@ never moved.
 | `place(tasks, freeSlots, { now, existingPlacements?, policy?, anchor?, alignMin?, gapMin?, dailyBudget? })` | One contiguous block per task, earliest-fit (or latest-fit with `anchor: 'latest'`). Returns `{ placements, unplaced: [{ taskId, reason }] }`. |
 | `suggestSlots(task, freeSlots, n, { now, existingPlacements?, anchor?, alignMin?, gapMin?, dailyBudget? })` | Up to `n` candidate blocks, one per separate free gap, in the anchor's preference order (the first is where `place` would put it). |
 | `capacity(freeSlots, tasks, { now, existingPlacements?, dailyBudget? })` | `{ freeMin, neededMin, shortfallMin, spareMin, fits }`. Free time before `now` is not counted, so a whole week's `freeSlots` is fine mid-week. With a budget, each day counts at most what is left of it. |
-| `refit(blocks, freeSlots, { now, ... })` | Re-places blocks that ended before `now` (the caller says which were not done). Blocks that have not ended stay put and count as busy. Returns `place`'s result plus `notMissed`. |
 | `splitByLocalDay(intervals, timeZone)`, `minutesByDay(intervals, timeZone)` | Intervals cut at local midnight / minutes per local day (keyed by local midnight), DST-safe. |
 | `startOfLocalDay(instant, timeZone, addDays?)` | Local midnight, e.g. "by end of tomorrow" = `startOfLocalDay(now, tz, 2)`. |
 | `normalize`, `subtract`, `totalMinutes`, `dayWindows`, `zonedTimeToUtc`, `wallClock` | Building blocks, exported for UIs. |
@@ -94,7 +93,7 @@ outside a window). Use `place` for the truth and `capacity` for the copy.
 ## Examples
 
 ```ts
-import { capacity, freeSlots, place, refit, startOfLocalDay, suggestSlots } from '@pls/scheduler'
+import { capacity, freeSlots, place, startOfLocalDay, suggestSlots } from '@pls/scheduler'
 
 const tz = 'Europe/London'
 const week = { start: weekStart.getTime(), end: weekEnd.getTime() }
@@ -124,11 +123,6 @@ const c = capacity(free, todos, { now, existingPlacements: acceptedBlocks, daily
 const options = suggestSlots(todo, free, 3, { now, existingPlacements: acceptedBlocks, ...rules })
 const ghosts = place(aiRankedTodos, free, { now, existingPlacements: acceptedBlocks, ...rules })
 
-// T10: re-fit blocks that were not done; any that have not ended yet stay put and are busy.
-const refitted = refit(notDoneBlocks, freeSlots(commitments, { start: now, end: week.end }), {
-  now,
-  existingPlacements: acceptedBlocks,
-})
 ```
 
 `src/demo-week.test.ts` runs these scenarios against the demo week.

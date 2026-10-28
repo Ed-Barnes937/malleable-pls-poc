@@ -93,8 +93,22 @@ export function gridScrollFor(
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
-/** Smallest block height: enough for one line of title. */
-const MIN_BLOCK_PX = 22
+/**
+ * Blocks are drawn to scale, so a 30-minute block is visibly longer than a
+ * 20-minute one; nothing shorter than this many minutes' worth, though.
+ */
+const MIN_BLOCK_MIN = 15
+/**
+ * Shorter than this, a block is one compact line: its title, which may
+ * overhang the box by a pixel or two and is drawn above the blocks around it,
+ * so the next block never paints over it.
+ */
+const COMPACT_BLOCK_PX = 18
+
+/** A block's height on the grid: proportional to its length, with a 2px gap below. */
+function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
+  return (Math.max(MIN_BLOCK_MIN, seg.endMin - seg.startMin) / 60) * hourPx - 2
+}
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
 /** Tall enough for a free gap's "1h 30m free" label. */
@@ -326,6 +340,10 @@ export function TimeGrid({
     if (!drag.moved) {
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
       if (!ghost) onOpen(drag.item, anchor)
+      // A tap or click selects it instead: focused, its buttons show (on a
+      // short ghost they are hidden until then, and touch has no hover).
+      // After the click that follows, which would otherwise take focus away.
+      else requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
       return
     }
     if (!isMovable(drag.item)) return
@@ -384,6 +402,7 @@ export function TimeGrid({
               <div
                 key={day.toISOString()}
                 data-testid="calendar-day-header"
+                data-day-column
                 className={cn(
                   // Narrow columns (phone) stack the weekday over the date.
                   '@container flex min-h-11 min-w-0 items-center justify-center border-l border-border-subtle text-body',
@@ -567,7 +586,7 @@ export function TimeGrid({
                       key={seg.key}
                       data-testid="calendar-drop-preview"
                       className="pointer-events-none absolute inset-x-1 z-30 rounded-item bg-accent-soft ring-2 ring-accent"
-                      style={{ top: (seg.startMin / 60) * hourPx + 1, height: Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2) }}
+                      style={{ top: (seg.startMin / 60) * hourPx + 1, height: blockHeight(seg, hourPx) }}
                     >
                       <span className="block truncate px-2 py-0.5 text-meta font-semibold text-accent">
                         {incoming?.title} · {formatSpan(new Date(seg.item.starts_at!), new Date(seg.item.ends_at!))}
@@ -630,9 +649,10 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
   const movable = isMovable(item)
   const done = item.status === 'done'
   const top = (seg.startMin / 60) * hourPx
-  // Short blocks (a 20-minute review) keep a legible title; the time is in
-  // the tooltip and the accessible name.
-  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  // Short blocks (a 20-minute review) keep a legible one-line title; the
+  // time is in the tooltip and the accessible name.
+  const height = blockHeight(seg, hourPx)
+  const compact = height < COMPACT_BLOCK_PX
   const roomy = height >= 38
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
@@ -664,7 +684,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         onKeyOpen?.({ clientX: rect.right, clientY: rect.top })
       }}
       className={cn(
-        'group absolute overflow-hidden rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
+        'group absolute rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
+        // A compact block's one line may overhang its box rather than be cut.
+        compact ? 'z-[5] overflow-visible' : 'overflow-hidden',
         isCommitment ? tone.commitment : tone.study,
         'focus-visible:ring-2 focus-visible:ring-accent',
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
@@ -685,12 +707,15 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         width: `calc(${100 / seg.columns}% - 4px)`,
       }}
     >
-      {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar)} />}
+      {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar, compact && 'rounded-l-item')} />}
       <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
         <div className="flex min-w-0 shrink-0 items-start gap-1">
           {done && <Check className="mt-px h-3 w-3 shrink-0" />}
           {item.subtype === 'shift' && <Coffee data-testid="calendar-shift-icon" className="mt-px h-3 w-3 shrink-0" aria-hidden />}
-          <span className={cn('min-w-0 flex-1 text-meta font-semibold leading-tight', twoLines ? 'line-clamp-2' : 'truncate', done && 'line-through')}>
+          <span
+            data-testid="calendar-block-title"
+            className={cn('min-w-0 flex-1 text-meta font-semibold', compact ? 'leading-none' : 'leading-tight', twoLines ? 'line-clamp-2' : 'truncate', done && 'line-through')}
+          >
             {item.title}
           </span>
           {fromMoment && <AudioLines className="mt-px h-3 w-3 shrink-0" aria-hidden />}
@@ -711,7 +736,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
           data-testid="calendar-block-resize"
           aria-hidden
           onPointerDown={(e) => onPointerDown?.(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          // A third of a short block at most, so most of it still moves the block.
+          style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-current opacity-50" />
         </div>
@@ -760,7 +787,10 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const top = (seg.startMin / 60) * hourPx
-  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  // Drawn to scale like a block; a short one shows its accept and dismiss
+  // buttons over it on hover or focus, overhanging rather than cut.
+  const height = blockHeight(seg, hourPx)
+  const compact = height < COMPACT_BLOCK_PX
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
@@ -770,6 +800,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
     <div
       data-block="ghost"
       data-testid="calendar-ghost"
+      data-ghost-id={ghostId(item) ?? undefined}
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
@@ -794,7 +825,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
       className={cn(
-        'group absolute z-10 overflow-hidden rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
         tone.ghost,
         'transition-[opacity,box-shadow] duration-200',
         saved ? 'cursor-default opacity-70' : 'cursor-grab hover:shadow-[0_0_0_3px_var(--color-accent-soft)] active:cursor-grabbing',
@@ -810,7 +842,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       }}
     >
       <div className={cn('relative flex h-full min-w-0 flex-col pl-2 pr-1', roomy ? 'py-1' : 'justify-center')}>
-        <span className={cn('min-w-0 shrink-0 text-meta font-semibold leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
+        <span className={cn('min-w-0 shrink-0 text-meta font-semibold', compact ? 'leading-none' : 'leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
         {roomy && (
           <span className="shrink-0 truncate text-meta tabular-nums leading-tight opacity-85">
             {saved ? 'Saving...' : span}
@@ -823,7 +855,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
               'flex gap-1',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
-                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
+                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
             )}
           >
               <button
@@ -849,11 +881,13 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
           </div>
         )}
       </div>
-      {!saved && (
+      {/* No edge to resize on a compact draft: on touch it would catch the taps meant for Accept (drag it, or use the keyboard). */}
+      {!saved && !compact && (
         <div
           aria-hidden
           onPointerDown={(e) => onPointerDown(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-current opacity-50" />
         </div>

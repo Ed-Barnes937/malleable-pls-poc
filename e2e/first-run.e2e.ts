@@ -12,6 +12,8 @@ const overlaps = (a: Box, b: Box) =>
 const TUESDAY = new Date('2026-10-27T09:00:00Z')
 /** Saturday 31 Oct 2026, 09:00 in London: no class or shift. */
 const SATURDAY = new Date('2026-10-31T09:00:00Z')
+/** Biology runs 10:00-12:00 on Wednesdays: over by now. */
+const WEDNESDAY_NOON = new Date('2026-10-28T12:00:00Z')
 
 async function newBoard(page: Page, name = 'My week') {
   const topBar = new TopBarPom(page)
@@ -186,6 +188,18 @@ test.describe('The today line', () => {
     await page.setViewportSize({ width: 400, height: 860 })
     await expect(topBar.todayLine).toBeVisible()
     await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
+  })
+
+  test('skips what is already over: at noon on Wednesday, not the 10:00 lecture', async ({ page }) => {
+    await reseed({ now: WEDNESDAY_NOON })
+    await page.clock.setFixedTime(WEDNESDAY_NOON)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.todayLine).toBeVisible()
+    // Biology 10:00-12:00 has ended; Wednesday has no other class or shift.
+    await expect(topBar.todayLine).toHaveAttribute('title', /^Wednesday · \S.* to study$/)
+    await expect(topBar.todayLine).not.toHaveAttribute('title', /Biology/)
   })
 
   test('the today line raises no ResizeObserver loop error while the window is resized through every layout', async ({ page }) => {
