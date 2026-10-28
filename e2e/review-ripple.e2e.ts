@@ -56,14 +56,14 @@ const MOMENT = /Mitochondrial mutations accumulate/
 const MOMENT_MS = 1_080_000
 
 /** An element's scrollTop once it has stopped moving. */
-async function settledScrollTop(scroller: Locator): Promise<number> {
+async function settledScrollTop(scroller: Locator, everyMs = 150): Promise<number> {
   let last = -1
   await expect.poll(async () => {
     const now = await scroller.evaluate((el) => el.scrollTop)
     const same = now === last
     last = now
     return same
-  }, { intervals: [150] }).toBe(true)
+  }, { intervals: [everyMs] }).toBe(true)
   return last
 }
 
@@ -263,6 +263,11 @@ test.describe('The confused-to-calendar ripple', () => {
     expect(card.first.top).toBeLessThan(card.list.bottom)
     expect(overlaps(card.last, landed)).toBe(true)
 
+    // The 20-min block is only a few pixels tall: it glows in a halo of readable size, centred on it.
+    const halo = (await block.getByTestId('calendar-reveal-halo').boundingBox())!
+    expect(halo.height).toBeGreaterThanOrEqual(22)
+    expect(Math.abs(halo.y + halo.height / 2 - (landed.y + landed.height / 2))).toBeLessThan(1.5)
+
     // The new To-do row shows in full in its list.
     await expectShownInList(grid.panelByLabel('To-do').locator(`[data-plan-item-id="${review.id}"]`))
   })
@@ -298,6 +303,34 @@ test.describe('The confused-to-calendar ripple', () => {
     expect(final).toBeLessThan(atWheel - 250)
     expect(final).toBeGreaterThan(atWheel - 350)
     expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(final)
+  })
+
+  test('a scroll just after the glide has stopped moves the board once, by its own amount', async ({ page, request }) => {
+    await demoLikeBoard(request)
+    const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    await grid.root.evaluate((board) => {
+      const w = window as unknown as { glideAt: number | null; wheelAt: number | null }
+      w.glideAt = null
+      w.wheelAt = null
+      board.addEventListener('scroll', () => { w.glideAt ??= performance.now() })
+      document.addEventListener('wheel', () => { w.wheelAt ??= performance.now() }, { capture: true })
+    })
+    const markedAt = Date.now()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { glideAt: number | null }).glideAt), { intervals: [10], timeout: 15000 }).not.toBeNull()
+    // The board has followed the review and stopped; straight away the student scrolls it down 100px.
+    const stopped = await settledScrollTop(grid.root, 50)
+    await page.mouse.move(1380, 600)
+    await page.mouse.wheel(0, 100)
+    expect(await settledScrollTop(grid.root)).toBe(stopped + 100)
+    const { glideAt, wheelAt } = await page.evaluate(() => {
+      const w = window as unknown as { glideAt: number; wheelAt: number }
+      return { glideAt: w.glideAt, wheelAt: w.wheelAt }
+    })
+    // Within a second of the glide starting, while a stopped glide could still be mistaken for a running one.
+    expect(wheelAt - glideAt).toBeLessThan(900)
+    const review = await newReview(request, markedAt)
+    await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
   })
 
   test('with no Calendar on the board, a scheduled review is followed to its To-do row', async ({ page, request }) => {

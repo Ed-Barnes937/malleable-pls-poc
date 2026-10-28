@@ -104,6 +104,8 @@ const MIN_BLOCK_MIN = 15
  * so the next block never paints over it.
  */
 const COMPACT_BLOCK_PX = 18
+/** The glow around a revealed compact block: at least this tall, centred on it. */
+const REVEAL_HALO_PX = 24
 
 /** A block's height on the grid: proportional to its length, with a 2px gap below. */
 function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
@@ -707,6 +709,16 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         width: `calc(${100 / seg.columns}% - 4px)`,
       }}
     >
+      {/* A short block (a 20-min review is about 9px) glows in a halo of
+          readable size around it, so the landing shows without the callout. */}
+      {glow && compact && (
+        <span
+          aria-hidden
+          data-testid="calendar-reveal-halo"
+          className="pointer-events-none absolute -inset-x-1 top-1/2 -z-10 -translate-y-1/2 rounded-item bg-[color-mix(in_oklab,var(--glow)_18%,transparent)] motion-safe:animate-glow-once motion-reduce:glow-ring"
+          style={{ height: REVEAL_HALO_PX }}
+        />
+      )}
       {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar, compact && 'rounded-l-item')} />}
       <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
         <div className="flex min-w-0 shrink-0 items-start gap-1">

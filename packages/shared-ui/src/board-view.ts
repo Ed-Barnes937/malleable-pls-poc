@@ -19,7 +19,7 @@ let lastUserScroll = -Infinity
 let watching = false
 let touchY: number | null = null
 /** The board's own smooth scroll in flight (`showOnBoard`), and when it is done by. */
-let glide: { scroller: HTMLElement; until: number } | null = null
+let glide: { scroller: HTMLElement; target: number; until: number } | null = null
 
 /**
  * The board, when input at `target` moving `dy` (down positive) scrolls it:
@@ -41,16 +41,17 @@ function scrollsBoard(target: EventTarget | null, dy: number): HTMLElement | nul
 }
 
 /**
- * The student is scrolling the board: note it, and stop any glide of ours.
- * A wheel the browser would drop while our glide runs is applied from where
- * the glide stopped (`wheelBy`, in pixels).
+ * The student is scrolling the board: note it, and stop any glide of ours
+ * still under way. Chromium drops a wheel that comes mid-glide, so its
+ * movement (`wheelBy`, in pixels) is applied from where the glide stopped;
+ * only mid-glide, as the browser applies any other wheel itself. (A browser
+ * that kept a mid-glide wheel would move that one twice.)
  */
 function userScrolls(board: HTMLElement | null, wheelBy = 0) {
   if (!board) return
   lastUserScroll = performance.now()
-  if (glide?.scroller === board && performance.now() < glide.until) {
-    board.scrollTo({ top: board.scrollTop + wheelBy, behavior: 'instant' })
-  }
+  const gliding = glide?.scroller === board && performance.now() < glide.until && Math.abs(board.scrollTop - glide.target) > 1
+  if (gliding) board.scrollTo({ top: board.scrollTop + wheelBy, behavior: 'instant' })
   glide = null
 }
 
@@ -168,8 +169,12 @@ export function showOnBoard(
   watchUserScroll()
   if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: clamped, behavior: smooth ? 'smooth' : 'auto' })
   else scroller.scrollTop = clamped
-  // A scroll of the student's own while this glides stops it, so theirs takes.
-  glide = smooth ? { scroller, until: performance.now() + GLIDE_MS } : null
+  // A scroll of the student's own while this glides stops it, so theirs
+  // takes. The glide is over when the board says so (`scrollend`), when it
+  // reaches its target, or at the latest after `GLIDE_MS`.
+  const current = smooth ? { scroller, target: clamped, until: performance.now() + GLIDE_MS } : null
+  glide = current
+  if (current) scroller.addEventListener('scrollend', () => { if (glide === current) glide = null }, { once: true })
   return true
 }
 
