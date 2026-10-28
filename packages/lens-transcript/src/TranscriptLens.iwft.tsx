@@ -287,8 +287,13 @@ test('landing on a moment folds the summary to one line and outlines the moment 
   await expect(summary.getByRole('listitem')).toHaveCount(0)
   const toggle = summary.getByRole('button', { name: 'Show summary' })
   await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  // aria-controls never points at an element that is not there.
+  await expect(toggle).not.toHaveAttribute('aria-controls', /.*/)
   await toggle.click()
   await expect(summary.getByRole('listitem')).toHaveCount(3)
+  const controlled = await summary.getByRole('button', { name: 'Hide summary' }).getAttribute('aria-controls')
+  expect(controlled).toBeTruthy()
+  await expect(page.locator(`[id="${controlled}"]`)).toBeVisible()
   // The same button folds it again, and keeps focus.
   const hide = summary.getByRole('button', { name: 'Hide summary' })
   await expect(hide).toHaveAttribute('aria-expanded', 'true')
@@ -376,6 +381,43 @@ test('gutter marks and a scroll rail show every tagged moment', async ({ mount, 
   await rail.getByRole('button', { name: 'Key point at 33:00' }).click()
   await expect(keyPoint).toBeInViewport()
   await expect(keyPoint.getByRole('button').first()).toBeFocused()
+})
+
+test('a rail with many tagged moments keeps every 24px target apart and reachable by keyboard', async ({ mount, page, simulator }) => {
+  const total = 20
+  simulator.db.recordings.push({
+    id: 'rec-many', title: 'Long lecture', created_at: '2026-04-16T10:00:00Z', duration: total * 60000, audio_url: null, status: 'ready',
+  })
+  for (let i = 0; i < total; i++) {
+    const id = `seg-many-${i}`
+    simulator.db.transcriptSegments.push({ id, recording_id: 'rec-many', start_ms: i * 60000, end_ms: i * 60000 + 59000, text: `Moment number ${i}.`, speaker: null })
+    simulator.db.tags.push({ id: `tag-${id}`, target_type: 'transcript_segment', target_id: id, label: 'confused', created_at: '2026-04-16T10:30:00Z' })
+  }
+  await mount(
+    <TestProviders>
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-many' }} config={{ mode: 'review' }} />
+      </div>
+    </TestProviders>,
+  )
+  const rail = page.getByRole('group', { name: 'Tagged moments' })
+  const marks = rail.getByRole('button')
+  await expect(marks).toHaveCount(total)
+  const boxes = await marks.evaluateAll((els) => els.map((el) => el.getBoundingClientRect()).map((r) => ({ top: r.top, w: r.width, h: r.height })))
+  for (const [i, b] of boxes.entries()) {
+    expect(b.w).toBeGreaterThanOrEqual(24)
+    expect(b.h).toBeGreaterThanOrEqual(24)
+    if (i > 0) expect(b.top - boxes[i - 1].top).toBeGreaterThanOrEqual(24)
+  }
+  // The rail scrolls rather than squeezing the marks together.
+  expect(await rail.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  // The last mark is reachable with the keyboard and scrolls into view.
+  await marks.first().focus()
+  for (let i = 1; i < total; i++) await page.keyboard.press('Tab')
+  await expect(marks.last()).toBeFocused()
+  await expect(marks.last()).toBeInViewport()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('[data-segment-id="seg-many-19"]')).toBeInViewport()
 })
 
 test('a lecture with no course of its own falls back to the board course', async ({ mount, page, simulator }) => {
