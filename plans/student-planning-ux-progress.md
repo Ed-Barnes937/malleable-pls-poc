@@ -63,3 +63,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - R1 PR #92 opened (ripple follows to the block, See it scroll, summary in list, toast bar at all widths); fresh reviewer running. Decision 21 on block-over-chip priority.
 - R2 review round 1: CHANGES NEEDED (Tuesday panel docks and squeezes all days to 73px; Auto-fill race with a just-assigned block; short-block label overlap; ghost heights). Sent back with decision 20.
 - R1 review round 1: ripple verified visible end to end; CHANGES NEEDED (desktop toast bar shifts content 64px on dismiss, wheel lost mid-glide, no-Calendar target, off-screen moment, resize anchoring, long task). Sent back.
+- R2 merged into `feat/student-planning-ux` (PR #91) after re-review PASS plus a touch fix for short drafts. R1 fixes pushed (26f81fe); re-review next, against the branch with R2.
