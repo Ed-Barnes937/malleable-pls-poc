@@ -97,6 +97,32 @@ test('a drafted 20-minute block is drawn to scale, and its accept button shows o
   await expect.poll(() => stored(simulator, 'short')?.starts_at).not.toBeNull()
 })
 
+test.describe('on a touch screen', () => {
+  test.use({ hasTouch: true })
+
+  test("tapping a short drafted block shows its buttons without accepting it; tapping Accept accepts", async ({ mount, page, simulator }) => {
+    seedBusyWeek(simulator)
+    simulator.db.planItems = simulator.db.planItems.filter((p) => p.kind !== 'task')
+    seed(simulator, [{ id: 'short', title: 'Short review', duration_min: 20, course: 'biology' }])
+    await mount(<CalendarHarness />)
+    const panel = await openPlan(page)
+    await panel.getByTestId('autofill').click()
+    const short = ghost(page, 'Short review')
+    await expect(short).toBeVisible()
+    const accept = page.getByRole('button', { name: 'Accept Short review' })
+    const shown = () => accept.evaluate((el) => getComputedStyle(el.parentElement!).opacity)
+    expect(await shown()).toBe('0')
+
+    await short.tap()
+    await expect(short).toBeFocused()
+    await expect.poll(shown).toBe('1')
+    expect(stored(simulator, 'short')?.starts_at).toBeNull()
+
+    await accept.tap()
+    await expect.poll(() => stored(simulator, 'short')?.starts_at).not.toBeNull()
+  })
+})
+
 /** Holds every request to `procedure` (alone or in a batch) until `release()`; the simulator answers it then. */
 async function hold(page: Page, procedure: string) {
   let release!: () => void

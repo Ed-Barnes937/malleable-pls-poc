@@ -271,6 +271,10 @@ export function TimeGrid({
     if (!drag.moved) {
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
       if (!ghost) onOpen(drag.item, anchor)
+      // A tap or click selects it instead: focused, its buttons show (on a
+      // short ghost they are hidden until then, and touch has no hover).
+      // After the click that follows, which would otherwise take focus away.
+      else requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
       return
     }
     if (!isMovable(drag.item)) return
@@ -725,6 +729,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
     <div
       data-block="ghost"
       data-testid="calendar-ghost"
+      data-ghost-id={ghostId(item) ?? undefined}
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
@@ -779,7 +784,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
               'flex gap-1',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
-                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
+                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
             )}
           >
               <button
@@ -805,7 +810,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
           </div>
         )}
       </div>
-      {!saved && (
+      {/* No edge to resize on a compact draft: on touch it would catch the taps meant for Accept (drag it, or use the keyboard). */}
+      {!saved && !compact && (
         <div
           aria-hidden
           onPointerDown={(e) => onPointerDown(e, 'resize')}
