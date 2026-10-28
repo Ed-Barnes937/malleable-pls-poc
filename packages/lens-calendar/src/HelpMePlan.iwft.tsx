@@ -224,6 +224,21 @@ test('a ghost that something else now covers is taken out, and a ghost cannot be
   await expect(ghost(page, 'Biology quiz prep')).toHaveAttribute('aria-label', /09:00 - 10:00/)
 })
 
+test('Shrink and Undo hand keyboard focus to each other', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  const panel = await draftWithAssumedEstimates(page)
+  const draft = panel.getByTestId('autofill-draft')
+  const shrink = draft.getByRole('button', { name: 'Shrink to 2h' })
+  await shrink.focus()
+  await page.keyboard.press('Enter')
+  await expect(draft.getByRole('button', { name: 'Undo' })).toBeFocused()
+  // A polite live region announces it for screen readers.
+  await expect(draft.getByRole('status')).toHaveText(/^Shrunk Lab report write-up to 2h\.$/)
+  await page.keyboard.press('Enter')
+  await expect(draft.getByRole('button', { name: 'Shrink to 2h' })).toBeFocused()
+})
+
 test('changing study time per day during a draft re-drafts it; a too-long to-do always gets a trim', async ({ mount, page, simulator }) => {
   seedBusyWeek(simulator)
   await mount(<CalendarHarness />)

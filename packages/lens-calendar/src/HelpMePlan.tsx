@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
@@ -488,6 +488,25 @@ function DraftSummary({
 }) {
   const { advice, draft, trims, estimates } = autofill
   const [picking, setPicking] = useState<string | null>(null)
+  // Shrink and Undo replace each other, so the one just pressed unmounts:
+  // hand focus to its replacement (Undo after Shrink, Shrink after Undo).
+  const rootRef = useRef<HTMLDivElement>(null)
+  const focusAfterTrim = useRef<{ taskId: string; action: 'shrink' | 'undo' } | null>(null)
+  const [announcement, setAnnouncement] = useState('')
+  const trimTask = (taskId: string, durationMin: number | null) => {
+    focusAfterTrim.current = { taskId, action: durationMin === null ? 'shrink' : 'undo' }
+    const name = draft.tasks.find((t) => t.id === taskId)?.title ?? 'a to-do'
+    setAnnouncement(durationMin === null ? `Undid the shrink of ${name}.` : `Shrunk ${name} to ${formatMinutes(durationMin)}.`)
+    onTrim(taskId, durationMin)
+  }
+  useLayoutEffect(() => {
+    const pending = focusAfterTrim.current
+    if (!pending) return
+    const next = [...(rootRef.current?.querySelectorAll<HTMLButtonElement>('[data-trim-action]') ?? [])]
+      .find((el) => el.dataset.trimAction === pending.action && el.dataset.taskId === pending.taskId)
+    focusAfterTrim.current = null
+    next?.focus()
+  }, [trims, autofill])
   const title = (id: string) => draft.tasks.find((t) => t.id === id)?.title ?? 'a to-do'
   const assumed = Object.keys(estimates).map(title)
   const blocks = layer.proposals.filter((p) => !layer.savedIds.has(p.id))
@@ -508,7 +527,9 @@ function DraftSummary({
   const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)))
 
   return (
-    <div data-testid="autofill-draft" className="flex flex-col gap-3.5">
+    <div ref={rootRef} data-testid="autofill-draft" className="flex flex-col gap-3.5">
+      {/* Always mounted, so a screen reader announces what Shrink and Undo did. */}
+      <p role="status" aria-live="polite" className="sr-only">{announcement}</p>
 
       {shown.map((trim) => {
         const applied = trims.has(trim.taskId)
@@ -522,7 +543,7 @@ function DraftSummary({
                 <span className="min-w-0 flex-1 basis-40">
                   Shrunk <span className="font-semibold">{title(trim.taskId)}</span> to {formatMinutes(trims.get(trim.taskId)!)}.
                 </span>
-                <button type="button" onClick={() => onTrim(trim.taskId, null)} className={quietButton}>
+                <button type="button" data-trim-action="undo" data-task-id={trim.taskId} onClick={() => trimTask(trim.taskId, null)} className={quietButton}>
                   <Undo2 className="h-3.5 w-3.5" />
                   Undo
                 </button>
@@ -535,7 +556,7 @@ function DraftSummary({
                   {tooLong ? ' is too long for one day.' : ' could be shorter, so more fits.'}
                 </p>
                 {!tooLong && trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
-                <button type="button" onClick={() => onTrim(trim.taskId, trim.durationMin)} className={cn(quietButton, 'self-start')}>
+                <button type="button" data-trim-action="shrink" data-task-id={trim.taskId} onClick={() => trimTask(trim.taskId, trim.durationMin)} className={cn(quietButton, 'self-start')}>
                   <Scissors className="h-3.5 w-3.5" />
                   Shrink to {formatMinutes(trim.durationMin)}
                 </button>
