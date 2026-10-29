@@ -73,3 +73,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - PR #95 (leftover copy) review: logic sound; CHANGES NEEDED (exact e2e string on frozen Tuesday, budget-first precedence, tests, copy per decision 23). Sent back.
 - R1 round 5: PASS. Two small follow-ups (held toast pushed out never times out; announce the toast action) requested before merge. PR #95 delta check running.
 - PR #95 (leftover copy: budget vs gaps named honestly, per-to-do reason agrees; decision 23) merged after delta check PASS.
+- R1 merged into `feat/student-planning-ux` (PR #92) after round-5 PASS and two small toast fixes. All rehearsal fix tickets merged; re-running the rehearsal on PR #90.
