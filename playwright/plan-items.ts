@@ -16,6 +16,7 @@ export function seedPlanItem(
   const stored = {
     starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open' as const,
     recurrence: null, subtype: null, source_type: null, source_id: null, source_offset_ms: null,
+    created_by_workflow_id: null,
     created_at: now, updated_at: now,
     ...rest,
   }
@@ -26,10 +27,10 @@ export function seedPlanItem(
   return { ...stored, course }
 }
 
-/** ISO time `days` from now (negative for the past), at `hour`:00 local time. */
-export function daysFromNow(days: number, hour = 12): string {
+/** ISO time `days` from now (or from `from`; negative for the past), at `hour`:00 local time. */
+export function daysFromNow(days: number, hour = 12, from: Date = new Date()): string {
   // Calendar arithmetic (not 24h steps) so a DST change can't shift the day.
-  const d = new Date()
+  const d = new Date(from)
   d.setDate(d.getDate() + days)
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()

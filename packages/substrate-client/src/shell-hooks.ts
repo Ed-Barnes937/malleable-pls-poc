@@ -2,6 +2,7 @@ import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
 import type { UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
+import type { PlanItemQuery } from '@pls/substrate'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
@@ -126,6 +127,14 @@ export function useFocusedRecording(recordingId: string | undefined) {
   return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
 }
 
+/**
+ * Plan items for shell chrome (the top bar's today line), outside any widget.
+ * Shares the `planItems` cache, so every plan item change refreshes it.
+ */
+export function usePlanItemList(query: PlanItemQuery) {
+  return trpc.planItems.list.useQuery(query)
+}
+
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {
   return trpc.jobs.recent.useQuery(limit) as unknown as UseQueryResult<JobRun[]>
 }
@@ -153,9 +162,15 @@ export function useWorkflowsForWorkspace(workspaceId: string): UseQueryResult<Wo
   return trpc.workflows.forWorkspace.useQuery({ workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
+/** One automation with its jobs; null once deleted. */
+export function useWorkflow(workflowId: string): UseQueryResult<WorkflowWithJobs | null> {
+  return trpc.workflows.byId.useQuery(workflowId, { enabled: !!workflowId }) as unknown as UseQueryResult<WorkflowWithJobs | null>
+}
+
 function invalidateWorkflows(utils: ReturnType<typeof trpc.useUtils>) {
   utils.workflows.forLens.invalidate()
   utils.workflows.forWorkspace.invalidate()
+  utils.workflows.byId.invalidate()
 }
 
 export function useToggleWorkflow() {
@@ -215,6 +230,10 @@ export interface JobEvent {
   willRetry?: boolean
   /** job:completed only - nothing changed worth a toast (e.g. a moment marked twice). */
   quiet?: boolean
+  /** job:completed only - the time block the run placed (e.g. a new review). */
+  planItem?: { id: string; startsAt: string }
+  /** job:completed only - the run made a to-do but found no time for it. */
+  unplaced?: boolean
 }
 
 export interface ServerEventHandlers {

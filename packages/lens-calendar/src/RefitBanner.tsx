@@ -27,8 +27,8 @@ export interface RefitDraft {
   missed: MissedBlocks
   /** What accepting re-fit ghosts writes: one atomic `planItems.refit` for all of them. */
   save: (proposals: Proposal[]) => Promise<unknown>
-  /** Blocks moved in this preview so far. */
-  moved: number
+  /** The new start (ISO) of each block moved in this preview so far. */
+  moved: ReadonlyArray<string>
   /**
    * The server refused the last accept (the week changed): `fresh` is the
    * preview fetched straight after (null while it loads), until its times
@@ -55,7 +55,7 @@ export interface RefitDraft {
  * atomic, stale-preview check covers every block.
  */
 export function useRefitDraft(missed: MissedBlocks): RefitDraft {
-  const [moved, setMoved] = useState(0)
+  const [moved, setMoved] = useState<ReadonlyArray<string>>([])
   const [stale, setStale] = useState<{ fresh: RefitProposal[] | null } | null>(null)
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
   const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
@@ -64,8 +64,8 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
   const save = useCallback(async (proposals: Proposal[]) => {
     const { accept, refresh } = latest.current
     try {
-      const result = await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
-      setMoved((n) => n + result.moved)
+      await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
+      setMoved((prev) => [...prev, ...proposals.map((p) => p.startsAt)])
       answer(proposals.map((p) => p.taskId))
     } catch (err) {
       if (isConflictError(err)) {
@@ -87,7 +87,7 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
       if (source === REFIT_SOURCE) answer(proposals.map((p) => p.taskId))
     }, [answer]),
     reset: useCallback(() => {
-      setMoved(0)
+      setMoved([])
       setStale(null)
       setAnswered(new Set())
     }, []),
@@ -139,7 +139,8 @@ export function RefitBanner({
   useEffect(() => {
     if (!session || previewing || stale) return
     missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
-    if (moved > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
+    missed.endPreview()
+    if (moved.length > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
     setSession(null)
     setChanged(false)
     reset()
@@ -162,7 +163,7 @@ export function RefitBanner({
 
   const asking = missed.proposals
   if (!previewing && asking.length === 0) {
-    return note ? <p role="status" data-testid="refit-note" className="shrink-0 px-1 text-[11px] text-text-secondary">{note}</p> : null
+    return note ? <p role="status" data-testid="refit-note" className="shrink-0 text-meta text-text-secondary">{note}</p> : null
   }
 
   // The times shown come from a preview fetched now, never one that may lag
@@ -184,12 +185,14 @@ export function RefitBanner({
     if (fits.length === 0) {
       // Nothing to show on the grid: say so once and leave them on the list.
       missed.markHandled(current)
-      setNote(movedNote(0, noFit))
+      setNote(movedNote([], noFit))
       return
     }
     reset()
     setSession({ asked: current, noFit })
     layer.propose(REFIT_SOURCE, fits.map(toProposal))
+    // The To-do stops asking about these while their new times show here.
+    missed.startPreview(current)
     onReveal(fits[0].starts_at!)
   }
 
@@ -205,11 +208,12 @@ export function RefitBanner({
     <section
       data-testid="refit-banner"
       aria-label="Blocks that didn't happen"
-      className="flex shrink-0 flex-col gap-1.5 rounded-xl bg-amber-200/[0.06] px-3 py-1.5 ring-1 ring-amber-200/15"
+      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5"
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        <RotateCcw className="h-3.5 w-3.5 shrink-0 text-attention" aria-hidden />
-        <p className="min-w-0 flex-1 text-[11px] text-text-primary">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
+        <RotateCcw className="h-4 w-4 shrink-0 text-attn" aria-hidden />
+        {/* Wide enough to read as a sentence; on a phone the buttons wrap below. */}
+        <p className="min-w-0 flex-1 basis-56 text-body text-text-primary">
           {missedQuestion(asked)}{' '}
           {previewing
             ? `${plural(open, 'Here is where it could go', 'Here is where they could go')} - drag to adjust, nothing moves until you accept.`
@@ -236,21 +240,21 @@ export function RefitBanner({
         </div>
       </div>
       {!previewing && otherDraft && (
-        <p role="status" className="pl-5 text-[11px] text-text-secondary">
+        <p role="status" className="pl-[26px] text-meta text-text-secondary">
           Accept or keep the suggested blocks first - one draft at a time.
         </p>
       )}
       {previewing && changed && (
-        <p role="status" className="pl-5 text-[11px] text-text-secondary">Your week changed, so here are fresh times.</p>
+        <p role="status" className="pl-[26px] text-meta text-text-secondary">Your week changed, so here are fresh times.</p>
       )}
       {previewing && layer.error && !stale && (
-        <p role="status" className="pl-5 text-[11px] text-text-secondary">{layer.error}</p>
+        <p role="status" className="pl-[26px] text-meta text-text-secondary">{layer.error}</p>
       )}
       {previewing && session && session.noFit.length > 0 && (
-        <ul className="flex flex-col gap-0.5 pl-5" aria-label="Blocks with no new time">
+        <ul className="flex flex-col gap-0.5 pl-[26px]" aria-label="Blocks with no new time">
           {session.noFit.map((p) => (
-            <li key={p.item.id} data-testid="refit-no-fit" className="text-[11px] text-text-secondary">
-              <span className="text-text-primary">{p.item.title}</span>: {noFitLabel(p)}
+            <li key={p.item.id} data-testid="refit-no-fit" className="text-meta text-text-secondary">
+              <span className="font-semibold text-text-primary">{p.item.title}</span>: {noFitLabel(p)}
             </li>
           ))}
         </ul>
@@ -259,6 +263,6 @@ export function RefitBanner({
   )
 }
 
-const button = 'rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50'
-const primary = `${button} bg-accent text-accent-foreground hover:bg-accent/90`
-const secondary = `${button} text-text-secondary ring-1 ring-border-subtle hover:bg-surface-overlay hover:text-text-primary`
+const button = 'inline-flex h-8 items-center rounded-item px-3 text-body font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50'
+const primary = `${button} bg-accent text-accent-foreground hover:opacity-90`
+const secondary = `${button} border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay`

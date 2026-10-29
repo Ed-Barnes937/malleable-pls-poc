@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chooseMomentBoard, hasMomentViewer } from './moments'
+import { chooseMomentBoard, hasMomentViewer, hasPlanItemViewer, hasReviewViewer, openedElsewhereMessage } from './moments'
 import { useWorkspaceStore } from './store'
 
 const manifests = [
@@ -14,6 +14,14 @@ describe('hasMomentViewer', () => {
     expect(hasMomentViewer(['calendar', 'test-me'], manifests)).toBe(false)
     expect(hasMomentViewer([], manifests)).toBe(false)
     expect(hasMomentViewer(['unknown'], manifests)).toBe(false)
+  })
+})
+
+describe('hasPlanItemViewer', () => {
+  it('is true only when a widget declares showsPlanItems', () => {
+    const flags = [{ id: 'calendar', showsPlanItems: true }, { id: 'transcript' }]
+    expect(hasPlanItemViewer(['transcript', 'calendar'], flags)).toBe(true)
+    expect(hasPlanItemViewer(['transcript'], flags)).toBe(false)
   })
 })
 
@@ -36,6 +44,25 @@ describe('chooseMomentBoard', () => {
     expect(chooseMomentBoard(boards, manifests, 'rec-1')).toBe('lecture')
   })
 
+  it('prefers a board set up for reviewing over one capturing, then tab order', () => {
+    // As seeded: In Lecture captures, Evening Review reviews; both focused on the lecture.
+    const boards = [
+      { id: 'in-lecture', lensTypes: ['transcript'], recordingId: 'rec-1', reviewViewer: false },
+      { id: 'plan', lensTypes: ['calendar'] },
+      { id: 'evening', lensTypes: ['transcript'], recordingId: 'rec-1', reviewViewer: true },
+      { id: 'exam', lensTypes: ['transcript'], recordingId: 'rec-2', reviewViewer: true },
+    ]
+    expect(chooseMomentBoard(boards, manifests, 'rec-1')).toBe('evening')
+    // A reviewing board wins even when it is focused on another lecture.
+    expect(chooseMomentBoard(boards.filter((b) => b.id !== 'evening'), manifests, 'rec-1')).toBe('exam')
+    // Only capturing boards: the first in tab order (focused first).
+    const capture = [
+      { id: 'a', lensTypes: ['transcript'], reviewViewer: false },
+      { id: 'b', lensTypes: ['transcript'], reviewViewer: false },
+    ]
+    expect(chooseMomentBoard(capture, manifests, 'rec-1')).toBe('a')
+  })
+
   it('returns undefined when no board can show a moment', () => {
     expect(chooseMomentBoard([{ id: 'plan', lensTypes: ['calendar'] }], manifests, 'rec-1')).toBeUndefined()
   })
@@ -51,5 +78,35 @@ describe('focused moment', () => {
     expect(useWorkspaceStore.getState().focusedMoment?.offsetMs).toBe(2000)
     clearMoment(useWorkspaceStore.getState().focusedMoment!.id)
     expect(useWorkspaceStore.getState().focusedMoment).toBeNull()
+  })
+})
+
+describe('focusPlanItem', () => {
+  it('issues a new request each time, and clears only the one shown', () => {
+    const { focusPlanItem, clearPlanItem } = useWorkspaceStore.getState()
+    focusPlanItem({ id: 'r1', startsAt: '2026-11-04T19:30:00Z' })
+    const first = useWorkspaceStore.getState().focusedPlanItem!
+    focusPlanItem({ id: 'r1', startsAt: '2026-11-04T19:30:00Z' })
+    const second = useWorkspaceStore.getState().focusedPlanItem!
+    expect(second.requestId).toBeGreaterThan(first.requestId)
+    clearPlanItem(first.requestId)
+    expect(useWorkspaceStore.getState().focusedPlanItem).toEqual(second)
+    clearPlanItem(second.requestId)
+    expect(useWorkspaceStore.getState().focusedPlanItem).toBeNull()
+  })
+})
+
+describe('openedElsewhereMessage', () => {
+  it('names the moment and the board it opened on', () => {
+    expect(openedElsewhereMessage(78_000, 'In Lecture')).toBe('Opened 1:18 in In Lecture')
+  })
+})
+
+describe('hasReviewViewer', () => {
+  it('is true for a moment viewer not in capture mode', () => {
+    expect(hasReviewViewer([{ lens_type: 'transcript', config: { mode: 'review' } }], manifests)).toBe(true)
+    expect(hasReviewViewer([{ lens_type: 'transcript', config: {} }], manifests)).toBe(true)
+    expect(hasReviewViewer([{ lens_type: 'transcript', config: { mode: 'capture' } }], manifests)).toBe(false)
+    expect(hasReviewViewer([{ lens_type: 'calendar', config: {} }], manifests)).toBe(false)
   })
 })

@@ -19,7 +19,7 @@ export function ProgressBar({
   const radius = rounded ? 'rounded-full' : 'rounded'
 
   return (
-    <div className={cn(height, radius, 'bg-neutral-800', className)}>
+    <div className={cn(height, radius, 'bg-surface-overlay', className)}>
       <div
         className={cn('h-full transition-all duration-500', radius, color)}
         style={{ width: `${value}%`, opacity: 0.7 }}

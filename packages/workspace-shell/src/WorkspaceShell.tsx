@@ -1,6 +1,4 @@
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
-import { LayoutGrid, Plus } from 'lucide-react'
-import { EmptyState } from '@pls/shared-ui'
 import {
   useWorkspaces,
   useWorkspacePanels,
@@ -14,13 +12,13 @@ import {
   decodeScope,
   SCOPE_TYPE_BY_DIM,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope, type ScopeDim } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
   WorkspaceBackground,
   useCanvasStore,
-  findFreeSpot,
+  placeNewPanel,
   scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
@@ -30,10 +28,13 @@ import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
+import { AutomationDialog } from './AutomationDialog'
 import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
-import { useShowMoment } from './moments'
+import { hasPlanItemViewer, useShowMoment } from './moments'
+import { BoardStarters } from './BoardStarters'
+import { listNames } from './starters'
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -42,8 +43,9 @@ function jobLabel(jobType?: string): string {
 }
 
 /** What a finished job means for the student; falls back to "Done: <job label>". */
-function jobDoneMessage(jobType?: string): string {
-  return (jobType && JOB_TYPES.get(jobType)?.doneMessage) || `Done: ${jobLabel(jobType)}`
+function jobDoneMessage(jobType?: string, unplaced?: boolean): string {
+  const info = jobType ? JOB_TYPES.get(jobType) : undefined
+  return (unplaced && info?.unplacedMessage) || info?.doneMessage || `Done: ${jobLabel(jobType)}`
 }
 
 interface PendingAdd {
@@ -59,11 +61,26 @@ export function WorkspaceShell() {
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
   const clearMoment = useWorkspaceStore((s) => s.clearMoment)
+  const focusedPlanItem = useWorkspaceStore((s) => s.focusedPlanItem)
+  const clearPlanItem = useWorkspaceStore((s) => s.clearPlanItem)
   const pushToast = useToastStore((s) => s.push)
+  // Read when a job finishes, so the toast offers "See it" only on a board that can show the block.
+  const showPlanItemRef = useRef<(item: PlanItemRef) => boolean>(() => false)
+  const canShowPlanItemRef = useRef(false)
+  const activeBoardRef = useRef(activeWorkspaceId)
+  activeBoardRef.current = activeWorkspaceId
   useServerEvents({
     onJobCompleted: (event) => {
       if (event.quiet) return
-      pushToast({ message: jobDoneMessage(event.jobType), tone: 'success' })
+      const block = event.planItem
+      pushToast({
+        message: jobDoneMessage(event.jobType, event.unplaced),
+        tone: 'success',
+        // "See it" reveals the block on the board in view, so it goes if the student leaves it.
+        ...(block && canShowPlanItemRef.current
+          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current }
+          : {}),
+      })
     },
     // Intermediate attempts retry on their own; only the final failure needs the student.
     onJobFailed: (event) => {
@@ -84,6 +101,8 @@ export function WorkspaceShell() {
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  /** An automation a widget asked to open (`LensProps.onEditAutomation`). */
+  const [automationId, setAutomationId] = useState<string | null>(null)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
@@ -124,6 +143,18 @@ export function WorkspaceShell() {
     [panels],
   )
   const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
+  const focusPlanItem = useWorkspaceStore((s) => s.focusPlanItem)
+  const canShowPlanItem = hasPlanItemViewer(activeLensTypes, manifests)
+  const handleShowPlanItem = useCallback(
+    (item: PlanItemRef) => {
+      if (!canShowPlanItem) return false
+      focusPlanItem(item)
+      return true
+    },
+    [canShowPlanItem, focusPlanItem],
+  )
+  showPlanItemRef.current = handleShowPlanItem
+  canShowPlanItemRef.current = canShowPlanItem
 
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
@@ -163,13 +194,21 @@ export function WorkspaceShell() {
   /**
    * Widgets added but not yet on the canvas: still saving, or saved and
    * waiting for the panel list to refetch. Placement counts them as taken, so
-   * quick successive adds don't all pick the same free spot.
+   * quick successive adds don't all pick the same free spot. Read from the
+   * ref (current even between renders); the state copy re-renders the board,
+   * whose first-run starters stay away while an add is on its way.
    */
   const pendingAddsRef = useRef<PendingAdd[]>([])
+  const [pendingAdds, setPendingAddsState] = useState<PendingAdd[]>([])
+  const setPendingAdds = useCallback((next: PendingAdd[]) => {
+    pendingAddsRef.current = next
+    setPendingAddsState(next)
+  }, [])
   const dropPendingOnCanvas = useCallback(() => {
     const onCanvas = new Set(useCanvasStore.getState().panels.map((p) => p.id))
-    pendingAddsRef.current = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
-  }, [])
+    const next = pendingAddsRef.current.filter((a) => !(a.panelId && onCanvas.has(a.panelId)))
+    if (next.length !== pendingAddsRef.current.length) setPendingAdds(next)
+  }, [setPendingAdds])
   // Release a spot as soon as its panel first reaches the canvas (usePanelSync,
   // above, has synced this panel list), so removing that panel later frees it.
   useEffect(dropPendingOnCanvas, [panels, dropPendingOnCanvas])
@@ -189,10 +228,15 @@ export function WorkspaceShell() {
 
   /**
    * Adds a widget at its default size. Without a position (a palette click)
-   * it goes in the first free area of the visible board.
+   * it goes in the first free area of the visible board, shortened (down to
+   * its minimum height) when that keeps it in view next to the widgets already
+   * there on the desktop layout (see placeNewPanel). A drop (`at`) keeps its
+   * default height. `quiet` skips the
+   * scroll into view and the toasts, for a caller adding a group of widgets
+   * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
       const m = manifests.find((man) => man.id === lensType)
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
@@ -203,7 +247,8 @@ export function WorkspaceShell() {
         ...pending.map((a) => a.box),
       ]
       const canvas = canvasRef.current
-      const spot = at ?? findFreeSpot(taken, { width, height }, {
+      // A click places it in view, on the desktop layout a little shorter if that is what fits (see placeNewPanel).
+      const spot = at ? { ...at, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
         width: canvas?.clientWidth ?? 0,
         height: canvas?.clientHeight ?? 0,
       })
@@ -211,40 +256,63 @@ export function WorkspaceShell() {
         x: Math.round(spot.x),
         y: Math.round(spot.y),
         width,
-        height,
+        height: spot.height,
         z: taken.length > 0 ? Math.max(...taken.map((t) => t.z)) + 1 : 1,
       }
       const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
-      pendingAddsRef.current = [...pending, add]
+      setPendingAdds([...pendingAddsRef.current, add])
 
-      addPanel.mutate(
-        {
-          workspaceId: activeWorkspaceId,
-          lensType,
-          slotName: `slot-${Date.now()}`,
-          pos_x: box.x,
-          pos_y: box.y,
-          width,
-          height,
-          z_index: box.z,
+      // mutateAsync, not mutate with callbacks: mutate's callbacks fire only
+      // for the latest of several overlapping calls, and every add needs its own.
+      addPanel.mutateAsync({
+        workspaceId: activeWorkspaceId,
+        lensType,
+        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        pos_x: box.x,
+        pos_y: box.y,
+        width,
+        height: box.height,
+        z_index: box.z,
+      }).then(
+        (row) => {
+          // Stays taken until the canvas shows the saved panel (it may already).
+          add.panelId = (row as { id?: string } | undefined)?.id
+          dropPendingOnCanvas()
+          if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
+          opts.onSettled?.(true)
+          // One toast for a run of adds, not a stack of them.
+          if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
-        {
-          onSuccess: (row) => {
-            // Stays taken until the canvas shows the saved panel (it may already).
-            add.panelId = (row as { id?: string } | undefined)?.id
-            dropPendingOnCanvas()
-            if (add.panelId && !at) revealPanel(add.panelId)
-            // One toast for a run of adds, not a stack of them.
-            pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
-          },
-          onError: () => {
-            pendingAddsRef.current = pendingAddsRef.current.filter((a) => a !== add)
-            pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
-          },
+        () => {
+          setPendingAdds(pendingAddsRef.current.filter((a) => a !== add))
+          opts.onSettled?.(false)
+          if (!opts.quiet) pushToast({ message: `Couldn't add ${m?.label ?? 'the widget'}. Try again.`, tone: 'error' })
         },
       )
     },
-    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel],
+    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
+  )
+
+  /**
+   * A first-run starter: its widgets, placed one after another by the same
+   * click-to-add placement (largest first), with one toast once all have
+   * settled: what was added, or what couldn't be (the adds share one request,
+   * so they usually fail together).
+   */
+  const addStarter = useCallback(
+    (widgets: PanelManifest[]) => {
+      const added: string[] = []
+      const failed: string[] = []
+      const onSettled = (label: string) => (ok: boolean) => {
+        ;(ok ? added : failed).push(label)
+        if (added.length + failed.length < widgets.length) return
+        const names = (list: string[]) => listNames(widgets.map((w) => w.label).filter((l) => list.includes(l)))
+        if (failed.length > 0) pushToast({ message: `Couldn't add ${names(failed)}. Try again.`, tone: 'error' })
+        else pushToast({ message: `${names(added)} added`, tone: 'success', key: 'widget-added' })
+      }
+      for (const w of widgets) addWidget(w.id, undefined, { quiet: true, onSettled: onSettled(w.label) })
+    },
+    [addWidget, pushToast],
   )
 
   const handleDrop = useCallback(
@@ -305,6 +373,7 @@ export function WorkspaceShell() {
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
+            onEditAutomation={setAutomationId}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -312,11 +381,16 @@ export function WorkspaceShell() {
               // into view so the landed moment is seen.
               scrollPanelIntoView(canvasRef.current, panel.id)
             } : undefined}
+            onShowPlanItem={canShowPlanItem ? handleShowPlanItem : undefined}
+            focusedPlanItem={manifest?.showsPlanItems ? focusedPlanItem ?? undefined : undefined}
+            // The viewer brings the block itself into view on the board
+            // (not the whole widget), so it is not scrolled here.
+            onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -391,31 +465,25 @@ export function WorkspaceShell() {
               getLabel={getLabel}
               renderHeaderActions={renderHeaderActions}
             />
-            {panels.length === 0 && (
+            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
+            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
               <div
                 data-testid="workspace-empty-state"
                 className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
               >
-                <EmptyState
-                  icon={LayoutGrid}
-                  message="This board is empty. Add widgets to build it your way."
-                  action={
-                    <button
-                      type="button"
-                      onClick={() => setDrawerOpen(true)}
-                      className="pointer-events-auto mt-1 inline-flex items-center gap-1.5 rounded-[var(--radius-panel)] px-3 py-1.5 text-sm font-medium text-accent-foreground transition-colors"
-                      style={{ background: 'var(--color-accent)' }}
-                    >
-                      <Plus size={16} />
-                      Add widgets
-                    </button>
-                  }
+                <BoardStarters
+                  manifests={manifests}
+                  onStart={addStarter}
+                  onAddWidgets={() => setDrawerOpen(true)}
                 />
               </div>
             )}
           </div>
         )}
       </main>
+      {automationId && (
+        <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
+      )}
       <ToastHost />
     </div>
   )

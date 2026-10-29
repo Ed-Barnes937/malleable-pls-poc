@@ -20,7 +20,7 @@ import { REVIEW_SUBTYPE } from '../packages/substrate/src/workflows/review-autom
  *   (3h) is longer than the default 2h of study time a day, so it is
  *   Auto-fill's only trim: "Shrink it to 2h?".
  * - Study Priya already planned, sized at reseed time so that Help me plan
- *   reads "About 9 hours of study time left this week. Your to-dos need 12."
+ *   reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."
  *   (`STEP2_STUDY_LEFT_MIN`): on later days of the week only (Sat, Sun, then
  *   Fri), each up to a day's budget. With 9 hours or less left in the week
  *   (from Thursday, at 2h a day), none is planned and the copy honestly
@@ -162,7 +162,7 @@ function plannedStudy(base: SeedPlanItem[], now: number, at: (day: Day, time: st
 function asRow(item: SeedPlanItem): PlanItem {
   return {
     starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open', recurrence: null,
-    subtype: null, source_type: null, source_id: null, source_offset_ms: null, course: null,
+    subtype: null, source_type: null, source_id: null, source_offset_ms: null, created_by_workflow_id: null, course: null,
     ...item,
     created_at: item.created_at ?? '', updated_at: item.updated_at ?? '',
   }
@@ -182,6 +182,8 @@ export function seededReviews(): SeedPlanItem[] {
     id, kind: 'task', title: `Review: ${topic}`, course, subtype: REVIEW_SUBTYPE, status: 'done', duration_min: 20,
     starts_at: startsAt, ends_at: new Date(Date.parse(startsAt) + 20 * 60_000).toISOString(), due_at: dueAt,
     source_type: 'recording', source_id: recordingId, source_offset_ms: offsetMs,
+    // The seeded confusion automation (013_lecture_ai_automations.sql).
+    created_by_workflow_id: 'wf-confused-review',
     // Made when the moment was marked, ticked off after the block, not today.
     created_at: new Date(Date.parse(startsAt) - 3 * 24 * 60 * 60_000).toISOString(),
     updated_at: new Date(Date.parse(startsAt) + 20 * 60_000).toISOString(),

@@ -6,7 +6,7 @@
 
 ## Seed data
 
-`reseed()` (`e2e/reseed.ts`, also `pnpm db:reseed`) restores `dev-user-1`: the SQL seeds (lectures, tags, study boards, automations) plus Priya's week from `e2e/seed-week.ts`, built around the current date in London time: weekly Biology and Chemistry lectures, two cafe shifts (Tue and Thu evening), a Biology quiz on Thursday, a Chemistry lab report on Friday, two blocks from yesterday that didn't happen, 12 hours of unscheduled to-dos, and study already planned later in the week, sized at reseed time so that Help me plan reads "About 9 hours of study time left this week. Your to-dos need 12." on any Mon-Wed daytime (`e2e/journey-demo.e2e.ts` takes `DEMO_NOW` to pin another time). It also adds the done reviews of the seeded lectures' confusing moments (`seededReviews`), so Weak topics reads like the live demo. Once a deadline has passed it (and the to-do due with it) moves to next week, so both are always ahead. `reseed({ now })` builds the seed as if it were that instant; e2e journeys that depend on the day also freeze the browser clock (`page.clock.setFixedTime`) at the same instant. `SEED_NOW=2026-10-28T09:00:00Z pnpm db:reseed` does the same for the seed only: the app still runs on the real clock, so a `SEED_NOW` in another week puts the deadlines outside the week the calendar opens on. The CT backend simulator deliberately starts with no plan items.
+`reseed()` (`e2e/reseed.ts`, also `pnpm db:reseed`) restores `dev-user-1`: the SQL seeds (lectures, tags, study boards, automations) plus Priya's week from `e2e/seed-week.ts`, built around the current date in London time: weekly Biology and Chemistry lectures, two cafe shifts (Tue and Thu evening), a Biology quiz on Thursday, a Chemistry lab report on Friday, two blocks from yesterday that didn't happen, 12 hours of unscheduled to-dos, and study already planned later in the week, sized at reseed time so that Help me plan reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12." on any Mon-Wed daytime (`e2e/journey-demo.e2e.ts` takes `DEMO_NOW` to pin another time). It also adds the done reviews of the seeded lectures' confusing moments (`seededReviews`), so Weak topics reads like the live demo. Once a deadline has passed it (and the to-do due with it) moves to next week, so both are always ahead. `reseed({ now })` builds the seed as if it were that instant; e2e journeys that depend on the day also freeze the browser clock (`page.clock.setFixedTime`) at the same instant. `SEED_NOW=2026-10-28T09:00:00Z pnpm db:reseed` does the same for the seed only: the app still runs on the real clock, so a `SEED_NOW` in another week puts the deadlines outside the week the calendar opens on. The CT backend simulator deliberately starts with no plan items.
 
 ## Cost guardrail
 
@@ -19,9 +19,13 @@ Every checkout and worktree shares the one Postgres container (`docker-compose.y
 | Variable | Default | Used by |
 |---|---|---|
 | `PG_DB` | `malleable_pls` | `dev:migrate`, `dev:server`, `e2e:server`, `db:reseed`, e2e global setup |
+| `PG_PORT` | `5433` | same as `PG_DB` |
+| `DATABASE_URL` | built from `PG_PORT` / `PG_DB` | same as `PG_DB`; **wins over `PG_DB` / `PG_PORT` when set** |
 | `API_PORT` | e2e `3901`, browse `3001` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
 | `WEB_PORT` | e2e `5901`, browse `5173` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
 | `CT_PORT` | `3100` | Playwright component tests (`pnpm test:ct`) |
+
+Those scripts resolve the URL in one place (`e2e/db-url.mts`, applied by `scripts/with-db-url.mts`): an exported `DATABASE_URL` is honoured as-is, otherwise it is `postgres://pls:pls@localhost:$PG_PORT/$PG_DB`. Check `echo $DATABASE_URL` if a script seems to hit the wrong database.
 
 The default `malleable_pls` database is Ed's dev data: never reseed or migrate it from a ticket branch. For ticket `T<N>` use database `malleable_pls_t<N>` and ports `31<NN>` (API) / `52<NN>` (web) / `33<NN>` (CT), NN = two-digit ticket number, so T5 is 3105 / 5205 / 3305:
 

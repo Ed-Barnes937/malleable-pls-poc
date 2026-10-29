@@ -105,8 +105,12 @@ export function proposalMinutes(proposals: ReadonlyArray<Proposal>): number {
   return proposals.reduce((sum, p) => sum + (Date.parse(p.endsAt) - Date.parse(p.startsAt)) / 60_000, 0)
 }
 
-/** Calm words for why a to-do didn't fit. */
-export function unplacedReason(reason: Unplaced['reason'], minutesPerDay: number): string {
+/**
+ * Calm words for why a to-do didn't fit. For one that found no slot, `cause`
+ * (see `noSlotCause`) says whether the days' study time or their gaps were
+ * too short, agreeing with the draft's leftover sentence.
+ */
+export function unplacedReason(reason: Unplaced['reason'], minutesPerDay: number, cause?: 'budget' | 'gaps'): string {
   switch (reason) {
     case 'over-daily-budget':
       return `longer than your ${formatMinutes(minutesPerDay)} a day`
@@ -115,6 +119,6 @@ export function unplacedReason(reason: Unplaced['reason'], minutesPerDay: number
     case 'invalid-duration':
       return 'it needs an estimate'
     default:
-      return 'no free gap long enough'
+      return cause === 'budget' ? 'too little study time left on any day' : 'no free gap long enough'
   }
 }

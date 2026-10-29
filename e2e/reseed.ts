@@ -7,14 +7,11 @@
 import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { resolve } from 'path'
+import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 
-const pgPort = process.env.PG_PORT ?? '5433'
-// PG_DB isolates parallel checkouts/agents (see e2e/README.md).
-const pgDb = process.env.PG_DB ?? 'malleable_pls'
-const DATABASE_URL =
-  process.env.DATABASE_URL ?? `postgres://pls:pls@localhost:${pgPort}/${pgDb}`
+const DATABASE_URL = resolveDatabaseUrl()
 
 const TABLES = [
   'plan_items',
@@ -54,8 +51,9 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
     // columns), since 006 replaced the grid columns 002 originally used;
     // 010 moves the seeded recording focus from panel config to the
     // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
-    // 013 swaps the stub automations for the lecture AI ones.
-    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql']) {
+    // 013 swaps the stub automations for the lecture AI ones; 014 resizes
+    // the seeded panels for the redesigned widget chrome.
+    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql']) {
       const seedSql = readFileSync(
         resolve(__dirname, `../packages/db/src/migrations/${file}`),
         'utf-8',
@@ -94,6 +92,7 @@ export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
         source_type: item.source_type ?? null,
         source_id: item.source_id ?? null,
         source_offset_ms: item.source_offset_ms ?? null,
+        created_by_workflow_id: item.created_by_workflow_id ?? null,
         ...(created_at ? { created_at } : {}),
         ...(updated_at ? { updated_at } : {}),
       })}

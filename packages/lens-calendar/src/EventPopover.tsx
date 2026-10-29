@@ -1,9 +1,11 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, Select, TextField, cn } from '@pls/shared-ui'
-import { Check, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
+import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
+import { useEscapeToClose, usePopoverPosition } from './popover-position'
+import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
@@ -17,6 +19,8 @@ export interface EventPopoverProps {
   /** Can this widget write? Read-only hosts get a view-only popover. */
   canEdit: boolean
   busy?: boolean
+  /** The action this popover is waiting on, named on its button while it saves. */
+  pending?: PendingAction | null
   error?: string | null
   /** Shown between the form and the actions, e.g. the lecture moment. */
   children?: ReactNode
@@ -31,39 +35,29 @@ const KINDS: PlanItemKind[] = ['commitment', 'task', 'deadline']
 
 /** Create / edit card for a calendar item, anchored where the student clicked. */
 export function EventPopover({
-  x, y, bounds, row, initial, canEdit, busy, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  x, y, bounds, row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
 }: EventPopoverProps) {
   const ref = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<Draft>(initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const [pos, setPos] = useState({ left: x, top: y })
+  const pos = usePopoverPosition(ref, { x, y, bounds, width: WIDTH })
   const isCreate = !row
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
 
-  useLayoutEffect(() => {
-    const height = ref.current?.offsetHeight ?? 320
-    const left = x + 12 + WIDTH > bounds.width ? x - WIDTH - 12 : x + 12
-    setPos({
-      left: Math.max(8, Math.min(left, bounds.width - WIDTH - 8)),
-      top: Math.max(8, Math.min(y - 24, bounds.height - height - 8)),
-    })
-  }, [x, y, bounds.width, bounds.height])
+  useEscapeToClose(onClose)
 
-  // One listener for the popover's lifetime: re-subscribing on every render
-  // (onClose is often a fresh function) could drop an Escape mid-dispatch when
-  // the shell's own Escape handling re-renders the board.
-  const onCloseRef = useRef(onClose)
-  onCloseRef.current = onClose
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCloseRef.current()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
+  // While a save is in flight the fields stay readable and focusable but
+  // refuse edits: they would be lost when the save closes the popover.
+  const locked = !!busy
+  const set = (patch: Partial<Draft>) => {
+    if (locked) return
+    setDraft((d) => ({ ...d, ...patch }))
+  }
+  /** Props that make a native select/checkbox refuse changes without greying it out. */
+  const lockProps = locked
+    ? { 'aria-readonly': true as const, onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
+    : {}
   const setDate = (value: string) => {
     const start = fromInputs(value, toTimeInput(draft.start))
     const end = fromInputs(value, toTimeInput(draft.end))
@@ -80,7 +74,7 @@ export function EventPopover({
 
   const isDue = draft.kind === 'deadline'
   const length = Math.round((draft.end.getTime() - draft.start.getTime()) / 60_000)
-  const fieldLabel = 'mb-1 block text-[10px] font-medium uppercase tracking-wider text-text-muted'
+  const fieldLabel = 'mb-1 block text-meta font-semibold text-text-muted'
 
   return (
     <form
@@ -90,10 +84,10 @@ export function EventPopover({
       data-testid="calendar-popover"
       onSubmit={(e) => {
         e.preventDefault()
-        if (!invalid && canEdit) onSubmit(draft)
+        if (!invalid && canEdit && !busy) onSubmit(draft)
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-2xl border border-border bg-surface-raised p-3.5 shadow-[var(--shadow-panel-focused)]"
+      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
       style={{ left: pos.left, top: pos.top, width: WIDTH }}
     >
       <div className="flex items-start gap-2">
@@ -104,31 +98,33 @@ export function EventPopover({
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}
           disabled={!canEdit}
+          readOnly={locked}
           onChange={(e) => set({ title: e.target.value })}
-          className="border-transparent bg-transparent px-0 text-sm font-medium text-text-primary focus:border-transparent focus:ring-0"
+          className="border-transparent bg-transparent px-0 text-title font-semibold text-text-primary focus:border-transparent focus:ring-0"
         />
         <button
           type="button"
           aria-label="Close"
           onClick={onClose}
-          className="mt-1 rounded-md p-0.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
 
       {isCreate ? (
-        <div role="radiogroup" aria-label="Kind" className="grid grid-cols-3 gap-1 rounded-lg bg-surface-overlay/60 p-0.5">
+        <div role="radiogroup" aria-label="Kind" className="grid grid-cols-3 gap-1 rounded-control bg-surface-overlay p-[3px]">
           {KINDS.map((kind) => (
             <button
               key={kind}
               type="button"
               role="radio"
               aria-checked={draft.kind === kind}
+              aria-disabled={locked || undefined}
               onClick={() => set({ kind })}
               className={cn(
-                'rounded-md px-1.5 py-1 text-[10px] font-medium leading-tight transition-colors',
-                draft.kind === kind ? 'bg-accent/15 text-accent ring-1 ring-accent/30' : 'text-text-secondary hover:text-text-primary',
+                'rounded-item px-1.5 py-1.5 text-meta leading-tight transition-colors',
+                draft.kind === kind ? 'bg-surface-raised font-semibold text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary',
               )}
             >
               {kind === 'commitment' ? 'Class / commitment' : KIND_LABELS[kind]}
@@ -136,7 +132,7 @@ export function EventPopover({
           ))}
         </div>
       ) : (
-        <span className="-mt-1 text-[10px] font-medium uppercase tracking-wider text-text-muted">
+        <span className="-mt-1 text-meta font-semibold text-text-muted">
           {row.kind === 'commitment' ? (row.subtype ?? 'Fixed commitment') : KIND_LABELS[row.kind]}
           {row.kind === 'commitment' && ' · stays where it is unless you edit it'}
         </span>
@@ -146,18 +142,18 @@ export function EventPopover({
         <div className="grid grid-cols-2 gap-2">
           <label className={cn('min-w-0', !isDue && 'col-span-2')}>
             <span className={fieldLabel}>{isDue ? 'Due' : 'Day'}</span>
-            <TextField type="date" aria-label="Date" value={toDateInput(draft.start)} disabled={!canEdit} onChange={(e) => setDate(e.target.value)} />
+            <TextField type="date" aria-label="Date" value={toDateInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label className="min-w-0">
             <span className={fieldLabel}>{isDue ? 'At' : 'From'}</span>
-            <TextField type="time" aria-label={isDue ? 'Due time' : 'Start time'} step={900} value={toTimeInput(draft.start)} disabled={!canEdit} onChange={(e) => setTime('start', e.target.value)} />
+            <TextField type="time" aria-label={isDue ? 'Due time' : 'Start time'} step={900} value={toTimeInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('start', e.target.value)} />
           </label>
           {!isDue && (
             <label className="min-w-0">
               <span className={fieldLabel}>
-                To{length > 0 && <span className="ml-1 normal-case tracking-normal">· {formatDuration(length)}</span>}
+                To{length > 0 && <span className="ml-1 font-normal">· {formatDuration(length)}</span>}
               </span>
-              <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} onChange={(e) => setTime('end', e.target.value)} />
+              <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('end', e.target.value)} />
             </label>
           )}
         </div>
@@ -166,21 +162,22 @@ export function EventPopover({
       <div className="flex items-end gap-2">
         <label className="min-w-0 flex-1">
           <span className={fieldLabel}>Course</span>
-          <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} onChange={(e) => set({ course: e.target.value || null })}>
+          <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} {...lockProps} onChange={(e) => set({ course: e.target.value || null })}>
             <option value="">No course</option>
             {COURSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </Select>
         </label>
         {draft.kind === 'commitment' && (
-          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 pb-1.5 text-[11px] text-text-secondary">
+          <label className="flex shrink-0 cursor-pointer items-center gap-1.5 pb-2 text-body text-text-secondary">
             <input
               type="checkbox"
               checked={draft.repeatsWeekly}
               disabled={!canEdit}
+              {...lockProps}
               onChange={(e) => set({ repeatsWeekly: e.target.checked })}
               className="h-3.5 w-3.5 accent-[var(--color-accent)]"
             />
-            <Repeat className="h-3 w-3" />
+            <Repeat className="h-3.5 w-3.5" />
             Repeats weekly
           </label>
         )}
@@ -189,20 +186,21 @@ export function EventPopover({
       {children}
 
       {row?.recurrence && canEdit && (
-        <p className="text-[10px] text-text-muted">Changes apply to every week.</p>
+        <p className="text-meta text-text-muted">Changes apply to every week.</p>
       )}
-      {error && <p role="alert" className="text-[11px] text-tag-confused">{error}</p>}
+      {error && <p role="alert" className="text-meta text-confused">{error}</p>}
+      <PendingStatus pending={pending} done={done} />
 
       {canEdit && (
         <div className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
           {onDelete && (confirmDelete ? (
             <button
               type="button"
-              onClick={onDelete}
-              disabled={busy}
-              className="rounded-lg px-2 py-1 text-[11px] font-medium text-tag-confused transition-colors hover:bg-tag-confused/10"
+              {...pendingProps(busy, pending === 'delete', onDelete)}
+              className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >
-              {row?.recurrence ? 'Delete every week?' : 'Delete it?'}
+              {pending === 'delete' && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+              {pending === 'delete' ? pendingLabel('delete') : row?.recurrence ? 'Delete every week?' : 'Delete it?'}
             </button>
           ) : (
             <button
@@ -210,29 +208,30 @@ export function EventPopover({
               aria-label="Delete"
               title="Delete"
               onClick={() => setConfirmDelete(true)}
-              className="rounded-lg p-1.5 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-control text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
             </button>
           ))}
           {onToggleDone && (
             <button
               type="button"
-              onClick={onToggleDone}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+              {...pendingProps(busy, pending === 'done', onToggleDone)}
+              className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors border border-border bg-surface-raised text-text-primary hover:bg-surface-overlay"
             >
-              {done ? <RotateCcw className="h-3 w-3" /> : <Check className="h-3 w-3" />}
-              {done ? 'Not done yet' : 'Mark done'}
+              {pending === 'done' ? <Loader2 aria-hidden className="h-4 w-4 animate-spin" /> : done ? <RotateCcw className="h-4 w-4" /> : <Check className="h-4 w-4" />}
+              {pending === 'done' ? pendingLabel('done', done) : done ? 'Not done yet' : 'Mark done'}
             </button>
           )}
           <button
             type="submit"
-            disabled={!!invalid || busy}
+            {...pendingProps(busy, pending === 'add' || pending === 'save')}
+            disabled={!!invalid || (busy && pending !== 'add' && pending !== 'save')}
             title={invalid ?? undefined}
-            className="ml-auto rounded-lg bg-accent px-3 py-1 text-[11px] font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
+            className="ml-auto inline-flex h-9 items-center gap-2 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
           >
-            {isCreate ? 'Add' : 'Save'}
+            {(pending === 'add' || pending === 'save') && <Loader2 aria-hidden className="h-4 w-4 animate-spin" />}
+            {pending === 'add' || pending === 'save' ? pendingLabel(pending) : isCreate ? 'Add' : 'Save'}
           </button>
         </div>
       )}

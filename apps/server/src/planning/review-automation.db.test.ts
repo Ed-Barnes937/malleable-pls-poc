@@ -41,7 +41,12 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
-    const ai = createAiDeps()
+    const { mockTranscriptSegments } = await import('../ai/transcriber')
+    // The same canned lecture as the mock transcriber, without its 1.5s demo
+    // delay: three tests transcribe, and the delay alone made them time out
+    // when the machine was loaded.
+    const instantTranscriber = { name: 'mock', transcribe: async () => mockTranscriptSegments.map((s) => ({ ...s })) }
+    const ai = { ...createAiDeps(), transcriber: instantTranscriber }
     executors = createServerExecutors(ai)
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
@@ -96,16 +101,20 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
 
   const ms = (iso: string | null) => Date.parse(iso!)
 
-  it('turns a confused moment into a linked, course-filed review placed late in its window around a shift', async () => {
+  it('turns a confused moment into a linked, course-filed review in the earliest free time, around a shift', async () => {
     const now = Date.now()
-    // A shift filling the evening of the window's last day: the review must avoid it.
-    const lastDay = startOfLocalDay(now, TZ, 3)
-    const shiftStart = atLocal(lastDay, 17)
-    const shiftEnd = atLocal(lastDay, 22)
+    const today = startOfLocalDay(now, TZ)
+    const tomorrow = startOfLocalDay(now, TZ, 1)
     const api = caller(alice)
+    // Today is taken, and tomorrow's study day opens with a shift: the
+    // earliest free time is after the shift and its 10-minute buffer.
+    const busyToday = await api.planItems.create({
+      kind: 'commitment', title: 'Away all day', subtype: null, course: null,
+      starts_at: new Date(today).toISOString(), ends_at: new Date(tomorrow).toISOString(),
+    })
     const shift = await api.planItems.create({
       kind: 'commitment', title: 'Cafe shift', subtype: 'shift', course: null,
-      starts_at: new Date(shiftStart).toISOString(), ends_at: new Date(shiftEnd).toISOString(),
+      starts_at: new Date(atLocal(tomorrow, 9)).toISOString(), ends_at: new Date(atLocal(tomorrow, 11)).toISOString(),
     })
 
     const result = await markConfused(seg(1))
@@ -118,23 +127,25 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       source_type: 'recording',
       source_id: rec,
       source_offset_ms: 60000,
+      created_by_workflow_id: workflowId,
       course: 'biology',
       status: 'open',
     })
+    // The automation that made it, for "Made by ... Edit".
+    expect(await api.workflows.byId(workflowId)).toMatchObject({
+      id: workflowId, condition_value: 'confused', jobs: [expect.objectContaining({ job_type: REVIEW_TASK_JOB })],
+    })
     expect(result.events).toEqual([expect.objectContaining({ type: 'plan-item:created', payload: expect.objectContaining({ id: review!.id }) })])
 
-    const start = ms(review!.starts_at)
-    const end = ms(review!.ends_at)
-    expect(end - start).toBe(20 * MIN)
-    expect(start).toBeGreaterThanOrEqual(now)
-    expect(end).toBeLessThanOrEqual(startOfLocalDay(now, TZ, 4))
-    // Latest fit that clears the shift and its 10-minute buffer: just before 16:50.
-    expect(end).toBeLessThanOrEqual(shiftStart - 10 * MIN)
-    expect(end).toBeGreaterThan(shiftStart - 60 * MIN)
+    // 11:00 + 10-minute buffer, on the quarter hour.
+    expect(ms(review!.starts_at)).toBe(atLocal(tomorrow, 11) + 15 * MIN)
+    expect(ms(review!.ends_at)).toBe(atLocal(tomorrow, 11) + 35 * MIN)
     expect(ms(review!.due_at)).toBe(startOfLocalDay(now, TZ, 4) - MIN)
 
     // The shift is untouched.
     expect(await api.planItems.byId(shift.id)).toMatchObject({ starts_at: shift.starts_at, ends_at: shift.ends_at })
+    await api.planItems.delete(busyToday.id)
+    await api.planItems.delete(shift.id)
   })
 
   it('adds one review per moment, however often it is marked', async () => {
@@ -159,16 +170,17 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       workflowId,
       jobParams: [{ workflowJobId, params: { durationMin: 30, windowDays: 1, timeZone: TZ } }],
     })
-    expect(reviews).toEqual({ moved: 1, unscheduled: 0 })
+    // Earliest placement: it keeps its start if 30 minutes still fit there, else moves.
+    expect(reviews.moved + reviews.resized).toBe(1)
+    expect(reviews.unscheduled).toBe(0)
 
     const moved = await api.planItems.byId(auto.id)
     expect(moved!.duration_min).toBe(30)
     expect(ms(moved!.ends_at) - ms(moved!.starts_at)).toBe(30 * MIN)
-    // "by tomorrow": ends by the end of tomorrow (local), late in the window.
+    // "by tomorrow": ends by the end of tomorrow (local), never within the hour after the mark.
     const byTomorrow = startOfLocalDay(ms(auto.created_at), TZ, 2)
     expect(ms(moved!.ends_at)).toBeLessThanOrEqual(byTomorrow)
-    expect(ms(moved!.starts_at)).toBeGreaterThanOrEqual(startOfLocalDay(ms(auto.created_at), TZ, 1))
-    expect(ms(moved!.starts_at)).not.toBe(ms(auto.starts_at))
+    expect(ms(moved!.starts_at)).toBeGreaterThanOrEqual(ms(auto.created_at) + 60 * MIN)
 
     const untouched = await api.planItems.byId(handMoved)
     expect(ms(untouched!.starts_at)).toBe(draggedTo)
@@ -203,17 +215,18 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     expect(after!.duration_min).not.toBe(45)
   })
 
-  it('keeps a gap between reviews it places', async () => {
+  it('keeps a gap between reviews it places, earliest first', async () => {
     const { findReviewSlots } = await import('./review-automation')
     const now = Date.now()
     const latest = startOfLocalDay(now, TZ, 3)
     const slots = await db.withUser(alice, (tx) => findReviewSlots(tx, alice, [
-      { id: 'gap-a', durationMin: 20, latest },
-      { id: 'gap-b', durationMin: 20, latest },
+      { id: 'gap-a', durationMin: 20, markedAt: now, latest },
+      { id: 'gap-b', durationMin: 20, markedAt: now, latest },
     ], { now, timeZone: TZ }))
     const a = slots.get('gap-a') as { start: number; end: number }
     const b = slots.get('gap-b') as { start: number; end: number }
-    expect(b.end).toBeLessThanOrEqual(a.start - 10 * MIN)
+    expect(a.start).toBeGreaterThanOrEqual(now + 60 * MIN)
+    expect(b.start).toBeGreaterThanOrEqual(a.end + 10 * MIN)
   })
 
   it('runs the board copy of the automation for marks made on that board', async () => {
@@ -322,5 +335,29 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const jobRun = { id: randomUUID(), workflow_id: 'wf', workflow_job_id: 'wfj' } as JobRun
     const result = await executors.execute('ai:transcribe', { recording_id: other, _userId: alice }, { scopeId: null, depth: 1, jobRun })
     expect(result.events).toEqual([{ type: 'recording:transcribed', payload: { recording_id: other } }])
+  })
+
+  it('forgets which automation made a review once that automation is deleted, and keeps the review', async () => {
+    const api = caller(alice)
+    const [wf] = await db.withUser(alice, (tx) => tx`
+      INSERT INTO workflows (user_id, source_lens, trigger_event, condition_field, condition_value)
+      VALUES (${alice}, 'transcript', 'tag:created', 'label', 'question') RETURNING id
+    `)
+    const [item] = await db.withUser(alice, (tx) => tx`
+      INSERT INTO plan_items (user_id, kind, title, created_by_workflow_id)
+      VALUES (${alice}, 'task', 'Review: a question', ${wf.id}) RETURNING id
+    `)
+    expect(await api.planItems.byId(item.id as string)).toMatchObject({ created_by_workflow_id: wf.id })
+    await api.workflows.delete({ workflowId: wf.id as string })
+    expect(await api.workflows.byId(wf.id as string)).toBeNull()
+    expect(await api.planItems.byId(item.id as string)).toMatchObject({ title: 'Review: a question', created_by_workflow_id: null })
+  })
+
+  it('never takes the automation from a client, on create or update', async () => {
+    const api = caller(alice)
+    const created = await api.planItems.create({ kind: 'task', title: 'Review: by hand', created_by_workflow_id: workflowId } as never)
+    expect(created.created_by_workflow_id).toBeNull()
+    const updated = await api.planItems.update({ id: created.id, patch: { title: 'Review: still by hand', created_by_workflow_id: workflowId } as never })
+    expect(updated).toMatchObject({ title: 'Review: still by hand', created_by_workflow_id: null })
   })
 })

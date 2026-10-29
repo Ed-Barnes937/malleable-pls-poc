@@ -21,6 +21,7 @@ import type {
   RefitAccept,
   RefitPreview,
   RefitResult,
+  WorkflowWithJobs,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -99,6 +100,12 @@ export interface SubstrateReader {
    * before showing new times), resolving with the fresh preview.
    */
   useRefitPreview: (timeZone: string) => QueryResult<RefitPreview> & { refetch: () => Promise<RefitPreview> }
+  /**
+   * One automation with its jobs, e.g. the one that made a plan item
+   * (`PlanItem.created_by_workflow_id`); null once it has been deleted.
+   * Disabled for an empty id.
+   */
+  useAutomation: (id: string) => QueryResult<WorkflowWithJobs>
 }
 
 /**
@@ -187,6 +194,11 @@ export interface PanelManifest {
    * the Transcript. Decides where `LensProps.onShowMoment` can land.
    */
   showsMoments?: boolean
+  /**
+   * The widget can show a scheduled plan item (`LensProps.focusedPlanItem`),
+   * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
+   */
+  showsPlanItems?: boolean
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

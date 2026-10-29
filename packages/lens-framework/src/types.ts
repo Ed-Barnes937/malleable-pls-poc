@@ -70,22 +70,54 @@ export interface Moment {
  */
 export interface FocusedMoment extends Moment {
   id: number
+  /** Move keyboard focus to the moment as well (the shell switched boards to show it). */
+  takeFocus?: boolean
 }
 
 /**
  * - `shown`: a widget that shows moments (manifest `showsMoments`) is on the
- *   board it was shown on.
- * - `no-viewer`: there is no such widget (on this board, or with
- *   `elsewhere`, on any board). The recording is still focused.
+ *   board it was shown on: this one, or another board the shell switched to.
+ * - `no-viewer`: no board has such a widget. The recording is still focused
+ *   on this board.
  */
 export type ShowMomentResult = 'shown' | 'no-viewer'
 
-export interface ShowMomentOptions {
+/** A scheduled plan item to show, e.g. the review block the confusion automation just placed. */
+export interface PlanItemRef {
+  id: string
+  /** Its block's start (ISO), so a viewer can open the right week. */
+  startsAt: string
   /**
-   * Switch to a board that has a moment viewer (preferring one already
-   * focused on the recording) instead of showing it on this board.
+   * Where the request came from (e.g. the review chip on the marked moment):
+   * kept in view with the block when both fit on screen.
    */
-  elsewhere?: boolean
+  keepInView?: Element | null
+  /**
+   * The block glows this many ms after the request, not straight away: a
+   * card flying from the moment lands on it then.
+   */
+  landsInMs?: number
+  /**
+   * The student's own board scrolling since this mark (`watchUserScroll`,
+   * e.g. when they marked the moment) leaves the board where they put it.
+   * Defaults to the time of the request.
+   */
+  scrolledSince?: number
+}
+
+/**
+ * The plan item most recently asked to be shown (see
+ * `LensProps.onShowPlanItem`). Ephemeral shell state; `requestId` is new on
+ * every request, so showing the same block twice reveals it again.
+ */
+export interface FocusedPlanItem extends PlanItemRef {
+  requestId: number
+  /**
+   * When it was asked for (a `watchUserScroll()` mark), or `scrolledSince`
+   * when earlier: if the student scrolls the board after this, the viewer
+   * leaves the board where they put it.
+   */
+  requestedAt: number
 }
 
 export interface LensProps {
@@ -119,11 +151,12 @@ export interface LensProps {
    * Jump to a recording moment ("click a study block, land on the lecture
    * moment"): the shell focuses the recording on the board (as
    * `onScopeChange` would) and hands the moment to every widget whose manifest
-   * declares `showsMoments` via `focusedMoment`. Resolves `no-viewer` when the
-   * board has none, so the caller can offer `{ elsewhere: true }`. Optional
+   * declares `showsMoments` via `focusedMoment`. When this board has none, the
+   * shell opens the moment on a board that does (with a toast offering the way
+   * back); `no-viewer` means no board has one. Optional
    * for the same reason as `onConfigChange`.
    */
-  onShowMoment?: (moment: Moment, options?: ShowMomentOptions) => Promise<ShowMomentResult>
+  onShowMoment?: (moment: Moment) => Promise<ShowMomentResult>
   /**
    * For widgets that declare `showsMoments`: the moment last asked to be
    * shown, on any board. Scroll to and highlight it once it belongs to the
@@ -134,4 +167,25 @@ export interface LensProps {
   focusedMoment?: FocusedMoment
   /** For `showsMoments` widgets: the moment with this `id` has been shown. */
   onMomentShown?: (id: number) => void
+  /**
+   * Reveal a scheduled block ("Review planned · Wed 19:30" -> the block on
+   * the calendar): the shell hands it to every widget on the board whose
+   * manifest declares `showsPlanItems` via `focusedPlanItem`. Returns false
+   * when the board has none. Optional for the same reason as `onConfigChange`.
+   */
+  onShowPlanItem?: (item: PlanItemRef) => boolean
+  /**
+   * For widgets that declare `showsPlanItems`: the block last asked to be
+   * shown. Bring it into view and highlight it once, then call
+   * `onPlanItemShown(requestId)` so the shell drops it.
+   */
+  focusedPlanItem?: FocusedPlanItem
+  /** For `showsPlanItems` widgets: the request with this id has been shown. */
+  onPlanItemShown?: (requestId: number) => void
+  /**
+   * Open the automation with this id (a workflow id, e.g. a plan item's
+   * `created_by_workflow_id`) so the student can see and edit it. Optional
+   * for the same reason as `onConfigChange`.
+   */
+  onEditAutomation?: (workflowId: string) => void
 }

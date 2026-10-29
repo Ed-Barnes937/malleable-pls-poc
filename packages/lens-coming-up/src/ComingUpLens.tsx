@@ -1,6 +1,6 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, COURSE_COLORS, HiddenElsewhere, Select, clockTime, cn, dayLabel, isAllDay } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, clockTime, cn, courseTone, dayLabel, isAllDay } from '@pls/shared-ui'
 import { comingUpQuery, groupByDay, isFromRecording, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
 
 export default function ComingUpLens({ scope, highlight, config, onConfigChange, onScopeChange }: LensProps) {
@@ -19,7 +19,7 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
         {onConfigChange ? (
           <Select
             aria-label="Look ahead"
-            wrapperClassName="w-32 shrink-0"
+            wrapperClassName="w-40 shrink-0"
             value={days}
             onChange={(e) => onConfigChange({ lookAheadDays: Number(e.target.value) })}
           >
@@ -28,7 +28,7 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
             ))}
           </Select>
         ) : (
-          <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">Next {days} days</span>
+          <span className="text-meta font-semibold text-text-muted">Next {days} days</span>
         )}
         {/* Only once both lists are in, so the hint never flashes a wrong count. */}
         {items && all && (
@@ -42,22 +42,22 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
       </div>
 
       {!isLoading && groups.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center text-xs text-neutral-600">
+        <div className="flex flex-1 items-center justify-center text-body text-text-muted">
           Nothing due in the next {days} days.
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto">
           {groups.map((group) => (
-            <section key={group.key} aria-label={group.heading} className="flex flex-col gap-1">
+            <section key={group.key} aria-label={group.heading} className="flex flex-col gap-1.5">
               <h3
                 className={cn(
-                  'text-[10px] font-medium uppercase tracking-widest',
-                  group.past ? 'text-attention-soft' : 'text-neutral-500',
+                  'text-meta font-semibold',
+                  group.past ? 'text-attn' : 'text-text-muted',
                 )}
               >
                 {group.heading}
               </h3>
-              <ul className="flex flex-col gap-1">
+              <ul className="flex flex-col gap-1.5">
                 {group.items.map((item) => (
                   <DeadlineRow
                     key={item.occurrence_key}
@@ -101,16 +101,16 @@ function DeadlineRow({ item, showCourse, highlighted, now, showDay, onFocusCours
     <>
       <span
         aria-hidden
-        className={cn('h-1.5 w-1.5 shrink-0 rounded-full', (item.course && COURSE_COLORS[item.course]) || 'bg-neutral-600')}
+        className={cn('h-2 w-2 shrink-0 rounded-full', courseTone(item.course).stripe)}
       />
-      <span className="min-w-0 flex-1 truncate text-xs text-neutral-200">{item.title}</span>
-      {showCourse && courseLabel && <span className="shrink-0 text-[10px] text-neutral-500">{courseLabel}</span>}
-      {time && <span className="shrink-0 font-mono text-[10px] tabular-nums text-neutral-500">{time}</span>}
+      <span className="min-w-0 flex-1 truncate text-body font-semibold text-text-primary">{item.title}</span>
+      {showCourse && courseLabel && <span className="shrink-0 text-meta text-text-muted">{courseLabel}</span>}
+      {time && <span className="shrink-0 text-meta tabular-nums text-text-muted">{time}</span>}
     </>
   )
   const className = cn(
-    'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left',
-    highlighted && 'bg-accent/5 ring-1 ring-accent/30',
+    'flex w-full items-center gap-2.5 rounded-item bg-surface-inset px-3 py-2.5 text-left',
+    highlighted && 'bg-accent-soft ring-1 ring-accent-line',
   )
 
   return (
@@ -120,7 +120,7 @@ function DeadlineRow({ item, showCourse, highlighted, now, showDay, onFocusCours
           type="button"
           onClick={onFocusCourse}
           title={`Show ${courseLabel} on this board`}
-          className={cn(className, 'transition-colors hover:bg-neutral-800/40')}
+          className={cn(className, 'transition-colors hover:bg-surface-overlay')}
         >
           {body}
         </button>

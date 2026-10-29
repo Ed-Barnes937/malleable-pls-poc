@@ -19,9 +19,10 @@ export const manifest: PanelManifest = {
   reads: ['plan_items', 'recordings'],
   writes: ['plan_items'],
   emits: ['plan-item:created', 'plan-item:updated', 'plan-item:completed'],
+  showsPlanItems: true,
   load: () => import('./CalendarLens'),
   minWidth: 520,
   minHeight: 420,
   defaultWidth: 900,
-  defaultHeight: 640,
+  defaultHeight: 760,
 }

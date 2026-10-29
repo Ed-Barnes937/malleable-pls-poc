@@ -7,14 +7,18 @@ import {
   draftCopy,
   longestBlockMin,
   noteWithoutAmounts,
+  openTime,
   draftPlan,
   formatMinutes,
   matchesWeakTopic,
   planAutofillInput,
   planCapacity,
+  placeReviews,
   planTasks,
   rankForPlan,
   sanitizeAdvice,
+  leftoverStudyTime,
+  noSlotCause,
   studyDays,
   suggestTaskSlots,
   weekLayout,
@@ -31,7 +35,7 @@ const tz = 'Europe/London'
 function item(over: Partial<PlanItem> & Pick<PlanItem, 'id' | 'kind'>): PlanItem {
   return {
     title: over.id, starts_at: null, ends_at: null, due_at: null, duration_min: null, status: 'open',
-    recurrence: null, subtype: null, source_type: null, source_id: null, source_offset_ms: null, course: null,
+    recurrence: null, subtype: null, source_type: null, source_id: null, source_offset_ms: null, created_by_workflow_id: null, course: null,
     created_at: iso(0, 0), updated_at: iso(0, 0), ...over,
   }
 }
@@ -43,15 +47,28 @@ function task(over: Partial<PlanTask> & Pick<PlanTask, 'id'>): PlanTask {
 describe('weekLayout', () => {
   it('frees the study day around commitments (with buffer) and keeps study blocks busy', () => {
     const layout = weekLayout([
-      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 9), ends_at: iso(0, 11) }),
+      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 10), ends_at: iso(0, 12) }),
       item({ id: 'study', kind: 'task', starts_at: iso(0, 14), ends_at: iso(0, 15) }),
       item({ id: 'gone', kind: 'task', status: 'dismissed', starts_at: iso(0, 16), ends_at: iso(0, 17) }),
       item({ id: 'quiz', kind: 'deadline', due_at: iso(3, 9) }),
     ], week, { timeZone: tz })
-    expect(layout.free[0]).toEqual({ start: at(0, 8), end: at(0, 8, 50) })
-    expect(layout.free[1]).toEqual({ start: at(0, 11, 10), end: at(0, 22) })
+    // The study day starts at 09:00.
+    expect(layout.free[0]).toEqual({ start: at(0, 9), end: at(0, 9, 50) })
+    expect(layout.free[1]).toEqual({ start: at(0, 12, 10), end: at(0, 22) })
     expect(layout.busy).toEqual([{ start: at(0, 14), end: at(0, 15), taskId: 'study' }])
     expect(layout.budget).toEqual({ minutesPerDay: 120, timeZone: tz })
+  })
+
+  it('open time leaves out the past, study blocks and anything else busy (e.g. drafted blocks)', () => {
+    const layout = weekLayout([item({ id: 'study', kind: 'task', starts_at: iso(1, 12), ends_at: iso(1, 13) })], week, { timeZone: tz })
+    const open = openTime(layout, at(1, 11), [{ start: at(1, 14), end: at(1, 15) }])
+    const tuesday = open.filter((i) => i.start >= at(1, 0) && i.end <= at(2, 0))
+    expect(tuesday).toEqual([
+      { start: at(1, 11), end: at(1, 12) },
+      { start: at(1, 13), end: at(1, 14) },
+      { start: at(1, 15), end: tuesday[2].end },
+    ])
+    expect(open.every((i) => i.start >= at(1, 11))).toBe(true)
   })
 
   it('leaves out rows being re-placed', () => {
@@ -101,9 +118,33 @@ describe('capacity and copy', () => {
     expect(capacityCopy({ freeMin: 200, neededMin: 0 })).toBe('About 3 hours of study time left this week. Nothing left to plan.')
     // Free rounds down and needed rounds up, so a 10-minute gap never reads as "fits".
     expect(capacityCopy({ freeMin: 530, neededMin: 540 })).toBe('About 8.5 hours of study time left this week. Your to-dos need 9.')
+    // The daily cap Auto-fill drafts with, named in the headline.
+    expect(capacityCopy({ freeMin: 540, neededMin: 720 }, 'this week', 120)).toBe('About 9 hours of study time left this week (2h a day). Your to-dos need 12.')
+    expect(capacityCopy({ freeMin: 0, neededMin: 90 }, 'next week', 90)).toBe('No study time left next week (1h 30m a day). Your to-dos need 1.5 hours.')
     expect(draftCopy(360, 150)).toBe("Drafted 6h of study time. 2h 30m didn't fit.")
     expect(draftCopy(90, 0)).toBe('Drafted 1h 30m of study time. Everything fits.')
     expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
+    // Study time left unused is named for its real reason, so the numbers add up to the headline's.
+    const gaps = (gapMin: number) => ({ gapMin, dayMin: 0 })
+    const days = (dayMin: number) => ({ gapMin: 0, dayMin })
+    expect(draftCopy(420, 300, gaps(120))).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
+    // It agrees in number with the to-dos that didn't fit.
+    expect(draftCopy(300, 240, gaps(120), 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 2h of free time is in gaps too short for them.")
+    expect(draftCopy(0, 120, gaps(90))).toBe("Nothing fits as it is. 2h didn't fit. The 1h 30m of free time is in gaps too short for it.")
+    // Held back by the 2h a day, not by short gaps: said so.
+    expect(draftCopy(300, 240, days(60), 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 1h is on days with too little study time left for them.")
+    expect(draftCopy(300, 120, days(60))).toBe("Drafted 5h of study time. 2h didn't fit. The other 1h is on days with too little study time left for it.")
+    expect(draftCopy(0, 120, days(60))).toBe("Nothing fits as it is. 2h didn't fit. The 1h is on days with too little study time left for it.")
+    expect(draftCopy(300, 240, { gapMin: 60, dayMin: 30 }, 2)).toBe(
+      "Drafted 5h of study time. 4h didn't fit. The other 1h of free time is in gaps too short for them, and 30m is on days with too little study time left for them.",
+    )
+    // A part under 15 minutes goes unnamed.
+    expect(draftCopy(300, 240, { gapMin: 60, dayMin: 10 }, 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 1h of free time is in gaps too short for them.")
+    expect(draftCopy(420, 300, gaps(10))).toBe("Drafted 7h of study time. 5h didn't fit.")
+    expect(draftCopy(420, 0, gaps(120))).toBe('Drafted 7h of study time. Everything fits.')
+  })
+
+  it('formats amounts of time', () => {
     expect(formatMinutes(90)).toBe('1h 30m')
     expect(formatMinutes(45)).toBe('45m')
     expect(formatMinutes(120)).toBe('2h')
@@ -115,31 +156,31 @@ describe('capacity and copy', () => {
     expect(days).toHaveLength(7)
     expect(days[0]).toEqual({ day: at(0, 0), freeMin: 60, leftMin: 60 })
     expect(days[1]).toMatchObject({ leftMin: 30 })
-    expect(days[2]).toMatchObject({ freeMin: 14 * 60, leftMin: 120 })
+    expect(days[2]).toMatchObject({ freeMin: 13 * 60, leftMin: 120 })
   })
 })
 
 describe('draftPlan', () => {
-  const layout = weekLayout([item({ id: 'accepted', kind: 'task', starts_at: iso(0, 8), ends_at: iso(0, 9) })], week, { timeZone: tz })
+  const layout = weekLayout([item({ id: 'accepted', kind: 'task', starts_at: iso(0, 9), ends_at: iso(0, 10) })], week, { timeZone: tz })
 
   it('places in the order given, within the budget and with a gap, around fixed and pinned blocks', () => {
     const r = draftPlan(
       [task({ id: 'b', durationMin: 60 }), task({ id: 'a', durationMin: 60 }), task({ id: 'long', durationMin: 180 })],
       layout,
-      { now: at(0, 0), pinned: [{ taskId: 'p', start: at(1, 8), end: at(1, 10) }] },
+      { now: at(0, 0), pinned: [{ taskId: 'p', start: at(1, 9), end: at(1, 11) }] },
     )
     expect(r.placements).toEqual([
-      // Monday has 1h left after the accepted block; 10-minute gap -> 09:15.
-      { taskId: 'b', start: at(0, 9, 15), end: at(0, 10, 15) },
+      // Monday has 1h left after the accepted block; 10-minute gap -> 10:15.
+      { taskId: 'b', start: at(0, 10, 15), end: at(0, 11, 15) },
       // Tuesday is spent by the pinned ghost.
-      { taskId: 'a', start: at(2, 8), end: at(2, 9) },
+      { taskId: 'a', start: at(2, 9), end: at(2, 10) },
     ])
     expect(r.unplaced).toEqual([{ taskId: 'long', reason: 'over-daily-budget' }])
   })
 
   it('suggests slots on days with budget left', () => {
     const s = suggestTaskSlots(task({ id: 'x', durationMin: 90 }), layout, { now: at(0, 0) })
-    expect(s.map((p) => p.start)).toEqual([at(1, 8), at(2, 8), at(3, 8)])
+    expect(s.map((p) => p.start)).toEqual([at(1, 9), at(2, 9), at(3, 9)])
   })
 })
 
@@ -239,5 +280,124 @@ describe('planAutofillInput', () => {
     expect(planAutofillInput.safeParse({ ...base, to: iso(14, 0) }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, studyMinPerDay: 0 }).success).toBe(false)
+  })
+})
+
+describe('placeReviews', () => {
+  const range = { start: at(0, 0), end: at(4, 0) }
+  const review = (id: string, over: { markedAt?: number; latest?: number; durationMin?: number } = {}) =>
+    ({ id, durationMin: 20, markedAt: at(0, 11), latest: at(3, 0), ...over })
+  const shift = (day: number) => item({ id: `shift-${day}`, kind: 'commitment', starts_at: iso(day, 17), ends_at: iso(day, 22) })
+
+  it('goes in the earliest free time in its window, an hour after the mark at the soonest', () => {
+    const slots = placeReviews([], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+  })
+
+  it('starts the day at 09:00', () => {
+    const slots = placeReviews([], [review('r', { markedAt: at(0, 5) })], range, { now: at(0, 5), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(0, 9), end: at(0, 9, 20) })
+  })
+
+  it('avoids shifts (with their buffer) and keeps a 10-minute gap from accepted blocks', () => {
+    const slots = placeReviews([
+      item({ id: 'lecture', kind: 'commitment', starts_at: iso(0, 12), ends_at: iso(0, 13) }),
+      item({ id: 'accepted', kind: 'task', starts_at: iso(0, 13, 10), ends_at: iso(0, 14) }),
+    ], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    // 12:00-13:10 is the lecture and its buffer, 13:10-14:00 the block; +10m gap.
+    expect(slots.get('r')).toEqual({ start: at(0, 14, 15), end: at(0, 14, 35) })
+  })
+
+  it('skips a day already at its study budget', () => {
+    const slots = placeReviews([
+      item({ id: 'autofill', kind: 'task', starts_at: iso(0, 13), ends_at: iso(0, 15) }),
+      shift(1),
+    ], [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ start: at(1, 9), end: at(1, 9, 20) })
+  })
+
+  it('goes over the budget as a last resort, when every day in the window is at it', () => {
+    const full = [0, 1, 2].map((d) => item({ id: `full-${d}`, kind: 'task', starts_at: iso(d, 15), ends_at: iso(d, 17) }))
+    const slots = placeReviews(full, [review('r')], range, { now: at(0, 11), timeZone: tz })
+    // Still an hour after the mark, in the earliest free slot.
+    expect(slots.get('r')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+  })
+
+  it('stays unscheduled only when the window has no free slot at all', () => {
+    const away = [0, 1, 2].map((d) => item({ id: `away-${d}`, kind: 'commitment', starts_at: iso(d, 0), ends_at: iso(d + 1, 0) }))
+    const slots = placeReviews(away, [review('r')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('r')).toEqual({ reason: 'no-free-slot' })
+  })
+
+  it('places several in order, each clear of the last, and moves the ones being placed', () => {
+    const slots = placeReviews([
+      item({ id: 'a', kind: 'task', subtype: 'review', starts_at: iso(2, 19), ends_at: iso(2, 19, 20) }),
+    ], [review('a'), review('b')], range, { now: at(0, 11), timeZone: tz })
+    expect(slots.get('a')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
+    expect(slots.get('b')).toEqual({ start: at(0, 12, 30), end: at(0, 12, 50) })
+  })
+})
+
+describe('leftoverStudyTime', () => {
+  // Monday and Tuesday (GMT), the default 2h of study a day.
+  const monday = { start: at(0, 0), end: at(1, 0) }
+  const twoDays = { start: at(0, 0), end: at(2, 0) }
+  const now = monday.start
+  const tz = { timeZone: 'Europe/London' }
+  /** A class on `day` (0 = Monday) from `from` to `to`, in hours (10.5 is 10:30). */
+  const commitment = (id: string, from: number, to: number, day = 0) => ({
+    id, kind: 'commitment' as const, status: 'open' as const, subtype: null,
+    starts_at: iso(day, Math.floor(from), (from % 1) * 60), ends_at: iso(day, Math.floor(to), (to % 1) * 60),
+  })
+  // Classes 10:30-12:00 and 13:30-22:00: two 70-minute gaps (10 minutes clear of each class).
+  const shortGapsMonday = [commitment('a', 10.5, 12), commitment('b', 13.5, 22)]
+  const stuck = (durationMin: number) => ({ durationMin, reason: 'no-free-slot' as const })
+
+  it('blames short gaps when the day has budget to spare but no gap long enough', () => {
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 120, dayMin: 0 })
+  })
+
+  it("blames the day's study time, not gaps, when the 2h a day is what is left short (the Thursday rehearsal)", () => {
+    // A 1h block drafted: 1h of the day's 2h is left, in one long free stretch; a 2h to-do can't use it.
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    expect(leftoverStudyTime(weekLayout([], monday, tz), now, drafted, [stuck(120), stuck(120)])).toEqual({ gapMin: 0, dayMin: 60 })
+  })
+
+  it('a day short of both budget and gap length is blamed on the budget, the binding cause', () => {
+    // A 1h block drafted at 09:00: 1h of budget left, and the gaps left are 20 and 70 minutes.
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, monday, tz), now, drafted, [stuck(90)])).toEqual({ gapMin: 0, dayMin: 60 })
+  })
+
+  it('splits a week by day: one day short of gaps, another short of budget', () => {
+    // Monday: 70-minute gaps, budget to spare. Tuesday: free all day, 1h 30m already drafted.
+    const drafted = [{ start: at(1, 9), end: at(1, 10, 30) }]
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, twoDays, tz), now, drafted, [stuck(90)])).toEqual({ gapMin: 120, dayMin: 30 })
+  })
+
+  it('blames neither when something else kept a to-do out (too long for a day, due too soon)', () => {
+    const layout = weekLayout(shortGapsMonday, monday, tz)
+    expect(leftoverStudyTime(layout, now, [], [stuck(90), { durationMin: 180, reason: 'over-daily-budget' }])).toEqual({ gapMin: 0, dayMin: 0 })
+    expect(leftoverStudyTime(layout, now, [], [{ durationMin: 60, reason: 'window-closed' }])).toEqual({ gapMin: 0, dayMin: 0 })
+    expect(leftoverStudyTime(layout, now, [], [])).toEqual({ gapMin: 0, dayMin: 0 })
+  })
+
+  it("names each to-do's own reason by the same rule (noSlotCause)", () => {
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    // Short gaps, budget to spare.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, [], 90)).toBe('gaps')
+    // 1h of the 2h left in a long free day: a 2h to-do is short of study time.
+    expect(noSlotCause(weekLayout([], monday, tz), now, drafted, 120)).toBe('budget')
+    // Short of both on Monday: the budget binds.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, drafted, 90)).toBe('budget')
+    // A day used up to its 2h, with free time still ahead, is short of study time too.
+    expect(noSlotCause(weekLayout([], monday, tz), now, [{ start: at(0, 9), end: at(0, 11) }], 60)).toBe('budget')
+    // One day with the budget (Monday, short gaps) is enough to blame the gaps.
+    expect(noSlotCause(weekLayout(shortGapsMonday, twoDays, tz), now, [{ start: at(1, 9), end: at(1, 10, 30) }], 90)).toBe('gaps')
+  })
+
+  it('leaves unnamed what neither explains: a day with a long enough gap and budget left', () => {
+    // Free all day with the full 2h: a 90-minute to-do could go there, so nothing is blamed.
+    expect(leftoverStudyTime(weekLayout([], monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 0, dayMin: 0 })
   })
 })

@@ -11,6 +11,11 @@ const WORKSPACE_ICONS: Record<string, typeof BookOpen> = {
   'ws-exam-prep': GraduationCap,
 }
 
+/** Fades the strip's edges that have more tabs past them. */
+function fadeMask({ start, end }: { start: boolean; end: boolean }): string {
+  return `linear-gradient(to right, transparent, #000 ${start ? 28 : 0}px, #000 calc(100% - ${end ? 28 : 0}px), transparent)`
+}
+
 export function WorkspaceSwitcher() {
   const { data: workspaces } = useWorkspaces()
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -96,11 +101,38 @@ export function WorkspaceSwitcher() {
     resetDrag()
   }, [resetDrag])
 
-  // Keep the open board's tab visible when the tab strip scrolls (narrow screens).
+  // On a narrow screen the strip scrolls sideways; each edge with more tabs
+  // past it fades out, so the strip reads as "there's more".
+  const [edges, setEdges] = useState({ start: false, end: false })
+  const updateEdges = useCallback(() => {
+    const el = containerRef.current
+    if (!el) return
+    const start = el.scrollLeft > 1
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1
+    setEdges((prev) => (prev.start === start && prev.end === end ? prev : { start, end }))
+  }, [])
+  const tabCount = workspaces?.length ?? 0
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    updateEdges()
+    const observer = new ResizeObserver(updateEdges)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [updateEdges, tabCount])
+
+  // Keep the open board's tab in view, centred clear of the fades. Scrolls
+  // the strip only, never the page.
   const activeIdx = workspaces?.findIndex((ws) => ws.id === activeWorkspaceId) ?? -1
   useEffect(() => {
-    tabRefs.current[activeIdx]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
-  }, [activeIdx])
+    const strip = containerRef.current
+    const tab = tabRefs.current[activeIdx]?.parentElement
+    if (!strip || !tab || strip.scrollWidth <= strip.clientWidth) return
+    const s = strip.getBoundingClientRect()
+    const t = tab.getBoundingClientRect()
+    strip.scrollLeft += t.left + t.width / 2 - (s.left + s.width / 2)
+    updateEdges()
+  }, [activeIdx, tabCount, updateEdges])
 
   if (!workspaces) return null
 
@@ -110,7 +142,12 @@ export function WorkspaceSwitcher() {
         ref={containerRef}
         role="group"
         aria-label="Boards"
-        className="flex max-w-full items-center gap-0.5 overflow-x-auto rounded-lg bg-surface p-1 touch-none [scrollbar-width:none]"
+        data-fade-start={edges.start || undefined}
+        data-fade-end={edges.end || undefined}
+        onScroll={updateEdges}
+        // pan-x: a finger swipes the strip sideways; a mouse drag still reorders.
+        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-[14px] bg-surface-overlay p-1 touch-pan-x [scrollbar-width:none]"
+        style={edges.start || edges.end ? { maskImage: fadeMask(edges), WebkitMaskImage: fadeMask(edges) } : undefined}
       >
         {workspaces.map((ws, idx) => {
           const Icon = WORKSPACE_ICONS[ws.id] ?? BookOpen
@@ -123,8 +160,8 @@ export function WorkspaceSwitcher() {
               key={ws.id}
               data-testid="workspace-tab"
               className={cn(
-                'relative flex shrink-0 items-center rounded-md transition-all duration-150',
-                isActive && 'bg-surface-raised shadow-sm shadow-black/20',
+                'relative flex shrink-0 items-center rounded-[11px] transition-all duration-150',
+                isActive && 'bg-surface-raised shadow-sm',
               )}
             >
               {showDropBefore && (
@@ -138,15 +175,15 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex items-center gap-1.5 whitespace-nowrap rounded-md py-1.5 text-xs font-medium transition-all duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-[11px] text-body transition-all duration-150 select-none',
                   isActive
-                    ? 'pl-3 pr-1 text-neutral-100'
-                    : 'px-3 text-neutral-500 hover:bg-surface-overlay/30 hover:text-neutral-300',
+                    ? 'pl-3.5 pr-1 font-semibold text-text-primary'
+                    : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
                   isDragging && 'opacity-40',
                   dragging && 'cursor-grabbing',
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
+                <Icon className="h-4 w-4" />
                 {ws.name}
               </button>
               {/* Only the open board can be deleted, so the button sits inside
@@ -160,9 +197,9 @@ export function WorkspaceSwitcher() {
                   }}
                   aria-label={`Delete ${ws.name}`}
                   title="Delete board"
-                  className="mr-1 rounded p-1 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  className="mr-1.5 rounded-item p-1.5 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
               {dragging && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
@@ -176,9 +213,9 @@ export function WorkspaceSwitcher() {
           onClick={() => setCreateDialogOpen(true)}
           aria-label="New board"
           title="New board"
-          className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-neutral-600 transition-colors hover:bg-surface-overlay/30 hover:text-neutral-400"
+          className="flex h-9 shrink-0 items-center justify-center rounded-[11px] px-2.5 text-text-muted transition-colors hover:bg-surface-raised/60 hover:text-text-primary"
         >
-          <Plus className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
       </div>
       <CreateWorkspaceDialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} />

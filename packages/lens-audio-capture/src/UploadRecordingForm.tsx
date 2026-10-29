@@ -31,10 +31,10 @@ export function UploadRecordingForm({ file, defaultCourse, onSubmit, onCancel }:
     <form
       aria-label="Upload a recording"
       onSubmit={handleSubmit}
-      className="flex w-full max-w-xs flex-col gap-1.5 @tall:gap-2"
+      className="flex w-full max-w-xs flex-col gap-2"
     >
-      <p className="flex items-center gap-1.5 truncate text-[10px] text-neutral-500">
-        <FileAudio className="h-3 w-3 shrink-0" />
+      <p className="flex items-center gap-1.5 truncate text-meta text-text-muted">
+        <FileAudio className="h-3.5 w-3.5 shrink-0" />
         <span className="truncate">{file.name}</span>
       </p>
       <TextField
@@ -52,18 +52,18 @@ export function UploadRecordingForm({ file, defaultCourse, onSubmit, onCancel }:
           </option>
         ))}
       </Select>
-      <div className="flex justify-end gap-1.5">
+      <div className="flex justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded-md px-2.5 py-1 text-xs text-neutral-400 transition-colors hover:text-neutral-200"
+          className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay"
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={!title.trim()}
-          className="rounded-md bg-accent/15 px-2.5 py-1 text-xs font-medium text-accent ring-1 ring-accent/30 transition-colors hover:bg-accent/25 disabled:opacity-40"
+          className="h-9 rounded-control bg-accent px-3.5 text-body font-medium text-accent-foreground transition-colors hover:opacity-90 disabled:opacity-40"
         >
           Upload
         </button>

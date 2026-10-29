@@ -178,13 +178,47 @@ gesture, not lens-to-lens messaging, and it works like scope:
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
-`onShowMoment` resolves `no-viewer` when the board has no moment viewer (the
-recording is still focused). The caller can then offer "Open in a board with
-Transcript": `onShowMoment(moment, { elsewhere: true })` switches to the first
-board (in tab order) that has one, preferring a board already focused on that
-recording, and shows the moment there. The Calendar does both: clicking a block
-with provenance jumps straight away, and its popover says where it landed or
-offers the other board.
+On a board already focused on another lecture, that focus changes under the
+student (e.g. a Weakest Topics row from an older lecture), so the shell says
+so with a toast ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") whose
+action ("Back to Mitochondrial DNA - today") puts the board's lecture back.
+
+When the board has no moment viewer, the shell switches to a board that has
+one: a viewer set up for reviewing (not a Transcript in capture mode) first,
+then one already focused on that recording, then tab order. It shows the
+moment there, moves keyboard focus to it, and raises a toast ("Opened 1:18 in
+Evening Review") whose action goes back to the board the student came from;
+the toast stays until dismissed or the student leaves that board.
+`onShowMoment` resolves `no-viewer` only when no board has a moment viewer (the
+recording is still focused on this board). The Calendar, To-do and Weakest
+Topics all ask this way; the Calendar's study block popover leads with the
+moment the block came from and asks only when the student presses "Go to
+moment".
+
+A plan item an automation made records it (`created_by_workflow_id`, null for
+items a person made). The study block popover names that automation ("Made by
+...") and `LensProps.onEditAutomation(workflowId)` asks the shell to open it.
+
+### Showing a block ("See it")
+
+The reverse gesture, for a time block: the toast after a job placed one
+("Review added to your plan · See it", from the run's `output.plan_item_id` /
+`starts_at`, carried on the `job:completed` event as `planItem`) and the
+Transcript's "Review planned" chip call `LensProps.onShowPlanItem({ id,
+startsAt })`. The shell keeps it as ephemeral `focusedPlanItem` (a fresh
+`requestId` per request) and hands it to widgets whose manifest declares
+`showsPlanItems: true` (the Calendar), which open that week, scroll the block
+into view in the grid and on the board (`showOnBoard` in `@pls/shared-ui`),
+glow it once (a still ring under reduced motion) and call
+`onPlanItemShown(requestId)`. It only works on the board in view: the shell
+passes `onShowPlanItem`, and the toast offers "See it", only when that board
+has a Calendar.
+
+The confused-to-calendar ripple uses the same request when a new review
+arrives on the lecture just marked: `keepInView` (the moment's chip) stays on
+screen with the block when both fit, `landsInMs` delays the glow until the
+Transcript's flying card lands, and `scrolledSince` (when the moment was
+marked) makes the board stay put if the student has scrolled it since.
 
 ---
 

@@ -7,15 +7,27 @@ import { daysFromNow, seedPlanItem } from '../../../playwright/plan-items'
 // Re-fitting study blocks that didn't happen, from the Calendar: the calm
 // question, the new times as ghosts, one atomic accept, or "Keep my plan".
 
+
+// A Wednesday noon, in the browser and in the simulated server: the next
+// free time (where re-fit puts a block) is always later this week, whatever
+// day the suite runs, so the note's "where they went" is stable.
+const NOW = new Date(2026, 9, 28, 12)
+const fromNow = (days: number, hour?: number) => daysFromNow(days, hour, NOW)
+
+test.beforeEach(async ({ page, simulator }) => {
+  await page.clock.setFixedTime(NOW)
+  simulator.freezeNow(NOW)
+})
+
 function seedMissed(simulator: BackendSimulator) {
-  seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: daysFromNow(-2, 10), ends_at: daysFromNow(-2, 11), course: 'biology' })
-  seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', duration_min: 60, starts_at: daysFromNow(-1, 19), ends_at: daysFromNow(-1, 20), course: 'chemistry' })
+  seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: fromNow(-2, 10), ends_at: fromNow(-2, 11), course: 'biology' })
+  seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', duration_min: 60, starts_at: fromNow(-1, 19), ends_at: fromNow(-1, 20), course: 'chemistry' })
   // Never re-fit: a class that has passed, and a block ticked off.
-  seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: daysFromNow(-1, 9), ends_at: daysFromNow(-1, 10) })
-  seedPlanItem(simulator, { id: 'done', kind: 'task', title: 'Done block', status: 'done', starts_at: daysFromNow(-1, 15), ends_at: daysFromNow(-1, 16) })
+  seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: fromNow(-1, 9), ends_at: fromNow(-1, 10) })
+  seedPlanItem(simulator, { id: 'done', kind: 'task', title: 'Done block', status: 'done', starts_at: fromNow(-1, 15), ends_at: fromNow(-1, 16) })
   // Busy all today, so the new times are tomorrow whatever the hour: always
   // one week (on a Sunday evening they could otherwise straddle two).
-  seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away today', starts_at: daysFromNow(0, 0), ends_at: daysFromNow(1, 0) })
+  seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away today', starts_at: fromNow(0, 0), ends_at: fromNow(1, 0) })
 }
 
 const banner = (page: Page) => page.getByTestId('refit-banner')
@@ -37,17 +49,17 @@ test('asks calmly, shows the new times as ghosts and moves them together on acce
   // The banner is the tray for these: no second "Accept all" bar.
   await expect(page.getByTestId('proposal-tray')).toHaveCount(0)
   // Nothing is written until accepted.
-  expect(stored(simulator, 'missed-1').starts_at).toBe(daysFromNow(-2, 10))
+  expect(stored(simulator, 'missed-1').starts_at).toBe(fromNow(-2, 10))
 
   await banner(page).getByRole('button', { name: 'Move them' }).click()
   await expect(page.getByTestId('refit-note')).toHaveText("Moved 2 blocks. They're in your calendar.")
   await expect(banner(page)).toHaveCount(0)
   await expect(ghosts(page)).toHaveCount(0)
   const moved = stored(simulator, 'missed-1')
-  expect(Date.parse(moved.starts_at!)).toBeGreaterThan(Date.now() - 60_000)
+  expect(Date.parse(moved.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
   expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * 60_000)
-  expect(stored(simulator, 'class').starts_at).toBe(daysFromNow(-1, 9))
-  expect(stored(simulator, 'done').starts_at).toBe(daysFromNow(-1, 15))
+  expect(stored(simulator, 'class').starts_at).toBe(fromNow(-1, 9))
+  expect(stored(simulator, 'done').starts_at).toBe(fromNow(-1, 15))
 })
 
 test('keep my plan drops the ghosts, moves nothing and does not ask again', async ({ mount, page, simulator }) => {
@@ -59,8 +71,8 @@ test('keep my plan drops the ghosts, moves nothing and does not ask again', asyn
   await banner(page).getByRole('button', { name: 'Keep my plan' }).click()
   await expect(ghosts(page)).toHaveCount(0)
   await expect(banner(page)).toHaveCount(0)
-  expect(stored(simulator, 'missed-1').starts_at).toBe(daysFromNow(-2, 10))
-  expect(stored(simulator, 'missed-2').starts_at).toBe(daysFromNow(-1, 19))
+  expect(stored(simulator, 'missed-1').starts_at).toBe(fromNow(-2, 10))
+  expect(stored(simulator, 'missed-2').starts_at).toBe(fromNow(-1, 19))
 })
 
 test('one ghost can be accepted on its own; the rest stay drafted', async ({ mount, page, simulator }) => {
@@ -72,8 +84,8 @@ test('one ghost can be accepted on its own; the rest stay drafted', async ({ mou
   await lab.focus()
   await page.keyboard.press('Enter')
   await expect(ghosts(page)).toHaveCount(1)
-  expect(Date.parse(stored(simulator, 'missed-2').starts_at!)).toBeGreaterThan(Date.now() - 60_000)
-  expect(stored(simulator, 'missed-1').starts_at).toBe(daysFromNow(-2, 10))
+  expect(Date.parse(stored(simulator, 'missed-2').starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
+  expect(stored(simulator, 'missed-1').starts_at).toBe(fromNow(-2, 10))
   await expect(banner(page)).toContainText('Here is where it could go')
 
   // Dismissing the last one ends the preview with a note about the one moved.
@@ -96,7 +108,7 @@ test('if the week changed since the preview, it shows fresh times instead', asyn
   await expect(banner(page).getByText('Your week changed, so here are fresh times.')).toBeVisible()
   await expect(ghosts(page)).toHaveCount(1)
   await expect(ghosts(page)).toContainText('Lab write-up')
-  expect(stored(simulator, 'missed-2').starts_at).toBe(daysFromNow(-1, 19))
+  expect(stored(simulator, 'missed-2').starts_at).toBe(fromNow(-1, 19))
   await banner(page).getByRole('button', { name: 'Move it' }).click()
   await expect(page.getByTestId('refit-note')).toHaveText("Moved 1 block. It's in your calendar.")
 })
@@ -112,7 +124,7 @@ test('if a commitment lands on a ghost meanwhile, that block gets a fresh time t
   const label = await reading.getAttribute('aria-label')
   const [, from, to] = /(\d\d:\d\d) - (\d\d:\d\d)/.exec(label!)!
   const tomorrowAt = (hhmm: string) => {
-    const d = new Date(daysFromNow(1, 0))
+    const d = new Date(fromNow(1, 0))
     d.setHours(Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)))
     return d.toISOString()
   }
@@ -122,13 +134,13 @@ test('if a commitment lands on a ghost meanwhile, that block gets a fresh time t
   await expect(banner(page).getByText('Your week changed, so here are fresh times.')).toBeVisible()
   await expect(ghosts(page)).toHaveCount(2)
   await expect(reading).toBeVisible()
-  expect(stored(simulator, 'missed-1').starts_at).toBe(daysFromNow(-2, 10))
+  expect(stored(simulator, 'missed-1').starts_at).toBe(fromNow(-2, 10))
 
   await banner(page).getByRole('button', { name: 'Move them' }).click()
   await expect(page.getByTestId('refit-note')).toHaveText("Moved 2 blocks. They're in your calendar.")
   const moved = stored(simulator, 'missed-1')
   const dentist = stored(simulator, 'dentist')
-  expect(Date.parse(moved.starts_at!)).toBeGreaterThan(Date.now() - 60_000)
+  expect(Date.parse(moved.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
   expect(Date.parse(moved.ends_at!) <= Date.parse(dentist.starts_at!) || Date.parse(dentist.ends_at!) <= Date.parse(moved.starts_at!)).toBe(true)
 })
 
@@ -142,7 +154,7 @@ test('a ghost taken out because something now covers it is asked about again, no
   const box = await reading.getAttribute('aria-label')
   const [, from, to] = /(\d\d:\d\d) - (\d\d:\d\d)/.exec(box!)!
   const tomorrowAt = (hhmm: string) => {
-    const d = new Date(daysFromNow(1, 0))
+    const d = new Date(fromNow(1, 0))
     d.setHours(Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)))
     return d.toISOString()
   }
@@ -165,8 +177,8 @@ test('a block with no free time is named, and stays on the list', async ({ mount
   seedMissed(simulator)
   // Due in 5 minutes: no time left to fit an hour.
   seedPlanItem(simulator, {
-    id: 'no-fit', kind: 'task', title: 'Essay plan', duration_min: 60, starts_at: daysFromNow(-1, 15), ends_at: daysFromNow(-1, 16),
-    due_at: new Date(Date.now() + 5 * 60_000).toISOString(),
+    id: 'no-fit', kind: 'task', title: 'Essay plan', duration_min: 60, starts_at: fromNow(-1, 15), ends_at: fromNow(-1, 16),
+    due_at: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
   })
   await mount(<CalendarHarness />)
 
@@ -178,7 +190,7 @@ test('a block with no free time is named, and stays on the list', async ({ mount
   await expect(page.getByTestId('refit-note')).toHaveText(
     "Moved 2 blocks. They're in your calendar. 1 didn't fit before it is due, so it stays on your to-do list.",
   )
-  expect(stored(simulator, 'no-fit').starts_at).toBe(daysFromNow(-1, 15))
+  expect(stored(simulator, 'no-fit').starts_at).toBe(fromNow(-1, 15))
 })
 
 test('one draft at a time: waits while Auto-fill suggestions are open', async ({ mount, page, simulator }) => {

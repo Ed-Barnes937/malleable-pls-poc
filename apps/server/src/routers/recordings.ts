@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { LectureProcessing } from '@pls/substrate'
-import { andInCourse, courseTag } from './_shared'
+import { andInCourse, courseTag, recordingCourse } from './_shared'
 
 export const recordingsRouter = router({
   list: publicProcedure
@@ -14,19 +14,22 @@ export const recordingsRouter = router({
       return withUser(ctx.userId, async (tx) => {
         if (input?.recordingId) {
           return tx`
-            SELECT * FROM recordings
-            WHERE id = ${input.recordingId} AND user_id = ${ctx.userId}
+            SELECT r.*, ${recordingCourse(tx, tx`r.id`)} AS course FROM recordings r
+            WHERE r.id = ${input.recordingId} AND r.user_id = ${ctx.userId}
           `
         }
         if (input?.courseTag) {
           return tx`
-            SELECT r.* FROM recordings r
+            SELECT r.*, ${recordingCourse(tx, tx`r.id`)} AS course FROM recordings r
             WHERE r.user_id = ${ctx.userId}
               ${andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`r.id`)}
             ORDER BY r.created_at DESC
           `
         }
-        return tx`SELECT * FROM recordings WHERE user_id = ${ctx.userId} ORDER BY created_at DESC`
+        return tx`
+          SELECT r.*, ${recordingCourse(tx, tx`r.id`)} AS course FROM recordings r
+          WHERE r.user_id = ${ctx.userId} ORDER BY r.created_at DESC
+        `
       })
     }),
 
@@ -35,7 +38,8 @@ export const recordingsRouter = router({
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const [row] = await tx`
-          SELECT * FROM recordings WHERE id = ${input} AND user_id = ${ctx.userId}
+          SELECT r.*, ${recordingCourse(tx, tx`r.id`)} AS course FROM recordings r
+          WHERE r.id = ${input} AND r.user_id = ${ctx.userId}
         `
         if (!row) return null
         // What the lecture's AI jobs are still doing, so the transcript can say

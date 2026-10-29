@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
 
@@ -28,6 +28,40 @@ test.describe('Scope pickers', () => {
     await expect(sidebar.scopeSection).toBeVisible()
     await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
     await expect(sidebar.courseSelect).toBeVisible()
+  })
+
+  test('at 1440x900 the Showing pickers are in view as the board menu opens, before the widget palette', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.openDrawer()
+
+    const sidebar = new SidebarPom(page)
+    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    // No scrolling the menu to find them.
+    await expect(sidebar.courseSelect).toBeInViewport({ ratio: 1 })
+    await expect(sidebar.recordingSelect).toBeInViewport({ ratio: 1 })
+    const showing = (await sidebar.scopeSection.boundingBox())!
+    const palette = (await sidebar.root.getByTestId('widget-palette').boundingBox())!
+    expect(showing.y + showing.height).toBeLessThanOrEqual(palette.y)
+  })
+
+  test('on a board just built from the menu, reopening it shows Course straight away (demo steps 1 and 3)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    // Adding the first widget brings Showing in above the palette.
+    for (const label of ['Calendar', 'To-do', 'Coming up']) await sidebar.addWidget(label)
+    await expect(sidebar.courseSelect).toBeAttached()
+    await page.keyboard.press('Escape')
+
+    await topBar.openDrawer()
+    await expect(sidebar.courseSelect).toBeInViewport({ ratio: 1 })
   })
 
   test('Exam Prep shows only the Course picker', async ({ page }) => {

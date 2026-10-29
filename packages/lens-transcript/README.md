@@ -8,6 +8,8 @@ Lens for reviewing and annotating learning material transcripts.
 - Tag segments as `confused`, `key-point`, or `question`
 - Add free-text annotations to segments
 - Two modes: **capture** (during recording) and **review** (after)
+- The lecture summary shows one line; **More** opens all of it
+- A moment marked confusing shows what its review became ("Review planned · Wed 19:30 · 20 min", fixed amber). With a Calendar on the board the chip is a button that reveals the block there (`onShowPlanItem`). A review that arrives while the lecture is open lifts off the moment toward the Calendar once (`motion-safe` only; never under reduced motion)
 
 ## Scope
 

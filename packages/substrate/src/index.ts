@@ -15,6 +15,8 @@ export {
   reviewTaskParamsInput,
   timeZoneInput,
   reviewWindowLabel,
+  reviewJobOf,
+  reviewAutomationSentence,
   type ReviewTaskParams,
 } from './workflows'
 
@@ -27,10 +29,17 @@ export {
   ESTIMATE_OPTIONS,
   STUDY_BLOCK_GAP_MIN,
   STUDY_DAY,
+  REVIEW_LEAD_MIN,
+  placeReviews,
+  type ReviewSlot,
+  type ReviewToPlace,
   capacityCopy,
   completeTrims,
   defaultTrims,
   draftCopy,
+  leftoverStudyTime,
+  noSlotCause,
+  type Leftover,
   longestBlockMin,
   noteWithoutAmounts,
   draftPlan,
@@ -69,6 +78,7 @@ export {
   type RefitProposal,
 } from './planning'
 export { refitPreviewInput, refitAcceptInput, type RefitPreview, type RefitAccept, type RefitResult } from './refit-schemas'
+export { segmentAtOffset } from './segments'
 export { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
 
 export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'

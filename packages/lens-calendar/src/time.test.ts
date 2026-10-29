@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, atMinutes, firstFreeStart, formatDuration, formatRangeTitle, formatSpan, fromInputs,
+  addDays, atMinutes, firstFreeStart, formatDuration, formatFullDay, formatRangeTitle, formatSpan, fromInputs,
   snap, snapDown, startOfWeek, toDateInput, toTimeInput, wallMinutes,
 } from './time'
 
@@ -43,6 +43,11 @@ describe('formatting', () => {
     expect(formatRangeTitle(new Date(2026, 10, 2), new Date(2026, 10, 8))).toBe('2 - 8 Nov 2026')
     expect(formatRangeTitle(new Date(2026, 11, 28), new Date(2027, 0, 3))).toBe('28 Dec 2026 - 3 Jan 2027')
     expect(formatRangeTitle(new Date(2026, 9, 27), new Date(2026, 9, 27))).toBe('Tue 27 Oct 2026')
+  })
+
+  it('names a whole day for the Day view heading', () => {
+    expect(formatFullDay(new Date(2026, 9, 27))).toBe('Tuesday 27 Oct')
+    expect(formatFullDay(new Date(2026, 10, 1))).toBe('Sunday 1 Nov')
   })
 
   it('round-trips form inputs', () => {

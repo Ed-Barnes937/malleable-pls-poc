@@ -9,8 +9,9 @@ export type {
   LensProps,
   Moment,
   FocusedMoment,
+  FocusedPlanItem,
+  PlanItemRef,
   ShowMomentResult,
-  ShowMomentOptions,
 } from './types'
 export {
   usesScopeDim,
@@ -55,6 +56,7 @@ export {
   missedQuestion,
   refitAsk,
   movedNote,
+  movedPastThisWeek,
   noFitLabel,
   type MissedBlocks,
 } from './missed-blocks'

@@ -14,6 +14,9 @@ import type {
 /** A plan item as stored: course is derived from `tags`, as on the server. */
 export type StoredPlanItem = Omit<PlanItem, 'course'>
 
+/** A lecture as stored: course is derived from `tags` ('recording' tags), as on the server. */
+export type StoredRecording = Omit<Recording, 'course' | 'processing'>
+
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {
   id: string
@@ -51,7 +54,7 @@ export interface JobRun {
 }
 
 export interface SeedData {
-  recordings: Recording[]
+  recordings: StoredRecording[]
   transcriptSegments: TranscriptSegment[]
   tags: Tag[]
   annotations: Annotation[]
@@ -83,7 +86,7 @@ const EMPTY_SEED: SeedData = {
 }
 
 export class InMemoryDb {
-  recordings: Recording[] = []
+  recordings: StoredRecording[] = []
   transcriptSegments: TranscriptSegment[] = []
   tags: Tag[] = []
   annotations: Annotation[] = []

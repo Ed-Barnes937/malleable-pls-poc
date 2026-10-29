@@ -14,11 +14,7 @@ import {
   type WorkflowWithJobs,
 } from '@pls/substrate'
 
-/** The confusion automation's review job, when `workflow` is one. */
-export function reviewJobOf(workflow: WorkflowWithJobs): WorkflowJob | undefined {
-  if (workflow.trigger_event !== 'tag:created' || workflow.condition_field !== 'label') return undefined
-  return workflow.jobs.find((j) => j.job_type === REVIEW_TASK_JOB)
-}
+export { reviewJobOf } from '@pls/substrate'
 
 function browserTimeZone(): string | undefined {
   try {
@@ -28,12 +24,17 @@ function browserTimeZone(): string | undefined {
   }
 }
 
-function savedMessage(moved: number, unscheduled: number): string {
+/** What saving did to the reviews it already made, in the words of what happened. */
+export function savedMessage(reviews: { moved: number; resized: number; unscheduled: number }, durationMin: number): string {
+  const { moved, resized, unscheduled } = reviews
+  const parts: string[] = []
+  if (moved > 0) parts.push(`Moved ${moved === 1 ? '1 review' : `${moved} reviews`} to fit.`)
+  if (resized > 0) parts.push(`${resized === 1 ? 'Your review is' : `${resized} reviews are`} now ${durationMin} min.`)
   if (unscheduled > 0) {
-    return `Saved. ${unscheduled === 1 ? '1 review no longer fits' : `${unscheduled} reviews no longer fit`} - it's on your to-do list.`
+    parts.push(unscheduled === 1 ? '1 review no longer fits and is on your to-do list.' : `${unscheduled} reviews no longer fit and are on your to-do list.`)
   }
-  if (moved > 0) return `Saved. Moved ${moved === 1 ? '1 review' : `${moved} reviews`} to fit.`
-  return 'Saved. New reviews will follow this.'
+  if (parts.length === 0) return 'Saved. New reviews will follow this.'
+  return `Saved. ${parts.join(' ')}`
 }
 
 /**
@@ -71,7 +72,7 @@ export function ReviewAutomationSentence({ workflow, job }: { workflow: Workflow
         ...(nextParams ? { jobParams: [{ workflowJobId: job.id, params: { ...nextParams } }] } : {}),
       },
       {
-        onSuccess: ({ reviews }) => setStatus({ tone: 'ok', text: savedMessage(reviews.moved, reviews.unscheduled) }),
+        onSuccess: ({ reviews }) => setStatus({ tone: 'ok', text: savedMessage(reviews, (nextParams ?? params).durationMin) }),
         onError: () => {
           setLabel(workflow.condition_value ?? 'confused')
           setParams(stored)
@@ -85,7 +86,7 @@ export function ReviewAutomationSentence({ workflow, job }: { workflow: Workflow
 
   return (
     <div data-testid="review-automation-sentence">
-      <p className="text-[15px] leading-7 text-neutral-200">
+      <p className="text-title leading-7 text-text-primary">
         When I mark something{' '}
         <InlineChoice
           label="Which mark starts this"
@@ -142,7 +143,7 @@ function InlineChoice({
   return (
     <span
       className={cn(
-        'relative inline-flex items-center gap-0.5 rounded-md bg-accent/15 px-1.5 align-baseline font-semibold text-accent',
+        'relative inline-flex items-center gap-0.5 rounded-item bg-accent-soft px-1.5 align-baseline font-semibold text-accent',
         'transition-colors hover:bg-accent/25 focus-within:ring-2 focus-within:ring-accent/60',
       )}
     >
@@ -177,8 +178,8 @@ function Hint({
     <p
       aria-live="polite"
       className={cn(
-        'mt-1 text-[11px]',
-        status?.tone === 'error' ? 'text-red-400' : status ? 'text-emerald-400' : 'text-neutral-500',
+        'mt-1 text-meta',
+        status?.tone === 'error' ? 'text-confused' : status ? 'text-good' : 'text-text-muted',
       )}
     >
       {pending ? 'Saving...' : status ? status.text : children}
