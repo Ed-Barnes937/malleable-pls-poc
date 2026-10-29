@@ -44,3 +44,6 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 
 ## 2026-10-29 (orchestrator, cheap to reverse)
 23. Draft leftover copy when the daily budget is the limit: "The other 1h is on days with too little study time left for them." (singular "...for it."). Combined: "The other 1h of free time is in gaps too short for them, and 30m is on days with too little study time left for them."
+
+## 2026-10-29 (orchestrator, cheap to reverse)
+24. A widget added by click is shortened (down to its minimum height) to land fully in view only on the desktop layout and only when the board already has widgets. On a phone or an empty board it keeps its default height, so a layout saved from a small screen doesn't shrink widgets on desktop.

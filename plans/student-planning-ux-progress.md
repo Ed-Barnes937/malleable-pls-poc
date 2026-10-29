@@ -78,3 +78,5 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - Ed: fix N1-N5 before opening the PR to main. Ticket N dispatched (Opus).
 - Ticket N PR #96 opened (N1-N5 fixed, suites green); fresh reviewer running.
 - PR #96 review: PASS with follow-ups requested before merge: stale re-fit note can reappear and can't be dismissed; widget shrink persisted from phone/short windows (orchestrator call: shrink only on desktop layout when the board already has widgets); caption-caption and grid-bottom collisions; restore an exact e2e assertion that was loosened. Fix-up agent running. Known, not from this PR: journey-demo with DEMO_NOW on a Thursday fails at the step 2 capacity line (test documents Mon-Wed only).
+- PR #96 (N1-N5) merged into `feat/student-planning-ux` (d45cd51) after delta check PASS (decision 24). Small follow-up dispatched (Sonnet): pre-existing TodoLens Done/Undo CT flake (clock keeps running after install) and "Dismiss note" label.
+- Opened the `feat/student-planning-ux` -> `main` PR for Ed.
