@@ -195,6 +195,53 @@ test.describe('Calendar', () => {
     expect(stored).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60 })
   })
 
+  test('drag a 20-minute review by its thin bar, within its day and to another day', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const review = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Review: maternal inheritance', starts_at: at(2, 13), ends_at: at(2, 13, 20), duration_min: 20,
+      course: 'biology', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Review: maternal inheritance')
+    await expect(block).toHaveAttribute('aria-label', /13:00 - 13:20/)
+    // Drawn to scale: a thin bar, its title in a caption beside it.
+    await expect(block.getByTestId('calendar-block-caption')).toBeVisible()
+
+    // Press in the middle of the bar, as a student aiming at it would, and drop
+    // it 10 minutes into the slot wanted (the bar's middle is about 10 minutes in).
+    const grabBar = async (to: { dayIndex: number; hours: number }) => {
+      await calendar.point(to.dayIndex, to.hours) // waits for the grid to settle
+      const bar = (await block.boundingBox())!
+      const target = await calendar.point(to.dayIndex, to.hours)
+      const saved = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
+      await page.mouse.move(bar.x + bar.width / 2, bar.y + bar.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(target.x, target.y, { steps: 8 })
+      await page.mouse.up()
+      expect((await saved).ok()).toBe(true)
+    }
+    const stored = async () => {
+      const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: review.id }))}`, { headers })
+      return (await res.json()).result.data.json
+    }
+
+    // Later the same day: it moves, still 20 minutes.
+    await grabBar({ dayIndex: 2, hours: 15 + 10 / 60 })
+    await expect(block).toHaveAttribute('aria-label', /15:00 - 15:20/)
+    expect(await stored()).toMatchObject({ starts_at: at(2, 15), ends_at: at(2, 15, 20), duration_min: 20 })
+
+    // To another day.
+    await grabBar({ dayIndex: 4, hours: 10 + 10 / 60 })
+    await expect(block).toHaveAttribute('aria-label', /10:00 - 10:20/)
+    expect(await stored()).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 10, 20), duration_min: 20 })
+
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(block).toHaveAttribute('aria-label', /10:00 - 10:20/)
+  })
+
   test('a study block from a lecture moment: "Go to moment" lands on the transcript moment', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar', 'transcript'])
     // 2,200,000 ms is in the chloroplast DNA segment near the end of the lecture.
