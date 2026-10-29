@@ -8,6 +8,7 @@ import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
+import { swallowTapFollowUp } from './tap-follow-up'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -332,6 +333,8 @@ export function TimeGrid({
         const from = Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
         onCreate(atMinutes(day, from), atMinutes(day, from + 60), anchor)
       }
+      // The new block's popover opens under the finger: the rest of the tap mustn't press it.
+      swallowTapFollowUp(e.pointerType)
       return
     }
     const ghost = ghostId(drag.item)
@@ -339,7 +342,11 @@ export function TimeGrid({
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
       if (!ghost) {
         // A click on the block whose popover it just closed leaves it closed (a toggle).
-        if (!drag.closedOwnPopover) onOpen(drag.item, anchor)
+        if (!drag.closedOwnPopover) {
+          onOpen(drag.item, anchor)
+          // Its popover opens under the finger: the rest of the tap mustn't press it.
+          swallowTapFollowUp(e.pointerType)
+        }
       }
       // A tap or click selects it instead: focused, its buttons show (on a
       // short ghost they are hidden until then, and touch has no hover).
