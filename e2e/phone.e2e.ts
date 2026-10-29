@@ -207,6 +207,42 @@ test.describe('Phone calendar taps', () => {
     await expect.poll(async () => (await trpcQuery<{ status: string }>(request, 'planItems.byId', row.id)).status).toBe('done')
   })
 
+  test("after a tap opened and closed a block's popover, a ghost's Accept works on the first tap", async ({ page, request }) => {
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10)
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Tap before refit', course: 'biology', duration_min: 60,
+      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Tap before refit')
+    await block.scrollIntoViewIfNeeded()
+    const box = (await block.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+    await expect(calendar.popover).toBeVisible()
+    await calendar.popover.getByRole('button', { name: 'Close' }).tap()
+    await expect(calendar.popover).toHaveCount(0)
+
+    // Re-fit the seeded blocks that didn't happen, then find a day with one of its ghosts.
+    const banner = calendar.root.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Re-fit' }).tap()
+    await expect(banner.getByRole('button', { name: 'Move them' })).toBeVisible()
+    const ghosts = calendar.root.getByTestId('calendar-ghost')
+    for (let day = 0; day < 7 && (await ghosts.count()) === 0; day++) {
+      await calendar.root.getByRole('button', { name: 'Next day' }).tap()
+    }
+    const ghost = ghosts.first()
+    const label = (await ghost.getAttribute('aria-label'))!
+    const title = /^Suggested: (.*), [^,]+$/.exec(label)![1]
+    await ghost.scrollIntoViewIfNeeded()
+    const accept = (await ghost.getByRole('button', { name: `Accept ${title}` }).boundingBox())!
+    await page.touchscreen.tap(accept.x + accept.width / 2, accept.y + accept.height / 2)
+    await expect(calendar.root.getByTestId('calendar-ghost').filter({ hasText: title })).toHaveCount(0)
+    await expect(calendar.block(title)).toBeVisible()
+  })
+
   test('a tap on empty time opens a new block and presses nothing in it', async ({ page }) => {
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('My week')

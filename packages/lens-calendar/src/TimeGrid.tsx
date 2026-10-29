@@ -153,6 +153,8 @@ export function TimeGrid({
    * phone it covers the grid): its touchend cancels them, so the tap never
    * presses anything in it. A pen sends no touch events, and its click, like
    * a mouse's, goes to where its press started (the grid holds the capture).
+   * Every press in the grid starts afresh (captured, so a ghost's buttons,
+   * which stop their pointerdown, reset it too), and so does a cancelled touch.
    */
   const tapOpened = useRef(false)
   /** The due marker whose own popover the last press closed: the click that follows leaves it closed (a toggle). */
@@ -272,7 +274,6 @@ export function TimeGrid({
 
   const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
     // A press that closed a popover only closes it: no new block from it.
-    tapOpened.current = false
     if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     areaRef.current!.setPointerCapture(e.pointerId)
@@ -280,7 +281,6 @@ export function TimeGrid({
   }
 
   const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
-    tapOpened.current = false
     // A press that only closes a popover (its save is in flight) moves nothing.
     if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
     e.stopPropagation()
@@ -517,6 +517,7 @@ export function TimeGrid({
             data-testid="calendar-grid"
             className={cn('relative grid flex-1 select-none', drag?.type === 'create' && 'cursor-ns-resize')}
             style={{ ...cols, touchAction: 'none' }}
+            onPointerDownCapture={() => { tapOpened.current = false }}
             onPointerDown={startCreate}
             onPointerMove={handleMove}
             onPointerUp={handleUp}
@@ -526,6 +527,7 @@ export function TimeGrid({
               tapOpened.current = false
               e.preventDefault()
             }}
+            onTouchCancel={() => { tapOpened.current = false }}
             onDragOver={handleDragOver}
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null)
