@@ -30,6 +30,24 @@ export function usePopoverPosition(
   return pos
 }
 
+/** Presses that closed a popover (see `markClosingPress`). */
+const closingPresses = new WeakSet<Event>()
+
+/**
+ * Marks a press as the one that closed a popover. The press still reaches
+ * what is under it (a block starts its drag, a button works); only what would
+ * start something new from it, like drag-to-create on empty time, asks
+ * `closedPopover` and stands down.
+ */
+export function markClosingPress(e: Event) {
+  closingPresses.add(e)
+}
+
+/** Whether this press closed a popover (so it shouldn't also start a new block). */
+export function closedPopover(e: Event) {
+  return closingPresses.has(e)
+}
+
 /**
  * Calls `onClose` on Escape. One listener for the popover's lifetime:
  * re-subscribing on every render (onClose is often a fresh function) could

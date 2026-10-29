@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
@@ -7,6 +7,7 @@ import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import { markClosingPress } from './popover-position'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
@@ -105,8 +106,28 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     setPopover(null)
     const opener = openerRef.current
     openerRef.current = null
-    if (opener?.isConnected) requestAnimationFrame(() => opener.focus())
+    if (!opener?.isConnected) return
+    requestAnimationFrame(() => {
+      // Focus goes back to what opened the popover, unless the press that
+      // closed it put focus on something else in the calendar (another
+      // block and maybe its popover, a button), which keeps it.
+      const active = document.activeElement
+      const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
+      if (!elsewhere) opener.focus()
+    })
   }, [])
+  /**
+   * A press anywhere in the calendar but the popover closes it and still
+   * does what it does, so a block can be dragged (or opened) straight away.
+   * A press on empty time only closes it (`closedPopover` in TimeGrid).
+   * Presses outside the calendar leave it open, e.g. while the student
+   * edits the automation its footer opened.
+   */
+  const closeOnPressAway = (e: ReactPointerEvent) => {
+    if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
+    markClosingPress(e.nativeEvent)
+    closePopover()
+  }
 
   const setView = (next: View) => {
     setViewState(next)
@@ -442,7 +463,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }
 
   return (
-    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3">
+    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway}>
       <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2">
         {phoneDay ? (
           // Phone: the day in the middle, a step either side.
@@ -654,10 +675,6 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         )}
       </div>
 
-      {popover && (
-        // Click-away layer: closes the popover without starting a new block.
-        <div className="absolute inset-0 z-40" onPointerDown={closePopover} />
-      )}
       {popover?.mode === 'create' && (
         <EventPopover
           key={`create-${popover.draft.start.toISOString()}`}

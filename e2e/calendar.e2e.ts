@@ -242,6 +242,59 @@ test.describe('Calendar', () => {
     await expect(block).toHaveAttribute('aria-label', /10:00 - 10:20/)
   })
 
+  test('with a popover open, pressing a block drags it in one go and closes the popover', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const study = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
+    })
+    const review = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Review: maternal inheritance', starts_at: at(0, 13), ends_at: at(0, 13, 20), duration_min: 20, course: 'biology',
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const stored = async (id: string) => {
+      const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: id }))}`, { headers })
+      return (await res.json()).result.data.json
+    }
+    /** Presses the middle of `title`'s block and drops that point at `to`. */
+    const dragWithPopoverOpen = async (title: string, to: { dayIndex: number; hours: number }) => {
+      await expect(calendar.popover).toBeVisible()
+      const target = await calendar.point(to.dayIndex, to.hours) // waits for the grid to settle
+      const box = (await calendar.block(title).boundingBox())!
+      const saved = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'), { timeout: 5000 })
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(target.x, target.y, { steps: 8 })
+      await page.mouse.up()
+      await expect(calendar.popover).toHaveCount(0)
+      expect((await saved).ok()).toBe(true)
+    }
+
+    // Its own popover open: the block itself moves.
+    await calendar.block('Revise respiration').click()
+    await dragWithPopoverOpen('Revise respiration', { dayIndex: 4, hours: 10.5 })
+    await expect(calendar.block('Revise respiration')).toHaveAttribute('aria-label', /10:00 - 11:00/)
+    expect(await stored(study.id)).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60 })
+
+    // Another block's popover open: the pressed block moves (a short review, by the middle of its bar).
+    await calendar.block('Revise respiration').click()
+    await dragWithPopoverOpen('Review: maternal inheritance', { dayIndex: 1, hours: 12 + 10 / 60 })
+    await expect(calendar.block('Review: maternal inheritance')).toHaveAttribute('aria-label', /12:00 - 12:20/)
+    expect(await stored(review.id)).toMatchObject({ starts_at: at(1, 12), ends_at: at(1, 12, 20), duration_min: 20 })
+
+    // A press on empty time with a popover open only closes it: no new block starts.
+    await calendar.block('Revise respiration').click()
+    await expect(calendar.popover).toBeVisible()
+    await calendar.clickAt(0, 8.5)
+    await expect(calendar.popover).toHaveCount(0)
+
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(calendar.block('Revise respiration')).toHaveAttribute('aria-label', /10:00 - 11:00/)
+    await expect(calendar.block('Review: maternal inheritance')).toHaveAttribute('aria-label', /12:00 - 12:20/)
+  })
+
   test('a study block from a lecture moment: "Go to moment" lands on the transcript moment', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar', 'transcript'])
     // 2,200,000 ms is in the chloroplast DNA segment near the end of the lecture.

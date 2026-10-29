@@ -82,6 +82,8 @@ export function EventPopover({
       role="dialog"
       aria-label={isCreate ? 'Add to calendar' : `Edit ${row.title}`}
       data-testid="calendar-popover"
+      // A press in here doesn't close it (CalendarLens).
+      data-calendar-popover
       onSubmit={(e) => {
         e.preventDefault()
         if (!invalid && canEdit && !busy) onSubmit(draft)

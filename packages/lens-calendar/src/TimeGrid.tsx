@@ -7,6 +7,7 @@ import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
+import { closedPopover } from './popover-position'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -254,7 +255,8 @@ export function TimeGrid({
   }
 
   const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-block]')) return
+    // A press that closed a popover only closes it: no new block from it.
+    if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     areaRef.current!.setPointerCapture(e.pointerId)
     setDrag({ type: 'create', dayIndex, fromMin: minute, toMin: minute, x: e.clientX, y: e.clientY, moved: false })
