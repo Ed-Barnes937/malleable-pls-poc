@@ -3,8 +3,8 @@ import type { PanelGridPom } from './pom'
 
 /**
  * With one toast up, scrolls the board to its very bottom and points at a
- * spot on it; then checks that when the toast times out (and its bar
- * collapses) the board neither scrolls nor moves what is under the pointer.
+ * spot on it; then checks that when the toast times out the board neither
+ * resizes nor scrolls, and what is under the pointer stays put.
  */
 export async function expectStillAtBottomAsToastLeaves(page: Page, grid: PanelGridPom) {
   const host = page.getByTestId('toast-host')
@@ -27,9 +27,9 @@ export async function expectStillAtBottomAsToastLeaves(page: Page, grid: PanelGr
   }, point)
   const before = { top: await grid.root.evaluate((el) => el.scrollTop), under: await under() }
   await expect(host.getByTestId('toast')).toHaveCount(0, { timeout: 10000 })
-  await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
-  // Past the frame a clamped scroll would show up in.
+  // Past the frame a resize or clamped scroll would show up in.
   await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  expect((await grid.root.boundingBox())!.height).toBe(board.height)
   expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(before.top)
   expect(await under()).toEqual(before.under)
 }

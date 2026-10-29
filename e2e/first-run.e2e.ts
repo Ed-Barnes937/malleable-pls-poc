@@ -119,6 +119,7 @@ test.describe('First run on an empty board', () => {
     await expect(host).toHaveAttribute('data-layout', 'bar')
     await expect(host).toHaveAttribute('aria-live', 'polite')
     const toast = (await host.getByTestId('toast').boundingBox())!
+    const barHeight = (await host.boundingBox())!.height
     // At the right, under the board: the board ends where the bar starts.
     const board = (await grid.root.boundingBox())!
     expect(board.y + board.height).toBeLessThanOrEqual(toast.y + 1)
@@ -135,8 +136,9 @@ test.describe('First run on an empty board', () => {
     await dismiss.focus()
     await page.keyboard.press('Enter')
     await expect(host.getByTestId('toast')).toHaveCount(0)
-    // With nothing to say, the bar takes no room.
-    await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
+    // With nothing to say, the bar keeps its room (decision 22): nothing on the board moves.
+    expect((await host.boundingBox())!.height).toBe(barHeight)
+    expect((await grid.root.boundingBox())!.height).toBe(board.height)
   })
 
   test('a toast leaving while the board is scrolled to its bottom moves nothing under the pointer', async ({ page }) => {

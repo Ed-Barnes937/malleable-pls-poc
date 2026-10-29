@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
+import { useEffect } from 'react'
 import { create } from 'zustand'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
@@ -91,74 +91,19 @@ export const useToastStore = create<ToastState>((set, get) => {
   }
 })
 
-/** The board's scrolling area (see `CanvasEngine`). */
-const BOARD = '[data-canvas-scroll]'
+/** How many toasts the bar shows at once: it has room for one row. */
+const SHOWN_WIDE = 2
+const SHOWN_NARROW = 1
 
 /**
- * Keeps the board's content where it is on screen as the toast bar under it
- * grows and shrinks. Growing only hides the board's bottom edge (the content
- * stays put). Shrinking at the board's bottom would let the scroll position
- * fall back and move everything under the pointer, so the board gets just
- * enough slack at its bottom (`--board-slack`, laid out by `CanvasEngine`) to
- * stay where it was; the slack goes again as the student scrolls up, or
- * leaves the board.
- */
-function useBoardStaysPut(hostRef: RefObject<HTMLElement | null>, board: string) {
-  useLayoutEffect(() => {
-    const host = hostRef.current
-    if (!host || typeof ResizeObserver === 'undefined') return
-    const scroller = () => document.querySelector<HTMLElement>(BOARD)
-    const slackOf = (el: HTMLElement) => parseFloat(el.style.getPropertyValue('--board-slack')) || 0
-    const setSlack = (el: HTMLElement, px: number) => el.style.setProperty('--board-slack', `${Math.max(0, Math.round(px))}px`)
-    /** No more slack than holding the current position needs. */
-    const trim = (el: HTMLElement) => {
-      const slack = slackOf(el)
-      if (slack > 0) setSlack(el, el.scrollTop + el.clientHeight - (el.scrollHeight - slack))
-    }
-    let height = host.offsetHeight
-    // Where the board was just before the toasts changed: read as the store
-    // changes, before React removes a toast and the layout clamps the scroll.
-    let lastTop = scroller()?.scrollTop ?? 0
-    const unsubscribe = useToastStore.subscribe(() => {
-      lastTop = scroller()?.scrollTop ?? 0
-    })
-    const onScroll = (e: Event) => {
-      const el = e.target
-      if (el instanceof HTMLElement && el.matches(BOARD)) trim(el)
-    }
-    const observer = new ResizeObserver(() => {
-      const next = host.offsetHeight
-      const shrank = next < height
-      height = next
-      const el = scroller()
-      if (!el) return
-      if (!shrank) return trim(el)
-      const top = lastTop
-      setSlack(el, top + el.clientHeight - (el.scrollHeight - slackOf(el)))
-      el.scrollTop = top
-    })
-    observer.observe(host)
-    document.addEventListener('scroll', onScroll, { capture: true, passive: true })
-    return () => {
-      unsubscribe()
-      observer.disconnect()
-      document.removeEventListener('scroll', onScroll, { capture: true })
-    }
-  }, [hostRef])
-  // Another board starts without slack.
-  useEffect(() => {
-    document.querySelector<HTMLElement>(BOARD)?.style.removeProperty('--board-slack')
-  }, [board])
-}
-
-/**
- * Toasts sit in a bar under the board, which makes room for them rather than
- * covering the widgets at the bottom of the board (a "Back to My week" toast
- * stays until dismissed): full width on a phone, at the right on a wider
- * screen. Render it last in the page's full-height column. The live region
- * is always mounted (empty, and no height, when there is nothing to say), so
- * a screen reader announces the first toast too. A toast stops counting down
- * while the pointer or focus is on it.
+ * Toasts sit in a bar of their own under the board: always there and always
+ * the same height (empty when there is nothing to say), so a toast never
+ * covers the board and nothing on the board moves as toasts come and go.
+ * At the right on a wider screen, newest last, two at most; on a phone the
+ * newest one, full width (an older one shows again once newer ones go).
+ * Render it last in the page's full-height column. The live region is
+ * always mounted, so a screen reader announces the first toast too. A toast
+ * stops counting down while the pointer or focus is on it.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
@@ -172,24 +117,21 @@ export function ToastHost() {
     for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
   }, [toasts, activeBoard, dismiss])
 
-  const hostRef = useRef<HTMLDivElement>(null)
-  useBoardStaysPut(hostRef, activeBoard)
+  const shown = toasts.slice(-(narrow ? SHOWN_NARROW : SHOWN_WIDE))
 
   return (
     <section aria-label="Notifications" className="contents">
       <div
-        ref={hostRef}
         role="status"
         aria-live="polite"
         data-testid="toast-host"
         data-layout="bar"
         className={cn(
-          'flex shrink-0 gap-2',
-          narrow ? 'flex-col' : 'flex-wrap-reverse items-center justify-end',
-          toasts.length > 0 && (narrow ? 'px-3 pt-2 pb-3' : 'px-5 pt-2 pb-3'),
+          'flex shrink-0 items-center gap-2 overflow-hidden',
+          narrow ? 'h-[4.25rem] px-3 py-1.5' : 'h-16 justify-end px-5 py-2.5',
         )}
       >
-        {toasts.map((toast) => {
+        {shown.map((toast) => {
           const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
           const ActionIcon = toast.action?.icon
           return (
@@ -203,14 +145,14 @@ export function ToastHost() {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) release(toast.id)
               }}
               className={cn(
-                'flex items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
-                // A phone's narrow bar: the message keeps a readable width and
-                // the action (with the dismiss) drops under it when it must.
-                narrow ? 'flex-wrap gap-y-1 py-2 pr-2 pl-3.5' : 'py-2.5 pr-3 pl-4 shadow-pop',
+                'flex min-w-0 items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
+                // One row whatever the width: on a phone it fills the bar and
+                // the message takes two lines at most.
+                narrow ? 'h-14 flex-1 pr-2 pl-3.5' : 'h-11 pr-3 pl-4 shadow-pop',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className={cn('text-body', narrow && 'min-w-48 flex-1')}>{toast.message}</span>
+              <span className={cn('min-w-0 text-body', narrow ? 'line-clamp-2 flex-1 leading-tight' : 'truncate')}>{toast.message}</span>
               {toast.action && (
                 <button
                   type="button"
@@ -220,7 +162,6 @@ export function ToastHost() {
                   }}
                   className={cn(
                     'inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-item px-1.5 py-1 text-body font-semibold text-inverse-accent transition-colors hover:underline',
-                    narrow && 'ml-auto',
                   )}
                 >
                   {ActionIcon && <ActionIcon className="h-4 w-4" />}

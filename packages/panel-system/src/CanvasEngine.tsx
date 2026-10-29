@@ -122,18 +122,14 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderHeaderActions={renderHeaderActions}
         />
       ))}
-      {/* Air under the lowest widget once the free board scrolls, plus any
-          slack the shell sets (`--board-slack`) to keep the board still as
-          the toast bar under it shrinks. */}
+      {/* Air under the lowest widget once the free board scrolls. */}
       {!narrow && panels.length > 0 && (
         <div
           aria-hidden
           className="pointer-events-none absolute left-0 w-px"
-          style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: `calc(${PLACEMENT_GAP}px + var(--board-slack, 0px))` }}
+          style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
         />
       )}
-      {/* The stacked board's slack, last; its negative margin cancels the column gap, so it takes no room without slack. */}
-      {narrow && <div aria-hidden className="pointer-events-none order-[9999] -mt-3 w-px shrink-0" style={{ height: 'var(--board-slack, 0px)' }} />}
     </div>
   )
 }

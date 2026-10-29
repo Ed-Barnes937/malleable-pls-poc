@@ -224,6 +224,7 @@ test.describe('Phone top bar', () => {
     // The board ends where the toast bar starts: none of it is underneath.
     const board = (await page.getByTestId('canvas-container').boundingBox())!
     const toast = (await host.getByTestId('toast').boundingBox())!
+    const barHeight = (await host.boundingBox())!.height
     expect(board.y + board.height).toBeLessThanOrEqual(toast.y + 1)
     expect(toast.y + toast.height).toBeLessThanOrEqual(860)
 
@@ -231,8 +232,8 @@ test.describe('Phone top bar', () => {
     await page.keyboard.press('Enter')
     await topBar.expectActiveWorkspace('My week')
     await expect(host).not.toContainText('Opened')
-    // With nothing to say, the bar takes no room.
-    await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
+    // With nothing to say, the bar keeps its room (decision 22): nothing on the board moves.
+    expect((await host.boundingBox())!.height).toBe(barHeight)
   })
 })
 

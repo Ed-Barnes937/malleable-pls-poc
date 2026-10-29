@@ -333,6 +333,25 @@ test.describe('The confused-to-calendar ripple', () => {
     await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
   })
 
+  test('"See it" from the toast with the board scrolled to its bottom brings the block into view', async ({ page, request }) => {
+    await demoLikeBoard(request)
+    const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    const markedAt = Date.now()
+    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    const review = await newReview(request, markedAt)
+    const block = calendar.root.locator(`[data-plan-item-id="${review.id}"]`)
+    await expect(block).toHaveAttribute('data-revealed', 'true')
+    await expect(page.getByTestId('review-lift-off')).toHaveCount(0)
+    // Back down to the Transcript, the block out of view above.
+    await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await settledScrollTop(grid.root)
+    await expect(block).not.toBeInViewport()
+    // See it dismisses its toast; the board still glides up to the block.
+    await page.getByTestId('toast-host').getByRole('button', { name: 'See it' }).click()
+    await settledScrollTop(grid.root)
+    await expect(block).toBeInViewport({ ratio: 1 })
+  })
+
   test('with no Calendar on the board, a scheduled review is followed to its To-do row', async ({ page, request }) => {
     await demoLikeBoard(request, { calendar: false })
     const { transcript, grid } = await selectMomentHalfScrolled(page, { withCalendar: false })
