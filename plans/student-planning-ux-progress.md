@@ -65,3 +65,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - R1 review round 1: ripple verified visible end to end; CHANGES NEEDED (desktop toast bar shifts content 64px on dismiss, wheel lost mid-glide, no-Calendar target, off-screen moment, resize anchoring, long task). Sent back.
 - R2 merged into `feat/student-planning-ux` (PR #91) after re-review PASS plus a touch fix for short drafts. R1 fixes pushed (26f81fe); re-review next, against the branch with R2.
 - R1 re-review: round-1 findings fixed; CHANGES NEEDED for a double-applied wheel after the glide (GLIDE_MS window too long). Sent back with merge of R2 and a minimum glow halo for short revealed blocks. Next round is R1's third; escalate to Ed if it fails.
+- R1 round 3: CHANGES NEEDED (H1: toast-bar restore cancels See it's glide; real cause of the journey-demo flake). Escalated to Ed; decision 22: simplify the toast bar. Round 4 dispatched.

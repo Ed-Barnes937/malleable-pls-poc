@@ -38,3 +38,6 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 19. Mid-week, the floating Plan your time panel covers days already past (e.g. Mon-Tue on a Wednesday), falling back to the weekend early in the week.
 20. (Ed) Re-fit goes over the daily budget as a last resort, same rule as confusion reviews (decision 11): respect the cap when any day before the deadline has room, otherwise the earliest free slot before it is due.
 21. (Orchestrator, cheap to reverse) At 1440x900 with the Transcript below the Calendar, when the review block and the moment's chip can't both be on screen, the ripple shows the block; the chip stays visible inside the Transcript list.
+
+## 2026-10-29 (Ed, R1 escalation after round 3)
+22. Simplify the toast bar: a fixed overlay bar with a permanent reserved bottom space on the board, instead of an in-flow bar plus scroll-slack restore. Nothing resizes when toasts come and go, so nothing can fight the ripple's glide.
