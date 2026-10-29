@@ -11,7 +11,7 @@ const twMerge = extendTailwindMerge({
   extend: {
     theme: {
       text: ['meta', 'body', 'title', 'heading'],
-      radius: ['widget', 'control', 'item', 'panel'],
+      radius: ['widget', 'control', 'item', 'panel', 'track', 'tab', 'toast'],
       shadow: ['panel', 'panel-focused', 'pop'],
     },
   },

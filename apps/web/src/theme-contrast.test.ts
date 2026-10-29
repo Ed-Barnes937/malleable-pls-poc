@@ -5,10 +5,11 @@
  *   status, course ink on its tints, shifts) is checked against WCAG AA in
  *   the light (`@theme`, the default) and dark (`[data-theme="dark"]`) themes. Add a row
  *   to TEXT_PAIRS for every new pair a widget uses.
- * - Amber ("needs another look") text: the light theme remaps the amber scale,
- *   so every `text-amber-*` / `text-attention*` / `text-attn` class the widgets
- *   use is checked against the panel surfaces, with its opacity and any amber
- *   tint drawn behind it in the same class list.
+ * - Amber ("needs another look") text: every `text-attn` / `text-attention*`
+ *   class the widgets use is checked against the panel surfaces, with its
+ *   opacity and any amber tint drawn behind it in the same class list. (Raw
+ *   `text-amber-*` classes are banned by design-tokens.test.ts, and the stock
+ *   palette is not remapped to the themes, so they are not checked here.)
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -172,6 +173,13 @@ const TEXT_PAIRS: [string, string][] = [
   ['good', 'good-soft'],
   // To-do's "Done · Undo": the Undo link sits on the good tint.
   ['accent', 'good-soft'],
+  // Test me's revealed answer, on the good tint.
+  ['text-primary', 'good-soft'],
+  // All courses: the board course's highlighted row (name, percentage, to review, nothing to review).
+  ['text-primary', 'accent-soft'],
+  ['text-secondary', 'accent-soft'],
+  ['attn', 'accent-soft'],
+  ['text-muted', 'accent-soft'],
   ['inverse-foreground', 'inverse'],
   ['inverse-accent', 'inverse'],
   ['shift-ink', 'shift'],
@@ -212,6 +220,14 @@ const GRAPHIC_PAIRS: [string, string][] = [
   ['confused', 'surface-overlay'],
   ['attn', 'surface-overlay'],
   ['accent', 'surface-overlay'],
+  // Meters on their track: Test me's confidence, Weakest topics' "% sure".
+  ['good', 'surface-overlay'],
+  // To-do's tick on a done item.
+  ['surface-raised', 'good'],
+  // Switch: the knob on its track, on and off, and the off track on a panel.
+  ['surface-raised', 'accent'],
+  ['surface-raised', 'text-muted'],
+  ['text-muted', 'surface-raised'],
 ]
 
 describe('design token contrast', () => {
@@ -251,9 +267,11 @@ describe('amber text contrast', () => {
     expect(uses.length).toBeGreaterThan(5)
   })
 
-  it('leaves the dark theme on the stock amber scale', () => {
-    const ambers = [...stock.keys()].filter((k) => k.startsWith('color-amber-'))
-    expect(ambers.filter((k) => dark.get(k) !== stock.get(k))).toEqual([])
+  it('remaps no stock palette colour in either theme (widgets use the tokens instead)', () => {
+    const stockPalette = /^color-[a-z]+-\d{2,3}$/
+    const remapped = [...tokens(indexCss, '@theme').keys(), ...tokens(indexCss, '[data-theme="dark"]').keys()]
+      .filter((k) => stockPalette.test(k) && stock.has(k))
+    expect(remapped).toEqual([])
   })
 
   it('makes "attention" the same fixed, opaque amber as attn in both themes', () => {

@@ -16,7 +16,7 @@ export function ProgressBar({
   className,
 }: ProgressBarProps) {
   const height = size === 'sm' ? 'h-2.5' : 'h-4'
-  const radius = rounded ? 'rounded-full' : 'rounded'
+  const radius = rounded ? 'rounded-full' : 'rounded-none'
 
   return (
     <div className={cn(height, radius, 'bg-surface-overlay', className)}>

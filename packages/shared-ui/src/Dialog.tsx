@@ -30,7 +30,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     >
       <div
         data-testid="dialog-backdrop"
-        className="absolute inset-0 bg-black/40"
+        className="absolute inset-0 bg-scrim"
         onClick={onClose}
       />
       <div

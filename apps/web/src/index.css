@@ -27,7 +27,10 @@
  * `data-theme`); `[data-theme="dark"]` below overrides the same names. Every colour pair used for text is checked in
  * both themes by theme-contrast.test.ts: add new pairs there.
  *
- * Use these, not raw Tailwind palette classes or arbitrary sizes:
+ * Use these, not raw Tailwind palette classes (bg-neutral-800, text-white),
+ * colour literals or arbitrary or stock text sizes (text-[11px], text-xs).
+ * design-tokens.test.ts fails on them in packages/. The stock palette is not
+ * remapped to the themes, so a raw class would ignore light and dark:
  *
  *   Surfaces   bg-surface (paper ground behind widgets), bg-surface-raised
  *              (widget panel), bg-surface-inset (a quiet well inside a
@@ -48,6 +51,7 @@
  *              packages/shared-ui/src/constants.ts.
  *   Inverse    bg-inverse + text-inverse-foreground, links text-inverse-accent
  *              (toasts)
+ *   Scrims     bg-scrim (behind a dialog), bg-scrim-light (behind Activity)
  *   Calendar   bg-shift + border-shift-line + text-shift-ink (work shifts),
  *              border-free-line (free gaps), bg-past (days gone by),
  *              hatch-<colour> (drafted blocks, a shortfall: diagonal
@@ -58,7 +62,10 @@
  *              uppercase mono labels.
  *   Radius     rounded-widget 20 (widget chrome, big cards), rounded-control
  *              12 (buttons, inputs, tabs), rounded-item 10 (blocks, rows,
- *              small cards), rounded-full (chips, pills)
+ *              small cards), rounded-full (chips, pills, dots);
+ *              board tabs: rounded-track (the track), rounded-tab;
+ *              rounded-toast. No bare rounded, rounded-md or
+ *              rounded-[Npx]: design-tokens.test.ts fails on them.
  *   Shadow     shadow-panel (widgets), shadow-pop (popovers, toasts)
  *   Motion     One signature motion: the confused-to-calendar ripple.
  *              The review card that flies from the moment to its block is
@@ -136,19 +143,9 @@
   --color-free-line: #CFC2B1;
   --color-past: rgba(120, 100, 80, 0.045);
 
-  /* ── Neutral scale, warmed to the paper hue and inverted (dark ink on
-     light) for widgets not yet on the tokens; dark restores stock order ── */
-  --color-neutral-50: oklch(0.145 0.006 60);
-  --color-neutral-100: oklch(0.205 0.008 60);
-  --color-neutral-200: oklch(0.269 0.009 60);
-  --color-neutral-300: oklch(0.371 0.009 60);
-  --color-neutral-400: oklch(0.439 0.009 60);
-  --color-neutral-500: oklch(0.556 0.009 60);
-  --color-neutral-600: oklch(0.708 0.009 60);
-  --color-neutral-700: oklch(0.82 0.007 60);
-  --color-neutral-800: oklch(0.922 0.006 60);
-  --color-neutral-900: oklch(0.96 0.005 60);
-  --color-neutral-950: oklch(0.985 0.004 60);
+  /* ── Scrims: behind a dialog, and lighter behind the Activity panel ── */
+  --color-scrim: rgba(43, 37, 32, 0.4);
+  --color-scrim-light: rgba(43, 37, 32, 0.22);
 
   /* ── Type: four steps ── */
   --text-meta: 12px;
@@ -165,6 +162,11 @@
   --radius-widget: 20px;
   --radius-control: 12px;
   --radius-item: 10px;
+  /* The board tabs: their track, and a tab inside it (nested corners). */
+  --radius-track: 14px;
+  --radius-tab: 11px;
+  /* A toast in the toast bar. */
+  --radius-toast: 14px;
   /* Older name for the widget radius. */
   --radius-panel: var(--radius-widget);
 
@@ -172,19 +174,6 @@
   --shadow-panel: 0 1px 2px rgba(70, 45, 20, 0.04), 0 8px 28px rgba(70, 45, 20, 0.06);
   --shadow-panel-focused: 0 2px 4px rgba(70, 45, 20, 0.06), 0 12px 36px rgba(70, 45, 20, 0.1);
   --shadow-pop: 0 2px 6px rgba(70, 45, 20, 0.08), 0 18px 48px rgba(70, 45, 20, 0.16);
-
-  /* ── Stock palette remaps for widgets not yet on the tokens ── */
-  --color-emerald-400: oklch(0.5 0.17 160);
-  --color-emerald-500: oklch(0.45 0.16 160);
-
-  /* Amber marks "needs another look". Pale stock ambers vanish on a light
-     surface: text gets solid deep ambers (4.5:1, checked by
-     theme-contrast.test.ts) and tints a warm mid amber. The dark theme puts
-     the stock scale back. */
-  --color-amber-200: oklch(0.75 0.15 75);
-  --color-amber-300: oklch(0.48 0.11 60);
-  --color-amber-400: oklch(0.48 0.11 60);
-  --color-amber-500: oklch(0.72 0.15 70);
 
   --transition-panel: 200ms ease-out;
 
@@ -262,32 +251,13 @@ body {
   --color-shift-ink: #CFC5BA;
   --color-free-line: #554B41;
   --color-past: rgba(255, 255, 255, 0.025);
+  --color-scrim: rgba(0, 0, 0, 0.55);
+  --color-scrim-light: rgba(0, 0, 0, 0.35);
 
   /* Shadows */
   --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 28px rgba(0, 0, 0, 0.25);
   --shadow-panel-focused: 0 2px 4px rgba(0, 0, 0, 0.35), 0 12px 36px rgba(0, 0, 0, 0.32);
   --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.4), 0 18px 48px rgba(0, 0, 0, 0.45);
-
-  /* Neutral scale, warmed, at stock lightness */
-  --color-neutral-50: oklch(0.985 0.004 60);
-  --color-neutral-100: oklch(0.97 0.005 60);
-  --color-neutral-200: oklch(0.922 0.006 60);
-  --color-neutral-300: oklch(0.87 0.007 60);
-  --color-neutral-400: oklch(0.708 0.009 60);
-  --color-neutral-500: oklch(0.556 0.009 60);
-  --color-neutral-600: oklch(0.439 0.009 60);
-  --color-neutral-700: oklch(0.371 0.009 60);
-  --color-neutral-800: oklch(0.269 0.009 60);
-  --color-neutral-900: oklch(0.205 0.008 60);
-  --color-neutral-950: oklch(0.145 0.006 60);
-
-  /* Stock emerald and amber */
-  --color-emerald-400: oklch(76.5% 0.177 163.223);
-  --color-emerald-500: oklch(69.6% 0.17 162.48);
-  --color-amber-200: oklch(92.4% 0.12 95.746);
-  --color-amber-300: oklch(87.9% 0.169 91.605);
-  --color-amber-400: oklch(82.8% 0.189 84.429);
-  --color-amber-500: oklch(76.9% 0.188 70.08);
 
   color-scheme: dark;
 }

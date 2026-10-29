@@ -69,8 +69,8 @@ export function useManifest(id: string): PanelManifest | undefined {
 export function PlaceholderLens({ config }: LensProps) {
   const lensType = (config.lensType as string | undefined) ?? 'unknown'
   return (
-    <div className="flex h-full items-center justify-center text-neutral-500">
-      <span className="text-sm">Lens: {lensType}</span>
+    <div className="flex h-full items-center justify-center text-text-muted">
+      <span className="text-body">Lens: {lensType}</span>
     </div>
   )
 }

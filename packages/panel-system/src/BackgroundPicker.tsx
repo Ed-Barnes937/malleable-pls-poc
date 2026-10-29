@@ -102,13 +102,13 @@ export function BackgroundPicker() {
       className="space-y-3"
       onPointerDown={stopPointerPropagation}
     >
-      <h3 className="text-xs font-semibold text-text-secondary">Background</h3>
+      <h3 className="text-body font-semibold text-text-primary">Background</h3>
 
       <button
         data-testid="bg-none"
         type="button"
         onClick={handleNoneClick}
-        className="w-full rounded-[var(--radius-panel)] px-3 py-1.5 text-left text-xs font-medium text-text-secondary transition-[background]"
+        className="h-9 w-full rounded-control px-3 text-left text-body font-medium text-text-secondary transition-[background] hover:text-text-primary"
         style={{
           background:
             background.type === 'none'
@@ -120,7 +120,7 @@ export function BackgroundPicker() {
       </button>
 
       <div>
-        <p className="mb-1.5 text-xs text-text-muted">Solids</p>
+        <p className="mb-1.5 text-meta font-semibold text-text-muted">Solids</p>
         <div
           data-testid="bg-solids"
           className="grid grid-cols-3 gap-1.5"
@@ -133,12 +133,12 @@ export function BackgroundPicker() {
               onClick={(e) => handlePresetClick(e, preset)}
               aria-label={preset.label}
               title={preset.label}
-              className="aspect-square rounded-[calc(var(--radius-panel)*0.5)] transition-[box-shadow]"
+              className="aspect-square rounded-item transition-[box-shadow]"
               style={{
                 background: preset.config.value,
                 boxShadow: isActive(preset)
                   ? '0 0 0 2px var(--color-accent)'
-                  : '0 0 0 1px oklch(0 0 0 / 0.1)',
+                  : '0 0 0 1px var(--color-border)',
               }}
             />
           ))}
@@ -146,7 +146,7 @@ export function BackgroundPicker() {
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs text-text-muted">Gradients</p>
+        <p className="mb-1.5 text-meta font-semibold text-text-muted">Gradients</p>
         <div
           data-testid="bg-gradients"
           className="grid grid-cols-2 gap-1.5"
@@ -159,12 +159,12 @@ export function BackgroundPicker() {
               onClick={(e) => handlePresetClick(e, preset)}
               aria-label={preset.label}
               title={preset.label}
-              className="aspect-[2/1] rounded-[calc(var(--radius-panel)*0.5)] transition-[box-shadow]"
+              className="aspect-[2/1] rounded-item transition-[box-shadow]"
               style={{
                 background: preset.config.value,
                 boxShadow: isActive(preset)
                   ? '0 0 0 2px var(--color-accent)'
-                  : '0 0 0 1px oklch(0 0 0 / 0.1)',
+                  : '0 0 0 1px var(--color-border)',
               }}
             />
           ))}
@@ -172,7 +172,7 @@ export function BackgroundPicker() {
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs text-text-muted">Image URL</p>
+        <p className="mb-1.5 text-meta font-semibold text-text-muted">Image URL</p>
         <input
           data-testid="bg-image-url"
           type="url"
@@ -182,9 +182,9 @@ export function BackgroundPicker() {
           onKeyDown={handleImageUrlKeyDown}
           onBlur={handleImageUrlBlur}
           onPointerDown={stopPointerPropagation}
-          className="w-full rounded-[calc(var(--radius-panel)*0.5)] px-2.5 py-1.5 text-xs text-text-primary placeholder:text-text-muted outline-none"
+          className="h-9 w-full rounded-control border border-border px-3 text-body text-text-primary placeholder:text-text-muted outline-none focus:border-accent focus:ring-2 focus:ring-accent-line"
           style={{
-            background: 'var(--color-surface)',
+            background: 'var(--color-surface-raised)',
             transition: 'var(--transition-panel)',
           }}
         />

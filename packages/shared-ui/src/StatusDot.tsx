@@ -9,10 +9,10 @@ export interface StatusDotProps {
 }
 
 const COLORS: Record<StatusDotStatus, string> = {
-  running: 'bg-sky-400',
-  complete: 'bg-emerald-400',
-  failed: 'bg-rose-400',
-  idle: 'bg-neutral-500',
+  running: 'bg-accent',
+  complete: 'bg-good',
+  failed: 'bg-confused',
+  idle: 'bg-text-muted',
 }
 
 export function StatusDot({ status, pulse, className }: StatusDotProps) {

@@ -171,7 +171,7 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
     <>
       {/* Above the top bar (z 9999) and the board menu (10000-10001), which
           opens it on a phone. Tapping beside the panel closes it. */}
-      <div data-testid="activity-backdrop" className="fixed inset-0 z-[10002] bg-black/25" onClick={onClose} />
+      <div data-testid="activity-backdrop" className="fixed inset-0 z-[10002] bg-scrim-light" onClick={onClose} />
       <aside
         ref={panelRef}
         className="fixed bottom-0 right-0 top-0 z-[10003] flex w-80 max-w-[calc(100vw-48px)] flex-col rounded-l-widget bg-surface-raised shadow-pop"

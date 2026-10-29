@@ -17,6 +17,12 @@ describe('cn', () => {
     expect(cn('shadow-panel', 'shadow-pop')).toBe('shadow-pop')
     expect(cn('rounded-item shadow-pop')).toBe('rounded-item shadow-pop')
   })
+
+  it('knows the board tab and toast radii', () => {
+    expect(cn('rounded-tab rounded-full')).toBe('rounded-full')
+    expect(cn('rounded-track', 'rounded-item')).toBe('rounded-item')
+    expect(cn('rounded-toast', 'rounded-widget')).toBe('rounded-widget')
+  })
 })
 
 describe('fromMomentLabel', () => {

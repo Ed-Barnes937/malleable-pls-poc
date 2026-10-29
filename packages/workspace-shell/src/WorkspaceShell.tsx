@@ -495,13 +495,13 @@ function CanvasSkeleton() {
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="flex h-48 w-72 flex-col gap-3 rounded-[var(--radius-panel)] border border-border-subtle bg-surface-raised p-4"
+          className="flex h-48 w-72 flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4"
           style={{ opacity: 1 - i * 0.2 }}
         >
-          <div className="h-3 w-1/3 animate-pulse rounded bg-neutral-800" />
-          <div className="h-3 w-full animate-pulse rounded bg-neutral-800/60" />
-          <div className="h-3 w-5/6 animate-pulse rounded bg-neutral-800/40" />
-          <div className="h-3 w-3/4 animate-pulse rounded bg-neutral-800/30" />
+          <div className="h-3 w-1/3 animate-pulse rounded-full bg-surface-overlay" />
+          <div className="h-3 w-full animate-pulse rounded-full bg-surface-overlay/80" />
+          <div className="h-3 w-5/6 animate-pulse rounded-full bg-surface-overlay/60" />
+          <div className="h-3 w-3/4 animate-pulse rounded-full bg-surface-overlay/40" />
         </div>
       ))}
     </div>
