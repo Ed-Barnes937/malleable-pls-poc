@@ -47,6 +47,8 @@ export interface TimeGridProps {
   onProposalDismiss?: (id: string) => void
   /** Free study time to outline and label with its length (UTC ms intervals), e.g. while planning. */
   freeTime?: ReadonlyArray<{ start: number; end: number }>
+  /** Time outside the student's study hours, washed quietly (UTC ms intervals), e.g. while planning. */
+  outsideStudyHours?: ReadonlyArray<{ start: number; end: number }>
   /** A to-do being dragged in from outside the grid (Help me plan), to preview where it lands. */
   incoming?: { title: string; durationMin: number; course: string | null } | null
   /** That to-do was dropped at `start`. */
@@ -134,7 +136,7 @@ type Drag =
 
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
-  proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
+  proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
   reveal, popoverOpen,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -253,6 +255,7 @@ export function TimeGrid({
   }, [popoverOpen])
 
   const freeSegments = useMemo(() => (freeTime?.length ? shadeDays(freeTime, days) : null), [freeTime, days])
+  const offSegments = useMemo(() => (outsideStudyHours?.length ? shadeDays(outsideStudyHours, days) : null), [outsideStudyHours, days])
   const [dropAt, setDropAt] = useState<{ dayIndex: number; minute: number } | null>(null)
   const markers = useMemo(() => dueMarkers(items, days), [items, days])
   const hasDue = markers.some((m) => m.length > 0)
@@ -550,6 +553,15 @@ export function TimeGrid({
                   data-date={day.toISOString()}
                   className={cn('relative border-l border-border-subtle', startOfDay(day) < startOfDay(now) && 'bg-past')}
                 >
+                  {offSegments?.[dayIndex].map((o) => (
+                    <div
+                      key={o.key}
+                      data-testid="calendar-off-hours"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0 bg-off-hours"
+                      style={{ top: (o.startMin / 60) * hourPx, height: ((o.endMin - o.startMin) / 60) * hourPx }}
+                    />
+                  ))}
                   {freeSegments?.[dayIndex].map((f) => {
                     const height = ((f.endMin - f.startMin) / 60) * hourPx - 4
                     return (

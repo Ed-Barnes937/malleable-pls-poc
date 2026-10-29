@@ -108,3 +108,58 @@ export function studyDayWindows(hours: StudyHours): Array<DayWindow | null> {
     return w ? { dayStart: w.start, dayEnd: w.end } : null
   })
 }
+
+/**
+ * The preference after `patch`, as `preferences.update` saves it: a field
+ * left out is unchanged, `null` puts the default back. Shows a change
+ * straight away, before the server has it.
+ */
+export function applyPreferencesUpdate(prefs: UserPreferences, patch: PreferencesUpdate): UserPreferences {
+  return {
+    time_zone: patch.time_zone === undefined ? prefs.time_zone : patch.time_zone,
+    study_hours: patch.study_hours === undefined ? prefs.study_hours : (patch.study_hours ?? DEFAULT_STUDY_HOURS),
+    study_min_per_day: patch.study_min_per_day === undefined ? prefs.study_min_per_day : (patch.study_min_per_day ?? DEFAULT_STUDY_MIN_PER_DAY),
+  }
+}
+
+/** Whether two study windows (or "no study" days) are the same. */
+export function sameStudyWindow(a: StudyWindow | null, b: StudyWindow | null): boolean {
+  return a === b || (!!a && !!b && a.start === b.start && a.end === b.end)
+}
+
+/** Whether two weeks of study hours are the same, day by day. */
+export function sameStudyHours(a: StudyHours, b: StudyHours): boolean {
+  return WEEKDAYS.every((d) => sameStudyWindow(a[d], b[d]))
+}
+
+const WEEKDAY_LABELS: Record<Weekday, string> = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' }
+
+/** "Mon", "Tue", ... for a weekday. */
+export function weekdayLabel(day: Weekday): string {
+  return WEEKDAY_LABELS[day]
+}
+
+/**
+ * Study hours in a few words, for the Help me plan line:
+ * "Study 09:00-22:00" (every day the same), "Study 10:00-22:00, no study Sun"
+ * (one range, a few days off), "Study 10:00-22:00 on Mon, Wed" (one range,
+ * most days off), "Study hours vary by day", or "No study on any day".
+ */
+export function studyHoursSummary(hours: StudyHours): string {
+  return studyHoursSummaryParts(hours).join(' ')
+}
+
+/**
+ * `studyHoursSummary` in the phrases a line may wrap between (joined with
+ * a space), so it never breaks inside one: ["Study 10:00-22:00,", "no study Sun"].
+ */
+export function studyHoursSummaryParts(hours: StudyHours): string[] {
+  const studying = WEEKDAYS.filter((d) => hours[d])
+  if (studying.length === 0) return ['No study on any day']
+  const first = hours[studying[0]]!
+  if (!studying.every((d) => sameStudyWindow(hours[d], first))) return ['Study hours vary by day']
+  const range = `Study ${first.start}-${first.end}`
+  if (studying.length === WEEKDAYS.length) return [range]
+  if (studying.length <= 3) return [range, `on ${studying.map(weekdayLabel).join(', ')}`]
+  return [`${range},`, `no study ${WEEKDAYS.filter((d) => !hours[d]).map(weekdayLabel).join(', ')}`]
+}

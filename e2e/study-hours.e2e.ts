@@ -90,17 +90,90 @@ test.describe('Study hours', () => {
     const panel = calendar.root.getByTestId('help-me-plan-panel')
     await expect(panel.getByTestId('plan-capacity')).toContainText('(2h a day)')
 
-    await panel.getByLabel('Study time per day').selectOption('60')
+    await panel.getByRole('button', { name: 'Change when you study' }).click()
+    const editor = page.getByRole('dialog', { name: 'When do you study?' })
+    await editor.getByLabel('Study time per day').selectOption('60')
+    await editor.getByRole('button', { name: 'Save' }).click()
     await expect(panel.getByTestId('plan-capacity')).toContainText('About 7 hours of study time left next week (1h a day).')
-    expect((await trpcQuery<UserPreferences>(request, 'preferences.get')).study_min_per_day).toBe(60)
+    await expect.poll(async () => (await trpcQuery<UserPreferences>(request, 'preferences.get')).study_min_per_day).toBe(60)
 
     // A reload (or any other board) reads it back.
     await page.reload()
     await new TopBarPom(page).switchToWorkspace('Week plan')
     await calendar.nextWeek()
     await calendar.root.getByTestId('help-me-plan').click()
-    await expect(panel.getByLabel('Study time per day')).toHaveValue('60')
+    await expect(panel.getByTestId('study-rhythm')).toContainText('1h a day')
+    await panel.getByRole('button', { name: 'Change when you study' }).click()
+    await expect(editor.getByLabel('Study time per day')).toHaveValue('60')
   })
+
+  for (const { name, viewport } of [
+    { name: 'on a laptop', viewport: { width: 1440, height: 900 } },
+    { name: 'on a phone', viewport: { width: 400, height: 860 } },
+  ]) {
+    test(`${name}: changing study hours in Help me plan re-plans the draft straight away, and they stay`, async ({ page, request }) => {
+      await page.setViewportSize(viewport)
+      await emptyWeek(request)
+      for (let i = 1; i <= 7; i++) {
+        await trpcMutation(request, 'planItems.create', { kind: 'task', title: `Past paper ${i}`, duration_min: 120, due_at: null, course: 'biology' })
+      }
+      const calendar = await openCalendar(page)
+      // A phone opens on Day view; Help me plan plans a week.
+      if (viewport.width < 600) await calendar.root.getByRole('tab', { name: 'Week' }).click()
+      await calendar.nextWeek()
+      await calendar.root.getByTestId('help-me-plan').click()
+      const panel = calendar.root.getByTestId('help-me-plan-panel')
+      await expect(panel.getByTestId('study-rhythm')).toContainText('Study 09:00-22:00')
+
+      // A draft in the default hours: 09:00-11:00 every day.
+      const autofills: string[] = []
+      page.on('request', (r) => { if (r.url().includes('planning.autofill')) autofills.push(r.url()) })
+      await panel.getByTestId('autofill').click()
+      const ghosts = calendar.root.getByTestId('calendar-ghost')
+      await expect(ghosts).toHaveCount(7, { timeout: 15000 })
+      await expect(ghosts.first()).toHaveAttribute('aria-label', /, 09:00 - 11:00$/)
+
+      // From 10:00, and no study on Sunday.
+      await panel.getByRole('button', { name: 'Change when you study' }).click()
+      const editor = page.getByRole('dialog', { name: 'When do you study?' })
+      await editor.getByLabel('Start time, every day').selectOption('10:00')
+      await editor.getByRole('button', { name: 'Different on some days' }).click()
+      await editor.getByRole('checkbox', { name: 'No study on Sunday' }).check()
+      await editor.getByRole('button', { name: 'Save' }).click()
+      await expect(editor).toBeHidden()
+      await expect(panel.getByTestId('study-rhythm')).toContainText('Study 10:00-22:00, no study Sun')
+
+      // The draft re-plans at once, with no second Auto-fill: six blocks, 10:00-12:00 Monday to Saturday.
+      await expect(ghosts).toHaveCount(6)
+      for (const ghost of await ghosts.all()) await expect(ghost).toHaveAttribute('aria-label', /, 10:00 - 12:00$/)
+      expect(autofills).toHaveLength(1)
+      await panel.getByRole('button', { name: 'Accept draft' }).click()
+      await expect(ghosts).toHaveCount(0)
+      const placed = (await trpcQuery<Row[]>(request, 'planItems.list', { kinds: ['task'] })).filter((t) => t.starts_at)
+      expect(placed.map((t) => t.starts_at).sort()).toEqual([0, 1, 2, 3, 4, 5].map((d) => at(1, d, 10)))
+
+      // Saved with the zone the browser is in, the first time study hours are saved.
+      expect(await trpcQuery<UserPreferences>(request, 'preferences.get')).toEqual({
+        time_zone: TZ,
+        study_hours: lateStartNoSunday,
+        study_min_per_day: 120,
+      })
+
+      // A reload keeps them; while planning, the hours outside study time are washed, all of Sunday included.
+      await page.reload()
+      await new TopBarPom(page).switchToWorkspace('Week plan')
+      if (viewport.width < 600) await calendar.root.getByRole('tab', { name: 'Week' }).click()
+      await calendar.nextWeek()
+      await expect(calendar.root.getByTestId('calendar-off-hours')).toHaveCount(0)
+      await calendar.root.getByTestId('help-me-plan').click()
+      await expect(panel.getByTestId('study-rhythm')).toContainText('Study 10:00-22:00, no study Sun')
+      const sunday = calendar.days.nth(6)
+      await expect(sunday.getByTestId('calendar-off-hours')).toHaveCount(1)
+      expect((await sunday.getByTestId('calendar-off-hours').boundingBox())!.height).toBeCloseTo((await sunday.boundingBox())!.height, 0)
+      // Monday: before 10:00 and after 22:00.
+      await expect(calendar.days.first().getByTestId('calendar-off-hours')).toHaveCount(2)
+    })
+  }
 
   test('a new confusion review goes only where the student studies', async ({ request }) => {
     await emptyWeek(request)

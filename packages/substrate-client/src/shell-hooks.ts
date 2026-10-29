@@ -1,6 +1,6 @@
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
-import type { UseQueryResult } from '@tanstack/react-query'
+import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 import type { PlanItemQuery } from '@pls/substrate'
 
@@ -135,9 +135,25 @@ export function usePlanItemList(query: PlanItemQuery) {
   return trpc.planItems.list.useQuery(query)
 }
 
+/** Mutation scope for preference saves: they run one at a time, in order. */
+export const PREFERENCES_SCOPE = 'preferences'
+
+/**
+ * How every reader of `preferences.get` refetches it: as any query, except
+ * not on window focus while a save is queued, since that refetch would put
+ * the old value back over the change already shown. The saves re-read it
+ * once the last one settles.
+ */
+export function usePreferencesQueryOptions() {
+  const queryClient = useQueryClient()
+  return {
+    refetchOnWindowFocus: () => queryClient.isMutating({ predicate: (m) => m.options.scope?.id === PREFERENCES_SCOPE }) === 0,
+  }
+}
+
 /** The student's study rhythm (study hours, study time per day, zone), defaults filled in. */
 export function usePreferences() {
-  return trpc.preferences.get.useQuery()
+  return trpc.preferences.get.useQuery(undefined, usePreferencesQueryOptions())
 }
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {

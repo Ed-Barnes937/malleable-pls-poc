@@ -41,6 +41,15 @@ async function openPlan(page: Page) {
   return page.getByTestId('help-me-plan-panel')
 }
 
+/** Sets study time per day in the study hours editor (Change, then Save). */
+async function setStudyTimePerDay(page: Page, minutes: string) {
+  await page.getByRole('button', { name: 'Change when you study' }).click()
+  const editor = page.getByRole('dialog', { name: 'When do you study?' })
+  await editor.getByLabel('Study time per day').selectOption(minutes)
+  await editor.getByRole('button', { name: 'Save' }).click()
+  await expect(editor).toBeHidden()
+}
+
 const ghost = (page: Page, title: string) => page.getByTestId('calendar-ghost').filter({ hasText: title })
 const stored = (simulator: BackendSimulator, id: string) => simulator.db.planItems.find((p) => p.id === id)
 
@@ -62,9 +71,9 @@ test('shows the unscheduled to-dos, study time left and an honest capacity line'
   await expect.poll(() => stored(simulator, 'cards')?.duration_min).toBe(30)
 
   // The study-time setting changes the numbers, and is saved as the student's preference.
-  await panel.getByLabel('Study time per day').selectOption('60')
+  await setStudyTimePerDay(page, '60')
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 2 hours of study time left next week (1h a day).')
-  expect(simulator.db.preferences?.study_min_per_day).toBe(60)
+  await expect.poll(() => simulator.db.preferences?.study_min_per_day).toBe(60)
 })
 
 test("reads study time per day and study hours from the student's preference", async ({ mount, page, simulator }) => {
@@ -79,7 +88,11 @@ test("reads study time per day and study hours from the student's preference", a
   await mount(<CalendarHarness />)
   const panel = await openPlan(page)
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 1.5 hours of study time left next week (1h 30m a day).')
-  await expect(panel.getByLabel('Study time per day')).toHaveValue('90')
+  await expect(panel.getByTestId('study-rhythm')).toHaveText(/^Study 09:00-22:00, no study Tue\W+1h 30m a day\W+Change$/)
+  await panel.getByRole('button', { name: 'Change when you study' }).click()
+  const editor = page.getByRole('dialog', { name: 'When do you study?' })
+  await expect(editor.getByLabel('Study time per day')).toHaveValue('90')
+  await expect(editor.getByRole('checkbox', { name: 'No study on Tuesday' })).toBeChecked()
 })
 
 test('pick a suggested slot to assign a to-do by hand', async ({ mount, page, simulator }) => {
@@ -348,7 +361,7 @@ test('changing study time per day during a draft re-drafts it; a too-long to-do 
   await expect(draft.getByTestId('autofill-trim')).toHaveText([/Lab report write-up \(4h\) is too long for one day\.\s*Shrink to 2h/])
 
   // 1h a day (Monday and Tuesday mornings): the trim follows the new budget.
-  await panel.getByLabel('Study time per day').selectOption('60')
+  await setStudyTimePerDay(page, '60')
   await expect(draft.getByTestId('autofill-trim')).toHaveText([/Lab report write-up \(4h\) is too long for one day\.\s*Shrink to 1h/])
   await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 4h didn't fit.")
@@ -360,7 +373,7 @@ test('changing study time per day during a draft re-drafts it; a too-long to-do 
 
   // 3h a day: the offer is the new day length, not the 2h the advice said.
   await draft.getByRole('button', { name: 'Undo' }).click()
-  await panel.getByLabel('Study time per day').selectOption('180')
+  await setStudyTimePerDay(page, '180')
   await expect(draft.getByTestId('autofill-trim')).toHaveText([/Lab report write-up \(4h\) is too long for one day\.\s*Shrink to 3h/])
   await expect(draft.getByRole('button', { name: 'Shrink to 3h' })).toBeVisible()
 })

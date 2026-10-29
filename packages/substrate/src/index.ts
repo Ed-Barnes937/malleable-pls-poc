@@ -46,6 +46,7 @@ export {
   formatMinutes,
   matchesWeakTopic,
   openTime,
+  outsideStudyHours,
   padded,
   planAutofillInput,
   planCapacity,
@@ -66,6 +67,12 @@ export {
 } from './planning'
 
 export {
+  applyPreferencesUpdate,
+  sameStudyHours,
+  sameStudyWindow,
+  studyHoursSummary,
+  studyHoursSummaryParts,
+  weekdayLabel,
   DEFAULT_PREFERENCES,
   DEFAULT_STUDY_HOURS,
   DEFAULT_STUDY_MIN_PER_DAY,

@@ -2,8 +2,8 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
-import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { shortLineOptions, todayLine, todayRowsRange, todayStudyOptions } from './today-line'
+import { formatMinutes, localDayRange, type PlanItemOccurrence } from '@pls/substrate'
+import { shortLineOptions, todayLine, todayStudyOptions } from './today-line'
 
 const MINUTE_MS = 60_000
 
@@ -33,7 +33,8 @@ export function TodayLine({ short = false }: { short?: boolean }) {
     () => todayStudyOptions(preferences.data, preferences.isError, browserZone),
     [preferences.data, preferences.isError, browserZone],
   )
-  const rows = todayRowsRange(now, counting?.timeZone ?? browserZone)
+  // Today in the student's zone: the whole line is read there.
+  const rows = localDayRange(now, counting?.timeZone ?? browserZone)
   const from = new Date(rows.start).toISOString()
   const to = new Date(rows.end).toISOString()
   const { data } = usePlanItemList({ from, to, statuses: ['open', 'done'] })

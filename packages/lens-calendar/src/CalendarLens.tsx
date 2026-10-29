@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -300,6 +300,13 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         })
       : null),
     [planOpen, view, items, range, browserZone, prefs],
+  )
+  // Whenever there is a plan layout, the preference it was made from.
+  const planPrefs = prefs ?? DEFAULT_PREFERENCES
+  // Hours outside study time get a wash on the grid while planning.
+  const offStudyHours = useMemo(
+    () => (planLayout ? outsideStudyHours(planLayout.week, planLayout.timeZone, planPrefs.study_hours) : undefined),
+    [planLayout, planPrefs.study_hours],
   )
   // Free gaps around drafted blocks too, so a gap's "2h free" is what is still open.
   const freeTime = useMemo(
@@ -625,6 +632,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onProposalAccept={(id) => void layer.accept(id)}
           onProposalDismiss={layer.dismiss}
           freeTime={freeTime}
+          outsideStudyHours={offStudyHours}
           reveal={reveal}
           incoming={incoming}
           onDropIncoming={(start) => {
@@ -680,11 +688,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               onCollapse={() => setPlanCollapsed(true)}
               onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
               onDragTodo={setIncoming}
-              onStudyMinPerDayChange={(min) => {
-                // Saved for every board and the server's automatic placement;
-                // the panel re-drafts once the new value is back.
-                updatePreferences.mutateAsync({ study_min_per_day: min })
-                  .catch(() => setNotice("Couldn't change your study time per day - try again?"))
+              studyHours={planPrefs.study_hours}
+              onStudyRhythmChange={(change) => {
+                // Saved for every board and the server's automatic placement,
+                // and shown (and re-drafted) straight away. The first time
+                // study hours are saved, the zone they are read in is too:
+                // only when the saved preference has loaded and has none (never
+                // from the defaults used when it failed to load).
+                const loaded = preferences.data
+                const zone = change.study_hours && loaded && loaded.time_zone === null ? { time_zone: browserZone } : {}
+                updatePreferences.mutateAsync({ ...change, ...zone })
+                  .catch(() => setNotice(change.study_hours
+                    ? "Couldn't save your study hours. Try again?"
+                    : "Couldn't save your study time per day. Try again?"))
               }}
             />
           </div>

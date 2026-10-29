@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_STUDY_HOURS } from '@pls/substrate'
-import { shortLineOptions, todayLine, todayRange, todayRowsRange, todayStudyOptions } from './today-line'
+import { shortLineOptions, todayLine, todayStudyOptions } from './today-line'
 
 // Tests run in Europe/London (vitest.config.ts). Tue 27 Oct 2026 is GMT.
 const TZ = 'Europe/London'
@@ -102,13 +102,39 @@ describe('todayStudyOptions', () => {
   })
 })
 
-describe('todayRowsRange', () => {
-  it("covers today as shown and today in the study zone", () => {
-    expect(todayRowsRange(NOW, TZ)).toEqual(todayRange(NOW))
-    const r = todayRowsRange(NOW, 'Asia/Tokyo')
-    // Tokyo's Tuesday starts 15:00 Monday London time.
-    expect(new Date(r.start).toISOString()).toBe('2026-10-26T15:00:00.000Z')
-    expect(r.end).toBe(todayRange(NOW).end)
+describe('todayLine in the study zone', () => {
+  it('reads the weekday, the events and the study time all in that zone, never mixing two days', () => {
+    // 20:00 Tuesday in London is 05:00 Wednesday in Tokyo.
+    const now = Date.parse(at('20:00'))
+    const biology = row({ title: 'Biology lecture', subtype: 'class', course: 'biology', starts_at: at('01:00', '2026-10-28'), ends_at: at('03:00', '2026-10-28') })
+    const line = todayLine([chemistry, shift, biology], { now, timeZone: 'Asia/Tokyo' })
+    expect(line).toEqual({
+      weekday: 'Wednesday',
+      // Tokyo's Wednesday: London's Tuesday shift runs 02:00-07:00 there (still going at 05:00),
+      // the lecture 10:00-12:00. London's Tuesday chemistry was yesterday in Tokyo.
+      events: ['shift 02:00-07:00', 'Biology 10:00'],
+      // 09:00-22:00 Tokyo less the lecture, capped at 2h.
+      studyLeftMin: 120,
+      short: { weekday: 'Wed', upcoming: ['shift 02:00', 'Biology 10:00'] },
+    })
+    // The same moment in London is still Tuesday, with the shift going on.
+    expect(todayLine([chemistry, shift, biology], { now, timeZone: TZ })).toMatchObject({
+      weekday: 'Tuesday',
+      events: ['shift 17:00-22:00'],
+    })
+  })
+
+  it('gives shift hours in that zone', () => {
+    expect(todayLine([shift], { now: NOW, timeZone: 'America/New_York' })?.events).toEqual(['shift 13:00-18:00'])
+  })
+
+  it('ends today at local midnight on the day the clocks go forward (a 23-hour day)', () => {
+    // 23:30 on Sunday 29 March in London (BST): the class at 23:00 is today, the one at 00:30 Monday is not.
+    const late = row({ title: 'Late class', subtype: 'class', starts_at: '2026-03-29T22:00:00.000Z', ends_at: '2026-03-29T22:45:00.000Z' })
+    const monday = row({ title: 'Early class', subtype: 'class', starts_at: '2026-03-29T23:30:00.000Z', ends_at: '2026-03-30T00:30:00.000Z' })
+    const line = todayLine([late, monday], { now: Date.parse('2026-03-29T21:00:00.000Z'), timeZone: TZ })
+    expect(line?.weekday).toBe('Sunday')
+    expect(line?.events).toEqual(['Late class 23:00'])
   })
 })
 
@@ -135,10 +161,3 @@ describe('shortLineOptions', () => {
   })
 })
 
-describe('todayRange', () => {
-  it('spans the local day, 23 hours on the day the clocks go forward', () => {
-    const r = todayRange(Date.parse('2026-03-29T12:00:00.000Z'))
-    expect(new Date(r.start).toISOString()).toBe('2026-03-29T00:00:00.000Z')
-    expect((r.end - r.start) / 3_600_000).toBe(23)
-  })
-})

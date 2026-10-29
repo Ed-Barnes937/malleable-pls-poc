@@ -1,8 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
-  STUDY_PER_DAY_OPTIONS,
   capacityCopy,
   completeTrims,
   draftCopy,
@@ -14,10 +13,13 @@ import {
   rankForPlan,
   leftoverStudyTime,
   noSlotCause,
+  sameStudyHours,
   studyDays,
+  studyHoursSummaryParts,
   suggestTaskSlots,
   type PlanItemOccurrence,
   type PlanTask,
+  type StudyHours,
   type WeekLayout,
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
@@ -27,6 +29,7 @@ import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
 import { firstFreeStart, formatClock, formatWeekday, startOfDay } from './time'
+import { StudyHoursEditor, type StudyRhythmChange } from './StudyHoursEditor'
 
 /** The Help me plan toggle in the week view header. */
 export function HelpMePlanButton({ open, onToggle, buttonRef }: {
@@ -87,8 +90,10 @@ export interface HelpMePlanPanelProps {
    */
   onSchedule: (todo: PlanItemOccurrence, start: Date, durationMin: number) => Promise<unknown>
   onDragTodo: (todo: DraggedTodo | null) => void
-  /** The "study time per day" setting changed. */
-  onStudyMinPerDayChange: (minutes: number) => void
+  /** The student's study hours (their preference, defaults filled in). */
+  studyHours: StudyHours
+  /** Study hours or study time per day were changed in the editor (only what changed). */
+  onStudyRhythmChange: (change: StudyRhythmChange) => void
 }
 
 type Drafted = Extract<AutofillState, { state: 'drafted' }>
@@ -105,7 +110,7 @@ const SOURCE = 'autofill'
  */
 export function HelpMePlanPanel({
   layout, weekLabel, now, layer, todos: loaded, autofill, onAutofillChange: setAutofill,
-  onClose, onCollapse, onSchedule, onDragTodo, onStudyMinPerDayChange,
+  onClose, onCollapse, onSchedule, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
   const updateItem = mutations.useUpdatePlanItem()
@@ -132,7 +137,7 @@ export function HelpMePlanPanel({
     if (drafted && drafted.draft.proposals.length > 0 && layer.proposals.length === 0) setAutofill({ state: 'idle' })
   }, [drafted, layer.proposals.length, setAutofill])
 
-  /** Re-draft (after a trim, or a new study time per day), keeping ghosts the student dragged. */
+  /** Re-draft (after a trim, or new study hours or study time per day), keeping ghosts the student dragged. */
   const redraft = (from: Drafted, trims: Map<string, number>, keepAdjusted = true) => {
     const pinned = keepAdjusted ? layer.proposals.filter((p) => p.adjusted && !trims.has(p.taskId) && !layer.savedIds.has(p.id)) : []
     const draft = buildAutofillDraft({ todos, layout, now, advice: from.advice, trims, estimates: from.estimates, pinned })
@@ -140,32 +145,45 @@ export function HelpMePlanPanel({
     setAutofill({ ...from, minutesPerDay: layout.budget.minutesPerDay, trims, draft })
   }
 
-  // Changing study time per day during a draft re-drafts it with the new
-  // budget; applied trims that no longer fit in a day are dropped.
-  const budgetRef = useRef(layout.budget.minutesPerDay)
+  // Changing study hours, study time per day or the zone they are read in
+  // during a draft re-drafts it inside the new rhythm (blocks the student
+  // dragged are placed again too: they may now be outside it); applied trims
+  // that no longer fit in a day are dropped.
+  const rhythm = useRef({ perDay: layout.budget.minutesPerDay, hours: studyHours, zone: layout.timeZone })
   useEffect(() => {
     const perDay = layout.budget.minutesPerDay
-    if (budgetRef.current === perDay) return
-    budgetRef.current = perDay
+    const was = rhythm.current
+    if (was.perDay === perDay && was.zone === layout.timeZone && sameStudyHours(was.hours, studyHours)) return
+    rhythm.current = { perDay, hours: studyHours, zone: layout.timeZone }
     if (!drafted || !draftHere) return
     const trims = new Map([...drafted.trims].filter(([, min]) => min <= perDay))
     redraft(drafted, trims, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layout.budget.minutesPerDay])
+  }, [layout.budget.minutesPerDay, layout.timeZone, studyHours])
+
+  // What the panel shows now, for a draft that lands after an await: study
+  // hours or study time per day saved while Auto-fill was thinking apply.
+  const latest = useRef({ layout, todos, now })
+  latest.current = { layout, todos, now }
 
   const runAutofill = async (estimates: Record<string, number>) => {
     setAutofill({ state: 'loading' })
+    const asked = layout
     try {
       const advice = await autofillPlan.mutateAsync({
-        from: new Date(layout.week.start).toISOString(),
-        to: new Date(layout.week.end).toISOString(),
-        timeZone: layout.timeZone,
+        from: new Date(asked.week.start).toISOString(),
+        to: new Date(asked.week.end).toISOString(),
+        timeZone: asked.timeZone,
         estimates,
       })
+      // The same week, as it is now (the student may have moved to another week meanwhile: keep the one asked about).
+      const current = latest.current
+      const sameWeek = current.layout.week.start === asked.week.start
+      const at = sameWeek ? current : { layout: asked, todos, now }
       const trims = new Map<string, number>()
-      const draft = buildAutofillDraft({ todos, layout, now, advice, trims, estimates })
+      const draft = buildAutofillDraft({ todos: at.todos, layout: at.layout, now: at.now, advice, trims, estimates })
       layer.propose(SOURCE, draft.proposals)
-      setAutofill({ state: 'drafted', week: layout.week.start, minutesPerDay: layout.budget.minutesPerDay, advice, estimates, trims, draft })
+      setAutofill({ state: 'drafted', week: at.layout.week.start, minutesPerDay: at.layout.budget.minutesPerDay, advice, estimates, trims, draft })
     } catch {
       setAutofill({ state: 'error', message: "Auto-fill didn't work just now. Nothing changed - try again?" })
     }
@@ -378,7 +396,7 @@ export function HelpMePlanPanel({
           </ul>
         </section>
 
-        <FreeTime layout={layout} now={now} onStudyMinPerDayChange={onStudyMinPerDayChange} />
+        <FreeTime layout={layout} now={now} studyHours={studyHours} onStudyRhythmChange={onStudyRhythmChange} />
       </div>
 
       {showDraft ? (
@@ -820,45 +838,74 @@ function slotLabel(start: number, now: number): string {
   return `${day} ${formatClock(d)}`
 }
 
+/** " · " between the parts of a line, read as a comma. */
+function Dot() {
+  return (
+    <>
+      <span aria-hidden className="px-1 text-text-muted">·</span>
+      <span className="sr-only">, </span>
+    </>
+  )
+}
+
 /**
  * Study time left per day (the budget minus study already scheduled, never
- * more than the free time), with the "study time per day" setting.
+ * more than the free time), under the student's study rhythm ("Study
+ * 09:00-22:00 · 2h a day · Change"), which Change edits.
  */
 function FreeTime({
   layout,
   now,
-  onStudyMinPerDayChange,
+  studyHours,
+  onStudyRhythmChange,
 }: {
   layout: WeekLayout
   now: number
-  /** Omitted while a draft is open (changing it would not re-draft). */
-  onStudyMinPerDayChange?: (minutes: number) => void
+  studyHours: StudyHours
+  onStudyRhythmChange: (change: StudyRhythmChange) => void
 }) {
   const days = useMemo(
     () => studyDays(layout, now).map((d) => ({ ...d, label: formatWeekday(new Date(d.day)), past: d.day + 24 * 3_600_000 <= now })),
     [layout, now],
   )
   const perDay = layout.budget.minutesPerDay
-  const options = (STUDY_PER_DAY_OPTIONS as readonly number[]).includes(perDay) ? STUDY_PER_DAY_OPTIONS : [...STUDY_PER_DAY_OPTIONS, perDay].sort((a, b) => a - b)
+  const [editing, setEditing] = useState(false)
+  const changeRef = useRef<HTMLButtonElement>(null)
+  const closeEditor = useCallback(() => setEditing(false), [])
 
   return (
     <section data-testid="plan-free-time" className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-col gap-0.5">
         <h4 className={sectionLabel}>Study time left</h4>
-        <label className="flex items-center gap-1.5 text-meta text-text-muted">
-          Up to
-          <select
-            aria-label="Study time per day"
-            value={perDay}
-            disabled={!onStudyMinPerDayChange}
-            onChange={(e) => onStudyMinPerDayChange?.(Number(e.target.value))}
-            className="h-7 rounded-item border border-border bg-surface-inset px-1.5 text-meta font-semibold text-text-primary disabled:opacity-60"
+        <p data-testid="study-rhythm" className="text-meta text-text-secondary">
+          {studyHoursSummaryParts(studyHours).map((part, i) => (
+            <Fragment key={i}>{i > 0 && ' '}<span className="whitespace-nowrap">{part}</span></Fragment>
+          ))}
+          <Dot />
+          <span className="whitespace-nowrap">{formatMinutes(perDay)} a day</span>
+          <Dot />
+          <button
+            ref={changeRef}
+            type="button"
+            aria-label="Change when you study"
+            aria-expanded={editing}
+            aria-haspopup="dialog"
+            onClick={() => setEditing((open) => !open)}
+            className={linkButton}
           >
-            {options.map((min) => <option key={min} value={min}>{formatMinutes(min)}</option>)}
-          </select>
-          a day
-        </label>
+            Change
+          </button>
+        </p>
       </div>
+      {editing && (
+        <StudyHoursEditor
+          anchor={changeRef}
+          studyHours={studyHours}
+          studyMinPerDay={perDay}
+          onSave={onStudyRhythmChange}
+          onClose={closeEditor}
+        />
+      )}
       <ul className="flex flex-col gap-1.5">
         {days.map((d) => (
           <li
