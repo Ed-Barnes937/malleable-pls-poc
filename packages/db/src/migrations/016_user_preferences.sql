@@ -6,11 +6,13 @@
 -- zone), so no backfill is needed and a missing row is all defaults.
 --
 -- study_hours: { "mon": {"start": "09:00", "end": "22:00"} | null, ... "sun": ... }
--- One window per weekday, local time; null = no study that day. An end at or
--- before the start runs past midnight; "24:00" is allowed as an end.
+-- One window per weekday, local time; null = no study that day. The end is
+-- after the start on the same day ("24:00" allowed as an end): no overnight
+-- windows for now.
 
 -- True for one weekday's entry: JSON null, or exactly { start, end } as HH:MM
--- (end may be 24:00) with start <> end.
+-- (end may be 24:00) with end after start. Compared as text in the C
+-- collation, which orders zero-padded HH:MM correctly.
 CREATE FUNCTION is_study_window(w JSONB) RETURNS BOOLEAN
 LANGUAGE sql IMMUTABLE AS $$
   SELECT w IS NOT NULL AND (
@@ -22,7 +24,7 @@ LANGUAGE sql IMMUTABLE AS $$
       AND jsonb_typeof(w->'end') = 'string'
       AND w->>'start' ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
       AND w->>'end' ~ '^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$'
-      AND w->>'start' <> w->>'end'
+      AND (w->>'end') COLLATE "C" > (w->>'start') COLLATE "C"
     )
   )
 $$;

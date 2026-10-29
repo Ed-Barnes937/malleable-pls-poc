@@ -20,10 +20,12 @@ describe('withDefaults', () => {
 })
 
 describe('studyHoursSchema', () => {
-  it('takes one HH:MM window or null per weekday, 24:00 only as an end, overnight allowed', () => {
+  it('takes one HH:MM window or null per weekday, ending after it starts (24:00 only as an end)', () => {
     expect(studyHoursSchema.parse(hours)).toEqual(hours)
-    expect(studyHoursSchema.safeParse({ ...hours, fri: { start: '20:00', end: '02:00' } }).success).toBe(true)
+    expect(studyHoursSchema.safeParse({ ...hours, fri: { start: '00:00', end: '24:00' } }).success).toBe(true)
     for (const bad of [
+      { ...hours, fri: { start: '20:00', end: '02:00' } },
+      { ...hours, fri: { start: '10:00', end: '09:59' } },
       { ...hours, tue: { start: '9:00', end: '22:00' } },
       { ...hours, tue: { start: '24:00', end: '23:00' } },
       { ...hours, tue: { start: '09:00', end: '24:01' } },

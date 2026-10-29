@@ -17,7 +17,7 @@ import { timeZoneInput } from './workflows/review-automation'
 export const WEEKDAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const
 export type Weekday = (typeof WEEKDAYS)[number]
 
-/** One day's study window, local `"HH:MM"`. `end` may be `"24:00"`; an end before the start runs past midnight. */
+/** One day's study window, local `"HH:MM"`, ending after it starts on the same day (`end` may be `"24:00"`). */
 export interface StudyWindow {
   start: string
   end: string
@@ -77,7 +77,8 @@ const endOfWindow = z.string().regex(/^(([01]\d|2[0-3]):[0-5]\d|24:00)$/, { mess
 export const studyWindowSchema = z
   .object({ start: startOfWindow, end: endOfWindow })
   .strict()
-  .refine((w) => w.start !== w.end, { message: 'Study hours must start and end at different times' })
+  // Zero-padded HH:MM compares as text. No overnight windows for now.
+  .refine((w) => w.end > w.start, { message: 'Study hours must end after they start' })
 
 export const studyHoursSchema = z
   .object(Object.fromEntries(WEEKDAYS.map((d) => [d, studyWindowSchema.nullable()])) as Record<Weekday, z.ZodNullable<typeof studyWindowSchema>>)

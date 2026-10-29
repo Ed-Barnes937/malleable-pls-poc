@@ -85,7 +85,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'workspaces', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [alice])
     }
-    await db.sql`DELETE FROM user_preferences WHERE user_id = ${dave}`
+    await db.sql`DELETE FROM user_preferences WHERE user_id = ANY(${[alice, dave]})`
     await db.sql.end()
   })
 
@@ -218,21 +218,52 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   })
 
   it('keeps a gap between reviews it places, earliest first', async () => {
-    const { findReviewSlots } = await import('./review-automation')
+    const { findReviewSlots, reviewPlacement } = await import('./review-automation')
     const now = Date.now()
     const latest = startOfLocalDay(now, TZ, 3)
-    const slots = await db.withUser(alice, (tx) => findReviewSlots(tx, alice, [
+    const slots = await db.withUser(alice, async (tx) => findReviewSlots(tx, alice, [
       { id: 'gap-a', durationMin: 20, markedAt: now, latest },
       { id: 'gap-b', durationMin: 20, markedAt: now, latest },
-    ], { now, timeZone: TZ }))
+    ], { now, placement: await reviewPlacement(tx, alice, TZ) }))
     const a = slots.get('gap-a') as { start: number; end: number }
     const b = slots.get('gap-b') as { start: number; end: number }
     expect(a.start).toBeGreaterThanOrEqual(now + 60 * MIN)
     expect(b.start).toBeGreaterThanOrEqual(a.end + 10 * MIN)
   })
 
+  it("reads the due date and the slot in the student's own zone when it differs from the automation's", async () => {
+    // The automation says London; the student's preference says Auckland (UTC+13 in November).
+    const ZONE = 'Pacific/Auckland'
+    const fresh = `${rec}-seg-zone`
+    await db.withUser(alice, (tx) => tx`
+      INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
+      VALUES (${fresh}, ${alice}, ${rec}, 600000, 660000, 'Heteroplasmy: a cell can hold more than one kind of mitochondrial DNA.', 'Prof')
+    `)
+    await caller(alice).preferences.update({ time_zone: ZONE })
+    try {
+      const before = Date.now()
+      const result = await markConfused(fresh)
+      const after = Date.now()
+      const review = await caller(alice).planItems.byId(result.output.plan_item_id as string)
+      // Due 23:59 Auckland time on the last day of the window (as earlier tests left it), not London's.
+      const [job] = await db.withUser(alice, (tx) => tx`SELECT params FROM workflow_jobs WHERE id = ${workflowJobId}`)
+      const days = (job.params as { windowDays: number }).windowDays + 1
+      const dueOptions = [before, after].map((t) => startOfLocalDay(t, ZONE, days) - MIN)
+      expect(dueOptions).toContain(ms(review!.due_at))
+      expect(dueOptions).not.toContain(startOfLocalDay(before, TZ, days) - MIN)
+      // Placed inside 09:00-22:00 Auckland time, and before it is due.
+      const start = wallClock(ms(review!.starts_at), ZONE)
+      const startMin = start.hour * 60 + start.minute
+      expect(startMin).toBeGreaterThanOrEqual(9 * 60)
+      expect(startMin + 20).toBeLessThanOrEqual(22 * 60)
+      expect(ms(review!.ends_at)).toBeLessThanOrEqual(ms(review!.due_at) + MIN)
+    } finally {
+      await caller(alice).preferences.update({ time_zone: null })
+    }
+  })
+
   it("places reviews only inside the student's study hours, never on a no-study day", async () => {
-    const { findReviewSlots } = await import('./review-automation')
+    const { findReviewSlots, reviewPlacement } = await import('./review-automation')
     const now = Date.now()
     // Only the day after tomorrow has study hours, 13:00-14:00; every other day is "no study".
     const open = startOfLocalDay(now, TZ, 2)
@@ -242,11 +273,11 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     await caller(dave).preferences.update({ study_hours: hours })
 
     const latest = startOfLocalDay(now, TZ, 4)
-    const slots = await db.withUser(dave, (tx) => findReviewSlots(tx, dave, [
+    const slots = await db.withUser(dave, async (tx) => findReviewSlots(tx, dave, [
       { id: 'hours-a', durationMin: 20, markedAt: now, latest },
       { id: 'hours-b', durationMin: 20, markedAt: now, latest },
       { id: 'hours-c', durationMin: 20, markedAt: now, latest },
-    ], { now, timeZone: TZ }))
+    ], { now, placement: await reviewPlacement(tx, dave, TZ) }))
     expect(slots.get('hours-a')).toEqual({ start: atLocal(open, 13), end: atLocal(open, 13) + 20 * MIN })
     expect(slots.get('hours-b')).toEqual({ start: atLocal(open, 13) + 30 * MIN, end: atLocal(open, 13) + 50 * MIN })
     // No room left inside study hours: unscheduled rather than outside them.
@@ -254,7 +285,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   })
 
   it("spends the student's own daily budget, going over it only when no day has room", async () => {
-    const { findReviewSlots } = await import('./review-automation')
+    const { findReviewSlots, reviewPlacement } = await import('./review-automation')
     const now = Date.now()
     // Two open days, 13:00-17:00, and 30 minutes of study a day.
     const first = startOfLocalDay(now, TZ, 2)
@@ -267,11 +298,11 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     await caller(dave).preferences.update({ study_hours: hours, study_min_per_day: 30 })
 
     const latest = startOfLocalDay(now, TZ, 4)
-    const slots = await db.withUser(dave, (tx) => findReviewSlots(tx, dave, [
+    const slots = await db.withUser(dave, async (tx) => findReviewSlots(tx, dave, [
       { id: 'budget-a', durationMin: 20, markedAt: now, latest },
       { id: 'budget-b', durationMin: 20, markedAt: now, latest },
       { id: 'budget-c', durationMin: 20, markedAt: now, latest },
-    ], { now, timeZone: TZ }))
+    ], { now, placement: await reviewPlacement(tx, dave, TZ) }))
     expect((slots.get('budget-a') as { start: number }).start).toBe(atLocal(first, 13))
     // The first day has 10 minutes left: the next goes to the second day.
     expect((slots.get('budget-b') as { start: number }).start).toBe(atLocal(second, 13))

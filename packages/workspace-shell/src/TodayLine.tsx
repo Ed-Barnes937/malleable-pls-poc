@@ -3,7 +3,7 @@ import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { shortLineOptions, todayLine, todayRange } from './today-line'
+import { shortLineOptions, todayLine, todayRowsRange, todayStudyOptions } from './today-line'
 
 const MINUTE_MS = 60_000
 
@@ -26,19 +26,21 @@ function useMinuteClock(): number {
  */
 export function TodayLine({ short = false }: { short?: boolean }) {
   const now = useMinuteClock()
-  const day = todayRange(now)
-  const from = new Date(day.start).toISOString()
-  const to = new Date(day.end).toISOString()
+  // The student's study hours, study time per day and zone, as Help me plan uses them.
+  const preferences = usePreferences()
+  const browserZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+  const counting = useMemo(
+    () => todayStudyOptions(preferences.data, preferences.isError, browserZone),
+    [preferences.data, preferences.isError, browserZone],
+  )
+  const rows = todayRowsRange(now, counting?.timeZone ?? browserZone)
+  const from = new Date(rows.start).toISOString()
+  const to = new Date(rows.end).toISOString()
   const { data } = usePlanItemList({ from, to, statuses: ['open', 'done'] })
-  // The student's study hours and study time per day, as Help me plan uses them.
-  const { data: prefs } = usePreferences()
-  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
   const line = useMemo(
-    () => (data && prefs
-      ? todayLine(data as PlanItemOccurrence[], { now, timeZone, studyHours: prefs.study_hours, studyMinPerDay: prefs.study_min_per_day })
-      : null),
-    [data, prefs, now, timeZone],
+    () => (data && counting ? todayLine(data as PlanItemOccurrence[], { now, ...counting }) : null),
+    [data, now, counting],
   )
   if (!line) return null
 

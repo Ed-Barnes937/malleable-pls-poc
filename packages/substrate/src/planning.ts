@@ -125,6 +125,11 @@ export function weekLayout(
   return { week, timeZone: opts.timeZone, free, busy, budget }
 }
 
+/** The local day (in `timeZone`) containing `instant`, as [start, end): DST-safe. */
+export function localDayRange(instant: number, timeZone: string): Interval {
+  return { start: startOfLocalDay(instant, timeZone), end: startOfLocalDay(instant, timeZone, 1) }
+}
+
 /** A block with `minutes` (default: the study-day buffer) either side. */
 export function padded(block: Interval, minutes: number = STUDY_DAY.bufferMin): Interval {
   const pad = minutes * MINUTE_MS

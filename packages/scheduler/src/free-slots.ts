@@ -21,8 +21,8 @@ export interface FreeSlotPrefs {
   /**
    * Per-weekday windows, used instead of `dayStart`/`dayEnd` when set:
    * exactly 7 entries, index 0 = Monday ... 6 = Sunday (local). `null` means
-   * no window that day, so no free time. A window belongs to the local day it
-   * starts on, so an overnight Friday window is Friday's.
+   * no window that day, so no free time. Each ends after it starts on the
+   * same day (`'24:00'` allowed as an end): no overnight windows here.
    */
   days?: ReadonlyArray<DayWindow | null>
   /** Free gaps shorter than this are dropped. Default 15. */
@@ -65,7 +65,12 @@ function weekdayWindows(p: FreeSlotPrefs & { dayStart: string; dayEnd: string })
     return () => every
   }
   if (p.days.length !== 7) throw new RangeError(`days must have 7 entries (Monday first), got ${p.days.length}`)
-  const byDay = p.days.map((w) => (w ? parse(w) : null))
+  const byDay = p.days.map((w) => {
+    if (!w) return null
+    const parsed = parse(w)
+    if (parsed.overnight) throw new RangeError(`Per-weekday window ${w.dayStart}-${w.dayEnd} must end after it starts`)
+    return parsed
+  })
   return (weekday) => byDay[weekday]
 }
 

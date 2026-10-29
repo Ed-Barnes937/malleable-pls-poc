@@ -81,9 +81,9 @@ describe.skipIf(!TEST_DATABASE_URL)('preferences router (Postgres)', () => {
     for (const input of bad) {
       await expect(api.preferences.update(input as never), JSON.stringify(input)).rejects.toThrow()
     }
-    // An overnight window is valid (the scheduler runs it past midnight).
-    const overnight = { ...weekdays, fri: { start: '20:00', end: '02:00' } }
-    expect((await api.preferences.update({ study_hours: overnight })).study_hours.fri).toEqual({ start: '20:00', end: '02:00' })
+    // No overnight windows for now: the end must be after the start.
+    await expect(api.preferences.update({ study_hours: { ...weekdays, fri: { start: '20:00', end: '02:00' } } })).rejects.toThrow()
+    expect((await api.preferences.get()).study_hours).toEqual(DEFAULT_STUDY_HOURS)
   })
 
   it('backs the input rules with CHECK constraints', async () => {
@@ -97,6 +97,10 @@ describe.skipIf(!TEST_DATABASE_URL)('preferences router (Postgres)', () => {
     await expect(insert({ study_hours: db.sql.json({ ...weekdays, sun: { start: '9am', end: '22:00' } } as never) }))
       .rejects.toThrow(/chk_user_preferences_study_hours/)
     await expect(insert({ study_hours: db.sql.json({ ...weekdays, sun: { start: '09:00', end: '22:00', extra: 1 } } as never) }))
+      .rejects.toThrow(/chk_user_preferences_study_hours/)
+    await expect(insert({ study_hours: db.sql.json({ ...weekdays, sun: { start: '20:00', end: '02:00' } } as never) }))
+      .rejects.toThrow(/chk_user_preferences_study_hours/)
+    await expect(insert({ study_hours: db.sql.json({ ...weekdays, sun: { start: '10:00', end: '10:00' } } as never) }))
       .rejects.toThrow(/chk_user_preferences_study_hours/)
     await insert({ study_hours: db.sql.json(weekdays as never) })
   })

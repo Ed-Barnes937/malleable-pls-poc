@@ -22,6 +22,7 @@ export {
 
 export {
   ASSUMED_ESTIMATE_MIN,
+  localDayRange,
   studyDayPrefs,
   studyDays,
   type StudyDay,

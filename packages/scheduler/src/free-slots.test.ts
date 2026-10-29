@@ -130,11 +130,14 @@ describe('dayWindows with per-weekday windows', () => {
     ])
   })
 
-  it("gives an overnight window to the day it starts on, so it runs into a null day", () => {
-    const late = [null, null, null, null, { dayStart: '20:00', dayEnd: '02:00' }, null, null]
-    // Fri 30 Oct 20:00 to Sat 31 Oct 02:00; Saturday itself has no window.
-    expect(dayWindows(iv('2026-10-29T00:00:00Z', '2026-11-01T00:00:00Z'), { days: late })).toEqual([
-      iv('2026-10-30T20:00:00Z', '2026-10-31T02:00:00Z'),
+  it('rejects a per-weekday window that does not end after it starts (no overnight windows)', () => {
+    const range = iv('2026-10-29T00:00:00Z', '2026-11-01T00:00:00Z')
+    for (const fri of [{ dayStart: '20:00', dayEnd: '02:00' }, { dayStart: '10:00', dayEnd: '10:00' }]) {
+      expect(() => dayWindows(range, { days: [null, null, null, null, fri, null, null] })).toThrow(RangeError)
+    }
+    // 24:00 is the end of the same day.
+    expect(dayWindows(range, { days: [null, null, null, null, { dayStart: '20:00', dayEnd: '24:00' }, null, null] })).toEqual([
+      iv('2026-10-30T20:00:00Z', '2026-10-31T00:00:00Z'),
     ])
   })
 

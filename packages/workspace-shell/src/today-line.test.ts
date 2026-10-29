@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { shortLineOptions, todayLine, todayRange } from './today-line'
+import { DEFAULT_STUDY_HOURS } from '@pls/substrate'
+import { shortLineOptions, todayLine, todayRange, todayRowsRange, todayStudyOptions } from './today-line'
 
 // Tests run in Europe/London (vitest.config.ts). Tue 27 Oct 2026 is GMT.
 const TZ = 'Europe/London'
@@ -71,6 +72,43 @@ describe('todayLine', () => {
     const dismissed = row({ ...chemistry, id: 'dismissed', status: 'dismissed' })
     expect(todayLine([], { now: NOW, timeZone: TZ })).toBeNull()
     expect(todayLine([study, deadline, tomorrow, dismissed], { now: NOW, timeZone: TZ })).toBeNull()
+  })
+})
+
+describe('todayStudyOptions', () => {
+  const prefs = { time_zone: null, study_hours: { ...DEFAULT_STUDY_HOURS, tue: null }, study_min_per_day: 90 }
+
+  it("counts in the student's zone when they set one, else the browser's", () => {
+    expect(todayStudyOptions(prefs, false, TZ)).toEqual({ timeZone: TZ, studyHours: prefs.study_hours, studyMinPerDay: 90 })
+    expect(todayStudyOptions({ ...prefs, time_zone: 'America/New_York' }, false, TZ)?.timeZone).toBe('America/New_York')
+  })
+
+  it('waits for the preference, and uses the defaults if it fails to load', () => {
+    expect(todayStudyOptions(undefined, false, TZ)).toBeNull()
+    expect(todayStudyOptions(undefined, true, TZ)).toEqual({ timeZone: TZ, studyHours: DEFAULT_STUDY_HOURS, studyMinPerDay: 120 })
+  })
+
+  it("feeds todayLine: a no-study day has nothing left, and study time is today in the student's zone", () => {
+    // Tuesday is "no study".
+    expect(todayLine([chemistry], { now: NOW, ...todayStudyOptions(prefs, false, TZ)! })?.studyLeftMin).toBe(0)
+    // At 09:00 London it is already 18:00 in Asia/Tokyo: what is left is Tokyo's
+    // 18:00-22:00 (09:00-13:00 London), capped at 90 minutes, or nothing if that is busy.
+    const tokyo = todayStudyOptions({ ...prefs, study_hours: DEFAULT_STUDY_HOURS, time_zone: 'Asia/Tokyo' }, false, TZ)!
+    expect(todayLine([chemistry], { now: NOW, ...tokyo })?.studyLeftMin).toBe(90)
+    const library = row({ title: 'Library shift', starts_at: at('08:00'), ends_at: at('13:00') })
+    expect(todayLine([chemistry, library], { now: NOW, ...tokyo })?.studyLeftMin).toBe(0)
+    // The same rows read in London have the afternoon free.
+    expect(todayLine([chemistry, library], { now: NOW, timeZone: TZ })?.studyLeftMin).toBe(120)
+  })
+})
+
+describe('todayRowsRange', () => {
+  it("covers today as shown and today in the study zone", () => {
+    expect(todayRowsRange(NOW, TZ)).toEqual(todayRange(NOW))
+    const r = todayRowsRange(NOW, 'Asia/Tokyo')
+    // Tokyo's Tuesday starts 15:00 Monday London time.
+    expect(new Date(r.start).toISOString()).toBe('2026-10-26T15:00:00.000Z')
+    expect(r.end).toBe(todayRange(NOW).end)
   })
 })
 
