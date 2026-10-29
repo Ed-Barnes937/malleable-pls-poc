@@ -36,14 +36,17 @@ function daysFromNow(days: number, hour: number): string {
  * when they stayed this week, else the week they went to (re-fit looks a
  * week ahead, so at most next week; the copy is unit-tested in
  * missed-blocks.test.tsx). Late on a Sunday, tomorrow is next week.
+ * `showNextWeek`: the note's widget offers "Show next week" when blocks went
+ * there (the To-do does, on a board with a Calendar to show it in).
  */
-function movedNoteFor(starts: ReadonlyArray<string | null>): string {
+function movedNoteFor(starts: ReadonlyArray<string | null>, { showNextWeek }: { showNextWeek: boolean }): string {
   const week = (ms: number) => JSON.stringify(weekMonday(ms))
   const later = starts.filter((s) => week(Date.parse(s!)) !== week(Date.now())).length
   const n = starts.length
+  const action = showNextWeek && later > 0 ? ' Show next week' : ''
   if (later === 0) return `Moved ${n} blocks. They're in your calendar.`
-  if (later === n) return `Moved ${n} blocks to next week.`
-  return `Moved ${n} blocks: ${n - later} this week, ${later} next week.`
+  if (later === n) return `Moved ${n} blocks to next week.${action}`
+  return `Moved ${n} blocks: ${n - later} this week, ${later} next week.${action}`
 }
 
 test.describe('Weak topics', () => {
@@ -227,7 +230,8 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect(todo.getByText(/^Still to do from /)).toHaveCount(0)
     const items = await trpcQuery<Item[]>(request, 'planItems.list', {})
     const byId = (id: string) => items.find((i) => i.id === id)!
-    await expect(todo.getByTestId('refit-note')).toContainText(movedNoteFor([readChapter, labWriteUp].map((t) => byId(t.id).starts_at)))
+    // A To-do-only board: no Calendar to show next week in.
+    await expect(todo.getByTestId('refit-note')).toHaveText(movedNoteFor([readChapter, labWriteUp].map((t) => byId(t.id).starts_at), { showNextWeek: false }))
 
     for (const task of [readChapter, labWriteUp]) {
       expect(Date.parse(byId(task.id).starts_at!)).toBeGreaterThan(Date.now() - 5 * 60_000)
@@ -327,7 +331,8 @@ test.describe('Re-fit blocks that did not happen', () => {
     await banner.getByRole('button', { name: 'Move them' }).click()
     await expect(ghosts).toHaveCount(0)
     const moved = await trpcQuery<Item[]>(request, 'planItems.list', {})
-    await expect(calendar.root.getByTestId('refit-note')).toHaveText(movedNoteFor(missed.map((t) => moved.find((i) => i.id === t.id)!.starts_at)))
+    // The Calendar's own note has no action: it opens the week they went to itself.
+    await expect(calendar.root.getByTestId('refit-note')).toHaveText(movedNoteFor(missed.map((t) => moved.find((i) => i.id === t.id)!.starts_at), { showNextWeek: false }))
     await expect(calendar.block('Read chapter 5')).toBeVisible()
 
     const tomorrow = { from: daysFromNow(1, 0), to: daysFromNow(2, 0) }
