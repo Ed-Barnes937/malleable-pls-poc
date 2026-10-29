@@ -69,3 +69,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - 2026-10-29: R1 toast bar simplified (ae9abe0, -94/+53 lines); final review running. New: CT 'renders the week' fails on Thursdays on the integration branch (date-dependent); fix ticket dispatched (Sonnet). Reviewer also checking whether runbook step 2 misbehaves on a Thursday.
 - PR #93 (calendar CT date-dependence: simulator freezeNow, per-day tests) merged after reviewer PASS; no other date-sensitive CTs found. Follow-up: short-block CT flake (elementFromPoint before settle) dispatched.
 - PR #94 (short-block CT settle wait, 2-line test-only) merged; orchestrator read the diff instead of a separate reviewer. Original flake not reproducible (0/40).
+- R1 round 4 (post-escalation): H1 fixed; one contained fix (queued toasts expire unseen) sent back. Runbook step 2 on Thursday confirmed fine. New small copy ticket: leftover sentence blames short gaps when the daily budget is the limit.
