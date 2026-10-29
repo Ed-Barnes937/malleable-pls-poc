@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
 import { isConflictError, missedQuestion, movedNote, movedPastThisWeek, noFitLabel, refitAsk, useMissedBlocks, type LensProps, type PlanItemRef } from '@pls/lens-framework'
 import { cn, dayAndTime } from '@pls/shared-ui'
-import { CalendarClock, RotateCcw } from 'lucide-react'
+import { CalendarClock, RotateCcw, X } from 'lucide-react'
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
@@ -39,30 +39,36 @@ export function RefitBanner({ course, onShowPlanItem }: {
   const open = proposals.length > 0
 
   // Once nothing is left to ask about, the next miss starts with the question.
+  // A new question replaces any note from an earlier re-fit, so an old note
+  // (and its action) can't come back once that question is answered elsewhere.
   const { endPreview } = missed
   useEffect(() => {
-    if (!open) {
+    if (open) {
+      setNote(null)
+    } else {
       setStep('ask')
       setProblem(null)
       endPreview()
     }
   }, [open, endPreview])
 
+  // The action needs a calendar on the board to show the blocks in.
+  const show = note && onShowPlanItem ? note.show : null
+
   // A short "done" line, then nothing; one with a way to see the blocks
-  // stays until it is used (no time limit on an action).
+  // stays until it is used or dismissed (no time limit on an action).
   useEffect(() => {
-    if (!note || note.show) return
+    if (!note || show) return
     const t = setTimeout(() => setNote(null), 6000)
     return () => clearTimeout(t)
-  }, [note])
+  }, [note, show])
 
   const markHandled = (ps: RefitProposal[]) => missed.markHandled(ps)
 
   if (!open) {
     if (!note) return null
-    const { show } = note
-    return (
-      <p role="status" data-testid="refit-note" className="px-1 text-meta text-text-muted">
+    const text = (
+      <p role="status" data-testid="refit-note" className="min-w-0 flex-1 px-1 text-meta text-text-muted">
         {note.text}
         {show && (
           <>
@@ -80,6 +86,21 @@ export function RefitBanner({ course, onShowPlanItem }: {
           </>
         )}
       </p>
+    )
+    if (!show) return text
+    return (
+      <div className="flex items-start gap-1">
+        {text}
+        <button
+          type="button"
+          aria-label="Dismiss"
+          title="Dismiss"
+          onClick={() => setNote(null)}
+          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-item text-text-muted outline-none transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
     )
   }
 

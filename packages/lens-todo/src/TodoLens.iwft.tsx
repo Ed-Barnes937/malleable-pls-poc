@@ -460,6 +460,70 @@ test.describe('blocks that did not happen', () => {
     await expect(note).toHaveCount(0)
   })
 
+  test('a note with an action can be dismissed, and loses the action when the calendar goes', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
+    const showPlanItem = () => true
+    const component = await mount(
+      <TestProviders>
+        <TodoLens {...defaultProps} onShowPlanItem={showPlanItem} />
+      </TestProviders>,
+    )
+    const banner = page.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    await banner.getByRole('button', { name: 'Move them' }).click()
+    const note = page.getByTestId('refit-note')
+    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
+
+    // The Calendar is taken off the board: nothing left to show the week in.
+    await component.update(
+      <TestProviders>
+        <TodoLens {...defaultProps} />
+      </TestProviders>,
+    )
+    await expect(note).toHaveText('Moved 2 blocks to next week.')
+    await expect(page.getByRole('button', { name: 'Show next week' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Dismiss' })).toHaveCount(0)
+
+    // Back again: the action, and a way to dismiss the note without using it.
+    await component.update(
+      <TestProviders>
+        <TodoLens {...defaultProps} onShowPlanItem={showPlanItem} />
+      </TestProviders>,
+    )
+    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
+    await page.getByRole('button', { name: 'Dismiss' }).click()
+    await expect(note).toHaveCount(0)
+  })
+
+  test('a new question replaces an old note, which does not come back once it is answered elsewhere', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
+    await mount(
+      <TestProviders>
+        <div data-testid="here"><TodoLens {...defaultProps} onShowPlanItem={() => true} /></div>
+        <div data-testid="elsewhere"><TodoLens {...defaultProps} panelId="other-panel" /></div>
+      </TestProviders>,
+    )
+    const here = page.getByTestId('here')
+    const elsewhere = page.getByTestId('elsewhere')
+    await here.getByRole('button', { name: 'Re-fit' }).click()
+    await here.getByRole('button', { name: 'Move them' }).click()
+    await expect(here.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week. Show next week')
+
+    // Another block is missed (picked up when the plan next changes).
+    seedPlanItem(simulator, { id: 'missed-3', kind: 'task', title: 'Past paper', starts_at: fromNow(-1, 17), ends_at: fromNow(-1, 18) })
+    await here.getByRole('textbox', { name: 'New to-do' }).fill('Revise enzymes')
+    await here.getByRole('textbox', { name: 'New to-do' }).press('Enter')
+    await expect(here.getByTestId('refit-banner')).toContainText("1 block didn't happen.")
+    await expect(here.getByTestId('refit-note')).toHaveCount(0)
+
+    // Answered in another widget: the old note (and its action) stays gone.
+    await elsewhere.getByTestId('refit-banner').getByRole('button', { name: 'Not now' }).click()
+    await expect(here.getByTestId('refit-banner')).toHaveCount(0)
+    await expect(here.getByTestId('refit-note')).toHaveCount(0)
+  })
+
   test('with no calendar on the board to show them, the note only says where they went', async ({ mount, page, simulator }) => {
     seedMissed(simulator)
     seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
