@@ -10,7 +10,7 @@ type WorkspaceRow = { id: string; background_type?: string; background_value?: s
  * Store→DB: persists user-driven background changes, skipping the initial load.
  */
 export function useWorkspaceBackgroundSync(
-  activeWorkspaceId: string,
+  activeWorkspaceId: string | null,
   workspaces: unknown[] | undefined,
 ) {
   const setBackground = useCanvasStore((s) => s.setBackground)
@@ -41,6 +41,7 @@ export function useWorkspaceBackgroundSync(
       return
     }
     prevBgRef.current = key
+    if (!activeWorkspaceId) return
     updateBackground.mutate({
       workspaceId: activeWorkspaceId,
       backgroundType: background.type,

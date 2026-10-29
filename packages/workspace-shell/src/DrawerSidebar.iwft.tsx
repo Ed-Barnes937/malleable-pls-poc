@@ -2,7 +2,9 @@ import { test, expect } from '../../../playwright/fixtures'
 import { ShellProviders } from '../../../playwright/mount-wrapper'
 import { DrawerSidebar } from './DrawerSidebar'
 
-test('groups widgets by what a student wants to do', async ({ mount, page }) => {
+// The palette adds to the open board, so these run against the backend
+// simulator's boards (its first board opens).
+test('groups widgets by what a student wants to do', async ({ mount, page, simulator: _boards }) => {
   await mount(
     <ShellProviders>
       <DrawerSidebar open onClose={() => {}} onAddWidget={() => {}} />
@@ -18,7 +20,7 @@ test('groups widgets by what a student wants to do', async ({ mount, page }) => 
   await expect(page.getByRole('group', { name: 'Review' }).getByRole('button', { name: 'Add Weakest Topics' })).toBeVisible()
 })
 
-test('clicking a widget adds it and keeps the drawer open', async ({ mount, page }) => {
+test('clicking a widget adds it and keeps the drawer open', async ({ mount, page, simulator: _boards }) => {
   const added: string[] = []
   let closed = false
   await mount(
@@ -43,4 +45,17 @@ test('a closed drawer is hidden from assistive tech and keyboard', async ({ moun
     </ShellProviders>,
   )
   await expect(page.getByRole('button', { name: 'Add Transcript' })).toHaveCount(0)
+})
+
+test('with no board, offers no widgets and says a board comes first', async ({ mount, page, simulator }) => {
+  simulator.db.workspaces.splice(0)
+  await mount(
+    <ShellProviders>
+      <DrawerSidebar open onClose={() => {}} onAddWidget={() => {}} />
+    </ShellProviders>,
+  )
+  await expect(page.getByTestId('drawer-no-board')).toHaveText('Make a board first, then you can add widgets to it.')
+  await expect(page.getByTestId('widget-palette')).toHaveCount(0)
+  await expect(page.getByTestId('scope-section')).toHaveCount(0)
+  await expect(page.getByText('Automations')).toHaveCount(0)
 })

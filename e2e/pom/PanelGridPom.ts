@@ -10,11 +10,14 @@ export class PanelGridPom {
   readonly root: Locator
   readonly panels: Locator
   readonly emptyState: Locator
+  /** Shown in place of the board when the student has no boards at all. */
+  readonly noBoards: Locator
 
   constructor(private page: Page) {
     this.root = page.getByTestId('canvas-container')
     this.panels = this.root.locator('[data-panel-id]')
     this.emptyState = page.getByTestId('workspace-empty-state')
+    this.noBoards = page.getByTestId('no-boards')
   }
 
   async expectPanelCount(count: number) {

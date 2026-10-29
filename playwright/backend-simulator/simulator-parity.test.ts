@@ -236,6 +236,19 @@ describe('simulator parity — read procedures return data on default seed', () 
       .rejects.toThrow()
   })
 
+  it('writes naming a board that is gone are rejected, as on the server', async () => {
+    const before = (await query(router, 'workspaces.panels', 'ws-gone') as unknown[]).length
+    await expect(mutate(router, 'workspaces.addPanel', { workspaceId: 'ws-gone', lensType: 'calendar', slotName: 'slot-1' }))
+      .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workspaces.setScope', { workspaceId: 'ws-gone', scopeType: 'tag', scopeValue: 'biology' }))
+      .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workspaces.updateBackground', { workspaceId: 'ws-gone', backgroundType: 'solid', backgroundValue: '#000' }))
+      .rejects.toThrow('Board not found')
+    expect(before).toBe(0)
+    expect(await query(router, 'workspaces.panels', 'ws-gone')).toEqual([])
+    expect(await query(router, 'workspaces.scopes', 'ws-gone')).toEqual([])
+  })
+
   it('setScope keeps an in-course focus and clears an orphaned one', async () => {
     const scopes = async () =>
       (await query(router, 'workspaces.scopes', 'ws-evening-review') as { scope_type: string }[]).map((s) => s.scope_type).sort()

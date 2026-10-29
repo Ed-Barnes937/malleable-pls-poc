@@ -111,6 +111,13 @@ const trpcHandler = createHTTPHandler({
   router: appRouter,
   createContext: createContextFactory({ ai, executors }),
   middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
+  // Every failed call reaches the server log (and so the Fly logs): the
+  // procedure and the error, never the input, which can hold student data.
+  onError: ({ path, type, error }) => {
+    const line = `tRPC ${type} ${path ?? '<unknown>'} failed: ${error.code} ${error.message}`
+    if (error.code === 'INTERNAL_SERVER_ERROR') console.error(line, error.cause ?? error)
+    else console.warn(line)
+  },
 })
 
 function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {

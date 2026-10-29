@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { useWorkflowsForWorkspace, useWorkspacePanels } from '@pls/substrate-client'
-import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId } from './activeBoard'
 import { WorkflowList } from './WorkflowList'
 
 export function WorkflowSettingsPanel() {
-  const workspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const workspaceId = useActiveWorkspaceId()
   const { data: rawWorkflows, isLoading, isError, error } = useWorkflowsForWorkspace(workspaceId)
   const { data: panels } = useWorkspacePanels(workspaceId)
 
@@ -14,6 +14,7 @@ export function WorkflowSettingsPanel() {
     return rawWorkflows.filter((wf) => lensTypes.has(wf.source_lens))
   }, [rawWorkflows, panels])
 
+  if (!workspaceId) return null
   return (
     <WorkflowList
       workflows={workflows}

@@ -3,8 +3,14 @@ import type { FocusedMoment, FocusedPlanItem, Moment, PlanItemRef } from '@pls/l
 import { watchUserScroll } from '@pls/shared-ui'
 
 interface WorkspaceUIState {
-  activeWorkspaceId: string
-  setActiveWorkspaceId: (id: string) => void
+  /**
+   * The board the student last chose (a tab, a new board, a jump to a
+   * moment), or null before one is chosen. Not necessarily a board they still
+   * have: read the open board with `useActiveWorkspaceId`, which checks it
+   * against their boards.
+   */
+  activeWorkspaceId: string | null
+  setActiveWorkspaceId: (id: string | null) => void
 
   focusedPanelId: string | null
   setFocusedPanelId: (id: string | null) => void
@@ -31,7 +37,7 @@ let nextMomentId = 0
 let nextPlanItemRequest = 0
 
 export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
-  activeWorkspaceId: 'ws-in-lecture',
+  activeWorkspaceId: null,
   setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
 
   focusedPanelId: null,

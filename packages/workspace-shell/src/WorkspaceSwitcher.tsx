@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react'
 import { useWorkspaces, useReorderWorkspaces } from '@pls/substrate-client'
 import { cn } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId } from './activeBoard'
 import { BookOpen, Moon, GraduationCap, Plus, Trash2 } from 'lucide-react'
 import { CreateWorkspaceDialog, DeleteWorkspaceDialog } from './WorkspaceDialogs'
 
@@ -18,7 +19,7 @@ function fadeMask({ start, end }: { start: boolean; end: boolean }): string {
 
 export function WorkspaceSwitcher() {
   const { data: workspaces } = useWorkspaces()
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeWorkspaceId = useActiveWorkspaceId()
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const reorder = useReorderWorkspaces()
 

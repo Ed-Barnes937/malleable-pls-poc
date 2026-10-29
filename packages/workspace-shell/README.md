@@ -29,7 +29,7 @@ The palette groups widgets by `PanelManifest.group` (`capture`, `study`, `plan`,
 
 ## State
 
-Uses a Zustand store (`useWorkspaceStore`) for `activeWorkspaceId` (default `ws-in-lecture`) and `focusedPanelId`. Fullscreen, focus mode and selection live in the panel-system canvas store and are never persisted.
+Uses a Zustand store (`useWorkspaceStore`) for the chosen board (`activeWorkspaceId`) and `focusedPanelId`. The open board is `useActiveWorkspaceId()`: the chosen board while the student still has it, otherwise their first board in tab order (null while boards load or when they have none, which shows a "New board" prompt). Fullscreen, focus mode and selection live in the panel-system canvas store and are never persisted.
 
 ## Internal Dependencies
 

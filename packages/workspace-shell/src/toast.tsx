@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
-import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId } from './activeBoard'
 
 export type ToastTone = 'success' | 'error'
 
@@ -171,7 +171,7 @@ const SHOWN_NARROW = 1
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
   const { dismiss, hold, release } = useToastStore.getState()
-  const activeBoard = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeBoard = useActiveWorkspaceId()
   const narrow = useNarrowScreen()
 
   // A toast about one board (e.g. "Back to My week" after opening a moment

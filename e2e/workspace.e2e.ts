@@ -9,18 +9,18 @@ test.describe('Workspace management', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
 
-    // Default workspace is In Lecture with 2 panels
-    await topBar.expectActiveWorkspace('In Lecture')
-    await grid.expectPanelCount(2)
-    await grid.expectHasPanel('Audio Capture')
-    await grid.expectHasPanel('Transcript')
-
-    // Switch to Evening Review — 4 panels
-    await topBar.switchToWorkspace('Evening Review')
+    // Opens on the first board in tab order: Evening Review, 4 panels
     await topBar.expectActiveWorkspace('Evening Review')
     await grid.expectPanelCount(4)
     await grid.expectHasPanel('Transcript')
     await grid.expectHasPanel('Test Me')
+
+    // Switch to In Lecture - 2 panels
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.expectActiveWorkspace('In Lecture')
+    await grid.expectPanelCount(2)
+    await grid.expectHasPanel('Audio Capture')
+    await grid.expectHasPanel('Transcript')
 
     // Switch to Exam Prep — 3 panels
     await topBar.switchToWorkspace('Exam Prep')

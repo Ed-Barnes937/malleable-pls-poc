@@ -23,6 +23,8 @@ import {
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId, useKeepActiveBoard } from './activeBoard'
+import { NoBoards } from './NoBoards'
 import { getLensComponent, useLensRegistry } from './LensRegistry'
 import { PanelContainer } from './PanelContainer'
 import { TopBar } from './TopBar'
@@ -58,7 +60,9 @@ interface PendingAdd {
 export function WorkspaceShell() {
   const lensRegistry = useLensRegistry()
   const manifests = useManifests()
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // Always one of the student's boards, or null (loading, or they have none).
+  const activeWorkspaceId = useActiveWorkspaceId()
+  useKeepActiveBoard()
   const focusedMoment = useWorkspaceStore((s) => s.focusedMoment)
   const clearMoment = useWorkspaceStore((s) => s.clearMoment)
   const focusedPlanItem = useWorkspaceStore((s) => s.focusedPlanItem)
@@ -78,7 +82,7 @@ export function WorkspaceShell() {
         tone: 'success',
         // "See it" reveals the block on the board in view, so it goes if the student leaves it.
         ...(block && canShowPlanItemRef.current
-          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current }
+          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current ?? undefined }
           : {}),
       })
     },
@@ -127,6 +131,7 @@ export function WorkspaceShell() {
 
   const handleScopeChange = useCallback(
     (patch: Partial<Scope>) => {
+      if (!activeWorkspaceId) return
       for (const [dim, value] of Object.entries(patch) as [ScopeDim, string | undefined][]) {
         setWorkspaceScope.mutate({
           workspaceId: activeWorkspaceId,
@@ -237,6 +242,8 @@ export function WorkspaceShell() {
    */
   const addWidget = useCallback(
     (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+      // No board, nothing to add to: the menu and the board offer a new board instead.
+      if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
       const width = m?.defaultWidth ?? 400
       const height = m?.defaultHeight ?? 300
@@ -355,7 +362,7 @@ export function WorkspaceShell() {
   const renderPanel = useCallback(
     (panelId: string) => {
       const panel = panels?.find((p) => p.id === panelId)
-      if (!panel) return null
+      if (!panel || !activeWorkspaceId) return null
       const LensComponent = getLensComponent(panel.lens_type, lensRegistry)
       const config = panelConfigs.get(panel.id) ?? { lensType: panel.lens_type }
       // Each widget sees only the dimensions it declares, with highlighted
@@ -415,7 +422,7 @@ export function WorkspaceShell() {
   const renderHeaderActions = useCallback(
     (panelId: string) => {
       const panel = panels?.find((p) => p.id === panelId)
-      if (!panel) return null
+      if (!panel || !activeWorkspaceId) return null
       return (
         <LensAutomationsButton
           panelId={panel.id}
@@ -443,11 +450,13 @@ export function WorkspaceShell() {
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
         menuOpen={drawerOpen}
-        onOrganize={handleOrganize}
+        onOrganize={activeWorkspaceId ? handleOrganize : undefined}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        {!panels ? (
+        {workspaces?.length === 0 ? (
+          <NoBoards />
+        ) : !panels ? (
           <CanvasSkeleton />
         ) : (
           <div
@@ -481,7 +490,7 @@ export function WorkspaceShell() {
           </div>
         )}
       </main>
-      {automationId && (
+      {automationId && activeWorkspaceId && (
         <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
       )}
       <ToastHost />
