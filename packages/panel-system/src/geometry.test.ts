@@ -193,4 +193,18 @@ describe('placeNewPanel', () => {
     // No minimum: never shortened.
     expect(placeNewPanel([calendar, todo], { width: 360, height: 320 }, view)).toEqual({ x: 940, y: 480, height: 320 })
   })
+
+  it('keeps the default height on an empty board, even where it ends below the fold', () => {
+    // A short laptop: the first widget is not shortened (its height is saved).
+    const short = { width: 1280, height: 600 }
+    expect(placeNewPanel([], { width: 900, height: 760, minHeight: 400 }, short)).toEqual({ ...findFreeSpot([], { width: 900, height: 760 }, short), height: 760 })
+  })
+
+  it('keeps the default height on the narrow (stacked) layout', () => {
+    // A phone: the Calendar first, then the To-do under it; neither is shortened.
+    const phone = { width: 400, height: 700 }
+    const cal = { x: 0, y: 0, width: 900, height: 760 }
+    expect(placeNewPanel([cal], { width: 360, height: 440, minHeight: 220 }, phone)).toEqual({ ...findFreeSpot([cal], { width: 360, height: 440 }, phone), height: 440 })
+    expect(placeNewPanel([], { width: 900, height: 760, minHeight: 400 }, phone).height).toBe(760)
+  })
 })
