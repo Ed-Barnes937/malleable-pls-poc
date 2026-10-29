@@ -5,6 +5,7 @@ import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
+import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
@@ -93,56 +94,8 @@ export function gridScrollFor(
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
-/**
- * Blocks are drawn to scale, so a 30-minute block is visibly longer than a
- * 20-minute one; nothing shorter than this many minutes' worth, though.
- */
-const MIN_BLOCK_MIN = 15
-/**
- * Shorter than this, a block is one compact line: its title, which may
- * overhang the box by a pixel or two and is drawn above the blocks around it,
- * so the next block never paints over it.
- */
-const COMPACT_BLOCK_PX = 18
 /** The glow around a revealed compact block: at least this tall, centred on it. */
 const REVEAL_HALO_PX = 24
-
-/** A block's height on the grid: proportional to its length, with a 2px gap below. */
-function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
-  return (Math.max(MIN_BLOCK_MIN, seg.endMin - seg.startMin) / 60) * hourPx - 2
-}
-/** A short block's caption: one line of `text-meta` (16px). */
-const CAPTION_PX = 16
-
-/**
- * Where a block too short for a legible title (a 20-minute review is about
- * 9px at the usual hour height) shows its title instead: as a one-line
- * caption just under it, else just over it, wherever no other block in its
- * day is, so the caption never covers one. The block itself stays to scale.
- * Null when the block is tall enough, or both sides are taken (it then
- * squeezes its title inside, as before).
- */
-function captionSide(
-  seg: Pick<DaySegment, 'key' | 'startMin' | 'endMin' | 'column' | 'columns'>,
-  day: ReadonlyArray<Pick<DaySegment, 'key' | 'startMin' | 'endMin' | 'column' | 'columns'>>,
-  hourPx: number,
-): 'below' | 'above' | null {
-  const height = blockHeight(seg, hourPx)
-  if (height >= COMPACT_BLOCK_PX) return null
-  const top = (seg.startMin / 60) * hourPx + 1
-  const bottom = top + height
-  // Free between `from` and `to` (px) in the block's own lane of the day.
-  const clear = (from: number, to: number) => day.every((other) => {
-    if (other.key === seg.key) return true
-    const sideBySide = (other.column + 1) / other.columns <= seg.column / seg.columns
-      || other.column / other.columns >= (seg.column + 1) / seg.columns
-    const otherTop = (other.startMin / 60) * hourPx + 1
-    return sideBySide || otherTop + blockHeight(other, hourPx) <= from || otherTop >= to
-  })
-  if (clear(bottom, bottom + 1 + CAPTION_PX)) return 'below'
-  if (top - 1 - CAPTION_PX >= 0 && clear(top - 1 - CAPTION_PX, top)) return 'above'
-  return null
-}
 
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
@@ -234,6 +187,8 @@ export function TimeGrid({
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // Short blocks' title captions, per day (see captionSides).
+  const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
   // the grid to it, scroll the board so it is on screen (with the moment it
   // came from, when both fit), then glow it once (a still ring under reduced
@@ -582,7 +537,7 @@ export function TimeGrid({
                       key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
                       seg={seg}
                       hourPx={hourPx}
-                      caption={captionSide(seg, segments[dayIndex], hourPx)}
+                      caption={captions[dayIndex].get(seg.key) ?? null}
                       dimmed={isDimmed(seg.item)}
                       linked={isLinked(seg.item)}
                       active={activeKey === seg.item.occurrence_key}
@@ -597,7 +552,7 @@ export function TimeGrid({
                     <RevealCallout
                       key={`callout:${revealed!.requestId}`}
                       item={seg.item}
-                      top={(seg.endMin / 60) * hourPx + 6 + (captionSide(seg, segments[dayIndex], hourPx) === 'below' ? CAPTION_PX : 0)}
+                      top={(seg.endMin / 60) * hourPx + 6 + (captions[dayIndex].get(seg.key) === 'below' ? CAPTION_PX : 0)}
                       alignRight={days.length > 1 && dayIndex >= days.length - 2}
                     />
                   ))}
@@ -674,7 +629,7 @@ interface BlockProps {
   preview?: boolean
   /** Just revealed ("See it"): glows once in its course colour. */
   glow?: boolean
-  /** A block too short for its title shows it as a caption on this side (see `captionSide`). */
+  /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
   onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onKeyOpen?: (anchor: Anchor) => void
