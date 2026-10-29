@@ -9,6 +9,7 @@ import type {
   WorkspacePanel,
   WorkspaceScope,
   PlanItem,
+  StoredPreferences,
 } from '@pls/substrate'
 
 /** A plan item as stored: course is derived from `tags`, as on the server. */
@@ -67,6 +68,8 @@ export interface SeedData {
   workflowJobs: WorkflowJob[]
   jobRuns: JobRun[]
   planItems: StoredPlanItem[]
+  /** The user's study rhythm row; null = never set (all defaults), as with no `user_preferences` row. */
+  preferences: StoredPreferences | null
 }
 
 const EMPTY_SEED: SeedData = {
@@ -83,6 +86,7 @@ const EMPTY_SEED: SeedData = {
   workflowJobs: [],
   jobRuns: [],
   planItems: [],
+  preferences: null,
 }
 
 export class InMemoryDb {
@@ -99,6 +103,7 @@ export class InMemoryDb {
   workflowJobs: WorkflowJob[] = []
   jobRuns: JobRun[] = []
   planItems: StoredPlanItem[] = []
+  preferences: StoredPreferences | null = null
 
   constructor(seed?: SeedData) {
     if (seed) {
@@ -136,5 +141,6 @@ export class InMemoryDb {
     this.workflowJobs = [...seed.workflowJobs]
     this.jobRuns = [...seed.jobRuns]
     this.planItems = seed.planItems.map((p) => ({ ...p }))
+    this.preferences = seed.preferences ? { ...seed.preferences } : null
   }
 }

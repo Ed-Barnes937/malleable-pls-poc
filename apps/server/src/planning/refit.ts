@@ -13,6 +13,7 @@ import {
 } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, listPlanItems } from '../plan-items/store'
+import { getPreferences, placementTimeZone } from '../preferences/store'
 
 // Re-fit: to-dos whose time block ended without being done get new blocks in
 // free time, around every commitment (never moved) and every other block.
@@ -34,11 +35,22 @@ async function loadRange(tx: TransactionSql, userId: string, missed: PlanItem[],
   })
 }
 
-/** The blocks that didn't happen, and where they would go now. Read-only. */
+/**
+ * The blocks that didn't happen, and where they would go now, inside the
+ * student's study hours and daily budget. `opts.timeZone` (the browser's) is
+ * used when the student has not set a zone. Read-only.
+ */
 export async function previewRefit(tx: TransactionSql, userId: string, opts: { now: number; timeZone: string }): Promise<RefitPreview> {
   const missed = await loadMissed(tx, userId, opts.now)
   if (missed.length === 0) return []
-  return planRefit(missed, await loadRange(tx, userId, missed, opts), opts)
+  const prefs = await getPreferences(tx, userId)
+  const placement = {
+    now: opts.now,
+    timeZone: placementTimeZone(prefs, opts.timeZone),
+    studyHours: prefs.study_hours,
+    studyMinPerDay: prefs.study_min_per_day,
+  }
+  return planRefit(missed, await loadRange(tx, userId, missed, placement), placement)
 }
 
 /**

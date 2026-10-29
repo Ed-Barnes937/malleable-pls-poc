@@ -160,7 +160,6 @@ export function HelpMePlanPanel({
         from: new Date(layout.week.start).toISOString(),
         to: new Date(layout.week.end).toISOString(),
         timeZone: layout.timeZone,
-        studyMinPerDay: layout.budget.minutesPerDay,
         estimates,
       })
       const trims = new Map<string, number>()

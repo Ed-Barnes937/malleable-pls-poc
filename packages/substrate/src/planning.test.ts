@@ -14,6 +14,7 @@ import {
   planAutofillInput,
   planCapacity,
   placeReviews,
+  planRefit,
   planTasks,
   rankForPlan,
   sanitizeAdvice,
@@ -25,6 +26,7 @@ import {
   type PlanTask,
 } from './planning'
 import type { PlanItem } from './types'
+import { DEFAULT_STUDY_HOURS, type StudyHours } from './preferences'
 
 // Mon 2 Nov 2026; London is on GMT, so local = UTC that week.
 const at = (day: number, h: number, m = 0) => Date.UTC(2026, 10, 2 + day, h, m)
@@ -43,6 +45,50 @@ function item(over: Partial<PlanItem> & Pick<PlanItem, 'id' | 'kind'>): PlanItem
 function task(over: Partial<PlanTask> & Pick<PlanTask, 'id'>): PlanTask {
   return { title: over.id, course: null, dueAt: null, durationMin: 60, assumed: false, weakTopic: false, latest: week.end, ...over }
 }
+
+// Mon 10:00-22:00 (late start), Wed 13:00-17:00, no study on Sunday; the rest default.
+const studyHours: StudyHours = { ...DEFAULT_STUDY_HOURS, mon: { start: '10:00', end: '22:00' }, wed: { start: '13:00', end: '17:00' }, sun: null }
+
+describe("study hours (the student's preference)", () => {
+  it('bound free time per weekday, with none on a no-study day', () => {
+    const layout = weekLayout([], week, { timeZone: tz, studyHours })
+    expect(layout.free).toEqual([
+      { start: at(0, 10), end: at(0, 22) },
+      { start: at(1, 9), end: at(1, 22) },
+      { start: at(2, 13), end: at(2, 17) },
+      { start: at(3, 9), end: at(3, 22) },
+      { start: at(4, 9), end: at(4, 22) },
+      { start: at(5, 9), end: at(5, 22) },
+    ])
+    // Capacity counts only those days: 6 days x the 2h budget, nothing on Sunday.
+    expect(planCapacity(layout, [task({ id: 'a', durationMin: 60 })], at(0, 0)).freeMin).toBe(6 * 120)
+  })
+
+  it('default to 09:00-22:00 every day', () => {
+    expect(weekLayout([], week, { timeZone: tz }).free).toEqual(weekLayout([], week, { timeZone: tz, studyHours: DEFAULT_STUDY_HOURS }).free)
+    expect(weekLayout([], week, { timeZone: tz }).free[6]).toEqual({ start: at(6, 9), end: at(6, 22) })
+  })
+
+  it('keep Auto-fill drafts inside them', () => {
+    const layout = weekLayout([], week, { timeZone: tz, studyHours, studyMinPerDay: 60 })
+    const { placements } = draftPlan([task({ id: 'a', durationMin: 60 }), task({ id: 'b', durationMin: 60 }), task({ id: 'c', durationMin: 60 })], layout, { now: at(0, 0) })
+    expect(placements.map((p) => p.start)).toEqual([at(0, 10), at(1, 9), at(2, 13)])
+  })
+
+  it('keep reviews out of a no-study day and before a late start', () => {
+    // Marked Saturday 21:00, due by Monday night: Sunday has no study hours, Monday starts at 10:00.
+    const slots = placeReviews([], [{ id: 'r', durationMin: 20, markedAt: at(5, 21), latest: at(7, 23) }], { start: at(5, 0), end: at(8, 0) }, { now: at(5, 21), timeZone: tz, studyHours: { ...studyHours } })
+    // Saturday's window ends at 22:00, an hour after the mark: too late. Next is Monday 10:00 (9 Nov).
+    expect(slots.get('r')).toEqual({ start: at(7, 10), end: at(7, 10, 20) })
+  })
+
+  it("re-fit spends the student's own budget", () => {
+    const missed = item({ id: 'm', kind: 'task', starts_at: iso(0, 9), ends_at: iso(0, 10), duration_min: 60 })
+    const [p] = planRefit([missed], [], { now: at(0, 21, 30), timeZone: tz, studyHours, studyMinPerDay: 30 })
+    // Monday has no 60m left before 22:00; Tuesday has no 60m of budget (30m): over budget, earliest free slot.
+    expect(p.starts_at).toBe(iso(1, 9))
+  })
+})
 
 describe('weekLayout', () => {
   it('frees the study day around commitments (with buffer) and keeps study blocks busy', () => {
@@ -273,13 +319,14 @@ describe('ranking and trims', () => {
 })
 
 describe('planAutofillInput', () => {
-  const base = { from: iso(0, 0), to: iso(7, 0), timeZone: tz, studyMinPerDay: 120 }
+  const base = { from: iso(0, 0), to: iso(7, 0), timeZone: tz }
   it('accepts a week and rejects bad ranges and zones', () => {
-    expect(planAutofillInput.parse({ ...base, estimates: { a: 60 } })).toMatchObject({ studyMinPerDay: 120 })
+    expect(planAutofillInput.parse({ ...base, estimates: { a: 60 } })).toMatchObject({ estimates: { a: 60 } })
+    // The budget is the student's preference, read on the server: a client value is ignored.
+    expect(planAutofillInput.parse({ ...base, studyMinPerDay: 600 })).not.toHaveProperty('studyMinPerDay')
     expect(planAutofillInput.safeParse({ ...base, to: base.from }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, to: iso(14, 0) }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
-    expect(planAutofillInput.safeParse({ ...base, studyMinPerDay: 0 }).success).toBe(false)
   })
 })
 

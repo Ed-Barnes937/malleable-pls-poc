@@ -14,7 +14,7 @@ never moved.
   `date.getTime()` / `new Date(ms)` at the edges.
 - **Intervals** are half-open `{ start, end }`. Everything returned is
   normalized: sorted, disjoint, non-empty.
-- **Time zones:** the study day (`dayStart`/`dayEnd`) is read in an IANA
+- **Time zones:** the study day (`dayStart`/`dayEnd`, or per weekday `days`) is read in an IANA
   time zone (`timeZone`, default `'UTC'`) via the built-in
   `Intl.DateTimeFormat`, so "08:00" stays 08:00 local across DST changes.
   We chose an IANA zone over a caller-supplied offset function because it is
@@ -33,7 +33,8 @@ never moved.
 
 | Function | What it does |
 |---|---|
-| `freeSlots(commitments, range, prefs?)` | Study-day windows in `range` minus commitments (padded by `bufferMin`), keeping gaps of at least `minSlotMin`. Defaults: `08:00`-`22:00`, UTC, 15 min, no buffer (the app's own study day, `STUDY_DAY` in `@pls/substrate`, is 09:00-22:00 with a 10 min buffer). |
+| `freeSlots(commitments, range, prefs?)` | Study-day windows in `range` minus commitments (padded by `bufferMin`), keeping gaps of at least `minSlotMin`. Defaults: `08:00`-`22:00`, UTC, 15 min, no buffer (the app passes the student's study hours, default 09:00-22:00 every day, with a 10 min buffer: see `studyDayPrefs` in `@pls/substrate`). |
+| `dayWindows(range, prefs?)` | Just the study-day windows in `range`. With `days` (7 entries, Monday first, each `{ dayStart, dayEnd }` or `null` for no study that day) each local weekday gets its own window instead of `dayStart`/`dayEnd`. Per-weekday windows must end after they start (`24:00` allowed as an end); only the single `dayStart`/`dayEnd` window may run past midnight. |
 | `place(tasks, freeSlots, { now, existingPlacements?, policy?, anchor?, alignMin?, gapMin?, dailyBudget? })` | One contiguous block per task, earliest-fit (or latest-fit with `anchor: 'latest'`). Returns `{ placements, unplaced: [{ taskId, reason }] }`. |
 | `suggestSlots(task, freeSlots, n, { now, existingPlacements?, anchor?, alignMin?, gapMin?, dailyBudget? })` | Up to `n` candidate blocks, one per separate free gap, in the anchor's preference order (the first is where `place` would put it). |
 | `capacity(freeSlots, tasks, { now, existingPlacements?, dailyBudget? })` | `{ freeMin, neededMin, shortfallMin, spareMin, fits }`. Free time before `now` is not counted, so a whole week's `freeSlots` is fine mid-week. With a budget, each day counts at most what is left of it. |

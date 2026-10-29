@@ -79,6 +79,78 @@ describe('dayWindows', () => {
   })
 })
 
+describe('dayWindows with per-weekday windows', () => {
+  const usual = { dayStart: '09:00', dayEnd: '22:00' }
+  // Mon-Sat 09:00-22:00 except Wed 13:00-17:00 and Sat from 10:00; no study on Sunday.
+  const days = [usual, usual, { dayStart: '13:00', dayEnd: '17:00' }, usual, usual, { dayStart: '10:00', dayEnd: '22:00' }, null]
+
+  it("uses each local weekday's window, Monday first, and none on a null day", () => {
+    // Mon 26 Oct to Mon 2 Nov 2026 (UTC).
+    expect(dayWindows(iv('2026-10-26T00:00:00Z', '2026-11-02T00:00:00Z'), { days })).toEqual([
+      iv('2026-10-26T09:00:00Z', '2026-10-26T22:00:00Z'),
+      iv('2026-10-27T09:00:00Z', '2026-10-27T22:00:00Z'),
+      iv('2026-10-28T13:00:00Z', '2026-10-28T17:00:00Z'),
+      iv('2026-10-29T09:00:00Z', '2026-10-29T22:00:00Z'),
+      iv('2026-10-30T09:00:00Z', '2026-10-30T22:00:00Z'),
+      iv('2026-10-31T10:00:00Z', '2026-10-31T22:00:00Z'),
+    ])
+  })
+
+  it('ignores dayStart/dayEnd when days is set', () => {
+    const range = iv('2026-11-01T00:00:00Z', '2026-11-02T00:00:00Z') // a Sunday
+    expect(dayWindows(range, { days, dayStart: '08:00', dayEnd: '22:00' })).toEqual([])
+  })
+
+  it('reads the weekday in the local time zone, not UTC', () => {
+    // 23:30 UTC Saturday is already Sunday in Auckland: Sunday is null there.
+    const range = iv('2026-10-31T00:00:00Z', '2026-11-01T11:00:00Z')
+    const w = dayWindows(range, { days, timeZone: 'Pacific/Auckland' })
+    // Only Saturday 31 Oct local (10:00-22:00 NZDT = Fri 21:00Z to Sat 09:00Z), clipped to the range.
+    expect(w).toEqual([iv('2026-10-31T00:00:00Z', '2026-10-31T09:00:00Z')])
+  })
+
+  it('keeps each weekday at its local times across the London fall-back week', () => {
+    // BST ends Sun 25 Oct 2026: Sat is UTC+1, Mon is UTC+0.
+    const w = dayWindows(iv('2026-10-23T23:00:00Z', '2026-10-27T00:00:00Z'), { days, timeZone: 'Europe/London' })
+    expect(w).toEqual([
+      iv('2026-10-24T09:00:00Z', '2026-10-24T21:00:00Z'), // Sat 10:00-22:00 BST
+      // Sun 25: no study.
+      iv('2026-10-26T09:00:00Z', '2026-10-26T22:00:00Z'), // Mon 09:00-22:00 GMT
+    ])
+  })
+
+  it('keeps each weekday at its local times across the London spring-forward week', () => {
+    // BST starts Sun 29 Mar 2026.
+    const spring = [...days.slice(0, 6), { dayStart: '12:00', dayEnd: '14:00' }]
+    const w = dayWindows(iv('2026-03-28T00:00:00Z', '2026-03-31T00:00:00Z'), { days: spring, timeZone: 'Europe/London' })
+    expect(w).toEqual([
+      iv('2026-03-28T10:00:00Z', '2026-03-28T22:00:00Z'), // Sat GMT
+      iv('2026-03-29T11:00:00Z', '2026-03-29T13:00:00Z'), // Sun 12:00-14:00 BST
+      iv('2026-03-30T08:00:00Z', '2026-03-30T21:00:00Z'), // Mon 09:00-22:00 BST
+    ])
+  })
+
+  it('rejects a per-weekday window that does not end after it starts (no overnight windows)', () => {
+    const range = iv('2026-10-29T00:00:00Z', '2026-11-01T00:00:00Z')
+    for (const fri of [{ dayStart: '20:00', dayEnd: '02:00' }, { dayStart: '10:00', dayEnd: '10:00' }]) {
+      expect(() => dayWindows(range, { days: [null, null, null, null, fri, null, null] })).toThrow(RangeError)
+    }
+    // 24:00 is the end of the same day.
+    expect(dayWindows(range, { days: [null, null, null, null, { dayStart: '20:00', dayEnd: '24:00' }, null, null] })).toEqual([
+      iv('2026-10-30T20:00:00Z', '2026-10-31T00:00:00Z'),
+    ])
+  })
+
+  it('returns nothing (and terminates) when every day is null', () => {
+    expect(dayWindows(iv('2026-10-26T00:00:00Z', '2026-11-26T00:00:00Z'), { days: Array(7).fill(null) })).toEqual([])
+  })
+
+  it('rejects a days list that is not one entry per weekday', () => {
+    expect(() => dayWindows(iv('2026-10-26T00:00:00Z', '2026-10-27T00:00:00Z'), { days: [usual] })).toThrow(RangeError)
+    expect(() => dayWindows(iv('2026-10-26T00:00:00Z', '2026-10-27T00:00:00Z'), { days: [...days.slice(0, 6), { dayStart: '9', dayEnd: '22:00' }] })).toThrow(RangeError)
+  })
+})
+
 describe('freeSlots', () => {
   const day = iv('2026-10-26T00:00:00Z', '2026-10-27T00:00:00Z')
 

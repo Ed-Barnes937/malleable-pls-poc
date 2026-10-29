@@ -61,9 +61,25 @@ test('shows the unscheduled to-dos, study time left and an honest capacity line'
   await panel.getByRole('button', { name: 'Estimate 30m for Flashcards: organelles' }).click()
   await expect.poll(() => stored(simulator, 'cards')?.duration_min).toBe(30)
 
-  // The study-time setting changes the numbers.
+  // The study-time setting changes the numbers, and is saved as the student's preference.
   await panel.getByLabel('Study time per day').selectOption('60')
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 2 hours of study time left next week (1h a day).')
+  expect(simulator.db.preferences?.study_min_per_day).toBe(60)
+})
+
+test("reads study time per day and study hours from the student's preference", async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  const every = { start: '09:00', end: '22:00' }
+  // No study on Tuesday; 90 minutes a day.
+  simulator.db.preferences = {
+    time_zone: null,
+    study_hours: { mon: every, tue: null, wed: every, thu: every, fri: every, sat: every, sun: every },
+    study_min_per_day: 90,
+  }
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await expect(panel.getByTestId('plan-capacity')).toContainText('About 1.5 hours of study time left next week (1h 30m a day).')
+  await expect(panel.getByLabel('Study time per day')).toHaveValue('90')
 })
 
 test('pick a suggested slot to assign a to-do by hand', async ({ mount, page, simulator }) => {

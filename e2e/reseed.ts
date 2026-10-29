@@ -14,7 +14,7 @@ import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 const DATABASE_URL = resolveDatabaseUrl()
 
 const TABLES = [
-  'plan_items',
+  'plan_items', 'user_preferences',
   'job_runs', 'workflow_jobs', 'workflows',
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',

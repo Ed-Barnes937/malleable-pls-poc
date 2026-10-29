@@ -22,8 +22,8 @@ export {
 
 export {
   ASSUMED_ESTIMATE_MIN,
-  DEFAULT_STUDY_MIN_PER_DAY,
-  STUDY_PER_DAY_OPTIONS,
+  localDayRange,
+  studyDayPrefs,
   studyDays,
   type StudyDay,
   ESTIMATE_OPTIONS,
@@ -64,6 +64,27 @@ export {
   type Placement,
   type Unplaced,
 } from './planning'
+
+export {
+  DEFAULT_PREFERENCES,
+  DEFAULT_STUDY_HOURS,
+  DEFAULT_STUDY_MIN_PER_DAY,
+  MAX_STUDY_MIN_PER_DAY,
+  MIN_STUDY_MIN_PER_DAY,
+  preferencesUpdateInput,
+  STUDY_PER_DAY_OPTIONS,
+  studyDayWindows,
+  studyHoursSchema,
+  studyWindowSchema,
+  WEEKDAYS,
+  withDefaults,
+  type PreferencesUpdate,
+  type StoredPreferences,
+  type StudyHours,
+  type StudyWindow,
+  type UserPreferences,
+  type Weekday,
+} from './preferences'
 
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'

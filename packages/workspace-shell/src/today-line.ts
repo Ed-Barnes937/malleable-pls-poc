@@ -1,4 +1,4 @@
-import { studyDays, weekLayout, type PlanItem } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, localDayRange, studyDays, weekLayout, type PlanItem, type StudyHours, type UserPreferences } from '@pls/substrate'
 import { COURSES, clockTime, startOfLocalDay } from '@pls/shared-ui'
 
 type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype' | 'title' | 'course'>
@@ -25,6 +25,38 @@ export function todayRange(now: number): { start: number; end: number } {
   return { start: start.getTime(), end: end.getTime() }
 }
 
+export interface TodayStudyOptions {
+  /** The zone study time is counted in: the student's, else the browser's. */
+  timeZone: string
+  studyHours: StudyHours
+  studyMinPerDay: number
+}
+
+/**
+ * How the line counts study time, from the student's preference (as Help me
+ * plan does): their zone if set, else the browser's; the defaults if the
+ * preference can't be loaded; null while it is still loading.
+ */
+export function todayStudyOptions(
+  prefs: UserPreferences | undefined,
+  failed: boolean,
+  browserZone: string,
+): TodayStudyOptions | null {
+  const p = prefs ?? (failed ? DEFAULT_PREFERENCES : undefined)
+  if (!p) return null
+  return { timeZone: p.time_zone ?? browserZone, studyHours: p.study_hours, studyMinPerDay: p.study_min_per_day }
+}
+
+/**
+ * The plan item rows the line needs: today as the browser shows it (the
+ * events) and today in the zone study time is counted in, when that differs.
+ */
+export function todayRowsRange(now: number, timeZone: string): { start: number; end: number } {
+  const shown = todayRange(now)
+  const study = localDayRange(now, timeZone)
+  return { start: Math.min(shown.start, study.start), end: Math.max(shown.end, study.end) }
+}
+
 function eventLabel(row: Row): string {
   const start = clockTime(row.starts_at!)
   if (row.subtype === 'shift') return `shift ${start}-${clockTime(row.ends_at!)}`
@@ -44,12 +76,12 @@ function shortEventLabel(row: Row): string {
  * the weekday, each class and shift not over yet, and the study time left
  * (a lecture that ended at 12:00 is no longer news at noon). Study time
  * comes from the same `weekLayout` / `studyDays` Help me plan uses, so the
- * two never disagree. Null when today has no class or shift: an empty day
+ * two never disagree: today in `timeZone`, inside `studyHours`. Null when today has no class or shift: an empty day
  * has nothing worth a line.
  */
 export function todayLine(
   rows: ReadonlyArray<Row>,
-  opts: { now: number; timeZone: string; studyMinPerDay?: number },
+  opts: { now: number; timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number },
 ): TodayLine | null {
   const day = todayRange(opts.now)
   const commitments = rows
@@ -61,8 +93,9 @@ export function todayLine(
     .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!))
   if (commitments.length === 0) return null
 
-  const layout = weekLayout(rows, day, { timeZone: opts.timeZone, studyMinPerDay: opts.studyMinPerDay })
-  const today = studyDays(layout, opts.now).find((d) => d.day === day.start)
+  const studyDay = localDayRange(opts.now, opts.timeZone)
+  const layout = weekLayout(rows, studyDay, { timeZone: opts.timeZone, studyHours: opts.studyHours, studyMinPerDay: opts.studyMinPerDay })
+  const today = studyDays(layout, opts.now).find((d) => d.day === studyDay.start)
   const upcoming = commitments.filter((r) => Date.parse(r.ends_at!) > opts.now)
   return {
     weekday: weekdayFormat.format(new Date(opts.now)),
