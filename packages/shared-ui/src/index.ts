@@ -1,5 +1,6 @@
 export { cn, formatTime, fromMomentLabel } from './utils'
 export { useArrivals } from './useArrivals'
+export { BOARD_VIEW_GAP, boardScrollFor, prefersReducedMotion, showOnBoard, userScrolledSince, watchUserScroll, type Span } from './board-view'
 export { useNarrowScreen } from './useNarrowScreen'
 export { useFocusTrap } from './useFocusTrap'
 export { EmptyState, type EmptyStateProps } from './EmptyState'

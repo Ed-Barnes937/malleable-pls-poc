@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone } from '@pls/shared-ui'
+import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -51,14 +51,43 @@ export interface TimeGridProps {
    * A block to bring into view and glow once ("See it"), by plan item id; a
    * new `requestId` reveals it again. Waits until the block is on the grid.
    */
-  reveal?: { id: string; requestId: number } | null
+  reveal?: Reveal | null
+  /** A popover is open: a reveal callout gives way to it. */
+  popoverOpen?: boolean
+}
+
+/** A block to show: scrolled to in the grid and on the board, then glowing once. */
+export interface Reveal {
+  id: string
+  requestId: number
+  /** Board scrolls by the student after this (a `watchUserScroll` mark) win over ours. */
+  requestedAt?: number
+  /** Kept in view with the block when both fit (e.g. the moment it came from). */
+  keepInView?: Element | null
+  /** Glow this long after the request (a card from the moment lands then). */
+  landsInMs?: number
 }
 
 /** How long a revealed block keeps its callout (and, under reduced motion, its still ring). */
 const REVEAL_MS = 4000
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+/**
+ * Where the grid scrolls to show a block from `startMin` to `endMin` (minutes
+ * into the day): nowhere when it is already in view; otherwise with it in the
+ * top third, but never showing the night before the day starts (08:00)
+ * unless the block is there.
+ */
+export function gridScrollFor(
+  { startMin, endMin }: { startMin: number; endMin: number },
+  hourPx: number,
+  view: { scrollTop: number; height: number },
+): number | null {
+  const top = (startMin / 60) * hourPx
+  const bottom = (endMin / 60) * hourPx
+  if (top >= view.scrollTop + LABEL_ROOM_PX && bottom <= view.scrollTop + view.height - LABEL_ROOM_PX) return null
+  const dayTop = DAY_START_HOUR * hourPx - LABEL_ROOM_PX
+  const context = hourPx / 2
+  return Math.max(0, top - view.height / 3, Math.min(dayTop, top - context))
 }
 
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
@@ -75,6 +104,8 @@ const MIN_BLOCK_MIN = 15
  * so the next block never paints over it.
  */
 const COMPACT_BLOCK_PX = 18
+/** The glow around a revealed compact block: at least this tall, centred on it. */
+const REVEAL_HALO_PX = 24
 
 /** A block's height on the grid: proportional to its length, with a 2px gap below. */
 function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
@@ -111,25 +142,38 @@ type Drag =
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
-  reveal,
+  reveal, popoverOpen,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
+  const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
 
   // Size hours so the working day fits the panel, then start scrolled to it.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    let fitted = 0
     const fit = () => {
       // A little headroom so the 08:00 and 22:00 labels are not clipped.
       const px = Math.max(MIN_HOUR_PX, (el.clientHeight - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
-      setHourPx(px)
-      if (!userScrolled.current) el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+      // The hour to keep at the top: the day's start until the student (or a
+      // block shown) scrolls, then whatever is there, as the hours resize.
+      const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
+      if (px !== fitted) {
+        // Scrolled once the grid has re-rendered at the new size, so the scroll isn't clamped to the old height.
+        keepTopHour.current = topHour
+        setHourPx(px)
+      } else if (!userScrolled.current) {
+        el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+      }
+      fitted = px
     }
     const markScrolled = () => { userScrolled.current = true }
     fit()
@@ -145,34 +189,61 @@ export function TimeGrid({
       el.removeEventListener('keydown', markScrolled)
     }
   }, [])
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || keepTopHour.current === null) return
+    el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    keepTopHour.current = null
+  }, [hourPx])
 
   // Ghosts are laid out with real blocks, so a dragged one never hides another.
   const segments = useMemo(
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
-  // "See it": once the block is laid out, scroll it into the top third and
-  // glow it once (a still ring under reduced motion), with a short callout.
+  // "See it" (or a review card landing): once the block is laid out, scroll
+  // the grid to it, scroll the board so it is on screen (with the moment it
+  // came from, when both fit), then glow it once (a still ring under reduced
+  // motion) with a short callout.
   const [revealed, setRevealed] = useState<{ key: string; requestId: number } | null>(null)
   const handledReveal = useRef<number | null>(null)
+  const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
     if (!reveal || reveal.requestId === handledReveal.current) return
     const el = scrollRef.current
     const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
     if (!el || !seg) return
     handledReveal.current = reveal.requestId
-    userScrolled.current = true
-    el.scrollTo({
-      top: Math.max(0, (seg.startMin / 60) * hourPx - el.clientHeight / 3),
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    })
-    setRevealed({ key: seg.key, requestId: reveal.requestId })
+    const smooth = !prefersReducedMotion()
+    const gridTop = gridScrollFor(seg, hourPx, { scrollTop: el.scrollTop, height: el.clientHeight })
+    if (gridTop !== null) {
+      userScrolled.current = true
+      el.scrollTo({ top: gridTop, behavior: smooth ? 'smooth' : 'auto' })
+    }
+    // Where the block will be on screen once the grid has scrolled.
+    const block = el.querySelector(`[data-segment-key="${CSS.escape(seg.key)}"]`)?.getBoundingClientRect()
+    if (block) {
+      const shift = gridTop === null ? 0 : gridTop - el.scrollTop
+      // Then, if they fit: where it came from, and the day headers saying when.
+      const from = reveal.keepInView?.isConnected ? reveal.keepInView.getBoundingClientRect() : null
+      const headers = headerRef.current?.getBoundingClientRect()
+      showOnBoard(el, { top: block.top - shift, bottom: block.bottom - shift }, { keep: [from, headers], since: reveal.requestedAt, smooth })
+    }
+    const glow = () => setRevealed({ key: seg.key, requestId: reveal.requestId })
+    clearTimeout(glowTimer.current)
+    if (reveal.landsInMs) glowTimer.current = setTimeout(glow, reveal.landsInMs)
+    else glow()
   }, [reveal, segments, hourPx])
+  useEffect(() => () => clearTimeout(glowTimer.current), [])
   useEffect(() => {
     if (!revealed) return
     const t = setTimeout(() => setRevealed(null), REVEAL_MS)
     return () => clearTimeout(t)
   }, [revealed])
+  // An open popover takes the block's place: the callout would cover it.
+  useEffect(() => {
+    if (popoverOpen) setRevealed(null)
+  }, [popoverOpen])
 
   const freeSegments = useMemo(() => (freeTime?.length ? shadeDays(freeTime, days) : null), [freeTime, days])
   const [dropAt, setDropAt] = useState<{ dayIndex: number; minute: number } | null>(null)
@@ -324,7 +395,7 @@ export function TimeGrid({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
       {/* Day headers (scrollbar gutter kept so columns line up with the body) */}
-      <div className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
+      <div ref={headerRef} className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
         <div className={cn(GUTTER, 'shrink-0')} />
         <div className="grid flex-1" style={cols}>
           {days.map((day) => {
@@ -598,6 +669,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
       tabIndex={preview ? undefined : 0}
       data-block={item.kind}
       data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
+      data-plan-item-id={preview ? undefined : item.id}
+      data-segment-key={preview ? undefined : seg.key}
       data-kind={item.kind}
       data-look={look}
       data-dimmed={dimmed || undefined}
@@ -636,6 +709,16 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         width: `calc(${100 / seg.columns}% - 4px)`,
       }}
     >
+      {/* A short block (a 20-min review is about 9px) glows in a halo of
+          readable size around it, so the landing shows without the callout. */}
+      {glow && compact && (
+        <span
+          aria-hidden
+          data-testid="calendar-reveal-halo"
+          className="pointer-events-none absolute -inset-x-1 top-1/2 -z-10 -translate-y-1/2 rounded-item bg-[color-mix(in_oklab,var(--glow)_18%,transparent)] motion-safe:animate-glow-once motion-reduce:glow-ring"
+          style={{ height: REVEAL_HALO_PX }}
+        />
+      )}
       {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar, compact && 'rounded-l-item')} />}
       <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
         <div className="flex min-w-0 shrink-0 items-start gap-1">

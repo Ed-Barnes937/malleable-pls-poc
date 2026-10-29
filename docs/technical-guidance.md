@@ -208,10 +208,17 @@ Transcript's "Review planned" chip call `LensProps.onShowPlanItem({ id,
 startsAt })`. The shell keeps it as ephemeral `focusedPlanItem` (a fresh
 `requestId` per request) and hands it to widgets whose manifest declares
 `showsPlanItems: true` (the Calendar), which open that week, scroll the block
-into view, glow it once (a still ring under reduced motion) and call
+into view in the grid and on the board (`showOnBoard` in `@pls/shared-ui`),
+glow it once (a still ring under reduced motion) and call
 `onPlanItemShown(requestId)`. It only works on the board in view: the shell
 passes `onShowPlanItem`, and the toast offers "See it", only when that board
 has a Calendar.
+
+The confused-to-calendar ripple uses the same request when a new review
+arrives on the lecture just marked: `keepInView` (the moment's chip) stays on
+screen with the block when both fit, `landsInMs` delays the glow until the
+Transcript's flying card lands, and `scrolledSince` (when the moment was
+marked) makes the board stay put if the student has scrolled it since.
 
 ---
 

@@ -87,6 +87,22 @@ export interface PlanItemRef {
   id: string
   /** Its block's start (ISO), so a viewer can open the right week. */
   startsAt: string
+  /**
+   * Where the request came from (e.g. the review chip on the marked moment):
+   * kept in view with the block when both fit on screen.
+   */
+  keepInView?: Element | null
+  /**
+   * The block glows this many ms after the request, not straight away: a
+   * card flying from the moment lands on it then.
+   */
+  landsInMs?: number
+  /**
+   * The student's own board scrolling since this mark (`watchUserScroll`,
+   * e.g. when they marked the moment) leaves the board where they put it.
+   * Defaults to the time of the request.
+   */
+  scrolledSince?: number
 }
 
 /**
@@ -96,6 +112,12 @@ export interface PlanItemRef {
  */
 export interface FocusedPlanItem extends PlanItemRef {
   requestId: number
+  /**
+   * When it was asked for (a `watchUserScroll()` mark), or `scrolledSince`
+   * when earlier: if the student scrolls the board after this, the viewer
+   * leaves the board where they put it.
+   */
+  requestedAt: number
 }
 
 export interface LensProps {

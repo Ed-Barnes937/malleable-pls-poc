@@ -1,6 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
-import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
+import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 import { trpcMutation, trpcQuery } from './api'
 
 /**
@@ -190,6 +191,15 @@ test.describe('Phone top bar', () => {
     await expect(drawer.getByTestId('drawer-appearance')).toHaveCount(0)
   })
 
+  test('a toast leaving while the board is scrolled to its bottom moves nothing under the finger', async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Coming up')
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('toast-host')).toContainText('Coming up added')
+    await expectStillAtBottomAsToastLeaves(page, new PanelGridPom(page))
+  })
+
   test('a "Back to ..." toast sits under the board instead of covering it, and is reachable from the keyboard', async ({ page, request }) => {
     const today = new Date()
     const at = (h: number, m = 0) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m).toISOString()
@@ -207,13 +217,14 @@ test.describe('Phone top bar', () => {
 
     const host = page.getByTestId('toast-host')
     await expect(host).toHaveAttribute('data-layout', 'bar')
-    await expect(host).toHaveAttribute('aria-live', 'polite')
+    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
     await expect(host).toContainText('Opened 36:40 in Evening Review')
     const back = host.getByRole('button', { name: 'Back to My week' })
     await expect(back).toBeInViewport()
     // The board ends where the toast bar starts: none of it is underneath.
     const board = (await page.getByTestId('canvas-container').boundingBox())!
     const toast = (await host.getByTestId('toast').boundingBox())!
+    const barHeight = (await host.boundingBox())!.height
     expect(board.y + board.height).toBeLessThanOrEqual(toast.y + 1)
     expect(toast.y + toast.height).toBeLessThanOrEqual(860)
 
@@ -221,8 +232,8 @@ test.describe('Phone top bar', () => {
     await page.keyboard.press('Enter')
     await topBar.expectActiveWorkspace('My week')
     await expect(host).not.toContainText('Opened')
-    // With nothing to say, the bar takes no room.
-    await expect.poll(async () => (await host.boundingBox())?.height ?? 0).toBe(0)
+    // With nothing to say, the bar keeps its room (decision 22): nothing on the board moves.
+    expect((await host.boundingBox())!.height).toBe(barHeight)
   })
 })
 

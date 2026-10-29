@@ -6,6 +6,14 @@ import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Z
 import { useEscapeToClose, usePopoverPosition } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
+/**
+ * "From Mitochondrial DNA - today · 1:18", with the time kept on the line of
+ * the title's last word rather than wrapping onto a line of its own.
+ */
+export function momentSourceLabel(title: string, offsetMs: number | null | undefined): string {
+  return fromMomentLabel(title, offsetMs).replace(/ · (\S+)$/, '\u00a0·\u00a0$1')
+}
+
 /** Where a block's lecture moment went after "Go to moment". */
 export type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
 
@@ -103,7 +111,7 @@ export function StudyBlockPopover({
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
           <AudioLines className="h-4 w-4 shrink-0" />
-          <span className="line-clamp-2">{fromMomentLabel(recording?.title ?? 'a lecture', offsetMs)}</span>
+          <span className="line-clamp-2">{momentSourceLabel(recording?.title ?? 'a lecture', offsetMs)}</span>
         </p>
         <button
           type="button"

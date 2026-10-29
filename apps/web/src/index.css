@@ -61,8 +61,10 @@
  *              small cards), rounded-full (chips, pills)
  *   Shadow     shadow-panel (widgets), shadow-pop (popovers, toasts)
  *   Motion     One signature motion: the confused-to-calendar ripple.
- *              motion-safe:animate-lift-off (a review card leaving the
- *              moment toward --lift-x / --lift-y), motion-safe:animate-slide-in
+ *              The review card that flies from the moment to its block is
+ *              driven from script (it follows the board as it scrolls; see
+ *              Ripple in TranscriptLens), never under reduced motion.
+ *              motion-safe:animate-slide-in
  *              (a new To-do row), animate-glow-once (a revealed block, in
  *              --glow, its course colour; a still ring under reduced motion).
  *              Always gate movement with motion-safe:.
@@ -187,16 +189,9 @@
   --transition-panel: 200ms ease-out;
 
   /* ── Motion (see the comment above) ── */
-  --animate-lift-off: lift-off 1100ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-slide-in: slide-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-glow-once: glow-once 1800ms ease-out 1;
 
-  @keyframes lift-off {
-    0% { opacity: 0; transform: translate(0, 8px) scale(0.96); }
-    20% { opacity: 1; transform: translate(0, -6px) rotate(-1.5deg); }
-    70% { opacity: 1; transform: translate(calc(var(--lift-x, 160px) * 0.7), calc(var(--lift-y, 0px) * 0.7 - 6px)) rotate(-2deg) scale(0.96); }
-    100% { opacity: 0; transform: translate(var(--lift-x, 160px), var(--lift-y, 0px)) rotate(-2deg) scale(0.9); }
-  }
   @keyframes slide-in {
     from { opacity: 0; transform: translateY(-8px); }
     to { opacity: 1; transform: none; }
