@@ -72,3 +72,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - R1 round 4 (post-escalation): H1 fixed; one contained fix (queued toasts expire unseen) sent back. Runbook step 2 on Thursday confirmed fine. New small copy ticket: leftover sentence blames short gaps when the daily budget is the limit.
 - PR #95 (leftover copy) review: logic sound; CHANGES NEEDED (exact e2e string on frozen Tuesday, budget-first precedence, tests, copy per decision 23). Sent back.
 - R1 round 5: PASS. Two small follow-ups (held toast pushed out never times out; announce the toast action) requested before merge. PR #95 delta check running.
+- PR #95 (leftover copy: budget vs gaps named honestly, per-to-do reason agrees; decision 23) merged after delta check PASS.

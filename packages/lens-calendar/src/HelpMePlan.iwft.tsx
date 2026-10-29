@@ -338,7 +338,8 @@ test('changing study time per day during a draft re-drafts it; a too-long to-do 
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 4h didn't fit.")
 
   await draft.getByRole('button', { name: 'Shrink to 1h' }).click()
-  await expect(draft.getByTestId('autofill-unplaced')).toContainText("Flashcards: organelles (1h) didn't fit: no free gap long enough.")
+  // Both open days already have their 1h: the study time, not a gap, is what's short.
+  await expect(draft.getByTestId('autofill-unplaced')).toContainText("Flashcards: organelles (1h) didn't fit: too little study time left on any day.")
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 1h didn't fit.")
 
   // 3h a day: the offer is the new day length, not the 2h the advice said.
@@ -505,6 +506,21 @@ test.describe('where the panel floats, by day of the week (frozen clock)', () =>
     })
   }
 
+  test("the demo on a Thursday: study time held back by the 2h a day isn't blamed on short gaps", async ({ mount, page, simulator }) => {
+    const now = new Date('2026-10-29T10:00:00Z')
+    for (const { id, ...row } of priyaWeek(now.getTime())) seed(simulator, [{ id, ...row } as Partial<StoredPlanItem> & { id: string }])
+    await page.clock.setFixedTime(now)
+    await mount(<CalendarHarness width={882} />)
+    await page.getByTestId('help-me-plan').click()
+    const panel = page.getByTestId('help-me-plan-panel')
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Shrink to 2h' }).click()
+    // Saturday has a long free stretch but only 1h of its 2h left: no to-do left fits in 1h.
+    await expect(panel.getByTestId('autofill-summary')).toHaveText(
+      "Drafted 7h of study time. 4h didn't fit. The other 1h is on days with too little study time left for them.",
+    )
+  })
+
   test('the demo on a Tuesday: drafts Wed-Fri, the panel fits the weekend and no day is squeezed', async ({ mount, page, simulator }) => {
     // Priya's week (pnpm db:reseed), at the journey-demo's default time.
     const now = new Date('2026-10-27T10:30:00Z')
@@ -607,6 +623,45 @@ test('keyboard: focus moves into the panel, follows Hide, Show plan and Auto-fil
   await expect(page.getByTestId('help-me-plan')).toBeFocused()
 })
 
+/**
+ * Every day: classes 10:30-12:00 and 13:30-22:00, so the free time is two
+ * short gaps (09:00-10:20 and 12:10-13:20) with the whole 2h of study time
+ * to spare: a 90-minute to-do fits nowhere because of the gaps, not the budget.
+ */
+function seedShortGapWeek(simulator: BackendSimulator, todos: { id: string; durationMin: number }[]) {
+  seed(simulator, Array.from({ length: 7 }, (_, d) => [
+    { id: `am-${d}`, kind: 'commitment' as const, title: `Morning class ${d}`, starts_at: iso(d, 10, 30), ends_at: iso(d, 12) },
+    { id: `pm-${d}`, kind: 'commitment' as const, title: `Afternoon class ${d}`, starts_at: iso(d, 13, 30), ends_at: iso(d, 22) },
+  ]).flat())
+  seed(simulator, todos.map((t) => ({ id: t.id, title: t.id, duration_min: t.durationMin, course: 'biology' })))
+}
+
+test('free time in gaps shorter than the to-dos, with study time to spare, is blamed on the gaps', async ({ mount, page, simulator }) => {
+  seedShortGapWeek(simulator, [{ id: 'Essay draft', durationMin: 90 }, { id: 'Past paper', durationMin: 90 }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await panel.getByTestId('autofill').click()
+  // 2h a day for 7 days, all of it in 80- and 70-minute gaps.
+  await expect(panel.getByTestId('autofill-summary')).toHaveText(
+    "Nothing fits as it is. 3h didn't fit. The 14h of free time is in gaps too short for them.",
+  )
+  // Each to-do's own line agrees.
+  await expect(panel.getByTestId('autofill-unplaced')).toContainText("Essay draft (1h 30m) didn't fit: no free gap long enough.")
+  await expect(panel.getByTestId('autofill-unplaced')).toContainText("Past paper (1h 30m) didn't fit: no free gap long enough.")
+})
+
+test('short gaps and a day with too little study time left are each named for what they are', async ({ mount, page, simulator }) => {
+  // A 1h to-do takes Monday 09:00-10:00: Monday has 1h of its 2h left, the other days short gaps.
+  seedShortGapWeek(simulator, [{ id: 'Reading', durationMin: 60 }, { id: 'Essay draft', durationMin: 90 }, { id: 'Past paper', durationMin: 90 }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await panel.getByTestId('autofill').click()
+  await expect(ghost(page, 'Reading')).toHaveAttribute('aria-label', /09:00 - 10:00/)
+  await expect(panel.getByTestId('autofill-summary')).toHaveText(
+    "Drafted 1h of study time. 3h didn't fit. The other 12h of free time is in gaps too short for them, and 1h is on days with too little study time left for them.",
+  )
+})
+
 /** Monday and Tuesday mornings free (2h a day); three 90-minute to-dos, so each day keeps a 30-minute piece. */
 function seedFragmentedWeek(simulator: BackendSimulator) {
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
@@ -619,16 +674,17 @@ function seedFragmentedWeek(simulator: BackendSimulator) {
   ])
 }
 
-test('free time left in short gaps is named, and Pick a time never defaults onto a drafted block', async ({ mount, page, simulator }) => {
+test('study time the draft leaves is named for why, and Pick a time never defaults onto a drafted block', async ({ mount, page, simulator }) => {
   seedFragmentedWeek(simulator)
   await mount(<CalendarHarness />)
   const panel = await openPlan(page)
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 4 hours of study time left next week (2h a day). Your to-dos need 4.5.')
   await panel.getByTestId('autofill').click()
   const draft = panel.getByTestId('autofill-draft')
-  // 3h drafted + 1h in two 30-minute pieces = the 4h the headline counts.
+  // 3h drafted + 1h in two 30-minute pieces = the 4h the headline counts. Each day has only
+  // 30 minutes of its 2h left, less than a 90-minute to-do (its gaps are short too: the budget binds).
   await expect(draft.getByTestId('autofill-summary')).toHaveText(
-    "Drafted 3h of study time. 1h 30m didn't fit. The other 1h of free time is in gaps too short for it.",
+    "Drafted 3h of study time. 1h 30m didn't fit. The other 1h is on days with too little study time left for it.",
   )
   await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
 

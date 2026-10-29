@@ -111,18 +111,19 @@ test.describe('Help me plan', () => {
     }
   }
 
-  test('free time left in gaps too short is named, so the draft adds up to the headline', async ({ page, request }) => {
+  test('study time the draft leaves is named for why, so the draft adds up to the headline', async ({ page, request }) => {
     // Four 90-minute to-dos in three 2h days: each day keeps a 30-minute piece.
     await seedTodos(request, [['Essay draft', 90], ['Problem set', 90], ['Past paper', 90], ['Reading', 90]])
     const { panel } = await openPlanner(page)
     await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 6.')
     await panel.getByTestId('autofill').click()
-    // 4h 30m drafted + 1h 30m in short pieces = the 6h free; + 1h 30m that didn't fit = the 6h needed.
+    // 4h 30m drafted + 1h 30m in 30-minute pieces = the 6h free; + 1h 30m that didn't fit = the 6h needed.
+    // Each day has only 30 minutes of its 2h left: the budget binds, so it isn't blamed on short gaps.
     await expect(panel.getByTestId('autofill-summary')).toHaveText(
-      "Drafted 4h 30m of study time. 1h 30m didn't fit. The other 1h 30m of free time is in gaps too short for it.",
+      "Drafted 4h 30m of study time. 1h 30m didn't fit. The other 1h 30m is on days with too little study time left for it.",
       { timeout: 15000 },
     )
-    await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: no free gap long enough.")
+    await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: too little study time left on any day.")
   })
 
   test('a to-do too long for a day is named as the reason, not short gaps', async ({ page, request }) => {
