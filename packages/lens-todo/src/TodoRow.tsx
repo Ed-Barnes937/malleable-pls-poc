@@ -52,7 +52,7 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, o
         className={cn(
           'mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors',
           done
-            ? 'border-good bg-good text-white'
+            ? 'border-good bg-good text-surface-raised'
             : 'border-border text-transparent hover:border-good hover:text-good',
         )}
       >

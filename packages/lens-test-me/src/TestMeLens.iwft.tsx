@@ -17,7 +17,7 @@ test('renders a question in review mode', async ({ mount, page, simulator }) => 
 
   await expect(page.getByText('Review')).toBeVisible()
   await expect(page.getByPlaceholder('Type your answer...')).toBeVisible()
-  await expect(page.getByText('Reveal Answer')).toBeVisible()
+  await expect(page.getByText('Reveal answer')).toBeVisible()
 })
 
 test('reveals answer on click', async ({ mount, page, simulator }) => {
@@ -27,7 +27,7 @@ test('reveals answer on click', async ({ mount, page, simulator }) => {
     </TestProviders>,
   )
 
-  await page.getByText('Reveal Answer').click()
+  await page.getByText('Reveal answer').click()
   await expect(page.getByText('Answer')).toBeVisible()
   await expect(page.getByText('Got it')).toBeVisible()
   await expect(page.getByText("Didn't get it")).toBeVisible()
@@ -44,7 +44,7 @@ test('shows timer in exam mode', async ({ mount, page, simulator }) => {
     </TestProviders>,
   )
 
-  await expect(page.getByText('Exam Mode')).toBeVisible()
+  await expect(page.getByText('Exam mode')).toBeVisible()
   await expect(page.getByText('2:00')).toBeVisible()
 })
 

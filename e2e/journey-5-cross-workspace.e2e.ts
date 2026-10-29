@@ -54,10 +54,10 @@ test.describe('Journey: Cross-workspace data flow', () => {
 
     // TestMe in Evening Review is in review mode
     await expect(testMePanel.getByText('Review')).toBeVisible({ timeout: 10000 })
-    await expect(testMePanel.getByText('Reveal Answer')).toBeVisible()
+    await expect(testMePanel.getByText('Reveal answer')).toBeVisible()
 
     // Answer wrong to lower confidence
-    await testMePanel.getByText('Reveal Answer').click()
+    await testMePanel.getByText('Reveal answer').click()
     await testMePanel.getByText("Didn't get it").click()
 
     // Question should advance

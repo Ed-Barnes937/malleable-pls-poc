@@ -17,7 +17,7 @@ test.describe('Journey: Exam prep drill', () => {
     await topBar.switchToWorkspace('Exam Prep')
 
     const testMe = grid.panelByLabel('Test Me')
-    const reveal = testMe.getByRole('button', { name: 'Reveal Answer' })
+    const reveal = testMe.getByRole('button', { name: 'Reveal answer' })
     await expect(reveal).toBeVisible({ timeout: 10000 })
     expect(await shownWhole(testMe, reveal)).toBe(true)
 
@@ -46,19 +46,19 @@ test.describe('Journey: Exam prep drill', () => {
     const weakestPanel = grid.panelByLabel('Weakest Topics')
 
     // TestMe should show exam mode with timer
-    await expect(testMePanel.getByText('Exam Mode')).toBeVisible({ timeout: 10000 })
+    await expect(testMePanel.getByText('Exam mode')).toBeVisible({ timeout: 10000 })
     await expect(testMePanel.getByText('2:00')).toBeVisible()
 
     // Read the initial question counter (should be "1/N")
     await expect(testMePanel.getByText(/^1\//)).toBeVisible()
 
     // Note the initial confidence % of the #1 weakest topic
-    const confidenceValues = weakestPanel.locator('.font-mono.tabular-nums')
+    const confidenceValues = weakestPanel.getByTestId('weak-topic-sureness')
     await expect(confidenceValues.first()).toBeVisible({ timeout: 10000 })
     const initialConfidence = await confidenceValues.first().textContent()
 
     // Reveal the answer
-    await testMePanel.getByText('Reveal Answer').click()
+    await testMePanel.getByText('Reveal answer').click()
     await expect(testMePanel.getByText('Answer')).toBeVisible()
 
     // Mark it wrong

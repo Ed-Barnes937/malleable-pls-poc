@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { QUESTIONS, type Question } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
+import { Badge, type BadgeProps, cn, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
 import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
 
 export default function TestMeLens({ scope, config }: LensProps) {
@@ -104,51 +104,43 @@ export default function TestMeLens({ scope, config }: LensProps) {
 
   const confidencePercent = currentQuestion.conf ?? 50
   const timerPercent = isExam ? (timeLeft / timerSeconds) * 100 : 0
+  const lowOnTime = timeLeft < 30
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       {isExam && (
         <div className="flex items-center gap-2">
-          <Timer className={cn('h-3.5 w-3.5', timeLeft < 30 ? 'text-tag-confused' : 'text-neutral-500')} />
-          <div className="flex-1">
-            <div className="h-1.5 rounded-full bg-neutral-800">
-              <div
-                className={cn('h-full rounded-full transition-all duration-1000', timeLeft < 30 ? 'bg-tag-confused' : 'bg-accent/50')}
-                style={{ width: `${timerPercent}%` }}
-              />
-            </div>
+          <Timer className={cn('h-4 w-4', lowOnTime ? 'text-confused' : 'text-text-muted')} />
+          <div className="h-1.5 flex-1 rounded-full bg-surface-overlay">
+            <div
+              className={cn('h-full rounded-full transition-all duration-1000', lowOnTime ? 'bg-confused' : 'bg-accent')}
+              style={{ width: `${timerPercent}%` }}
+            />
           </div>
-          <span className={cn('font-mono text-xs tabular-nums', timeLeft < 30 ? 'text-tag-confused' : 'text-neutral-500')}>
+          <span className={cn('text-meta font-semibold tabular-nums', lowOnTime ? 'text-confused' : 'text-text-muted')}>
             {formatTime(timeLeft * 1000)}
           </span>
         </div>
       )}
 
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
-          {isExam ? 'Exam Mode' : 'Review'}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-meta font-semibold text-text-muted">
+          {isExam ? 'Exam mode' : 'Review'}
         </span>
         <span className="flex items-center gap-2">
           {hidden}
-          <span className="font-mono text-[10px] text-neutral-600">
+          <span className="text-meta tabular-nums text-text-muted">
             {(currentIndex % sortedQuestions.length) + 1}/{sortedQuestions.length}
           </span>
         </span>
       </div>
 
-      <div className="min-h-0 flex-1 flex flex-col justify-center gap-4 overflow-y-auto">
-        <div className="rounded-lg border border-border-subtle bg-surface-overlay/50 p-4">
-          <p className="text-sm leading-relaxed text-neutral-200">{currentQuestion.question}</p>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className={cn(
-              'rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider',
-              currentQuestion.difficulty === 'hard' ? 'bg-tag-confused/15 text-tag-confused'
-                : currentQuestion.difficulty === 'easy' ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'bg-neutral-700/50 text-neutral-500'
-            )}>
-              {currentQuestion.difficulty}
-            </span>
-          </div>
+      <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-y-auto">
+        <div className="flex flex-col items-start gap-2 rounded-item bg-surface-inset p-4">
+          <p className="text-title font-medium text-text-primary">{currentQuestion.question}</p>
+          <Badge variant={DIFFICULTY_BADGE[currentQuestion.difficulty] ?? 'neutral'} className="capitalize">
+            {currentQuestion.difficulty}
+          </Badge>
         </div>
 
         {!revealed ? (
@@ -157,34 +149,38 @@ export default function TestMeLens({ scope, config }: LensProps) {
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               placeholder="Type your answer..."
-              className="resize-none rounded-lg border border-border-subtle bg-surface p-3 text-sm text-neutral-300 placeholder:text-neutral-700 focus:border-accent/40 focus:outline-none focus:ring-1 focus:ring-accent/20"
+              aria-label="Your answer"
+              className="resize-none rounded-control border border-border bg-surface-raised p-3 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line"
               rows={2}
             />
             <button
+              type="button"
               onClick={() => setRevealed(true)}
-              className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-overlay px-4 py-2 text-sm font-medium text-neutral-300 transition-all hover:border-accent/40 hover:text-neutral-100"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-control border border-border bg-surface-raised px-4 text-body font-semibold text-text-primary transition-colors hover:bg-surface-overlay"
             >
-              <Eye className="h-3.5 w-3.5" />
-              Reveal Answer
+              <Eye className="h-4 w-4" />
+              Reveal answer
             </button>
           </>
         ) : (
           <>
-            <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-              <p className="text-[10px] font-medium uppercase tracking-wider text-emerald-500/70 mb-1">Answer</p>
-              <p className="text-sm leading-relaxed text-neutral-300">{currentQuestion.answer}</p>
+            <div className="flex flex-col gap-1 rounded-item bg-good-soft p-3">
+              <p className="text-meta font-semibold text-good">Answer</p>
+              <p className="text-body text-text-primary">{currentQuestion.answer}</p>
             </div>
             <div className="flex gap-2">
               <button
+                type="button"
                 onClick={() => handleResult(true)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-500/10 py-2.5 text-sm font-medium text-emerald-400 ring-1 ring-emerald-500/20 transition-all hover:bg-emerald-500/20"
+                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-control bg-good-soft text-body font-semibold text-good transition-opacity hover:opacity-80"
               >
                 <Check className="h-4 w-4" />
                 Got it
               </button>
               <button
+                type="button"
                 onClick={() => handleResult(false)}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-tag-confused/10 py-2.5 text-sm font-medium text-tag-confused ring-1 ring-tag-confused/20 transition-all hover:bg-tag-confused/20"
+                className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-control bg-confused-soft text-body font-semibold text-confused transition-opacity hover:opacity-80"
               >
                 <X className="h-4 w-4" />
                 Didn't get it
@@ -195,20 +191,20 @@ export default function TestMeLens({ scope, config }: LensProps) {
       </div>
 
       {!isExam && (
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between text-[10px]">
-            <span className="text-neutral-600">Confidence</span>
-            <span className="font-mono text-neutral-500">{confidencePercent}%</span>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between text-meta text-text-muted">
+            <span>Confidence</span>
+            <span className="font-semibold tabular-nums">{confidencePercent}%</span>
           </div>
-          <div className="flex gap-0.5">
+          <div className="flex gap-1" aria-hidden>
             {Array.from({ length: 10 }).map((_, i) => (
               <div
                 key={i}
                 className={cn(
-                  'h-2 flex-1 rounded-sm transition-colors',
+                  'h-1.5 flex-1 rounded-full transition-colors',
                   i < Math.round(confidencePercent / 10)
-                    ? confidencePercent >= 70 ? 'bg-emerald-500/70' : confidencePercent >= 40 ? 'bg-tag-key-point/50' : 'bg-tag-confused/50'
-                    : 'bg-neutral-800'
+                    ? confidencePercent >= 70 ? 'bg-good' : confidencePercent >= 40 ? 'bg-attn' : 'bg-confused'
+                    : 'bg-surface-overlay',
                 )}
               />
             ))}
@@ -217,4 +213,11 @@ export default function TestMeLens({ scope, config }: LensProps) {
       )}
     </div>
   )
+}
+
+/** Hard questions in the "confused" tone, easy ones in "good": calm, never a failure red. */
+const DIFFICULTY_BADGE: Record<string, BadgeProps['variant']> = {
+  hard: 'warning',
+  medium: 'neutral',
+  easy: 'success',
 }

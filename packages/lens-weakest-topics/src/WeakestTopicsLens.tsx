@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, EmptyState, HiddenElsewhere, COURSE_PILL_COLORS, formatTime } from '@pls/shared-ui'
+import { cn, courseTone, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
 import { ArrowUpRight, CircleHelp } from 'lucide-react'
 
 const LIMIT = 8
@@ -48,7 +48,7 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-x-2">
-        <span className="text-[10px] font-medium uppercase tracking-widest text-neutral-600">
+        <span className="text-meta font-semibold text-text-muted">
           {total > topics.length ? `Weakest ${topics.length} of ${total} to review` : `${total} to review`}
         </span>
         {hidden}
@@ -79,9 +79,9 @@ interface TopicRowProps {
 }
 
 function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) {
-  const pillStyle = COURSE_PILL_COLORS[topic.course] ?? 'bg-neutral-700/50 text-neutral-500 ring-neutral-700'
+  const tone = courseTone(topic.course)
   const where = `${lectureName(topic.recordingTitle)} · ${formatTime(topic.offsetMs)}`
-  const linkButton = 'inline-flex items-center gap-1 text-[11px] font-medium text-accent hover:underline'
+  const linkButton = 'inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline'
 
   // Keep where the click went in view, even for a row low in a short panel.
   const messageRef = useRef<HTMLDivElement>(null)
@@ -92,21 +92,23 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
   const body = (
     <>
       <span className={cn(
-        'flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-mono text-xs font-bold',
-        topic.rank <= 3 ? 'bg-amber-200/10 text-attention-strong' : 'bg-neutral-800 text-neutral-600',
+        'flex h-7 w-7 shrink-0 items-center justify-center rounded-item text-meta font-semibold tabular-nums',
+        topic.rank <= 3 ? 'bg-attn-soft text-attn' : 'bg-surface-overlay text-text-muted',
       )}>
         {topic.rank}
       </span>
 
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="line-clamp-2 text-[13px] text-neutral-300">{topic.label}</span>
-        <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <span className="line-clamp-2 text-body font-medium text-text-primary">{topic.label}</span>
+        <span className="mt-0.5 min-w-0 break-words text-meta text-text-muted">
           {showCourse && (
-            <span className={cn('shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium capitalize ring-1', pillStyle)}>
-              {topic.course}
-            </span>
+            <>
+              <span aria-hidden className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', tone.stripe)} />
+              <span className={cn('font-semibold capitalize', tone.ink)}>{topic.course}</span>
+              {' · '}
+            </>
           )}
-          <span className="min-w-0 break-words text-[10px] text-neutral-500">{where}</span>
+          {where}
         </span>
       </span>
 
@@ -122,16 +124,16 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
           onClick={onShow}
           title={`Go to this moment: ${where}`}
           aria-label={`${topic.label}: go to this moment in ${where}`}
-          className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-surface-overlay/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/50"
+          className="group flex w-full items-center gap-3 rounded-item px-2.5 py-2 text-left transition-colors hover:bg-surface-inset focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {body}
         </button>
       ) : (
-        <div className="flex items-center gap-3 rounded-lg px-2.5 py-2" title={where}>{body}</div>
+        <div className="flex items-center gap-3 rounded-item px-2.5 py-2" title={where}>{body}</div>
       )}
 
       {state && state !== 'shown' && (
-        <div ref={messageRef} data-testid="weak-topic-moment" className="ml-11 flex flex-col gap-1 pb-1.5 text-[11px] text-text-muted">
+        <div ref={messageRef} data-testid="weak-topic-moment" className="ml-12 flex flex-col gap-1 pb-1.5 text-meta text-text-muted">
           {state === 'opening' && <span>Opening the moment...</span>}
           {state === 'failed' && (
             <>
@@ -159,8 +161,8 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
 function Sureness({ topic }: { topic: WeakTopic }) {
   if (topic.confidence == null) {
     return (
-      <span className="flex shrink-0 items-center gap-1 text-[10px] text-attention" title="You marked this confusing">
-        <CircleHelp className="h-3 w-3" />
+      <span className="flex shrink-0 items-center gap-1 text-meta font-semibold text-attn" title="You marked this confusing">
+        <CircleHelp className="h-3.5 w-3.5" />
         Confusing
       </span>
     )
@@ -168,13 +170,14 @@ function Sureness({ topic }: { topic: WeakTopic }) {
   const sure = topic.confidence
   return (
     <span
-      className="flex w-[4.5rem] shrink-0 flex-col items-end gap-0.5"
+      data-testid="weak-topic-sureness"
+      className="flex w-[4.5rem] shrink-0 flex-col items-end gap-1"
       title={topic.confused ? `You felt ${sure}% sure, and marked it confusing` : `You felt ${sure}% sure`}
     >
-      <span className="font-mono text-[11px] font-bold tabular-nums text-attention">{sure}% sure</span>
-      <span className="flex h-1 w-full gap-px" aria-hidden>
+      <span className="text-meta font-semibold tabular-nums text-attn">{sure}% sure</span>
+      <span className="flex h-1 w-full gap-0.5" aria-hidden>
         {Array.from({ length: 5 }).map((_, i) => (
-          <span key={i} className={cn('flex-1 rounded-sm', i < Math.round(sure / 20) ? 'bg-amber-200/50' : 'bg-neutral-800')} />
+          <span key={i} className={cn('flex-1 rounded-full', i < Math.round(sure / 20) ? 'bg-attn' : 'bg-surface-overlay')} />
         ))}
       </span>
     </span>

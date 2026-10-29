@@ -14,7 +14,8 @@ test('renders connections for a concept', async ({ mount, page, simulator }) => 
   )
 
   await expect(page.getByRole('heading', { name: 'mitochondrial DNA' })).toBeVisible()
-  await expect(page.getByText('Connections')).toBeVisible()
+  // The widget title already says "Connections" (panel chrome); the body doesn't repeat it.
+  await expect(page.getByText('Connections', { exact: true })).toHaveCount(0)
   // Should find connections from the seed data links
   await expect(page.getByText(/Same concept|Builds on|Related|References/).first()).toBeVisible()
 })

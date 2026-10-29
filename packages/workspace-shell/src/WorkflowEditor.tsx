@@ -119,7 +119,11 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
     }
   }
 
-  const labelClass = 'mb-1 block text-[10px] font-semibold uppercase tracking-wide text-neutral-500'
+  const labelClass = 'mb-1.5 block text-meta font-semibold text-text-muted'
+  const smallControl =
+    'h-8 rounded-item border border-border bg-surface-raised px-2 text-body text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line'
+  const stepButton =
+    'rounded-item p-1 text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-40 disabled:hover:bg-transparent'
 
   return (
     <Dialog
@@ -128,7 +132,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
       title={isEditing ? 'Edit automation' : 'New automation'}
       className="w-full max-w-md"
     >
-      <div className="flex max-h-[70vh] flex-col gap-3 overflow-y-auto">
+      <div className="flex max-h-[70vh] flex-col gap-4 overflow-y-auto">
         <div>
           <label className={labelClass}>When</label>
           <Select value={triggerEvent} onChange={(e) => setTriggerEvent(e.target.value)}>
@@ -150,7 +154,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
             />
           </div>
           <div>
-            <label className={labelClass}>is</label>
+            <label className={labelClass}>Is</label>
             <TextField
               value={conditionValue}
               onChange={(e) => setConditionValue(e.target.value)}
@@ -160,31 +164,31 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
         </div>
 
         <div>
-          <div className="mb-1 flex items-center justify-between">
-            <label className={labelClass}>Then</label>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={cn(labelClass, 'mb-0')}>Then</label>
             <button
               type="button"
               onClick={addJob}
               disabled={jobTypes.length === 0}
-              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-accent transition-colors hover:bg-accent/10"
+              className="inline-flex h-8 items-center gap-1.5 rounded-item px-2 text-meta font-semibold text-accent transition-colors hover:bg-accent-soft disabled:opacity-40"
             >
-              <Plus className="h-3 w-3" />
-              Add
+              <Plus className="h-3.5 w-3.5" />
+              Add step
             </button>
           </div>
           {jobs.length === 0 ? (
-            <p className="rounded-md border border-dashed border-border-subtle px-2.5 py-3 text-center text-[10px] text-neutral-600">
+            <p className="rounded-item border border-dashed border-border px-3 py-3 text-center text-meta text-text-muted">
               {jobTypes.length === 0 ? 'Nothing can run after this yet' : 'No steps yet - add at least one'}
             </p>
           ) : (
             <div className="flex flex-col gap-1.5">
               {jobs.map((job, idx) => (
-                <div key={idx} className="flex items-center gap-1.5 rounded-md bg-surface-overlay/50 px-2 py-1.5">
+                <div key={idx} className="flex flex-wrap items-center gap-1.5 rounded-item bg-surface-inset p-2">
                   <select
                     value={job.jobType}
                     onChange={(e) => updateJob(idx, { jobType: e.target.value, params: defaultParams(e.target.value) })}
                     aria-label={`Step ${idx + 1}`}
-                    className="min-w-0 flex-1 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
+                    className={cn(smallControl, 'min-w-0 basis-full')}
                   >
                     {optionsFor(job.jobType).map((t) => (
                       <option key={t.type} value={t.type}>
@@ -192,17 +196,17 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                       </option>
                     ))}
                   </select>
-                  <label className="flex items-center gap-1 text-[10px] text-neutral-500">
-                    wait
+                  <label className="mr-auto flex items-center gap-1.5 text-meta text-text-muted">
+                    Wait
                     <input
                       type="number"
                       min={0}
                       value={Math.round(job.delayMs / DAY_MS)}
                       onChange={(e) => updateJob(idx, { delayMs: Math.max(0, Number(e.target.value)) * DAY_MS })}
                       aria-label={`Days to wait before step ${idx + 1}`}
-                      className="w-10 rounded border border-border-subtle bg-surface px-1.5 py-1 text-[11px] text-neutral-200 focus:border-accent/40 focus:outline-none"
+                      className={cn(smallControl, 'w-12')}
                     />
-                    days
+                    {Math.round(job.delayMs / DAY_MS) === 1 ? 'day' : 'days'}
                   </label>
                   <button
                     type="button"
@@ -210,9 +214,9 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     aria-label="Move step up"
                     title="Move step up"
                     disabled={idx === 0}
-                    className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
+                    className={stepButton}
                   >
-                    <ArrowUp className="h-3 w-3" />
+                    <ArrowUp className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
@@ -220,18 +224,18 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     aria-label="Move step down"
                     title="Move step down"
                     disabled={idx === jobs.length - 1}
-                    className="rounded p-0.5 text-neutral-600 transition-colors hover:text-neutral-300 disabled:opacity-30"
+                    className={stepButton}
                   >
-                    <ArrowDown className="h-3 w-3" />
+                    <ArrowDown className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
                     onClick={() => removeJob(idx)}
                     aria-label="Remove step"
                     title="Remove step"
-                    className="rounded p-0.5 text-neutral-600 transition-colors hover:bg-red-500/10 hover:text-red-400"
+                    className="rounded-item p-1 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
                   >
-                    <Trash2 className="h-3 w-3" />
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </div>
               ))}
@@ -243,7 +247,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md px-3 py-1.5 text-xs text-neutral-400 transition-colors hover:bg-surface-overlay hover:text-neutral-200"
+            className="inline-flex h-10 items-center rounded-control px-3 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
           >
             Cancel
           </button>
@@ -252,8 +256,8 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
             onClick={handleSave}
             disabled={isPending || jobs.length === 0 || !triggerEvent}
             className={cn(
-              'rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-accent/80',
-              'disabled:opacity-40',
+              'inline-flex h-10 items-center rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90',
+              'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
             {isPending ? 'Saving…' : isEditing ? 'Save' : 'Create'}
