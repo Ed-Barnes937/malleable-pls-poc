@@ -146,7 +146,7 @@ export function WorkspaceSwitcher() {
         data-fade-end={edges.end || undefined}
         onScroll={updateEdges}
         // pan-x: a finger swipes the strip sideways; a mouse drag still reorders.
-        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-[14px] bg-surface-overlay p-1 touch-pan-x [scrollbar-width:none]"
+        className="flex max-w-full items-center gap-1 overflow-x-auto rounded-track bg-surface-overlay p-1 touch-pan-x [scrollbar-width:none]"
         style={edges.start || edges.end ? { maskImage: fadeMask(edges), WebkitMaskImage: fadeMask(edges) } : undefined}
       >
         {workspaces.map((ws, idx) => {
@@ -160,7 +160,7 @@ export function WorkspaceSwitcher() {
               key={ws.id}
               data-testid="workspace-tab"
               className={cn(
-                'relative flex shrink-0 items-center rounded-[11px] transition-all duration-150',
+                'relative flex shrink-0 items-center rounded-tab transition-all duration-150',
                 isActive && 'bg-surface-raised shadow-sm',
               )}
             >
@@ -175,7 +175,7 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-[11px] text-body transition-all duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab text-body transition-all duration-150 select-none',
                   isActive
                     ? 'pl-3.5 pr-1 font-semibold text-text-primary'
                     : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
@@ -213,7 +213,7 @@ export function WorkspaceSwitcher() {
           onClick={() => setCreateDialogOpen(true)}
           aria-label="New board"
           title="New board"
-          className="flex h-9 shrink-0 items-center justify-center rounded-[11px] px-2.5 text-text-muted transition-colors hover:bg-surface-raised/60 hover:text-text-primary"
+          className="flex h-9 shrink-0 items-center justify-center rounded-tab px-2.5 text-text-muted transition-colors hover:bg-surface-raised/60 hover:text-text-primary"
         >
           <Plus className="h-4 w-4" />
         </button>

@@ -62,7 +62,10 @@
  *              uppercase mono labels.
  *   Radius     rounded-widget 20 (widget chrome, big cards), rounded-control
  *              12 (buttons, inputs, tabs), rounded-item 10 (blocks, rows,
- *              small cards), rounded-full (chips, pills)
+ *              small cards), rounded-full (chips, pills, dots);
+ *              board tabs: rounded-track (the track), rounded-tab;
+ *              rounded-toast. No bare rounded, rounded-md or
+ *              rounded-[Npx]: design-tokens.test.ts fails on them.
  *   Shadow     shadow-panel (widgets), shadow-pop (popovers, toasts)
  *   Motion     One signature motion: the confused-to-calendar ripple.
  *              The review card that flies from the moment to its block is
@@ -159,6 +162,11 @@
   --radius-widget: 20px;
   --radius-control: 12px;
   --radius-item: 10px;
+  /* The board tabs: their track, and a tab inside it (nested corners). */
+  --radius-track: 14px;
+  --radius-tab: 11px;
+  /* A toast in the toast bar. */
+  --radius-toast: 14px;
   /* Older name for the widget radius. */
   --radius-panel: var(--radius-widget);
 

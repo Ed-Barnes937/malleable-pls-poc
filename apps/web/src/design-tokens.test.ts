@@ -9,8 +9,14 @@
  * - raw palette colours (`bg-neutral-800`, `text-white`, `ring-amber-200/15`)
  *   and colour literals (`bg-[#fff]`, `text-[rgb(...)]`), which ignore the
  *   light and dark themes;
+ * - radius that bypasses the radius tokens (rounded-widget/control/item,
+ *   and rounded-track/tab/toast for the board tabs and toasts): bare
+ *   `rounded`, stock sizes (`rounded-md`, `rounded-t-lg`) and arbitrary
+ *   values (`rounded-[14px]`). `rounded-full` (pills, dots, avatars) and
+ *   `rounded-none` (squaring off one side) are not a scale, so they stay;
  * - uppercase labels (sentence case only).
- * Tests are exempt: they may pass any class through to check it lands.
+ * Tests (unit and component) are exempt: they may pass any class through to
+ * check it lands.
  */
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
@@ -28,7 +34,7 @@ function sourceFiles(dir: string): string[] {
     const full = path.join(dir, name)
     if (name === 'node_modules') return []
     if (statSync(full).isDirectory()) return sourceFiles(full)
-    return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [full] : []
+    return /\.tsx?$/.test(name) && !/\.(test|iwft)\.tsx?$/.test(name) ? [full] : []
   })
 }
 
@@ -45,6 +51,7 @@ const RULES: [string, RegExp][] = [
   ['stock text size', /(?<![\w-])text-(?:xs|sm|base|lg|xl|[2-9]xl)(?![\w-])/g],
   ['raw palette colour', new RegExp(`(?<![\\w-])(?:${COLOR_UTILITY})-(?:${PALETTE})(?:-\\d{2,3})?(?:/\\d+)?(?![\\w-])`, 'g')],
   ['colour literal', new RegExp(`(?<![\\w-])(?:${COLOR_UTILITY})-\\[(?:#|(?:rgba?|hsla?|oklch|oklab|lab|lch)\\()`, 'g')],
+  ['raw radius', /(?<![\w-])rounded(?:-(?:t|r|b|l|s|e|tl|tr|bl|br|ss|se|es|ee))?(?:-(?:xs|sm|md|lg|xl|[2-4]xl|\[[^\]]*\]))?(?![\w[-])/g],
   ['uppercase label', /(?<![\w-])uppercase(?![\w-])/g],
 ]
 
@@ -81,6 +88,12 @@ describe('widgets use the design tokens', () => {
       `'bg-[#ff0000]'`,
       `'text-[rgb(1,2,3)]'`,
       `'font-mono uppercase tracking-widest'`,
+      `'rounded px-1.5'`,
+      `"rounded-md bg-surface-overlay"`,
+      '`hover:rounded-lg`',
+      `'rounded-t-lg'`,
+      `'rounded-[14px]'`,
+      `'rounded-[var(--radius-panel)]'`,
     ]
     for (const src of bad) expect(violations('x.tsx', src), src).not.toEqual([])
     const good = [
@@ -91,11 +104,15 @@ describe('widgets use the design tokens', () => {
       `'text-accent-foreground bg-accent'`,
       `// a comment about text-xs and bg-white is fine`,
       `'Things to do'`,
+      `'rounded-widget rounded-control rounded-item'`,
+      `'rounded-track rounded-tab rounded-toast'`,
+      `'h-2 w-2 rounded-full'`,
+      `'rounded-b-none rounded-t-none'`,
     ]
     for (const src of good) expect(violations('x.tsx', src), src).toEqual([])
   })
 
-  it('has no arbitrary or stock text sizes, raw colours or uppercase labels', () => {
+  it('has no arbitrary or stock text sizes, raw colours, raw radius or uppercase labels', () => {
     const found = uiFiles.flatMap((file) =>
       violations(path.relative(packagesDir, file), readFileSync(file, 'utf8')),
     )
