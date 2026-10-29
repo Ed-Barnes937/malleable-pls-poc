@@ -27,6 +27,8 @@ const NOW = Date.parse(process.env.DEMO_NOW ?? '2026-10-27T10:30:00Z')
 const WEEK_MS = 7 * 24 * 60 * 60_000
 const DEMO_WAV = path.join(__dirname, '..', 'demo', 'lecture-mitochondrial-dna.wav')
 const LECTURE = 'Mitochondrial DNA - today'
+/** Step 2 at the default time, after Shrink: the two left over don't fit in what the days' 2h has left. */
+const DEFAULT_DRAFT_SUMMARY = "Drafted 5h of study time. 4h didn't fit. The other 2h is on days with too little study time left for them."
 const AUTOFILLED = ['seed-todo-past-paper', 'seed-todo-problem-sheet', 'seed-todo-flashcards', 'seed-todo-essay-plan']
 
 /** Monday 00:00 London of the week containing `now`. */
@@ -88,13 +90,22 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await expect(draft.getByTestId('autofill-trim')).toHaveCount(1, { timeout: 15000 })
     await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) is too long for one day.')
     await draft.getByRole('button', { name: 'Shrink to 2h' }).click()
-    await expect(draft.getByTestId('autofill-summary')).toHaveText(/^Drafted .+ of study time\. .+ didn't fit\./)
-    // The short-gaps sentence agrees in number with the to-dos that didn't fit.
-    const didntFit = await draft.getByRole('button', { name: /^Pick a time for / }).count()
-    expect(didntFit).toBeGreaterThan(0)
-    await expect(draft.getByTestId('autofill-summary')).toHaveText(
-      new RegExp(`^Drafted .+ of study time\\. .+ didn't fit\\.( The other .+ of free time is in gaps too short for ${didntFit === 1 ? 'it' : 'them'}\\.)?$`),
-    )
+    if (!process.env.DEMO_NOW) {
+      // The default demo time is frozen, so the draft is too.
+      await expect(draft.getByTestId('autofill-summary')).toHaveText(DEFAULT_DRAFT_SUMMARY)
+    } else {
+      // Another time: the leftover sentence (short gaps, or days with too
+      // little study time left) agrees in number with the to-dos that didn't fit.
+      await expect(draft.getByTestId('autofill-summary')).toHaveText(/^Drafted .+ of study time\. .+ didn't fit\./)
+      const didntFit = await draft.getByRole('button', { name: /^Pick a time for / }).count()
+      expect(didntFit).toBeGreaterThan(0)
+      const them = didntFit === 1 ? 'it' : 'them'
+      const gaps = `of free time is in gaps too short for ${them}`
+      const days = `is on days with too little study time left for ${them}`
+      await expect(draft.getByTestId('autofill-summary')).toHaveText(new RegExp(
+        `^Drafted .+ of study time\\. .+ didn't fit\\.( The other \\S+( \\S+)? (${gaps}|${days}|${gaps}, and \\S+( \\S+)? ${days})\\.)?$`,
+      ))
+    }
     await plan.getByRole('button', { name: 'Accept draft' }).click()
     await expect(calendar.block('Lab report write-up')).toHaveCount(1)
     await plan.getByRole('button', { name: /close/i }).first().click()

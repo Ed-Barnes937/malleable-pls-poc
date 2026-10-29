@@ -39,6 +39,8 @@ describe('buildAutofillDraft', () => {
     expect(unplacedReason('window-closed', 120)).toBe('not enough time before it is due')
     expect(unplacedReason('invalid-duration', 120)).toBe('it needs an estimate')
     expect(unplacedReason('no-free-slot', 120)).toBe('no free gap long enough')
+    expect(unplacedReason('no-free-slot', 120, 'gaps')).toBe('no free gap long enough')
+    expect(unplacedReason('no-free-slot', 120, 'budget')).toBe('too little study time left on any day')
   })
 })
 
