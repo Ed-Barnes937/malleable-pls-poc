@@ -197,7 +197,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                     ))}
                   </select>
                   <label className="mr-auto flex items-center gap-1.5 text-meta text-text-muted">
-                    wait
+                    Wait
                     <input
                       type="number"
                       min={0}
@@ -206,7 +206,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                       aria-label={`Days to wait before step ${idx + 1}`}
                       className={cn(smallControl, 'w-12')}
                     />
-                    days
+                    {Math.round(job.delayMs / DAY_MS) === 1 ? 'day' : 'days'}
                   </label>
                   <button
                     type="button"
