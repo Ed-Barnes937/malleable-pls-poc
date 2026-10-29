@@ -244,6 +244,13 @@ describe('simulator parity — read procedures return data on default seed', () 
       .rejects.toThrow('Board not found')
     await expect(mutate(router, 'workspaces.updateBackground', { workspaceId: 'ws-gone', backgroundType: 'solid', backgroundValue: '#000' }))
       .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workflows.create', { workspaceId: 'ws-gone', sourceLens: 'transcript', triggerEvent: 'tag:created', jobs: [] }))
+      .rejects.toThrow('Board not found')
+    const [source] = await query(router, 'workflows.forWorkspace', { workspaceId: 'ws-in-lecture' }) as { id: string }[]
+    await expect(mutate(router, 'workflows.createOverride', { sourceWorkflowId: source.id, workspaceId: 'ws-gone', enabled: false }))
+      .rejects.toThrow('Board not found')
+    const onGone = await query(router, 'workflows.forWorkspace', { workspaceId: 'ws-gone' }) as { workspace_id: string | null }[]
+    expect(onGone.filter((w) => w.workspace_id === 'ws-gone')).toEqual([])
     expect(before).toBe(0)
     expect(await query(router, 'workspaces.panels', 'ws-gone')).toEqual([])
     expect(await query(router, 'workspaces.scopes', 'ws-gone')).toEqual([])

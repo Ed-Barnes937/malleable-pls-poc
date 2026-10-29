@@ -38,7 +38,7 @@ export function useKeepActiveBoard() {
   const { data: boards } = useWorkspaces()
   const chosenId = useWorkspaceStore((s) => s.activeWorkspaceId)
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
-  const resolved = resolveActiveBoard(boards as { id: string }[] | undefined, chosenId)
+  const resolved = useActiveWorkspaceId()
   useEffect(() => {
     if (boards && resolved !== chosenId) setActiveWorkspaceId(resolved)
   }, [boards, resolved, chosenId, setActiveWorkspaceId])

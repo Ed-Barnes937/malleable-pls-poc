@@ -62,6 +62,31 @@ test.describe('Reloading after deleting a board', () => {
     await grid.expectPanelCount(3)
   })
 
+  test('a board deleted in another tab: adding to it fails, then the app moves to a board that still exists', async ({ page, request }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    await topBar.expectActiveWorkspace('Evening Review')
+    await grid.expectPanelCount(4)
+    // Deleted elsewhere: this page still lists it and has it open.
+    const boards = await trpcQuery<{ id: string; name: string }[]>(request, 'workspaces.list')
+    await trpcMutation(request, 'workspaces.delete', boards.find((b) => b.name === 'Evening Review')!.id)
+
+    const sidebar = new SidebarPom(page)
+    await topBar.openDrawer()
+    await sidebar.addWidget('Calendar')
+    await expect(page.getByTestId('toast-host')).toContainText("Couldn't add Calendar. Try again.")
+    // The failed add refetches the boards: the deleted one goes, the next opens.
+    await expect(topBar.workspaceTab('Evening Review')).toHaveCount(0)
+    await topBar.expectActiveWorkspace('Exam Prep')
+    await grid.expectPanelCount(3)
+
+    await sidebar.addWidget('Calendar')
+    await expect(page.getByTestId('toast-host')).toContainText('Calendar added')
+    await expect(grid.panelByLabel('Calendar')).toHaveCount(1)
+    await grid.expectPanelCount(4)
+  })
+
   test('with every board deleted, offers a new board instead of widgets, and the new board takes one', async ({ page }) => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)

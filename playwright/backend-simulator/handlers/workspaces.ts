@@ -142,7 +142,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 }
 
 /** Mirrors the server's requireOwnBoard: a write naming a board that is gone is NOT_FOUND. */
-function requireBoard(db: InMemoryDb, workspaceId: string) {
+export function requireBoard(db: InMemoryDb, workspaceId: string) {
   const ws = db.workspaces.find((w) => w.id === workspaceId)
   if (!ws) throw new SimulatorError('NOT_FOUND', 'Board not found')
   return ws

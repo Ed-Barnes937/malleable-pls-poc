@@ -36,8 +36,9 @@ export function useWorkspaceScopes(workspaceId: string | null) {
   return trpc.workspaces.scopes.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
 }
 
-// Both update the cached board list straight away, so a new board can open
-// (and a deleted one close) before the list refetches.
+// Both write the change into the cached board list as well as refetching
+// it: if the refetch fails, the list still has the new board (so the open
+// board doesn't fall back to the first one) and no longer has the deleted one.
 export function useCreateWorkspace() {
   const utils = trpc.useUtils()
   return trpc.workspaces.create.useMutation({
@@ -80,10 +81,20 @@ export function useReorderWorkspaces() {
   })
 }
 
+/**
+ * A write that names a board the server doesn't have (deleted in another
+ * tab, say) is NOT_FOUND: refetch the board list, so the open board moves to
+ * one that still exists.
+ */
+function refetchBoardsIfGone(utils: ReturnType<typeof trpc.useUtils>, error: { data?: { code?: string } | null }) {
+  if (error.data?.code === 'NOT_FOUND') void utils.workspaces.list.invalidate()
+}
+
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({
     onSuccess: () => utils.workspaces.panels.invalidate(),
+    onError: (error) => refetchBoardsIfGone(utils, error),
   })
 }
 
@@ -115,6 +126,7 @@ export function useUpdateWorkspaceBackground() {
 export function useSetWorkspaceScope() {
   const utils = trpc.useUtils()
   return trpc.workspaces.setScope.useMutation({
+    onError: (error) => refetchBoardsIfGone(utils, error),
     onSuccess: (_data, input) => {
       utils.workspaces.scopes.invalidate()
       // A freshly captured/uploaded recording becomes the focus before any
