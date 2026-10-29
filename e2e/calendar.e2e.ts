@@ -306,6 +306,82 @@ test.describe('Calendar', () => {
     await expect(calendar.block('Review: maternal inheritance')).toHaveAttribute('aria-label', /12:00 - 12:20/)
   })
 
+  test('while its save is in flight, pressing the block only closes the popover: the save is not undone by a move', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const alpha = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Alpha', starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60, course: 'biology',
+    })
+    // The popover's save is slow; anything after it is not.
+    const updates: string[] = []
+    let first = true
+    await page.route(/planItems\.update/, async (route) => {
+      updates.push(route.request().postData() ?? '')
+      if (first) {
+        first = false
+        await new Promise((resolve) => setTimeout(resolve, 1500))
+      }
+      await route.continue()
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Alpha')
+
+    await block.click()
+    await calendar.popover.getByLabel('Start time').fill('12:00')
+    await calendar.popover.getByLabel('End time').fill('13:00')
+    const saved = page.waitForResponse((r) => r.url().includes('planItems.update'))
+    await calendar.popover.getByRole('button', { name: 'Save' }).click()
+    await expect(calendar.popover.getByRole('status')).toHaveText('Saving...')
+
+    // Press the block and drag it while "Saving..." shows.
+    const target = await calendar.point(3, 14.5)
+    const box = (await block.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(target.x, target.y, { steps: 8 })
+    await page.mouse.up()
+    await expect(calendar.popover).toHaveCount(0)
+
+    expect((await saved).ok()).toBe(true)
+    await expect(block).toHaveAttribute('aria-label', /12:00 - 13:00/)
+    // Only the save went to the server: the press moved nothing.
+    expect(updates).toHaveLength(1)
+    const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: alpha.id }))}`, { headers })
+    expect((await res.json()).result.data.json).toMatchObject({ starts_at: at(4, 12), ends_at: at(4, 13) })
+
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(block).toHaveAttribute('aria-label', /12:00 - 13:00/)
+  })
+
+  test('a plain click on the due marker whose popover is open closes it, keeping the toggle blocks have', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await call(request, 'planItems.create', { kind: 'deadline', title: 'Essay due', course: 'biology', due_at: at(5, 17) })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const marker = calendar.root.getByTestId('calendar-due').filter({ hasText: 'Essay due' })
+
+    await marker.click()
+    await expect(calendar.popover).toBeVisible()
+    await calendar.popover.getByLabel('Title').fill('Essay due (edited)')
+    await marker.click()
+    // Give a reopen (the old flicker) a frame or two to show.
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(marker).toBeFocused()
+
+    // The next click, and Enter, open it again.
+    await marker.click()
+    await expect(calendar.popover.getByLabel('Title')).toHaveValue('Essay due')
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(marker).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(calendar.popover).toBeVisible()
+  })
+
   test('a study block from a lecture moment: "Go to moment" lands on the transcript moment', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar', 'transcript'])
     // 2,200,000 ms is in the chloroplast DNA segment near the end of the lecture.

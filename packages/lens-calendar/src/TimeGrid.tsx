@@ -7,7 +7,7 @@ import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
-import { closedPopover, closedPopoverOf } from './popover-position'
+import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -143,6 +143,8 @@ export function TimeGrid({
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  /** The due marker whose own popover the last press closed: the click that follows leaves it closed (a toggle). */
+  const dueClosedBy = useRef<string | null>(null)
 
   // Size hours so the working day fits the panel, then start scrolled to it.
   useLayoutEffect(() => {
@@ -265,7 +267,8 @@ export function TimeGrid({
   }
 
   const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
-    if (e.button !== 0) return
+    // A press that only closes a popover (its save is in flight) moves nothing.
+    if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
     e.stopPropagation()
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     const start = new Date(item.starts_at!)
@@ -442,7 +445,16 @@ export function TimeGrid({
                       type="button"
                       data-block="due"
                       data-testid="calendar-due"
-                      onClick={(e) => onOpen(m.item, { clientX: e.clientX, clientY: e.clientY })}
+                      onPointerDown={(e) => {
+                        dueClosedBy.current = closedPopoverOf(e.nativeEvent, m.key) ? m.key : null
+                      }}
+                      onClick={(e) => {
+                        // A pointer click (detail > 0) that closed this marker's popover leaves it
+                        // closed; Enter or Space (detail 0) always opens.
+                        const toggledOff = e.detail > 0 && dueClosedBy.current === m.key
+                        dueClosedBy.current = null
+                        if (!toggledOff) onOpen(m.item, { clientX: e.clientX, clientY: e.clientY })
+                      }}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
                         '@container flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 text-left text-meta font-semibold transition-opacity',

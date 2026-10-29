@@ -7,7 +7,7 @@ import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
-import { markClosingPress } from './popover-position'
+import { markClosingPress } from './closing-press'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
@@ -120,13 +120,15 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
    * A press anywhere in the calendar but the popover closes it and still
    * does what it does, so a block can be dragged (or opened) straight away.
    * A press on empty time only closes it (`closedPopover` in TimeGrid), and
-   * so does a plain click on the block it is open on (a toggle).
+   * so does a plain click on the block it is open on (a toggle). While its
+   * save is in flight a press only closes it and moves nothing: a move would
+   * land first and the slower save would then put the block back.
    * Presses outside the calendar leave it open, e.g. while the student
    * edits the automation its footer opened.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
     if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
-    markClosingPress(e.nativeEvent, popover.mode === 'edit' ? popover.key : null)
+    markClosingPress(e.nativeEvent, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
     closePopover()
   }
 
