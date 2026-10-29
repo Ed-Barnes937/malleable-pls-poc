@@ -93,8 +93,8 @@ export function RefitBanner({ course, onShowPlanItem }: {
         {text}
         <button
           type="button"
-          aria-label="Dismiss"
-          title="Dismiss"
+          aria-label="Dismiss note"
+          title="Dismiss note"
           onClick={() => setNote(null)}
           className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-item text-text-muted outline-none transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent"
         >
