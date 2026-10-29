@@ -47,3 +47,11 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 
 ## 2026-10-29 (orchestrator, cheap to reverse)
 24. A widget added by click is shortened (down to its minimum height) to land fully in view only on the desktop layout and only when the board already has widgets. On a phone or an empty board it keeps its default height, so a layout saved from a small screen doesn't shrink widgets on desktop.
+
+## 2026-10-29 (Ed, S1 open questions)
+25. S1 study hours, as the write-up recommends:
+    - Default 09:00-22:00.
+    - Stored per weekday, shown as one range by default, with "Different on some days" and "No study" days.
+    - Study hours, the daily budget and the time zone move into one per-user preference on the server, out of Calendar panel config.
+    - Study hours are hard for automatic placement and ignored for manual drag and create.
+    - Built as S1a (storage, scheduler, server wiring) and S1b (the Plan your time editor and the grid wash).
