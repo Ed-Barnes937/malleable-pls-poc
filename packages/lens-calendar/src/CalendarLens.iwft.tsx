@@ -664,6 +664,25 @@ test('a 20-minute block, drawn to scale, reads by its title in a caption just un
   await expect(page.getByTestId('calendar-popover')).toBeVisible()
 })
 
+test('a 20-minute block moves wherever it is pressed: no edge of the thin bar resizes it', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])
+  await mount(<CalendarHarness />)
+  const short = block(page, 'Quick review')
+  await point(page, 0, 12)
+  await short.hover()
+  await expect(short.getByTestId('calendar-block-resize')).toHaveCount(0)
+  const box = (await short.boundingBox())!
+  // Press its lowest pixel, where a resize edge would be, and drop it on Saturday.
+  const drop = await point(page, 5, 15 + (box.height - 1) / box.height / 3)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height - 1)
+  await page.mouse.down()
+  await page.mouse.move(drop.x, drop.y, { steps: 8 })
+  await page.mouse.up()
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'short')?.starts_at).toBe(iso(5, 15))
+  expect(simulator.db.planItems.find((p) => p.id === 'short')).toMatchObject({ ends_at: iso(5, 15, 20), duration_min: 20 })
+})
+
 test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute one at the default zoom', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seed(simulator, [
@@ -673,6 +692,8 @@ test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute o
   ])
   await mount(<CalendarHarness />)
   await expect(block(page, 'Review hour')).toBeVisible()
+  // Measure only once the grid has settled at its hour height (it re-fits as rows load).
+  await point(page, 0, 12)
   const heightOf = async (title: string) => (await block(page, title).boundingBox())!.height
   const hourPx = (await heightOf('Review hour')) + 2
   // The default zoom fits 08:00-22:00, so short blocks are small: they still differ.

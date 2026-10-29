@@ -753,12 +753,15 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
           </span>
         )}
       </div>
-      {movable && !preview && (
+      {/* A compact block (a 20-min review is about 9px) has no edge to resize:
+          any edge would take most of the bar, so pressing it to move the block
+          would stretch it instead. Edit time in its popover changes its length. */}
+      {movable && !preview && !compact && (
         <div
           data-testid="calendar-block-resize"
           aria-hidden
           onPointerDown={(e) => onPointerDown?.(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center overflow-hidden opacity-0 transition-opacity group-hover:opacity-100"
           // A third of a short block at most, so most of it still moves the block.
           style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
