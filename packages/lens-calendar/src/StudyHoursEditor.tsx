@@ -37,7 +37,7 @@ const withValue = (times: string[], value: string) => (times.includes(value) ? t
 const endsAfterStart = (w: StudyWindow) => w.end > w.start
 
 export const END_BEFORE_START = 'End time must be after the start time.'
-export const REPLACES_DAYS = 'These times will replace your different days when you save.'
+export const REPLACES_DAYS = 'Saving uses these times for every day, replacing the times you set for each day.'
 
 /** Every day has study, all at the same times. */
 const everyDaySame = (h: StudyHours) => WEEKDAYS.every((d) => h[d] && sameStudyWindow(h[d], h.mon))
@@ -66,6 +66,12 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
   const [different, setDifferent] = useState(!uniform)
   const [every, setEvery] = useState<StudyWindow>(studying[0] ?? DEFAULT_STUDY_HOURS.mon!)
   const [days, setDays] = useState<StudyHours>(studyHours)
+  // A day was edited in "Different on some days" (and not saved yet).
+  const [touched, setTouched] = useState(false)
+  const editDay = (day: Weekday, w: StudyWindow | null) => {
+    setDays({ ...days, [day]: w })
+    setTouched(true)
+  }
 
   const headingId = useId()
   const daysId = useId()
@@ -80,13 +86,13 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     })
   }
 
-  const hours: StudyHours = different
-    ? days
-    : Object.fromEntries(WEEKDAYS.map((d) => [d, every])) as StudyHours
-  // Days (or "every") whose end is not after their start: shown as you go, and Save waits for them.
+  const everyHours = Object.fromEntries(WEEKDAYS.map((d) => [d, every])) as StudyHours
+  const hours: StudyHours = different ? days : everyHours
   // Collapsed, Save gives every day the "Every day" times: say so when that
-  // replaces days that differ (saved, or edited before collapsing).
-  const replacesDays = !different && !(uniform && everyDaySame(days))
+  // replaces per-day times the student set (saved ones that differ, or edits)
+  // with something else.
+  const replacesDays = !different && (touched || !uniform) && !sameStudyHours(days, everyHours)
+  // Days (or "every") whose end is not after their start: shown as you go, and Save waits for them.
   const invalid: string[] = different
     ? WEEKDAYS.filter((d) => days[d] && !endsAfterStart(days[d]!))
     : endsAfterStart(every) ? [] : ['every']
@@ -104,8 +110,9 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
   }
 
   const openDifferent = () => {
-    // Starts from what "Every day" says, unless the days already differ.
-    if (!different && uniform) setDays(Object.fromEntries(WEEKDAYS.map((d) => [d, every])) as StudyHours)
+    // Starts from what "Every day" says, unless the days differ or were
+    // edited (closing and opening again never loses an edit).
+    if (!different && !touched && everyDaySame(days)) setDays(everyHours)
     setDifferent(!different)
   }
 
@@ -209,10 +216,10 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
           startRef={firstFieldRef}
         />
       )}
-      {/* Always there, so a note that appears is announced. */}
-      <div aria-live="polite" className="-mt-2 empty:hidden">
+      {/* Always rendered (taking no room while empty), so a note that appears is announced. */}
+      <div aria-live="polite" className="-mt-3">
         {replacesDays && (
-          <p id={noteId} data-testid="study-hours-note" className="text-meta text-text-secondary">
+          <p id={noteId} data-testid="study-hours-note" className="mt-1 text-meta text-text-secondary">
             {REPLACES_DAYS}
           </p>
         )}
@@ -252,8 +259,8 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
                     name={DAY_NAMES[d]}
                     window={w ?? every}
                     off={!w}
-                    onChange={(next) => setDays({ ...days, [d]: next })}
-                    onOffChange={(off) => setDays({ ...days, [d]: off ? null : every })}
+                    onChange={(next) => editDay(d, next)}
+                    onOffChange={(off) => editDay(d, off ? null : every)}
                     invalid={invalid.includes(d)}
                     startRef={i === 0 ? firstFieldRef : undefined}
                   />

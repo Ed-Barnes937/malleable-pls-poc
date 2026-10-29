@@ -131,8 +131,8 @@ test('collapsing "Different on some days" says Save will replace the different d
 
   await different.click()
   const note = dialog.getByTestId('study-hours-note')
-  await expect(note).toHaveText('These times will replace your different days when you save.')
-  await expect(dialog.getByRole('button', { name: 'Save' })).toHaveAccessibleDescription('These times will replace your different days when you save.')
+  await expect(note).toHaveText('Saving uses these times for every day, replacing the times you set for each day.')
+  await expect(dialog.getByRole('button', { name: 'Save' })).toHaveAccessibleDescription('Saving uses these times for every day, replacing the times you set for each day.')
   // Only the study time per day changed, but Save gives every day the same times, as it said.
   await dialog.getByLabel('Study time per day').selectOption('180')
   await dialog.getByRole('button', { name: 'Save' }).click()
@@ -156,6 +156,45 @@ test('no note when the days are already the same, even after opening and closing
   await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
   await different.click()
   await expect(dialog.getByTestId('study-hours-note')).toBeVisible()
+})
+
+test('closing and opening the days again keeps the edits made in them', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  await change(page).click()
+  const dialog = editor(page)
+  const different = dialog.getByRole('button', { name: 'Different on some days' })
+  await different.click()
+  await dialog.getByLabel('Start time, Monday').selectOption('11:00')
+  await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
+  await different.click()
+  await different.click()
+  await expect(dialog.getByLabel('Start time, Monday')).toHaveValue('11:00')
+  await expect(dialog.getByRole('checkbox', { name: 'No study on Sunday' })).toBeChecked()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => simulator.db.preferences?.study_hours).toEqual({ ...every('09:00', '22:00'), mon: { start: '11:00', end: '22:00' }, sun: null })
+})
+
+test('days edited to the same times, but not the "Every day" ones, get the note too', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  await change(page).click()
+  const dialog = editor(page)
+  const different = dialog.getByRole('button', { name: 'Different on some days' })
+  await different.click()
+  for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
+    await dialog.getByLabel(`Start time, ${day}`).selectOption('10:00')
+  }
+  await different.click()
+  // "Every day" still says 09:00: Save would put that back on every day, so it says so.
+  await expect(dialog.getByLabel('Start time, every day')).toHaveValue('09:00')
+  await expect(dialog.getByTestId('study-hours-note')).toBeVisible()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect(dialog).toBeHidden()
+  // Every day 09:00-22:00 is what was there: nothing to save.
+  expect(simulator.db.preferences).toBeNull()
 })
 
 test('study hours saved while Auto-fill is drafting shape the draft it lands', async ({ mount, page, simulator }) => {
@@ -209,12 +248,24 @@ test('if the preference cannot load, saving study hours does not set a time zone
   expect(simulator.db.preferences?.time_zone).toBeNull()
 })
 
-test('a change being saved is not put back by the window regaining focus', async ({ mount, page, simulator }) => {
+/** The tab is shown again (what TanStack's focus manager listens for). */
+const refocus = (page: Page) => page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+
+test('coming back to the tab re-reads the preference, but not while a change is being saved', async ({ mount, page, simulator }) => {
   seed(simulator)
   await mount(<CalendarHarness />)
   await openPlan(page)
-  let gets = 0
-  page.on('request', (r) => { if (r.url().includes('preferences.get')) gets++ })
+  await expect(line(page)).toContainText('2h a day')
+  const gets: string[] = []
+  page.on('request', (r) => { if (r.url().includes('preferences.get')) gets.push(r.url()) })
+
+  // Nothing saving: changed elsewhere (another tab), it shows on coming back.
+  simulator.db.preferences = { time_zone: null, study_hours: null, study_min_per_day: 90 }
+  await refocus(page)
+  await expect(line(page)).toContainText('1h 30m a day')
+  expect(gets.length).toBeGreaterThan(0)
+
+  // A save waiting: coming back does not re-read, so the change shown stays.
   let release!: () => void
   const held = new Promise<void>((resolve) => { release = resolve })
   await page.route('**/preferences.update**', async (route) => {
@@ -225,17 +276,15 @@ test('a change being saved is not put back by the window regaining focus', async
   await editor(page).getByLabel('Study time per day').selectOption('60')
   await editor(page).getByRole('button', { name: 'Save' }).click()
   await expect(line(page)).toContainText('1h a day')
-  // The tab is hidden and shown again while the save waits.
-  await page.evaluate(() => {
-    window.dispatchEvent(new Event('focus'))
-    document.dispatchEvent(new Event('visibilitychange'))
-  })
+  const before = gets.length
+  await refocus(page)
   await page.waitForTimeout(300)
-  expect(gets).toBe(0)
+  expect(gets.length).toBe(before)
   await expect(line(page)).toContainText('1h a day')
+
   release()
   // Read back once the save is done.
-  await expect.poll(() => gets).toBe(1)
+  await expect.poll(() => gets.length).toBe(before + 1)
   await expect(line(page)).toContainText('1h a day')
 })
 
