@@ -41,3 +41,6 @@ S1 product questions (default window end, per-weekday shape, moving the budget i
 
 ## 2026-10-29 (Ed, R1 escalation after round 3)
 22. Simplify the toast bar: a fixed overlay bar with a permanent reserved bottom space on the board, instead of an in-flow bar plus scroll-slack restore. Nothing resizes when toasts come and go, so nothing can fight the ripple's glide.
+
+## 2026-10-29 (orchestrator, cheap to reverse)
+23. Draft leftover copy when the daily budget is the limit: "The other 1h is on days with too little study time left for them." (singular "...for it."). Combined: "The other 1h of free time is in gaps too short for them, and 30m is on days with too little study time left for them."
