@@ -677,6 +677,8 @@ test("a block straight after a 15-minute one never paints over the short one's t
   await mount(<CalendarHarness />)
   const title = block(page, 'Quick check').getByTestId('calendar-block-title')
   await expect(title).toBeVisible()
+  // The grid re-fits as rows load: sample positions only once it has settled.
+  await point(page, 0, 12)
   const box = (await title.boundingBox())!
   // What is drawn at the top and bottom of the title line is the short block itself.
   for (const y of [box.y + 1, box.y + box.height - 1]) {
