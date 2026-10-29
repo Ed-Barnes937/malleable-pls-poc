@@ -30,22 +30,27 @@ export function usePopoverPosition(
   return pos
 }
 
-/** Presses that closed a popover (see `markClosingPress`). */
-const closingPresses = new WeakSet<Event>()
+/** Presses that closed a popover, with the occurrence key of the block it was open on (null for a new block's). */
+const closingPresses = new WeakMap<Event, string | null>()
 
 /**
- * Marks a press as the one that closed a popover. The press still reaches
- * what is under it (a block starts its drag, a button works); only what would
- * start something new from it, like drag-to-create on empty time, asks
- * `closedPopover` and stands down.
+ * Marks a press as the one that closed a popover (open on block `key`, if
+ * any). The press still reaches what is under it (a block starts its drag, a
+ * button works); only what would start something new from it, like
+ * drag-to-create on empty time, asks `closedPopover` and stands down.
  */
-export function markClosingPress(e: Event) {
-  closingPresses.add(e)
+export function markClosingPress(e: Event, key: string | null) {
+  closingPresses.set(e, key)
 }
 
 /** Whether this press closed a popover (so it shouldn't also start a new block). */
 export function closedPopover(e: Event) {
   return closingPresses.has(e)
+}
+
+/** Whether this press closed the popover open on block `key` (a click on it then only closes it). */
+export function closedPopoverOf(e: Event, key: string) {
+  return closingPresses.get(e) === key
 }
 
 /**

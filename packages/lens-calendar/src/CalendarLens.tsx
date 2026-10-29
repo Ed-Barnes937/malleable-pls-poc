@@ -119,13 +119,14 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   /**
    * A press anywhere in the calendar but the popover closes it and still
    * does what it does, so a block can be dragged (or opened) straight away.
-   * A press on empty time only closes it (`closedPopover` in TimeGrid).
+   * A press on empty time only closes it (`closedPopover` in TimeGrid), and
+   * so does a plain click on the block it is open on (a toggle).
    * Presses outside the calendar leave it open, e.g. while the student
    * edits the automation its footer opened.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
     if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
-    markClosingPress(e.nativeEvent)
+    markClosingPress(e.nativeEvent, popover.mode === 'edit' ? popover.key : null)
     closePopover()
   }
 

@@ -242,7 +242,7 @@ test.describe('Calendar', () => {
     await expect(block).toHaveAttribute('aria-label', /10:00 - 10:20/)
   })
 
-  test('with a popover open, pressing a block drags it in one go and closes the popover', async ({ page, request }) => {
+  test('with a popover open, pressing a block drags it in one go and closes the popover; a plain click on its own block closes it', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     const study = await call(request, 'planItems.create', {
       kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
@@ -282,6 +282,17 @@ test.describe('Calendar', () => {
     await dragWithPopoverOpen('Review: maternal inheritance', { dayIndex: 1, hours: 12 + 10 / 60 })
     await expect(calendar.block('Review: maternal inheritance')).toHaveAttribute('aria-label', /12:00 - 12:20/)
     expect(await stored(review.id)).toMatchObject({ starts_at: at(1, 12), ends_at: at(1, 12, 20), duration_min: 20 })
+
+    // A plain click on the block whose popover is open closes it (a toggle); the next click opens it again.
+    await calendar.block('Revise respiration').click()
+    await expect(calendar.popover).toBeVisible()
+    await calendar.block('Revise respiration').click()
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(calendar.block('Revise respiration')).toBeFocused()
+    await calendar.block('Revise respiration').click()
+    await expect(calendar.popover).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
 
     // A press on empty time with a popover open only closes it: no new block starts.
     await calendar.block('Revise respiration').click()

@@ -7,7 +7,7 @@ import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
-import { closedPopover } from './popover-position'
+import { closedPopover, closedPopoverOf } from './popover-position'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -124,6 +124,8 @@ type Drag =
       x: number
       y: number
       moved: boolean
+      /** The press closed this block's own popover: a click (no move) leaves it closed. */
+      closedOwnPopover: boolean
     }
 
 export function TimeGrid({
@@ -278,6 +280,7 @@ export function TimeGrid({
       x: e.clientX,
       y: e.clientY,
       moved: false,
+      closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
     })
   }
 
@@ -331,7 +334,10 @@ export function TimeGrid({
     const ghost = ghostId(drag.item)
     if (!drag.moved) {
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
-      if (!ghost) onOpen(drag.item, anchor)
+      if (!ghost) {
+        // A click on the block whose popover it just closed leaves it closed (a toggle).
+        if (!drag.closedOwnPopover) onOpen(drag.item, anchor)
+      }
       // A tap or click selects it instead: focused, its buttons show (on a
       // short ghost they are hidden until then, and touch has no hover).
       // After the click that follows, which would otherwise take focus away.
