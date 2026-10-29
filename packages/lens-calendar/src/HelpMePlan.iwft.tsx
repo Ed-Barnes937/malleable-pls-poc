@@ -505,6 +505,21 @@ test.describe('where the panel floats, by day of the week (frozen clock)', () =>
     })
   }
 
+  test("the demo on a Thursday: study time held back by the 2h a day isn't blamed on short gaps", async ({ mount, page, simulator }) => {
+    const now = new Date('2026-10-29T10:00:00Z')
+    for (const { id, ...row } of priyaWeek(now.getTime())) seed(simulator, [{ id, ...row } as Partial<StoredPlanItem> & { id: string }])
+    await page.clock.setFixedTime(now)
+    await mount(<CalendarHarness width={882} />)
+    await page.getByTestId('help-me-plan').click()
+    const panel = page.getByTestId('help-me-plan-panel')
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Shrink to 2h' }).click()
+    // Saturday has a long free stretch but only 1h of its 2h left: no to-do left fits in 1h.
+    await expect(panel.getByTestId('autofill-summary')).toHaveText(
+      "Drafted 7h of study time. 4h didn't fit. The other 1h of study time is on days with less left than they need.",
+    )
+  })
+
   test('the demo on a Tuesday: drafts Wed-Fri, the panel fits the weekend and no day is squeezed', async ({ mount, page, simulator }) => {
     // Priya's week (pnpm db:reseed), at the journey-demo's default time.
     const now = new Date('2026-10-27T10:30:00Z')

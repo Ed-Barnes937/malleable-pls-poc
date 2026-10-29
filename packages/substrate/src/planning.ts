@@ -14,6 +14,7 @@ import {
   freeSlots,
   minutesByDay,
   place,
+  splitByLocalDay,
   startOfLocalDay,
   subtract,
   suggestSlots,
@@ -591,29 +592,72 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 /**
  * The draft's own numbers, from what was actually placed: "Drafted 6h of
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
- * contradict the ghosts beside it. `shortGapMin` (see `shortGapMinutes`)
- * is free time the draft couldn't use because every gap left is too short:
- * named, so drafted + that adds up to the headline's free time.
- * `unplacedCount` is how many to-dos didn't fit ("too short for it" / "for them").
+ * contradict the ghosts beside it. `leftover` (see `leftoverStudyTime`) is
+ * study time the headline counts that the draft couldn't use, each part
+ * named for its real reason, so drafted + leftover adds up to the headline.
+ * `unplacedCount` is how many to-dos didn't fit ("for it" / "for them").
  */
-export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0, unplacedCount = 1): string {
+export function draftCopy(placedMin: number, unplacedMin: number, leftover: Leftover = NO_LEFTOVER, unplacedCount = 1): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
   if (unplacedMin <= 0) return `${drafted} Everything fits.`
   const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
-  if (shortGapMin < 15) return missed
+  const gaps = leftover.gapMin >= 15 ? leftover.gapMin : 0
+  const days = leftover.dayMin >= 15 ? leftover.dayMin : 0
+  if (!gaps && !days) return missed
   const the = placedMin > 0 ? 'The other' : 'The'
-  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for ${unplacedCount === 1 ? 'it' : 'them'}.`
+  const them = unplacedCount === 1 ? 'it' : 'them'
+  const needs = unplacedCount === 1 ? 'it needs' : 'they need'
+  const inGaps = `of free time is in gaps too short for ${them}`
+  const onDays = `of study time is on days with less left than ${needs}`
+  if (gaps && days) return `${missed} ${the} ${formatMinutes(gaps)} ${inGaps}, and ${formatMinutes(days)} ${onDays}.`
+  return `${missed} ${the} ${formatMinutes(gaps || days)} ${gaps ? inGaps : onDays}.`
 }
 
+/** Study time a draft left unused, by why (see `leftoverStudyTime`). */
+export interface Leftover {
+  /** On days with study time to spare, but in gaps shorter than any to-do left. */
+  gapMin: number
+  /** On days whose study time left (the daily budget) is less than any to-do left. */
+  dayMin: number
+}
+
+const NO_LEFTOVER: Leftover = { gapMin: 0, dayMin: 0 }
+
 /**
- * Study time the headline counts (`freeMin`) that a draft placing
- * `placedMin` left unused, but only when that is down to short gaps: every
- * to-do that didn't fit had no gap long enough. Any other reason (too long
- * for a day, due too soon) is named on its own line instead, so this is 0.
+ * The study time each day still has once `drafted` is in (as the headline
+ * counts it: free time capped by the day's budget), split by why the to-dos
+ * left over (`unplaced`) can't use it: a day whose free gaps, 10 minutes
+ * clear of study blocks, are all shorter than the shortest of them
+ * (`gapMin`), or else a day with a long enough gap whose budget left is
+ * shorter (`dayMin`), so short gaps are never blamed for the daily budget.
+ * Only when every one of them simply found no slot: any other reason (too
+ * long for a day, due too soon) is named on its own line instead, so both
+ * are 0. Time it can't explain either way is not blamed on anything.
  */
-export function shortGapMinutes(freeMin: number, placedMin: number, unplacedReasons: ReadonlyArray<UnplacedReason>): number {
-  if (unplacedReasons.length === 0 || unplacedReasons.some((r) => r !== 'no-free-slot')) return 0
-  return Math.max(0, freeMin - placedMin)
+export function leftoverStudyTime(
+  layout: WeekLayout,
+  now: number,
+  drafted: ReadonlyArray<Interval>,
+  unplaced: ReadonlyArray<{ durationMin: number; reason: UnplacedReason }>,
+): Leftover {
+  if (unplaced.length === 0 || unplaced.some((u) => u.reason !== 'no-free-slot')) return NO_LEFTOVER
+  const need = Math.min(...unplaced.map((u) => u.durationMin))
+  const after: WeekLayout = { ...layout, busy: [...layout.busy, ...drafted] }
+  const used = minutesByDay(after.busy, layout.timeZone)
+  const open = subtract(layout.free, [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
+  const longest = new Map<number, number>()
+  for (const p of splitByLocalDay(open, layout.timeZone)) {
+    longest.set(p.day, Math.max(longest.get(p.day) ?? 0, (p.end - p.start) / MINUTE_MS))
+  }
+  let gapMin = 0
+  let dayMin = 0
+  for (const d of studyDays(after, now)) {
+    if (d.leftMin <= 0) continue
+    const budgetLeft = layout.budget.minutesPerDay - (used.get(d.day) ?? 0)
+    if ((longest.get(d.day) ?? 0) < need) gapMin += d.leftMin
+    else if (budgetLeft < need) dayMin += d.leftMin
+  }
+  return { gapMin, dayMin }
 }
 
 // ---------------------------------------------------------------------------

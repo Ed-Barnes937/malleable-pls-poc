@@ -12,7 +12,7 @@ import {
   planCapacity,
   planTasks,
   rankForPlan,
-  shortGapMinutes,
+  leftoverStudyTime,
   studyDays,
   suggestTaskSlots,
   type PlanItemOccurrence,
@@ -309,6 +309,7 @@ export function HelpMePlanPanel({
             pickDefaultFor={pickDefaultFor}
             onPick={(todo, start, durationMin) => void schedule(todo, start, durationMin)}
             freeMin={cap.freeMin}
+            layout={layout}
             headingRef={draftHeadingRef}
           />
         ) : (
@@ -467,8 +468,11 @@ function DraftSummary({
   pickDefaultFor,
   onPick,
   freeMin,
+  layout,
   headingRef,
 }: {
+  /** The week planned: what the leftover study time is measured against. */
+  layout: WeekLayout
   /** Study time left, as the capacity headline counts it. */
   freeMin: number
   /** Focused when Auto-fill finishes. */
@@ -523,8 +527,10 @@ function DraftSummary({
   // The numbers come from the draft itself, so they always match the ghosts.
   const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
   const placedMin = proposalMinutes(layer.proposals)
-  // Study time the headline counts that the draft left in gaps too short for what is left.
-  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)), unplaced.length)
+  // Study time the headline counts that the draft left unused, by why: gaps too short, or days with too little left.
+  const drafted = layer.proposals.map((p) => ({ start: Date.parse(p.startsAt), end: Date.parse(p.endsAt) }))
+  const leftover = leftoverStudyTime(layout, now, drafted, unplaced.map((u) => ({ durationMin: u.task.durationMin, reason: u.reason })))
+  const summary = draftCopy(placedMin, unplacedMin, leftover, unplaced.length)
 
   return (
     <div ref={rootRef} data-testid="autofill-draft" className="flex flex-col gap-3.5">

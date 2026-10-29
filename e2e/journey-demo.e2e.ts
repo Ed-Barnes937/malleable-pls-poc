@@ -89,12 +89,17 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) is too long for one day.')
     await draft.getByRole('button', { name: 'Shrink to 2h' }).click()
     await expect(draft.getByTestId('autofill-summary')).toHaveText(/^Drafted .+ of study time\. .+ didn't fit\./)
-    // The short-gaps sentence agrees in number with the to-dos that didn't fit.
+    // The leftover sentence (short gaps, or days with less study time left)
+    // agrees in number with the to-dos that didn't fit.
     const didntFit = await draft.getByRole('button', { name: /^Pick a time for / }).count()
     expect(didntFit).toBeGreaterThan(0)
-    await expect(draft.getByTestId('autofill-summary')).toHaveText(
-      new RegExp(`^Drafted .+ of study time\\. .+ didn't fit\\.( The other .+ of free time is in gaps too short for ${didntFit === 1 ? 'it' : 'them'}\\.)?$`),
-    )
+    const them = didntFit === 1 ? 'it' : 'them'
+    const needs = didntFit === 1 ? 'it needs' : 'they need'
+    const gaps = `of free time is in gaps too short for ${them}`
+    const days = `of study time is on days with less left than ${needs}`
+    await expect(draft.getByTestId('autofill-summary')).toHaveText(new RegExp(
+      `^Drafted .+ of study time\\. .+ didn't fit\\.( The other \\S+( \\S+)? (${gaps}|${days}|${gaps}, and \\S+( \\S+)? ${days})\\.)?$`,
+    ))
     await plan.getByRole('button', { name: 'Accept draft' }).click()
     await expect(calendar.block('Lab report write-up')).toHaveCount(1)
     await plan.getByRole('button', { name: /close/i }).first().click()
