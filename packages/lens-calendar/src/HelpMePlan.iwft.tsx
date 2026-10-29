@@ -623,6 +623,42 @@ test('keyboard: focus moves into the panel, follows Hide, Show plan and Auto-fil
 })
 
 /** Monday and Tuesday mornings free (2h a day); three 90-minute to-dos, so each day keeps a 30-minute piece. */
+/**
+ * Every day: classes 10:30-12:00 and 13:30-22:00, so the free time is two
+ * short gaps (09:00-10:20 and 12:10-13:20) with the whole 2h of study time
+ * to spare: a 90-minute to-do fits nowhere because of the gaps, not the budget.
+ */
+function seedShortGapWeek(simulator: BackendSimulator, todos: { id: string; durationMin: number }[]) {
+  seed(simulator, Array.from({ length: 7 }, (_, d) => [
+    { id: `am-${d}`, kind: 'commitment' as const, title: `Morning class ${d}`, starts_at: iso(d, 10, 30), ends_at: iso(d, 12) },
+    { id: `pm-${d}`, kind: 'commitment' as const, title: `Afternoon class ${d}`, starts_at: iso(d, 13, 30), ends_at: iso(d, 22) },
+  ]).flat())
+  seed(simulator, todos.map((t) => ({ id: t.id, title: t.id, duration_min: t.durationMin, course: 'biology' })))
+}
+
+test('free time in gaps shorter than the to-dos, with study time to spare, is blamed on the gaps', async ({ mount, page, simulator }) => {
+  seedShortGapWeek(simulator, [{ id: 'Essay draft', durationMin: 90 }, { id: 'Past paper', durationMin: 90 }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await panel.getByTestId('autofill').click()
+  // 2h a day for 7 days, all of it in 80- and 70-minute gaps.
+  await expect(panel.getByTestId('autofill-summary')).toHaveText(
+    "Nothing fits as it is. 3h didn't fit. The 14h of free time is in gaps too short for them.",
+  )
+})
+
+test('short gaps and a day with too little study time left are each named for what they are', async ({ mount, page, simulator }) => {
+  // A 1h to-do takes Monday 09:00-10:00: Monday has 1h of its 2h left, the other days short gaps.
+  seedShortGapWeek(simulator, [{ id: 'Reading', durationMin: 60 }, { id: 'Essay draft', durationMin: 90 }, { id: 'Past paper', durationMin: 90 }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await panel.getByTestId('autofill').click()
+  await expect(ghost(page, 'Reading')).toHaveAttribute('aria-label', /09:00 - 10:00/)
+  await expect(panel.getByTestId('autofill-summary')).toHaveText(
+    "Drafted 1h of study time. 3h didn't fit. The other 12h of free time is in gaps too short for them, and 1h is on days with too little study time left for them.",
+  )
+})
+
 function seedFragmentedWeek(simulator: BackendSimulator) {
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
     id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 2 ? 12 : 8), ends_at: iso(d, 22),
