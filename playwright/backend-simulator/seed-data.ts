@@ -210,5 +210,8 @@ export function createDefaultSeedData(): SeedData {
     // e2e/seed-week.ts, built around the real clock): component tests arrange
     // the plan items they assert on with ../plan-items.ts `seedPlanItem`.
     planItems: [],
+
+    // No preferences, as `pnpm db:reseed`: the defaults (09:00-22:00 every day, 2h a day) apply.
+    preferences: null,
   }
 }

@@ -5,8 +5,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { capacity } from './capacity'
-import { freeSlots } from './free-slots'
-import { minutesByDay } from './budget'
+import { freeSlots, type DayWindow } from './free-slots'
+import { wallClock, zonedTimeToUtc } from './time'
+import { minutesByDay, splitByLocalDay } from './budget'
 import { MINUTE_MS, normalize, type Interval } from './intervals'
 import { place, suggestSlots, type ExistingPlacement, type SchedulerTask } from './place'
 
@@ -47,7 +48,8 @@ function scenario(seed: number) {
     bufferMin: [0, 5, 10, 15][int(0, 3)],
     minSlotMin: [0, 15, 30][int(0, 2)],
   }
-  const free = freeSlots(commitments, range, prefs)
+  const days = weekdayWindows(seed)
+  const free = freeSlots(commitments, range, { ...prefs, days })
   const existing: ExistingPlacement[] = Array.from({ length: int(0, 4) }, (_, i) => {
     const start = at()
     return { taskId: `accepted-${i}`, start, end: start + int(20, 120) * MINUTE_MS }
@@ -63,8 +65,29 @@ function scenario(seed: number) {
   const anchor = r() < 0.5 ? ('earliest' as const) : ('latest' as const)
   // Occasionally repeat an id to exercise duplicate handling.
   if (tasks.length > 1 && r() < 0.15) tasks.push({ ...tasks[0], durationMin: 30 })
-  return { range, commitments, prefs, free, existing, tasks, now, policy, anchor, alignMin: [1, 5, 15, 30][int(0, 3)] }
+  return { range, commitments, prefs, days, free, existing, tasks, now, policy, anchor, alignMin: [1, 5, 15, 30][int(0, 3)] }
 }
+
+/**
+ * Per-weekday study windows for half the seeds (some days with no study),
+ * drawn from their own stream so the rest of each scenario is unchanged.
+ */
+function weekdayWindows(seed: number): DayWindow[] | undefined {
+  const r = rng(seed * 7919 + 1)
+  const int = (lo: number, hi: number) => lo + Math.floor(r() * (hi - lo + 1))
+  if (r() < 0.5) return undefined
+  return Array.from({ length: 7 }, () => {
+    if (r() < 0.25) return null
+    const start = int(0, 20) * 60 + [0, 30][int(0, 1)]
+    const end = Math.min(24 * 60, start + int(1, 14) * 60)
+    const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
+    return { dayStart: hhmm(start), dayEnd: hhmm(end) }
+  }) as DayWindow[]
+}
+
+/** 0 = Monday ... 6 = Sunday for a local date. */
+const weekdayOf = (w: { year: number; month: number; day: number }) => (new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay() + 6) % 7
+const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3))
 
 const SEED_COUNT = 400
 const CHUNKS = 8
@@ -97,6 +120,21 @@ describe('scheduler properties', () => {
         const b = prefs.bufferMin * MINUTE_MS
         expect(overlaps(s, { start: c.start - b, end: c.end + b })).toBe(false)
       }
+    }
+  })
+
+  eachSeed("with per-weekday windows, free time lies inside its local day's window and never on a no-study day", (seed) => {
+    const { prefs, days, free } = scenario(seed)
+    if (!days) return
+    // Windows of consecutive days may touch at midnight and merge: check each local day's piece.
+    for (const s of splitByLocalDay(free, prefs.timeZone)) {
+      const local = wallClock(s.start, prefs.timeZone)
+      const window = days[weekdayOf(local)]
+      expect(window).not.toBeNull()
+      const dayEnd = zonedTimeToUtc(local.year, local.month, local.day, minutesOf(window!.dayEnd), prefs.timeZone)
+      const dayStart = zonedTimeToUtc(local.year, local.month, local.day, minutesOf(window!.dayStart), prefs.timeZone)
+      expect(s.start).toBeGreaterThanOrEqual(dayStart)
+      expect(s.end).toBeLessThanOrEqual(dayEnd)
     }
   })
 

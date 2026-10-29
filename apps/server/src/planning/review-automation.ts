@@ -12,6 +12,7 @@ import {
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
 import { recordingCourse } from '../routers/_shared'
+import { getPreferences, placementTimeZone } from '../preferences/store'
 
 // The confusion automation's server side: where a review goes in time
 // ("AI suggests, code decides": the LLM only names it), and moving the
@@ -22,9 +23,9 @@ import { recordingCourse } from '../routers/_shared'
 // block (accepted, dragged by hand, made by anything else) is fixed and busy.
 
 // Placement (`placeReviews` in @pls/substrate's planning module, shared with
-// Help me plan's study day, gap and budget): the earliest free time in the
-// review's window, at least an hour after the mark, from 09:00, on a day with
-// study time left.
+// Help me plan's study hours, gap and budget): the earliest free time in the
+// review's window, at least an hour after the mark, inside the student's
+// study hours, on a day with study time left (their daily budget).
 
 const MINUTE_MS = 60_000
 
@@ -41,9 +42,10 @@ function dueAtFor(deadline: number): string {
 export type { ReviewSlot, ReviewToPlace }
 
 /**
- * Finds a slot for each review, earliest-first inside its window, around
- * every commitment of every course and every other scheduled task. Earlier
- * entries get first pick. Read-only.
+ * Finds a slot for each review, earliest-first inside its window and the
+ * student's study hours, around every commitment of every course and every
+ * other scheduled task. Earlier entries get first pick. `opts.timeZone` is
+ * the automation's zone, used when the student has not set one. Read-only.
  */
 export async function findReviewSlots(
   tx: TransactionSql,
@@ -55,16 +57,21 @@ export async function findReviewSlots(
   const horizon = Math.max(...reviews.map((r) => r.latest))
   if (horizon <= opts.now) return new Map(reviews.map((r) => [r.id, { reason: 'window-closed' as const }]))
 
-  const range: Interval = { start: startOfLocalDay(opts.now, opts.timeZone), end: horizon }
+  const prefs = await getPreferences(tx, userId)
+  const timeZone = placementTimeZone(prefs, opts.timeZone)
+  const range: Interval = { start: startOfLocalDay(opts.now, timeZone), end: horizon }
   // Scope never applies here: a Biology review still avoids Chemistry and shifts.
   const items = await listPlanItems(tx, userId, {
     from: new Date(range.start).toISOString(),
     to: new Date(range.end).toISOString(),
     statuses: ['open', 'done'],
   })
-  // The daily budget is the default (2h): the board's Calendar setting is
-  // panel config the server can't see. Moves to a user preference with S1.
-  return placeReviews(items, reviews, range, opts)
+  return placeReviews(items, reviews, range, {
+    now: opts.now,
+    timeZone,
+    studyHours: prefs.study_hours,
+    studyMinPerDay: prefs.study_min_per_day,
+  })
 }
 
 /** The fields a placement result writes on the review. */

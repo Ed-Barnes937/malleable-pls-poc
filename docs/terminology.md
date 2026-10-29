@@ -84,4 +84,5 @@ A small, stable set of types that the platform team owns. Lenses read and write 
 - **Link** — a connection between any two things
 - **Confidence Signal** — a score on a piece of material (from quizzes, self-assessment, spaced repetition)
 - **Plan Item** - anything on a student's plan: a fixed *commitment* (class, shift; can repeat weekly), a *deadline* (something due), or a *task* (a to-do, optionally scheduled into a time block). One type, many views: Calendar, To-do and Coming up all read it. Course attaches as a tag; provenance (e.g. the lecture moment a review to-do came from) is kept on the item
+- **Study hours** - when the student is willing to study: one window per weekday (a day can be "no study"), stored with their study time per day and time zone as one per-user preference, not widget config, so every Calendar and the server agree. Automatic placement (Auto-fill, reviews, re-fit) stays inside it; the student can still put a block anywhere by hand
 - **Workspace** — an arrangement of lenses and scoping rules

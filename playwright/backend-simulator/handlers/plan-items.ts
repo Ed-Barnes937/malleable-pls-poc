@@ -20,6 +20,7 @@ import {
   refitConflict,
   refitPreviewInput,
   refitRange,
+  withDefaults,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -127,6 +128,12 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     setCourse(id, null)
   })
 
+  /** The student's study hours and budget, and their zone if set (else the caller's), as the server reads them. */
+  const placementOpts = (fallbackZone: string) => {
+    const prefs = withDefaults(db.preferences)
+    return { timeZone: prefs.time_zone ?? fallbackZone, studyHours: prefs.study_hours, studyMinPerDay: prefs.study_min_per_day }
+  }
+
   // Mirrors apps/server/src/routers/planning.ts with the mock LLM. The
   // simulator keeps no confidence-derived weak topics: reviews still count.
   router.register('planning.autofill', (input) => {
@@ -138,9 +145,10 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const todos = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
-    const cap = planCapacity(weekLayout(rows, week, { timeZone: q.timeZone, studyMinPerDay: q.studyMinPerDay }), tasks, now)
-    const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: q.studyMinPerDay, weakTopics: [], timeZone: q.timeZone })
-    return sanitizeAdvice(raw, tasks, cap, q.studyMinPerDay)
+    const placement = placementOpts(q.timeZone)
+    const cap = planCapacity(weekLayout(rows, week, placement), tasks, now)
+    const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: placement.studyMinPerDay, weakTopics: [], timeZone: placement.timeZone })
+    return sanitizeAdvice(raw, tasks, cap, placement.studyMinPerDay)
   })
 
   // Re-fit, as apps/server/src/planning/refit.ts: same rules (@pls/substrate
@@ -154,7 +162,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
 
   router.register('planItems.refitPreview', (input) => {
     const { timeZone } = parse(refitPreviewInput, input)
-    const opts = { now: clock(), timeZone }
+    const opts = { now: clock(), ...placementOpts(timeZone) }
     const missed = missedNow(opts.now)
     return missed.length ? planRefit(missed, rangeItems(missed, opts), opts) : []
   })

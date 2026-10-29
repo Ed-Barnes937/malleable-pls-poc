@@ -135,6 +135,11 @@ export function usePlanItemList(query: PlanItemQuery) {
   return trpc.planItems.list.useQuery(query)
 }
 
+/** The student's study rhythm (study hours, study time per day, zone), defaults filled in. */
+export function usePreferences() {
+  return trpc.preferences.get.useQuery()
+}
+
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {
   return trpc.jobs.recent.useQuery(limit) as unknown as UseQueryResult<JobRun[]>
 }

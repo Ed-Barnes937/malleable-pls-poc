@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { startOfLocalDay, wallClock, zonedTimeToUtc } from '@pls/scheduler'
 import type { ExecutorRegistry, JobRun } from '@pls/workflows'
-import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB } from '@pls/substrate'
+import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB, WEEKDAYS, type StudyHours } from '@pls/substrate'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -30,6 +30,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   let executors: ExecutorRegistry
   let caller: (userId: string) => ReturnType<typeof import('../router').appRouter.createCaller>
   const alice = `test-alice-${randomUUID().slice(0, 8)}`
+  const dave = `test-dave-${randomUUID().slice(0, 8)}`
   const rec = `rec-${randomUUID().slice(0, 8)}`
   const seg = (n: number) => `${rec}-seg-${n}`
   let workflowId: string
@@ -84,6 +85,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'workspaces', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [alice])
     }
+    await db.sql`DELETE FROM user_preferences WHERE user_id = ${dave}`
     await db.sql.end()
   })
 
@@ -227,6 +229,55 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     const b = slots.get('gap-b') as { start: number; end: number }
     expect(a.start).toBeGreaterThanOrEqual(now + 60 * MIN)
     expect(b.start).toBeGreaterThanOrEqual(a.end + 10 * MIN)
+  })
+
+  it("places reviews only inside the student's study hours, never on a no-study day", async () => {
+    const { findReviewSlots } = await import('./review-automation')
+    const now = Date.now()
+    // Only the day after tomorrow has study hours, 13:00-14:00; every other day is "no study".
+    const open = startOfLocalDay(now, TZ, 2)
+    const w = wallClock(open, TZ)
+    const weekday = WEEKDAYS[(new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay() + 6) % 7]
+    const hours = Object.fromEntries(WEEKDAYS.map((d) => [d, d === weekday ? { start: '13:00', end: '14:00' } : null])) as StudyHours
+    await caller(dave).preferences.update({ study_hours: hours })
+
+    const latest = startOfLocalDay(now, TZ, 4)
+    const slots = await db.withUser(dave, (tx) => findReviewSlots(tx, dave, [
+      { id: 'hours-a', durationMin: 20, markedAt: now, latest },
+      { id: 'hours-b', durationMin: 20, markedAt: now, latest },
+      { id: 'hours-c', durationMin: 20, markedAt: now, latest },
+    ], { now, timeZone: TZ }))
+    expect(slots.get('hours-a')).toEqual({ start: atLocal(open, 13), end: atLocal(open, 13) + 20 * MIN })
+    expect(slots.get('hours-b')).toEqual({ start: atLocal(open, 13) + 30 * MIN, end: atLocal(open, 13) + 50 * MIN })
+    // No room left inside study hours: unscheduled rather than outside them.
+    expect(slots.get('hours-c')).toEqual({ reason: 'no-free-slot' })
+  })
+
+  it("spends the student's own daily budget, going over it only when no day has room", async () => {
+    const { findReviewSlots } = await import('./review-automation')
+    const now = Date.now()
+    // Two open days, 13:00-17:00, and 30 minutes of study a day.
+    const first = startOfLocalDay(now, TZ, 2)
+    const second = startOfLocalDay(now, TZ, 3)
+    const key = (t: number) => {
+      const w = wallClock(t, TZ)
+      return WEEKDAYS[(new Date(Date.UTC(w.year, w.month - 1, w.day)).getUTCDay() + 6) % 7]
+    }
+    const hours = Object.fromEntries(WEEKDAYS.map((d) => [d, d === key(first) || d === key(second) ? { start: '13:00', end: '17:00' } : null])) as StudyHours
+    await caller(dave).preferences.update({ study_hours: hours, study_min_per_day: 30 })
+
+    const latest = startOfLocalDay(now, TZ, 4)
+    const slots = await db.withUser(dave, (tx) => findReviewSlots(tx, dave, [
+      { id: 'budget-a', durationMin: 20, markedAt: now, latest },
+      { id: 'budget-b', durationMin: 20, markedAt: now, latest },
+      { id: 'budget-c', durationMin: 20, markedAt: now, latest },
+    ], { now, timeZone: TZ }))
+    expect((slots.get('budget-a') as { start: number }).start).toBe(atLocal(first, 13))
+    // The first day has 10 minutes left: the next goes to the second day.
+    expect((slots.get('budget-b') as { start: number }).start).toBe(atLocal(second, 13))
+    // No day has 20 minutes left: over budget, in the earliest free slot (decision 11).
+    expect((slots.get('budget-c') as { start: number }).start).toBe(atLocal(first, 13) + 30 * MIN)
+    await caller(dave).preferences.update({ study_hours: null, study_min_per_day: null })
   })
 
   it('runs the board copy of the automation for marks made on that board', async () => {

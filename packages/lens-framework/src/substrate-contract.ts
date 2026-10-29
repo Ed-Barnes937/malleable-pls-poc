@@ -18,6 +18,8 @@ import type {
   PlanItemUpdate,
   PlanAdvice,
   PlanAutofillInput,
+  PreferencesUpdate,
+  UserPreferences,
   RefitAccept,
   RefitPreview,
   RefitResult,
@@ -69,6 +71,7 @@ export type TableName =
   | 'gap_analysis'
   | 'weakest_topics'
   | 'plan_items'
+  | 'user_preferences'
 
 // ---------------------------------------------------------------------------
 // SubstrateReader — read-only hooks for view lenses
@@ -106,6 +109,13 @@ export interface SubstrateReader {
    * Disabled for an empty id.
    */
   useAutomation: (id: string) => QueryResult<WorkflowWithJobs>
+  /**
+   * The student's study rhythm, defaults filled in: study hours per weekday
+   * (null = no study that day), study time per day, and time zone (null when
+   * not set: use the browser's). One per user, the same on every board; what
+   * automatic placement (Auto-fill, reviews, re-fit) obeys.
+   */
+  usePreferences: () => QueryResult<UserPreferences>
 }
 
 /**
@@ -152,6 +162,11 @@ export interface SubstrateWriter extends SubstrateReader {
    * refreshes.
    */
   useAcceptRefit: () => MutationHandle<Omit<RefitAccept, 'workspaceId'>, RefitResult>
+  /**
+   * Changes the study rhythm: fields left out are unchanged, `null` resets
+   * one to its default. Resolves with the result, defaults filled in.
+   */
+  useUpdatePreferences: () => MutationHandle<PreferencesUpdate, UserPreferences>
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import { studyDays, weekLayout, type PlanItem } from '@pls/substrate'
+import { studyDays, weekLayout, type PlanItem, type StudyHours } from '@pls/substrate'
 import { COURSES, clockTime, startOfLocalDay } from '@pls/shared-ui'
 
 type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype' | 'title' | 'course'>
@@ -49,7 +49,7 @@ function shortEventLabel(row: Row): string {
  */
 export function todayLine(
   rows: ReadonlyArray<Row>,
-  opts: { now: number; timeZone: string; studyMinPerDay?: number },
+  opts: { now: number; timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number },
 ): TodayLine | null {
   const day = todayRange(opts.now)
   const commitments = rows
@@ -61,7 +61,7 @@ export function todayLine(
     .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!))
   if (commitments.length === 0) return null
 
-  const layout = weekLayout(rows, day, { timeZone: opts.timeZone, studyMinPerDay: opts.studyMinPerDay })
+  const layout = weekLayout(rows, day, { timeZone: opts.timeZone, studyHours: opts.studyHours, studyMinPerDay: opts.studyMinPerDay })
   const today = studyDays(layout, opts.now).find((d) => d.day === day.start)
   const upcoming = commitments.filter((r) => Date.parse(r.ends_at!) > opts.now)
   return {

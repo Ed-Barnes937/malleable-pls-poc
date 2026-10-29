@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, openTime, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -60,6 +60,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const updateItem = mutations.useUpdatePlanItem()
   const completeItem = mutations.useCompletePlanItem()
   const deleteItem = mutations.useDeletePlanItem()
+  // The student's study rhythm (one per user, not per board): study hours and
+  // study time per day bound everything Help me plan places.
+  const preferences = substrate.usePreferences()
+  const updatePreferences = mutations.useUpdatePreferences()
 
   const now = useNow()
   const narrow = useNarrowScreen()
@@ -75,10 +79,6 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const [planCollapsed, setPlanCollapsed] = useState(false)
   /** Auto-fill's draft (note, trims, what didn't fit), kept here so closing the panel keeps it. */
   const [autofill, setAutofill] = useState<AutofillState>({ state: 'idle' })
-  // Layer-2 knob: how much study Help me plan fills into a day.
-  const [studyMinPerDay, setStudyMinPerDay] = useState(() =>
-    typeof config.studyMinPerDay === 'number' && config.studyMinPerDay > 0 ? config.studyMinPerDay : DEFAULT_STUDY_MIN_PER_DAY,
-  )
   /** A to-do being dragged from Help me plan onto the grid. */
   const [incoming, setIncoming] = useState<DraggedTodo | null>(null)
   /** A calm note in the header, e.g. a move that didn't save. */
@@ -260,13 +260,21 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     layer.clearNotice()
   }, [layer])
 
-  // Help me plan works on the week shown, around every course's commitments.
-  const timeZone = useMemo(() => localTimeZone(), [])
+  // Help me plan works on the week shown, around every course's commitments,
+  // inside the student's study hours (read in their zone if they set one).
+  // It waits for the preference so a draft never uses the wrong hours; if it
+  // can't load, the defaults apply, as on the server with no preference saved.
+  const prefs = preferences.data ?? (preferences.error ? DEFAULT_PREFERENCES : undefined)
+  const browserZone = useMemo(() => localTimeZone(), [])
   const planLayout = useMemo(
-    () => (planOpen && view === 'week'
-      ? weekLayout(items, { start: Date.parse(range.from), end: Date.parse(range.to) }, { timeZone, studyMinPerDay })
+    () => (planOpen && view === 'week' && prefs
+      ? weekLayout(items, { start: Date.parse(range.from), end: Date.parse(range.to) }, {
+          timeZone: prefs.time_zone ?? browserZone,
+          studyHours: prefs.study_hours,
+          studyMinPerDay: prefs.study_min_per_day,
+        })
       : null),
-    [planOpen, view, items, range, timeZone, studyMinPerDay],
+    [planOpen, view, items, range, browserZone, prefs],
   )
   // Free gaps around drafted blocks too, so a gap's "2h free" is what is still open.
   const freeTime = useMemo(
@@ -646,8 +654,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
               onDragTodo={setIncoming}
               onStudyMinPerDayChange={(min) => {
-                setStudyMinPerDay(min)
-                onConfigChange?.({ studyMinPerDay: min })
+                // Saved for every board and the server's automatic placement;
+                // the panel re-drafts once the new value is back.
+                updatePreferences.mutateAsync({ study_min_per_day: min })
+                  .catch(() => setNotice("Couldn't change your study time per day - try again?"))
               }}
             />
           </div>

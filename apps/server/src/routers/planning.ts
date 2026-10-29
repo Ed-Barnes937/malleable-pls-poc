@@ -10,6 +10,7 @@ import {
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { listPlanItems } from '../plan-items/store'
+import { getPreferences, placementTimeZone } from '../preferences/store'
 import { planAutofillTask } from '../ai/tasks/plan-autofill'
 
 const WEAK_TOPIC_LIMIT = 8
@@ -56,20 +57,28 @@ export const planningRouter = router({
         rows: await listPlanItems(tx, ctx.userId, { from: input.from, to: input.to, statuses: ['open', 'done'] }),
         todos: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open'], scheduled: false }),
         weak: await weakTopics(tx, ctx.userId),
+        // The student's study hours and daily budget, not the client's say-so.
+        prefs: await getPreferences(tx, ctx.userId),
       }))
       const tasks = planTasks(loaded.todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
-      const layout = weekLayout(loaded.rows, week, { timeZone: input.timeZone, studyMinPerDay: input.studyMinPerDay })
+      const { prefs } = loaded
+      const timeZone = placementTimeZone(prefs, input.timeZone)
+      const layout = weekLayout(loaded.rows, week, {
+        timeZone,
+        studyHours: prefs.study_hours,
+        studyMinPerDay: prefs.study_min_per_day,
+      })
       const cap = planCapacity(layout, tasks, now)
       // Outside the transaction: never hold a DB connection across a model call.
       const raw = await ctx.ai.llm.run(planAutofillTask, {
         tasks,
         freeMin: cap.freeMin,
         neededMin: cap.neededMin,
-        minutesPerDay: input.studyMinPerDay,
+        minutesPerDay: prefs.study_min_per_day,
         weakTopics: loaded.weak,
-        timeZone: input.timeZone,
+        timeZone,
       })
-      return sanitizeAdvice(raw, tasks, cap, input.studyMinPerDay)
+      return sanitizeAdvice(raw, tasks, cap, prefs.study_min_per_day)
     }),
 })

@@ -29,27 +29,30 @@ import {
   type UnplacedReason,
 } from '@pls/scheduler'
 import type { PlanItem, PlanItemOccurrence } from './types'
+import { DEFAULT_STUDY_HOURS, DEFAULT_STUDY_MIN_PER_DAY, studyDayWindows, type StudyHours } from './preferences'
 import { REVIEW_SUBTYPE } from './workflows/review-automation'
 
 const MINUTE_MS = 60_000
 
 /**
- * The study day study time is placed in: 09:00-22:00 local, with 10 minutes
- * of breathing room around every class and shift. Help me plan and the
- * confusion automation both place inside it.
+ * The study day's fixed rules: 10 minutes of breathing room around every
+ * class and shift. When study time may go is the student's study hours
+ * (`DEFAULT_STUDY_HOURS` until they set their own, see ./preferences).
  */
-export const STUDY_DAY = { dayStart: '09:00', dayEnd: '22:00', bufferMin: 10 } as const
+export const STUDY_DAY = { bufferMin: 10 } as const
+
+/**
+ * The scheduler's free-time prefs for automatic placement: the student's
+ * study hours (hard: nothing automatic goes outside them, and a "no study"
+ * day has no free time) in `timeZone`, with the study-day buffer. Help me
+ * plan, re-fit and the confusion automation all place inside it.
+ */
+export function studyDayPrefs(timeZone: string, studyHours: StudyHours = DEFAULT_STUDY_HOURS) {
+  return { timeZone, days: studyDayWindows(studyHours), bufferMin: STUDY_DAY.bufferMin }
+}
 
 /** Gap kept between two study blocks, so a draft never runs them back to back. */
 export const STUDY_BLOCK_GAP_MIN = 10
-
-/**
- * Default "study time per day": the most Help me plan fills into one day,
- * counting study blocks already there. A Calendar setting (1h to 6h), so a
- * plan is one a student would follow, not every free minute 09:00-22:00.
- */
-export const DEFAULT_STUDY_MIN_PER_DAY = 120
-export const STUDY_PER_DAY_OPTIONS = [60, 90, 120, 180, 240, 300, 360] as const
 
 /** Used for a to-do with no estimate when the student skips giving one. */
 export const ASSUMED_ESTIMATE_MIN = 60
@@ -113,11 +116,11 @@ export interface WeekLayout {
 export function weekLayout(
   rows: ReadonlyArray<Row>,
   week: Interval,
-  opts: { timeZone: string; studyMinPerDay?: number; except?: ReadonlySet<string> },
+  opts: { timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number; except?: ReadonlySet<string> },
 ): WeekLayout {
   // Unpadded: drafts keep their gap with `gapMin`, and the budget counts real minutes.
   const { commitments, busy } = busyTime(rows, opts.except ?? new Set(), { padReviews: false })
-  const free = freeSlots(commitments, week, { timeZone: opts.timeZone, ...STUDY_DAY })
+  const free = freeSlots(commitments, week, studyDayPrefs(opts.timeZone, opts.studyHours))
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
   return { week, timeZone: opts.timeZone, free, busy, budget }
 }
@@ -295,10 +298,10 @@ export type ReviewSlot = { start: number; end: number } | { reason: UnplacedReas
 
 /**
  * Where the confusion automation puts each review: the earliest free time in
- * its window, at least `REVIEW_LEAD_MIN` after the mark, inside the study day,
- * around every commitment (all courses) and every other block, `STUDY_BLOCK_GAP_MIN`
- * clear of other study blocks, on a day with study time left
- * (`studyMinPerDay`, Help me plan's budget). Only when no day in the window
+ * its window, at least `REVIEW_LEAD_MIN` after the mark, inside the student's
+ * study hours (`studyHours`), around every commitment (all courses) and every
+ * other block, `STUDY_BLOCK_GAP_MIN` clear of other study blocks, on a day with
+ * study time left (`studyMinPerDay`, the daily budget). Only when no day in the window
  * has any left does it go over the budget, still in the earliest free slot;
  * it stays unscheduled only when the window has no free slot at all.
  * Earlier entries get first pick.
@@ -310,13 +313,13 @@ export function placeReviews(
   items: ReadonlyArray<Row>,
   reviews: ReadonlyArray<ReviewToPlace>,
   range: Interval,
-  opts: { now: number; timeZone: string; studyMinPerDay?: number },
+  opts: { now: number; timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number },
 ): Map<string, ReviewSlot> {
   const slots = new Map<string, ReviewSlot>()
   if (reviews.length === 0) return slots
   // Unpadded: `gapMin` keeps the gap, and the budget counts real minutes.
   const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)), { padReviews: false })
-  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
+  const free = freeSlots(commitments, range, studyDayPrefs(opts.timeZone, opts.studyHours))
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
   const tasks = reviews.map((r) => ({ id: r.id, durationMin: r.durationMin, earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS, latest: r.latest }))
   const result = placeEachOverBudgetIfNeeded(tasks, free, busy, { now: opts.now, budget })
@@ -567,10 +570,11 @@ export const planAutofillInput = z.object({
   /** The week being planned, [from, to). */
   from: isoDateTime,
   to: isoDateTime,
-  /** IANA zone the study day is read in (the browser's). */
+  /**
+   * IANA zone the week is read in (the browser's). The study hours and the
+   * daily budget are the student's preference, read on the server.
+   */
   timeZone: z.string().min(1).max(100).refine(isTimeZone, { message: 'Unknown time zone' }),
-  /** The student's "study time per day" (the Calendar setting). */
-  studyMinPerDay: z.number().int().min(15).max(14 * 60),
   /** Lengths the student accepted as assumed for to-dos with no estimate. */
   estimates: z.record(z.string().max(255), z.number().int().min(5).max(24 * 60)).optional(),
 }).refine((q) => Date.parse(q.from) < Date.parse(q.to), { message: 'from must be before to' })
@@ -733,23 +737,28 @@ export interface RefitProposal {
 /**
  * New times for the missed blocks, oldest first, by the confusion reviews'
  * rule (`placeEachOverBudgetIfNeeded`, decision 20) over Help me plan's week
- * (`weekLayout`): the earliest free fit from now inside the study day, around
- * every commitment and every other block in `items` (the range from
- * `refitRange`, expanded), 10 minutes clear of other study blocks, within
- * each day's study time (the default 2h, as the server's review placement
- * uses) when any day before it is due has room, else over it. A to-do still
+ * (`weekLayout`): the earliest free fit from now inside the student's study
+ * hours, around every commitment and every other block in `items` (the range
+ * from `refitRange`, expanded), 10 minutes clear of other study blocks, within
+ * each day's study time (`studyMinPerDay`) when any day before it is due has
+ * room, else over it. A to-do still
  * due later must fit before it is due; one whose due date has passed just
  * goes in the next free time. Read-only.
  */
 export function planRefit(
   missed: ReadonlyArray<PlanItem>,
   items: ReadonlyArray<PlanItemOccurrence>,
-  opts: { now: number; timeZone: string },
+  opts: { now: number; timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number },
 ): RefitProposal[] {
   if (missed.length === 0) return []
   const range = refitRange(missed, opts)
   const oldestFirst = [...missed].sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
-  const layout = weekLayout(items, range, { timeZone: opts.timeZone, except: new Set(missed.map((m) => m.id)) })
+  const layout = weekLayout(items, range, {
+    timeZone: opts.timeZone,
+    studyHours: opts.studyHours,
+    studyMinPerDay: opts.studyMinPerDay,
+    except: new Set(missed.map((m) => m.id)),
+  })
   const result = placeEachOverBudgetIfNeeded(
     oldestFirst.map((item) => ({
       id: item.id,

@@ -108,7 +108,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
         {/* Nothing in it (no scope, nothing today) and it takes no room. */}
         <div className="flex items-center gap-2 empty:hidden">
           {scopeChip('max-w-full shrink px-3 py-1 text-meta')}
-          <TodayLine workspaceId={activeWorkspaceId} short />
+          <TodayLine short />
         </div>
       </header>
     )
@@ -134,7 +134,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       {scopeChip('max-w-[40ch] px-3 py-1.5 text-body')}
 
       {/* Today at a glance (wide screens only) */}
-      <TodayLine workspaceId={activeWorkspaceId} />
+      <TodayLine />
 
       {/* Spacer */}
       <div className="flex-1" />

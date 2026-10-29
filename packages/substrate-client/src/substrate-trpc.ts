@@ -162,6 +162,19 @@ export const substrateTrpc: SubstrateWriter = {
     return adaptMutation(trpc.planning.autofill.useMutation())
   },
 
+  usePreferences() {
+    return adapt(trpc.preferences.get.useQuery())
+  },
+
+  useUpdatePreferences() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.preferences.update.useMutation({
+      // Resolves once every reader has the new value. The re-fit preview is
+      // placed inside study hours and the budget, so it refreshes too.
+      onSuccess: () => Promise.all([utils.preferences.invalidate(), utils.planItems.refitPreview.invalidate()]),
+    }))
+  },
+
   useAcceptRefit() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.planItems.refit.useMutation({

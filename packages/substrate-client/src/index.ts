@@ -16,6 +16,7 @@ export {
   useRecordings,
   useFocusedRecording,
   usePlanItemList,
+  usePreferences,
   useRecentJobs,
   useRunningJobCount,
   useRetryJob,

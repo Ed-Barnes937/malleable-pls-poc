@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { usePlanItemList, useWorkspacePanels } from '@pls/substrate-client'
+import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
@@ -17,16 +17,6 @@ function useMinuteClock(): number {
   return now
 }
 
-/** The board's Calendar study time per day, so the line agrees with its Help me plan. */
-function useBoardStudyMinPerDay(workspaceId: string): number | undefined {
-  const { data: panels } = useWorkspacePanels(workspaceId)
-  return useMemo(() => {
-    const rows = (panels ?? []) as unknown as { lens_type: string; config: Record<string, unknown> | null }[]
-    const value = rows.find((p) => p.lens_type === 'calendar')?.config?.studyMinPerDay
-    return typeof value === 'number' && value > 0 ? value : undefined
-  }, [panels])
-}
-
 /**
  * "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study": a quiet
  * summary of today in the top bar. Shown only on a day with a class or shift,
@@ -34,18 +24,21 @@ function useBoardStudyMinPerDay(workspaceId: string): number | undefined {
  * nothing between phone and wide, where the bar has no room); a phone gets
  * the `short` form under the tabs, "Tue · shift 17:00 · 2h to study".
  */
-export function TodayLine({ workspaceId, short = false }: { workspaceId: string; short?: boolean }) {
+export function TodayLine({ short = false }: { short?: boolean }) {
   const now = useMinuteClock()
   const day = todayRange(now)
   const from = new Date(day.start).toISOString()
   const to = new Date(day.end).toISOString()
   const { data } = usePlanItemList({ from, to, statuses: ['open', 'done'] })
-  const studyMinPerDay = useBoardStudyMinPerDay(workspaceId)
+  // The student's study hours and study time per day, as Help me plan uses them.
+  const { data: prefs } = usePreferences()
   const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
   const line = useMemo(
-    () => (data ? todayLine(data as PlanItemOccurrence[], { now, timeZone, studyMinPerDay }) : null),
-    [data, now, timeZone, studyMinPerDay],
+    () => (data && prefs
+      ? todayLine(data as PlanItemOccurrence[], { now, timeZone, studyHours: prefs.study_hours, studyMinPerDay: prefs.study_min_per_day })
+      : null),
+    [data, prefs, now, timeZone],
   )
   if (!line) return null
 
