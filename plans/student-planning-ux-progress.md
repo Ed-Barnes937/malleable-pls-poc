@@ -68,3 +68,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - R1 round 3: CHANGES NEEDED (H1: toast-bar restore cancels See it's glide; real cause of the journey-demo flake). Escalated to Ed; decision 22: simplify the toast bar. Round 4 dispatched.
 - 2026-10-29: R1 toast bar simplified (ae9abe0, -94/+53 lines); final review running. New: CT 'renders the week' fails on Thursdays on the integration branch (date-dependent); fix ticket dispatched (Sonnet). Reviewer also checking whether runbook step 2 misbehaves on a Thursday.
 - PR #93 (calendar CT date-dependence: simulator freezeNow, per-day tests) merged after reviewer PASS; no other date-sensitive CTs found. Follow-up: short-block CT flake (elementFromPoint before settle) dispatched.
+- PR #94 (short-block CT settle wait, 2-line test-only) merged; orchestrator read the diff instead of a separate reviewer. Original flake not reproducible (0/40).
