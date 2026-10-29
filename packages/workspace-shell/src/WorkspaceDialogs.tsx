@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import {
-  useWorkspaces,
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
@@ -98,21 +97,11 @@ export function DeleteWorkspaceDialog({
   workspace: { id: string; name: string } | null
 }) {
   const deleteWorkspace = useDeleteWorkspace()
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
-  const { data: workspaces } = useWorkspaces()
 
+  // Deleting the open board opens the first one left (see useActiveWorkspaceId).
   const handleDelete = () => {
     if (!workspace) return
-    deleteWorkspace.mutate(workspace.id, {
-      onSuccess: () => {
-        if (activeWorkspaceId === workspace.id && workspaces) {
-          const remaining = workspaces.filter((ws) => ws.id !== workspace.id)
-          if (remaining.length > 0) setActiveWorkspaceId(remaining[0].id)
-        }
-        onClose()
-      },
-    })
+    deleteWorkspace.mutate(workspace.id, { onSuccess: onClose })
   }
 
   return (

@@ -7,7 +7,7 @@ import { useManifests, activeScopeDims, type PanelManifest, type ScopeDim } from
  * manifest's `scope` declaration. Drives which scope pickers the drawer
  * offers and which parts of the TopBar chip are shown.
  */
-export function useBoardScopeDims(workspaceId: string): Set<ScopeDim> {
+export function useBoardScopeDims(workspaceId: string | null): Set<ScopeDim> {
   const { data: panels } = useWorkspacePanels(workspaceId)
   const manifests = useManifests()
   return useMemo(() => {

@@ -7,6 +7,7 @@ import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { insertWorkflowJob, workflowJobsJson } from '../workflows/sql'
 import { replaceAutomationReviews, type ReplaceResult } from '../planning/review-automation'
+import { requireOwnBoard } from './_shared'
 
 const jobInputSchema = z.object({
   jobType: z.string().max(255),
@@ -99,6 +100,7 @@ export const workflowsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        await requireOwnBoard(tx, ctx.userId, input.workspaceId)
         const [source] = await tx`
           SELECT * FROM workflows WHERE id = ${input.sourceWorkflowId} AND user_id = ${ctx.userId}
         `
@@ -134,6 +136,7 @@ export const workflowsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        if (input.workspaceId !== null) await requireOwnBoard(tx, ctx.userId, input.workspaceId)
         const [workflow] = await tx`
           INSERT INTO workflows (user_id, source_lens, trigger_event, condition_field, condition_value, enabled, workspace_id)
           VALUES (${ctx.userId}, ${input.sourceLens}, ${input.triggerEvent},

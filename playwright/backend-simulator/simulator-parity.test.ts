@@ -236,6 +236,26 @@ describe('simulator parity — read procedures return data on default seed', () 
       .rejects.toThrow()
   })
 
+  it('writes naming a board that is gone are rejected, as on the server', async () => {
+    const before = (await query(router, 'workspaces.panels', 'ws-gone') as unknown[]).length
+    await expect(mutate(router, 'workspaces.addPanel', { workspaceId: 'ws-gone', lensType: 'calendar', slotName: 'slot-1' }))
+      .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workspaces.setScope', { workspaceId: 'ws-gone', scopeType: 'tag', scopeValue: 'biology' }))
+      .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workspaces.updateBackground', { workspaceId: 'ws-gone', backgroundType: 'solid', backgroundValue: '#000' }))
+      .rejects.toThrow('Board not found')
+    await expect(mutate(router, 'workflows.create', { workspaceId: 'ws-gone', sourceLens: 'transcript', triggerEvent: 'tag:created', jobs: [] }))
+      .rejects.toThrow('Board not found')
+    const [source] = await query(router, 'workflows.forWorkspace', { workspaceId: 'ws-in-lecture' }) as { id: string }[]
+    await expect(mutate(router, 'workflows.createOverride', { sourceWorkflowId: source.id, workspaceId: 'ws-gone', enabled: false }))
+      .rejects.toThrow('Board not found')
+    const onGone = await query(router, 'workflows.forWorkspace', { workspaceId: 'ws-gone' }) as { workspace_id: string | null }[]
+    expect(onGone.filter((w) => w.workspace_id === 'ws-gone')).toEqual([])
+    expect(before).toBe(0)
+    expect(await query(router, 'workspaces.panels', 'ws-gone')).toEqual([])
+    expect(await query(router, 'workspaces.scopes', 'ws-gone')).toEqual([])
+  })
+
   it('setScope keeps an in-course focus and clears an orphaned one', async () => {
     const scopes = async () =>
       (await query(router, 'workspaces.scopes', 'ws-evening-review') as { scope_type: string }[]).map((s) => s.scope_type).sort()

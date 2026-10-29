@@ -1,7 +1,7 @@
 import { Menu, LayoutGrid, Settings } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceScopes, useFocusedRecording, useRunningJobCount, decodeScope } from '@pls/substrate-client'
-import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId } from './activeBoard'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
@@ -28,7 +28,7 @@ const ICON_BUTTON =
  * student can always see (and change) what the board shows. Returns null
  * when no widget uses any scope.
  */
-export function useScopeSummary(workspaceId: string): string | null {
+export function useScopeSummary(workspaceId: string | null): string | null {
   const dims = useBoardScopeDims(workspaceId)
   const { data: scopes } = useWorkspaceScopes(workspaceId)
   const s = useMemo(
@@ -59,7 +59,7 @@ export function useScopeSummary(workspaceId: string): string | null {
  * chip and the short today line.
  */
 export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeWorkspaceId = useActiveWorkspaceId()
   const scopeSummary = useScopeSummary(activeWorkspaceId)
   const narrow = useNarrowScreen()
 

@@ -1,5 +1,6 @@
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, Workflow, WorkflowJob } from '../in-memory-db'
+import { requireBoard } from './workspaces'
 
 type WorkflowWithJobs = Workflow & { jobs: WorkflowJob[] }
 
@@ -60,6 +61,7 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
         enabled?: boolean
         jobs: { jobType: string; params?: Record<string, unknown>; sortOrder: number; delayMs?: number }[]
       }
+    if (workspaceId !== null) requireBoard(db, workspaceId)
 
     const workflow = {
       id: `wf-${crypto.randomUUID().slice(0, 8)}`,
@@ -159,6 +161,7 @@ export function registerWorkflowsHandlers(router: ProcedureRouter, db: InMemoryD
     const { sourceWorkflowId, workspaceId, enabled } = input as {
       sourceWorkflowId: string; workspaceId: string; enabled: boolean
     }
+    requireBoard(db, workspaceId)
     const source = db.workflows.find((w) => w.id === sourceWorkflowId)
     if (!source) return null
 

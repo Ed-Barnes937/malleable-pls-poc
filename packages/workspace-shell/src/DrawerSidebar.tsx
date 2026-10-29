@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
 import {
+  useWorkspaces,
   useWorkspaceScopes,
   useSetWorkspaceScope,
   useRecordings,
@@ -8,7 +9,7 @@ import {
   decodeScope,
 } from '@pls/substrate-client'
 import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
-import { useWorkspaceStore } from './store'
+import { useActiveWorkspaceId } from './activeBoard'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
@@ -171,7 +172,8 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
   // Modal while open: focus stays in the menu (or in Activity, opened from it).
   useFocusTrap(asideRef, open)
   const previousFocusRef = useRef<Element | null>(null)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  const activeWorkspaceId = useActiveWorkspaceId()
+  const { data: boards } = useWorkspaces()
   const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
   // On a phone the top bar keeps only the menu, the tabs and the widgets
   // button: Activity, the theme and the board's appearance move in here.
@@ -280,9 +282,15 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         </div>
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
+            {/* Widgets, scope, automations and appearance all belong to a board. */}
+            {boards?.length === 0 && (
+              <p data-testid="drawer-no-board" className="px-1 text-body text-text-secondary">
+                Make a board first, then you can add widgets to it.
+              </p>
+            )}
             {/* Scope first: a few compact rows, always in view without scrolling
                 past the palette. Hidden when every widget on the board ignores scope. */}
-            {activeScopeDims.size > 0 && (
+            {activeWorkspaceId && activeScopeDims.size > 0 && (
               <section data-testid="scope-section">
                 <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
                 <p className="mb-2.5 px-1 text-meta text-text-muted">What the widgets on this board focus on.</p>
@@ -291,19 +299,23 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
             )}
 
             {/* Widgets */}
-            <section data-testid="widget-palette">
-              <SectionLabel className="mb-1 px-1">Add widgets</SectionLabel>
-              <p className="mb-3 px-1 text-meta text-text-muted">Click to add, or drag onto your board.</p>
-              <WidgetPalette onAdd={onAddWidget} onDragStart={handleWidgetDragStart} />
-            </section>
+            {activeWorkspaceId && (
+              <section data-testid="widget-palette">
+                <SectionLabel className="mb-1 px-1">Add widgets</SectionLabel>
+                <p className="mb-3 px-1 text-meta text-text-muted">Click to add, or drag onto your board.</p>
+                <WidgetPalette onAdd={onAddWidget} onDragStart={handleWidgetDragStart} />
+              </section>
+            )}
 
             {/* Automations */}
-            <section>
-              <SectionLabel className="mb-2 px-1">Automations</SectionLabel>
-              <WorkflowSettingsPanel />
-            </section>
+            {activeWorkspaceId && (
+              <section>
+                <SectionLabel className="mb-2 px-1">Automations</SectionLabel>
+                <WorkflowSettingsPanel />
+              </section>
+            )}
 
-            {narrow && (
+            {activeWorkspaceId && narrow && (
               <section data-testid="drawer-appearance">
                 <SectionLabel className="mb-2 px-1">Board appearance</SectionLabel>
                 <div className="px-1">

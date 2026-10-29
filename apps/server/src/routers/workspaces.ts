@@ -1,8 +1,9 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import { inCourse } from './_shared'
+import { inCourse, requireOwnBoard } from './_shared'
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -61,6 +62,7 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        await requireOwnBoard(tx, ctx.userId, input.workspaceId)
         const [panel] = await tx`
           INSERT INTO workspace_panels (user_id, workspace_id, lens_type, slot_name, config, pos_x, pos_y, width, height, z_index)
           VALUES (
@@ -105,7 +107,7 @@ export const workspacesRouter = router({
         const existingIds = new Set(existing.map((r) => r.id as string))
         const inputIds = new Set(input)
         if (inputIds.size !== existingIds.size || input.some((id) => !existingIds.has(id))) {
-          throw new Error('Reorder must include exactly all workspace IDs')
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Reorder must include exactly all workspace IDs' })
         }
         for (let i = 0; i < input.length; i++) {
           await tx`UPDATE workspaces SET sort_order = ${i} WHERE id = ${input[i]} AND user_id = ${ctx.userId}`
@@ -147,7 +149,7 @@ export const workspacesRouter = router({
           SELECT config FROM workspace_panels
           WHERE id = ${input.panelId} AND user_id = ${ctx.userId}
         `
-        if (!existing) throw new Error('Panel not found')
+        if (!existing) throw new TRPCError({ code: 'NOT_FOUND', message: 'Panel not found' })
         // config is jsonb — the driver always returns it as a parsed object
         const current = existing.config as Record<string, unknown>
         const merged = { ...current, ...input.configPatch }
@@ -174,6 +176,7 @@ export const workspacesRouter = router({
           WHERE id = ${input.workspaceId} AND user_id = ${ctx.userId}
           RETURNING *
         `
+        if (!ws) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
         return ws
       })
     }),
@@ -199,6 +202,7 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        await requireOwnBoard(tx, ctx.userId, input.workspaceId)
         if (input.scopeType === 'tag' && input.scopeValue !== null) {
           // A focused lecture outside the new course would be an orphan: clear
           // it in the same transaction. "All courses" (null) keeps any focus.

@@ -76,7 +76,7 @@ export function openedElsewhereMessage(offsetMs: number, boardName: string): str
  * "Showing" focus), so that says so too, with a way back to the lecture.
  */
 export function useShowMoment(
-  activeWorkspaceId: string,
+  activeWorkspaceId: string | null,
   activeLensTypes: string[],
   manifests: PanelManifest[],
 ): (moment: Moment) => Promise<ShowMomentResult> {
@@ -106,6 +106,8 @@ export function useShowMoment(
 
   return useCallback(
     async (moment: Moment): Promise<ShowMomentResult> => {
+      // Moments are shown from a widget, so there is always a board; this is for the types.
+      if (!activeWorkspaceId) return 'no-viewer'
       let target: MomentBoardCandidate | undefined
       let from: MomentBoardCandidate | undefined
       if (!hasMomentViewer(activeLensTypes, manifests)) {

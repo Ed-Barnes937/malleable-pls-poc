@@ -24,6 +24,11 @@ export class TopBarPom {
     this.todayLine = this.root.getByTestId('today-line')
   }
 
+  /** A board's tab button, by the board's name. */
+  workspaceTab(name: string) {
+    return this.root.getByRole('button', { name, exact: true })
+  }
+
   async switchToWorkspace(name: string) {
     await this.root.getByRole('button', { name, exact: true }).click()
   }

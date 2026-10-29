@@ -1,4 +1,4 @@
-import type { ProcedureRouter } from '../trpc-protocol'
+import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
 import { inCourse } from './course-scope'
 
@@ -48,6 +48,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       workspaceId: string; lensType: string; slotName: string; config?: Record<string, unknown>
       pos_x?: number; pos_y?: number; width?: number; height?: number; z_index?: number
     }
+    requireBoard(db, workspaceId)
     const panel = {
       id: `wp-${crypto.randomUUID().slice(0, 8)}`,
       workspace_id: workspaceId,
@@ -91,11 +92,9 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, backgroundType, backgroundValue } = input as {
       workspaceId: string; backgroundType: string; backgroundValue: string
     }
-    const ws = db.workspaces.find((w) => w.id === workspaceId)
-    if (ws) {
-      ws.background_type = backgroundType
-      ws.background_value = backgroundValue
-    }
+    const ws = requireBoard(db, workspaceId)
+    ws.background_type = backgroundType
+    ws.background_value = backgroundValue
     return ws
   })
 
@@ -110,6 +109,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     }
     // Mirror the server's z.enum: only live board dimensions.
     if (scopeType !== 'tag' && scopeType !== 'recording') throw new Error(`Unknown scope type: ${scopeType}`)
+    requireBoard(db, workspaceId)
     // Mirror server invariant: a new course clears a focused recording that
     // is not in it; "All courses" (null) keeps the focus.
     if (scopeType === 'tag' && scopeValue !== null) {
@@ -139,4 +139,11 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
       })
     }
   })
+}
+
+/** Mirrors the server's requireOwnBoard: a write naming a board that is gone is NOT_FOUND. */
+export function requireBoard(db: InMemoryDb, workspaceId: string) {
+  const ws = db.workspaces.find((w) => w.id === workspaceId)
+  if (!ws) throw new SimulatorError('NOT_FOUND', 'Board not found')
+  return ws
 }

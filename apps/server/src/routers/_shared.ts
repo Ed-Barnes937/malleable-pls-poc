@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import type { TxSql } from '@pls/db'
 
 /**
@@ -30,6 +31,21 @@ export const boardScope = z.object({
 export type CourseTarget = 'recording' | 'plan_item'
 
 type Fragment = ReturnType<TxSql['unsafe']>
+
+/**
+ * Checks that `workspaceId` is one of the student's boards before a write
+ * that names it, and holds it until the transaction ends so it can't be
+ * deleted under the write. Throws NOT_FOUND otherwise: Postgres checks
+ * foreign keys without row-level security, so without this a write naming a
+ * deleted board fails with a raw foreign-key error, and one naming another
+ * student's board lands in it.
+ */
+export async function requireOwnBoard(tx: TxSql, userId: string, workspaceId: string): Promise<void> {
+  const [board] = await tx`
+    SELECT id FROM workspaces WHERE id = ${workspaceId} AND user_id = ${userId} FOR KEY SHARE
+  `
+  if (!board) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
+}
 
 /**
  * The one place board course scope is turned into SQL: an `EXISTS (...)`

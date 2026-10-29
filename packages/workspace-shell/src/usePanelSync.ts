@@ -35,7 +35,7 @@ function buildItem(p: PanelRow, manifests: PanelManifest[]): PanelItem {
  * user-dragged positions aren't overwritten before they're persisted.
  */
 export function usePanelSync(
-  activeWorkspaceId: string,
+  activeWorkspaceId: string | null,
   panels: PanelRow[] | undefined,
   manifests: PanelManifest[],
   canvasRef: React.RefObject<HTMLDivElement | null>,

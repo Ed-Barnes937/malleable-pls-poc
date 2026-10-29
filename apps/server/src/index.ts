@@ -5,6 +5,7 @@ import { createHTTPHandler } from '@trpc/server/adapters/standalone'
 import cors from 'cors'
 import { appRouter } from './router'
 import { createContextFactory } from './context'
+import { trpcErrorLine } from './trpc-error-log'
 import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
 import { createServerExecutors } from './workflows/executors'
@@ -111,6 +112,13 @@ const trpcHandler = createHTTPHandler({
   router: appRouter,
   createContext: createContextFactory({ ai, executors }),
   middleware: cors({ origin: (incoming, cb) => cb(null, isAllowedOrigin(incoming ?? '')) }),
+  // Every failed call reaches the server log (and so the Fly logs) as one
+  // line: the procedure and the error, never the input (see trpcErrorLine).
+  onError: ({ path, type, error }) => {
+    const line = trpcErrorLine(type, path, error)
+    if (error.code === 'INTERNAL_SERVER_ERROR') console.error(line)
+    else console.warn(line)
+  },
 })
 
 function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {

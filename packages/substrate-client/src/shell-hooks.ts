@@ -26,25 +26,36 @@ export function useWorkspaces() {
   return trpc.workspaces.list.useQuery()
 }
 
-export function useWorkspacePanels(workspaceId: string) {
-  return trpc.workspaces.panels.useQuery(workspaceId)
+/** A board's widgets; no request without a board (`null`). */
+export function useWorkspacePanels(workspaceId: string | null) {
+  return trpc.workspaces.panels.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
 }
 
-export function useWorkspaceScopes(workspaceId: string) {
-  return trpc.workspaces.scopes.useQuery(workspaceId)
+/** A board's scope rows; no request without a board (`null`). */
+export function useWorkspaceScopes(workspaceId: string | null) {
+  return trpc.workspaces.scopes.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
 }
 
+// Both write the change into the cached board list as well as refetching
+// it: if the refetch fails, the list still has the new board (so the open
+// board doesn't fall back to the first one) and no longer has the deleted one.
 export function useCreateWorkspace() {
   const utils = trpc.useUtils()
   return trpc.workspaces.create.useMutation({
-    onSuccess: () => utils.workspaces.list.invalidate(),
+    onSuccess: (ws) => {
+      utils.workspaces.list.setData(undefined, (prev) => prev && ([...prev, ws] as typeof prev))
+      return utils.workspaces.list.invalidate()
+    },
   })
 }
 
 export function useDeleteWorkspace() {
   const utils = trpc.useUtils()
   return trpc.workspaces.delete.useMutation({
-    onSuccess: () => utils.workspaces.list.invalidate(),
+    onSuccess: (_data, id) => {
+      utils.workspaces.list.setData(undefined, (prev) => prev && (prev.filter((w) => w.id !== id) as typeof prev))
+      return utils.workspaces.list.invalidate()
+    },
   })
 }
 
@@ -70,10 +81,20 @@ export function useReorderWorkspaces() {
   })
 }
 
+/**
+ * A write that names a board the server doesn't have (deleted in another
+ * tab, say) is NOT_FOUND: refetch the board list, so the open board moves to
+ * one that still exists.
+ */
+function refetchBoardsIfGone(utils: ReturnType<typeof trpc.useUtils>, error: { data?: { code?: string } | null }) {
+  if (error.data?.code === 'NOT_FOUND') void utils.workspaces.list.invalidate()
+}
+
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({
     onSuccess: () => utils.workspaces.panels.invalidate(),
+    onError: (error) => refetchBoardsIfGone(utils, error),
   })
 }
 
@@ -105,6 +126,7 @@ export function useUpdateWorkspaceBackground() {
 export function useSetWorkspaceScope() {
   const utils = trpc.useUtils()
   return trpc.workspaces.setScope.useMutation({
+    onError: (error) => refetchBoardsIfGone(utils, error),
     onSuccess: (_data, input) => {
       utils.workspaces.scopes.invalidate()
       // A freshly captured/uploaded recording becomes the focus before any
@@ -179,8 +201,8 @@ export function useWorkflowsForLens(lensType: string, workspaceId: string): UseQ
   return trpc.workflows.forLens.useQuery({ lensType, workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
-export function useWorkflowsForWorkspace(workspaceId: string): UseQueryResult<WorkflowWithJobs[]> {
-  return trpc.workflows.forWorkspace.useQuery({ workspaceId }) as unknown as UseQueryResult<WorkflowWithJobs[]>
+export function useWorkflowsForWorkspace(workspaceId: string | null): UseQueryResult<WorkflowWithJobs[]> {
+  return trpc.workflows.forWorkspace.useQuery({ workspaceId: workspaceId ?? '' }, { enabled: workspaceId !== null }) as unknown as UseQueryResult<WorkflowWithJobs[]>
 }
 
 /** One automation with its jobs; null once deleted. */
