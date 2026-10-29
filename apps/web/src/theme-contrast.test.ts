@@ -172,6 +172,8 @@ const TEXT_PAIRS: [string, string][] = [
   ['good', 'good-soft'],
   // To-do's "Done · Undo": the Undo link sits on the good tint.
   ['accent', 'good-soft'],
+  // Test me's revealed answer, on the good tint.
+  ['text-primary', 'good-soft'],
   ['inverse-foreground', 'inverse'],
   ['inverse-accent', 'inverse'],
   ['shift-ink', 'shift'],
@@ -212,6 +214,14 @@ const GRAPHIC_PAIRS: [string, string][] = [
   ['confused', 'surface-overlay'],
   ['attn', 'surface-overlay'],
   ['accent', 'surface-overlay'],
+  // Meters on their track: Test me's confidence, Weakest topics' "% sure".
+  ['good', 'surface-overlay'],
+  // To-do's tick on a done item.
+  ['surface-raised', 'good'],
+  // Switch: the knob on its track, on and off, and the off track on a panel.
+  ['surface-raised', 'accent'],
+  ['surface-raised', 'text-muted'],
+  ['text-muted', 'surface-raised'],
 ]
 
 describe('design token contrast', () => {
