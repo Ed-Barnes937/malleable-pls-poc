@@ -76,3 +76,4 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - R1 merged into `feat/student-planning-ux` (PR #92) after round-5 PASS and two small toast fixes. All rehearsal fix tickets merged; re-running the rehearsal on PR #90.
 - Rehearsal round 2 merged (PR #90): all runbook steps work Tue and Thu, light and dark; F1-F14 fixed except F12 (U7). New low findings N1-N5 (board left scrolled after starters, narrow early-week panel, 9px 20-min block, re-fit into next week copy, 1:18 wrap).
 - Ed: fix N1-N5 before opening the PR to main. Ticket N dispatched (Opus).
+- Ticket N PR #96 opened (N1-N5 fixed, suites green); fresh reviewer running.
