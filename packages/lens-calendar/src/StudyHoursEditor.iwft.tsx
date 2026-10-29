@@ -30,7 +30,7 @@ const every = (start: string, end: string): StudyHours =>
 
 const editor = (page: Page) => page.getByRole('dialog', { name: 'When do you study?' })
 const line = (page: Page) => page.getByTestId('study-rhythm')
-const change = (page: Page) => page.getByRole('button', { name: 'Change study hours' })
+const change = (page: Page) => page.getByRole('button', { name: 'Change when you study' })
 
 test('one range for every day: the line, the editor, and Save keeps the hours, the zone and the wash', async ({ mount, page, simulator }) => {
   seed(simulator)
@@ -115,6 +115,128 @@ test('different on some days: a range per day, No study on Sunday, and the line 
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(line(page)).toHaveText(/^Study hours vary by day\W+2h a day\W+Change$/)
   await expect.poll(() => simulator.db.preferences?.study_hours?.sat).toEqual({ start: '11:00', end: '22:00' })
+})
+
+test('collapsing "Different on some days" says Save will replace the different days, and then it does', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  simulator.db.preferences = { time_zone: 'Europe/London', study_hours: { ...every('09:00', '22:00'), sun: null }, study_min_per_day: 120 }
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  await change(page).click()
+  const dialog = editor(page)
+  const different = dialog.getByRole('button', { name: 'Different on some days' })
+  // The days differ, so it opens on them: nothing to warn about.
+  await expect(different).toHaveAttribute('aria-expanded', 'true')
+  await expect(dialog.getByTestId('study-hours-note')).toHaveCount(0)
+
+  await different.click()
+  const note = dialog.getByTestId('study-hours-note')
+  await expect(note).toHaveText('These times will replace your different days when you save.')
+  await expect(dialog.getByRole('button', { name: 'Save' })).toHaveAccessibleDescription('These times will replace your different days when you save.')
+  // Only the study time per day changed, but Save gives every day the same times, as it said.
+  await dialog.getByLabel('Study time per day').selectOption('180')
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => simulator.db.preferences).toEqual({ time_zone: 'Europe/London', study_hours: every('09:00', '22:00'), study_min_per_day: 180 })
+  await expect(line(page)).toHaveText(/^Study 09:00-22:00\W+3h a day\W+Change$/)
+})
+
+test('no note when the days are already the same, even after opening and closing the days', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  await change(page).click()
+  const dialog = editor(page)
+  await expect(dialog.getByTestId('study-hours-note')).toHaveCount(0)
+  const different = dialog.getByRole('button', { name: 'Different on some days' })
+  await different.click()
+  await different.click()
+  await expect(dialog.getByTestId('study-hours-note')).toHaveCount(0)
+  // A day changed and then closed again would be lost: that is said.
+  await different.click()
+  await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
+  await different.click()
+  await expect(dialog.getByTestId('study-hours-note')).toBeVisible()
+})
+
+test('study hours saved while Auto-fill is drafting shape the draft it lands', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  for (let i = 1; i <= 6; i++) {
+    simulator.db.planItems.push({ ...simulator.db.planItems[0], id: `paper-${i}`, title: `Past paper ${i}` })
+  }
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/planning.autofill**', async (route) => {
+    await held
+    await route.fallback()
+  })
+  await page.getByTestId('autofill').click()
+  await expect(page.getByTestId('autofill')).toHaveText('Drafting your week...')
+
+  await change(page).click()
+  const dialog = editor(page)
+  await dialog.getByLabel('Start time, every day').selectOption('10:00')
+  await dialog.getByRole('button', { name: 'Different on some days' }).click()
+  await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
+  await dialog.getByRole('button', { name: 'Save' }).click()
+  release()
+
+  // Seven 2h to-dos, six study days from 10:00: no block on Sunday, none before 10:00.
+  const ghosts = page.getByTestId('calendar-ghost')
+  await expect(ghosts).toHaveCount(6)
+  for (const ghost of await ghosts.all()) await expect(ghost).toHaveAttribute('aria-label', /, 10:00 - 12:00$/)
+})
+
+test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await page.route('**/preferences.get**', (route) => route.fulfill({ status: 500, body: '{}' }))
+  const sent: Record<string, unknown>[] = []
+  await page.route('**/preferences.update**', async (route) => {
+    sent.push(JSON.parse(route.request().postData() ?? 'null'))
+    await route.fallback()
+  })
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  // The defaults apply.
+  await expect(line(page)).toHaveText(/^Study 09:00-22:00\W+2h a day\W+Change$/)
+  await change(page).click()
+  await editor(page).getByLabel('Start time, every day').selectOption('10:00')
+  await editor(page).getByRole('button', { name: 'Save' }).click()
+  await expect.poll(() => simulator.db.preferences?.study_hours).toEqual(every('10:00', '22:00'))
+  expect(sent).toHaveLength(1)
+  expect(JSON.stringify(sent[0])).not.toContain('time_zone')
+  expect(simulator.db.preferences?.time_zone).toBeNull()
+})
+
+test('a change being saved is not put back by the window regaining focus', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  let gets = 0
+  page.on('request', (r) => { if (r.url().includes('preferences.get')) gets++ })
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  await page.route('**/preferences.update**', async (route) => {
+    await held
+    await route.fallback()
+  })
+  await change(page).click()
+  await editor(page).getByLabel('Study time per day').selectOption('60')
+  await editor(page).getByRole('button', { name: 'Save' }).click()
+  await expect(line(page)).toContainText('1h a day')
+  // The tab is hidden and shown again while the save waits.
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('focus'))
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  await page.waitForTimeout(300)
+  expect(gets).toBe(0)
+  await expect(line(page)).toContainText('1h a day')
+  release()
+  // Read back once the save is done.
+  await expect.poll(() => gets).toBe(1)
+  await expect(line(page)).toContainText('1h a day')
 })
 
 test('an end before the start is refused with a clear message, and nothing is saved', async ({ mount, page, simulator }) => {
@@ -248,7 +370,8 @@ test('a save that fails goes back to what is saved, and says so', async ({ mount
 /** The whole editor on screen, every field and button reachable, each day's row on one line. */
 async function expectFits(page: Page, viewport: { width: number; height: number }) {
   const dialog = editor(page)
-  await dialog.getByRole('button', { name: 'Different on some days' }).click()
+  const different = dialog.getByRole('button', { name: 'Different on some days' })
+  if ((await different.getAttribute('aria-expanded')) !== 'true') await different.click()
   const box = (await dialog.boundingBox())!
   expect(box.x).toBeGreaterThanOrEqual(0)
   expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
@@ -267,11 +390,17 @@ async function expectFits(page: Page, viewport: { width: number; height: number 
 test('beside the narrow panel (about 236px over the weekend), the editor fits on screen', async ({ mount, page, simulator }) => {
   // The demo board's Calendar at 1440x900 on a Tuesday: the panel floats over the weekend.
   seed(simulator)
+  simulator.db.preferences = { time_zone: 'Europe/London', study_hours: { ...every('09:00', '22:00'), sun: null }, study_min_per_day: 120 }
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.clock.setFixedTime(new Date('2026-10-27T10:30:00Z'))
   await mount(<CalendarHarness width={882} height={712} />)
   await page.getByTestId('help-me-plan').click()
   expect((await page.getByTestId('help-me-plan-panel').boundingBox())!.width).toBeLessThan(260)
+  // The line wraps between phrases, never inside "no study Sun".
+  await expect(line(page)).toContainText('Study 09:00-22:00, no study Sun')
+  const dayPhrase = line(page).getByText('no study Sun', { exact: true })
+  const lineHeight = await dayPhrase.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight))
+  expect((await dayPhrase.boundingBox())!.height).toBeLessThan(lineHeight * 1.5)
   await change(page).click()
   await expectFits(page, { width: 1440, height: 900 })
 })

@@ -43,7 +43,7 @@ async function openPlan(page: Page) {
 
 /** Sets study time per day in the study hours editor (Change, then Save). */
 async function setStudyTimePerDay(page: Page, minutes: string) {
-  await page.getByRole('button', { name: 'Change study hours' }).click()
+  await page.getByRole('button', { name: 'Change when you study' }).click()
   const editor = page.getByRole('dialog', { name: 'When do you study?' })
   await editor.getByLabel('Study time per day').selectOption(minutes)
   await editor.getByRole('button', { name: 'Save' }).click()
@@ -89,7 +89,7 @@ test("reads study time per day and study hours from the student's preference", a
   const panel = await openPlan(page)
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 1.5 hours of study time left next week (1h 30m a day).')
   await expect(panel.getByTestId('study-rhythm')).toHaveText(/^Study 09:00-22:00, no study Tue\W+1h 30m a day\W+Change$/)
-  await panel.getByRole('button', { name: 'Change study hours' }).click()
+  await panel.getByRole('button', { name: 'Change when you study' }).click()
   const editor = page.getByRole('dialog', { name: 'When do you study?' })
   await expect(editor.getByLabel('Study time per day')).toHaveValue('90')
   await expect(editor.getByRole('checkbox', { name: 'No study on Tuesday' })).toBeChecked()

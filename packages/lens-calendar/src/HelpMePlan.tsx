@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
+import { Fragment, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type RefObject } from 'react'
 import {
   ASSUMED_ESTIMATE_MIN,
   ESTIMATE_OPTIONS,
@@ -15,7 +15,7 @@ import {
   noSlotCause,
   sameStudyHours,
   studyDays,
-  studyHoursSummary,
+  studyHoursSummaryParts,
   suggestTaskSlots,
   type PlanItemOccurrence,
   type PlanTask,
@@ -161,19 +161,29 @@ export function HelpMePlanPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.budget.minutesPerDay, layout.timeZone, studyHours])
 
+  // What the panel shows now, for a draft that lands after an await: study
+  // hours or study time per day saved while Auto-fill was thinking apply.
+  const latest = useRef({ layout, todos, now })
+  latest.current = { layout, todos, now }
+
   const runAutofill = async (estimates: Record<string, number>) => {
     setAutofill({ state: 'loading' })
+    const asked = layout
     try {
       const advice = await autofillPlan.mutateAsync({
-        from: new Date(layout.week.start).toISOString(),
-        to: new Date(layout.week.end).toISOString(),
-        timeZone: layout.timeZone,
+        from: new Date(asked.week.start).toISOString(),
+        to: new Date(asked.week.end).toISOString(),
+        timeZone: asked.timeZone,
         estimates,
       })
+      // The same week, as it is now (the student may have moved to another week meanwhile: keep the one asked about).
+      const current = latest.current
+      const sameWeek = current.layout.week.start === asked.week.start
+      const at = sameWeek ? current : { layout: asked, todos, now }
       const trims = new Map<string, number>()
-      const draft = buildAutofillDraft({ todos, layout, now, advice, trims, estimates })
+      const draft = buildAutofillDraft({ todos: at.todos, layout: at.layout, now: at.now, advice, trims, estimates })
       layer.propose(SOURCE, draft.proposals)
-      setAutofill({ state: 'drafted', week: layout.week.start, minutesPerDay: layout.budget.minutesPerDay, advice, estimates, trims, draft })
+      setAutofill({ state: 'drafted', week: at.layout.week.start, minutesPerDay: at.layout.budget.minutesPerDay, advice, estimates, trims, draft })
     } catch {
       setAutofill({ state: 'error', message: "Auto-fill didn't work just now. Nothing changed - try again?" })
     }
@@ -868,14 +878,16 @@ function FreeTime({
       <div className="flex flex-col gap-0.5">
         <h4 className={sectionLabel}>Study time left</h4>
         <p data-testid="study-rhythm" className="text-meta text-text-secondary">
-          {studyHoursSummary(studyHours)}
+          {studyHoursSummaryParts(studyHours).map((part, i) => (
+            <Fragment key={i}>{i > 0 && ' '}<span className="whitespace-nowrap">{part}</span></Fragment>
+          ))}
           <Dot />
           <span className="whitespace-nowrap">{formatMinutes(perDay)} a day</span>
           <Dot />
           <button
             ref={changeRef}
             type="button"
-            aria-label="Change study hours"
+            aria-label="Change when you study"
             aria-expanded={editing}
             aria-haspopup="dialog"
             onClick={() => setEditing((open) => !open)}

@@ -3,6 +3,7 @@ import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle
 import { useQueryClient } from '@tanstack/react-query'
 import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
+import { preferencesQueryOptions } from './shell-hooks'
 
 /** Mutation scope for preference saves: they run one at a time, in order. */
 const PREFERENCES_SCOPE = 'preferences'
@@ -167,7 +168,7 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   usePreferences() {
-    return adapt(trpc.preferences.get.useQuery())
+    return adapt(trpc.preferences.get.useQuery(undefined, preferencesQueryOptions))
   },
 
   useUpdatePreferences() {

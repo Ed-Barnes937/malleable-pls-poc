@@ -135,9 +135,17 @@ export function usePlanItemList(query: PlanItemQuery) {
   return trpc.planItems.list.useQuery(query)
 }
 
+/**
+ * How every reader of `preferences.get` caches it. Only `preferences.update`
+ * changes it (re-read once the last save settles), so it is never refetched
+ * on its own: a refetch started while saves are queued would put the old
+ * value back over the change already shown.
+ */
+export const preferencesQueryOptions = { staleTime: Infinity } as const
+
 /** The student's study rhythm (study hours, study time per day, zone), defaults filled in. */
 export function usePreferences() {
-  return trpc.preferences.get.useQuery()
+  return trpc.preferences.get.useQuery(undefined, preferencesQueryOptions)
 }
 
 export function useRecentJobs(limit?: number): UseQueryResult<JobRun[]> {

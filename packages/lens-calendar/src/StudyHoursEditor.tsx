@@ -37,6 +37,10 @@ const withValue = (times: string[], value: string) => (times.includes(value) ? t
 const endsAfterStart = (w: StudyWindow) => w.end > w.start
 
 export const END_BEFORE_START = 'End time must be after the start time.'
+export const REPLACES_DAYS = 'These times will replace your different days when you save.'
+
+/** Every day has study, all at the same times. */
+const everyDaySame = (h: StudyHours) => WEEKDAYS.every((d) => h[d] && sameStudyWindow(h[d], h.mon))
 
 const popoverWidth = 320
 const margin = 8
@@ -57,7 +61,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
   onClose: () => void
 }) {
   const studying = WEEKDAYS.map((d) => studyHours[d]).filter((w): w is StudyWindow => !!w)
-  const uniform = studying.length === WEEKDAYS.length && studying.every((w) => sameStudyWindow(w, studying[0]))
+  const uniform = everyDaySame(studyHours)
   const [perDay, setPerDay] = useState(studyMinPerDay)
   const [different, setDifferent] = useState(!uniform)
   const [every, setEvery] = useState<StudyWindow>(studying[0] ?? DEFAULT_STUDY_HOURS.mon!)
@@ -65,6 +69,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
 
   const headingId = useId()
   const daysId = useId()
+  const noteId = useId()
   const ref = useRef<HTMLDivElement>(null)
   const firstFieldRef = useRef<HTMLSelectElement>(null)
 
@@ -79,6 +84,9 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     ? days
     : Object.fromEntries(WEEKDAYS.map((d) => [d, every])) as StudyHours
   // Days (or "every") whose end is not after their start: shown as you go, and Save waits for them.
+  // Collapsed, Save gives every day the "Every day" times: say so when that
+  // replaces days that differ (saved, or edited before collapsing).
+  const replacesDays = !different && !(uniform && everyDaySame(days))
   const invalid: string[] = different
     ? WEEKDAYS.filter((d) => days[d] && !endsAfterStart(days[d]!))
     : endsAfterStart(every) ? [] : ['every']
@@ -179,6 +187,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     <div
       ref={ref}
       role="dialog"
+      aria-modal="true"
       aria-labelledby={headingId}
       data-testid="study-hours-editor"
       onKeyDown={onKeyDown}
@@ -200,6 +209,14 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
           startRef={firstFieldRef}
         />
       )}
+      {/* Always there, so a note that appears is announced. */}
+      <div aria-live="polite" className="-mt-2 empty:hidden">
+        {replacesDays && (
+          <p id={noteId} data-testid="study-hours-note" className="text-meta text-text-secondary">
+            {REPLACES_DAYS}
+          </p>
+        )}
+      </div>
 
       <label className="flex items-center justify-between gap-2 text-meta text-text-secondary">
         Study time per day
@@ -251,7 +268,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
         <button type="button" onClick={close} className="inline-flex h-9 items-center rounded-control px-3 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary">
           Cancel
         </button>
-        <button type="button" onClick={save} className="inline-flex h-9 items-center rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90">
+        <button type="button" onClick={save} aria-describedby={replacesDays ? noteId : undefined} className="inline-flex h-9 items-center rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90">
           Save
         </button>
       </div>

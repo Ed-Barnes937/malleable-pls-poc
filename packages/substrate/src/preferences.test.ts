@@ -5,6 +5,7 @@ import {
   applyPreferencesUpdate,
   sameStudyHours,
   studyHoursSummary,
+  studyHoursSummaryParts,
   preferencesUpdateInput,
   studyDayWindows,
   studyHoursSchema,
@@ -86,6 +87,12 @@ describe('studyHoursSummary', () => {
     expect(studyHoursSummary(only({ mon: ten, tue: ten, wed: ten, thu: ten, fri: ten, sat: ten }))).toBe('Study 10:00-22:00, no study Sun')
     expect(studyHoursSummary(only({ mon: ten, tue: ten, wed: ten, thu: ten, fri: ten }))).toBe('Study 10:00-22:00, no study Sat, Sun')
     expect(studyHoursSummary(only({ mon: ten, wed: ten }))).toBe('Study 10:00-22:00 on Mon, Wed')
+  })
+
+  it('comes in phrases a line may wrap between, never inside "no study Sun"', () => {
+    expect(studyHoursSummaryParts(only({ mon: ten, tue: ten, wed: ten, thu: ten, fri: ten, sat: ten }))).toEqual(['Study 10:00-22:00,', 'no study Sun'])
+    expect(studyHoursSummaryParts(only({ mon: ten, wed: ten }))).toEqual(['Study 10:00-22:00', 'on Mon, Wed'])
+    expect(studyHoursSummaryParts(DEFAULT_STUDY_HOURS)).toEqual(['Study 09:00-22:00'])
   })
 
   it('says they vary when the days differ, and when no day has study', () => {

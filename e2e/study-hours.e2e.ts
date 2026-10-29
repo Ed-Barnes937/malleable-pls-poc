@@ -90,7 +90,7 @@ test.describe('Study hours', () => {
     const panel = calendar.root.getByTestId('help-me-plan-panel')
     await expect(panel.getByTestId('plan-capacity')).toContainText('(2h a day)')
 
-    await panel.getByRole('button', { name: 'Change study hours' }).click()
+    await panel.getByRole('button', { name: 'Change when you study' }).click()
     const editor = page.getByRole('dialog', { name: 'When do you study?' })
     await editor.getByLabel('Study time per day').selectOption('60')
     await editor.getByRole('button', { name: 'Save' }).click()
@@ -103,7 +103,7 @@ test.describe('Study hours', () => {
     await calendar.nextWeek()
     await calendar.root.getByTestId('help-me-plan').click()
     await expect(panel.getByTestId('study-rhythm')).toContainText('1h a day')
-    await panel.getByRole('button', { name: 'Change study hours' }).click()
+    await panel.getByRole('button', { name: 'Change when you study' }).click()
     await expect(editor.getByLabel('Study time per day')).toHaveValue('60')
   })
 
@@ -134,7 +134,7 @@ test.describe('Study hours', () => {
       await expect(ghosts.first()).toHaveAttribute('aria-label', /, 09:00 - 11:00$/)
 
       // From 10:00, and no study on Sunday.
-      await panel.getByRole('button', { name: 'Change study hours' }).click()
+      await panel.getByRole('button', { name: 'Change when you study' }).click()
       const editor = page.getByRole('dialog', { name: 'When do you study?' })
       await editor.getByLabel('Start time, every day').selectOption('10:00')
       await editor.getByRole('button', { name: 'Different on some days' }).click()

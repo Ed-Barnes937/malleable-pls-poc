@@ -146,12 +146,20 @@ export function weekdayLabel(day: Weekday): string {
  * most days off), "Study hours vary by day", or "No study on any day".
  */
 export function studyHoursSummary(hours: StudyHours): string {
+  return studyHoursSummaryParts(hours).join(' ')
+}
+
+/**
+ * `studyHoursSummary` in the phrases a line may wrap between (joined with
+ * a space), so it never breaks inside one: ["Study 10:00-22:00,", "no study Sun"].
+ */
+export function studyHoursSummaryParts(hours: StudyHours): string[] {
   const studying = WEEKDAYS.filter((d) => hours[d])
-  if (studying.length === 0) return 'No study on any day'
+  if (studying.length === 0) return ['No study on any day']
   const first = hours[studying[0]]!
-  if (!studying.every((d) => sameStudyWindow(hours[d], first))) return 'Study hours vary by day'
+  if (!studying.every((d) => sameStudyWindow(hours[d], first))) return ['Study hours vary by day']
   const range = `Study ${first.start}-${first.end}`
-  if (studying.length === WEEKDAYS.length) return range
-  if (studying.length <= 3) return `${range} on ${studying.map(weekdayLabel).join(', ')}`
-  return `${range}, no study ${WEEKDAYS.filter((d) => !hours[d]).map(weekdayLabel).join(', ')}`
+  if (studying.length === WEEKDAYS.length) return [range]
+  if (studying.length <= 3) return [range, `on ${studying.map(weekdayLabel).join(', ')}`]
+  return [`${range},`, `no study ${WEEKDAYS.filter((d) => !hours[d]).map(weekdayLabel).join(', ')}`]
 }

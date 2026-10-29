@@ -71,6 +71,7 @@ export {
   sameStudyHours,
   sameStudyWindow,
   studyHoursSummary,
+  studyHoursSummaryParts,
   weekdayLabel,
   DEFAULT_PREFERENCES,
   DEFAULT_STUDY_HOURS,

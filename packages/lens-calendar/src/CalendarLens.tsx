@@ -689,8 +689,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
               onStudyRhythmChange={(change) => {
                 // Saved for every board and the server's automatic placement,
                 // and shown (and re-drafted) straight away. The first time
-                // study hours are saved, the zone they are read in is too.
-                const zone = change.study_hours && !planPrefs.time_zone ? { time_zone: browserZone } : {}
+                // study hours are saved, the zone they are read in is too:
+                // only when the saved preference has loaded and has none (never
+                // from the defaults used when it failed to load).
+                const loaded = preferences.data
+                const zone = change.study_hours && loaded && loaded.time_zone === null ? { time_zone: browserZone } : {}
                 updatePreferences.mutateAsync({ ...change, ...zone })
                   .catch(() => setNotice(change.study_hours
                     ? "Couldn't save your study hours. Try again?"
