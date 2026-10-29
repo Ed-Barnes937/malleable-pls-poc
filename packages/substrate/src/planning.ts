@@ -11,6 +11,7 @@
 import { z } from 'zod'
 import {
   capacity,
+  dayWindows,
   freeSlots,
   minutesByDay,
   place,
@@ -128,6 +129,15 @@ export function weekLayout(
 /** The local day (in `timeZone`) containing `instant`, as [start, end): DST-safe. */
 export function localDayRange(instant: number, timeZone: string): Interval {
   return { start: startOfLocalDay(instant, timeZone), end: startOfLocalDay(instant, timeZone, 1) }
+}
+
+/**
+ * The parts of `range` outside the student's study hours (read in
+ * `timeZone`), e.g. to wash them on the grid while planning. A "no study"
+ * day is outside from midnight to midnight.
+ */
+export function outsideStudyHours(range: Interval, timeZone: string, studyHours: StudyHours = DEFAULT_STUDY_HOURS): Interval[] {
+  return subtract([range], dayWindows(range, { timeZone, days: studyDayWindows(studyHours) }))
 }
 
 /** A block with `minutes` (default: the study-day buffer) either side. */

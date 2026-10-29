@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_PREFERENCES,
   DEFAULT_STUDY_HOURS,
+  applyPreferencesUpdate,
+  sameStudyHours,
+  studyHoursSummary,
   preferencesUpdateInput,
   studyDayWindows,
   studyHoursSchema,
@@ -57,5 +61,41 @@ describe('studyDayWindows', () => {
     expect(days[0]).toEqual({ dayStart: '10:00', dayEnd: '24:00' })
     expect(days[1]).toEqual({ dayStart: '09:00', dayEnd: '22:00' })
     expect(days[6]).toBeNull()
+  })
+})
+
+describe('applyPreferencesUpdate', () => {
+  it('changes only what the patch names, and null puts the default back, as preferences.update saves it', () => {
+    const set = applyPreferencesUpdate(DEFAULT_PREFERENCES, { study_hours: hours, time_zone: 'Europe/London' })
+    expect(set).toEqual({ time_zone: 'Europe/London', study_hours: hours, study_min_per_day: 120 })
+    expect(applyPreferencesUpdate(set, { study_min_per_day: 90 })).toEqual({ ...set, study_min_per_day: 90 })
+    expect(applyPreferencesUpdate({ ...set, study_min_per_day: 90 }, { study_hours: null, study_min_per_day: null, time_zone: null }))
+      .toEqual(DEFAULT_PREFERENCES)
+  })
+})
+
+describe('studyHoursSummary', () => {
+  const ten = { start: '10:00', end: '22:00' }
+  const only = (open: Partial<StudyHours>): StudyHours => ({ mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null, ...open })
+
+  it('says one range when every day is the same', () => {
+    expect(studyHoursSummary(DEFAULT_STUDY_HOURS)).toBe('Study 09:00-22:00')
+  })
+
+  it('names the days off when a few are, and the days on when most are off', () => {
+    expect(studyHoursSummary(only({ mon: ten, tue: ten, wed: ten, thu: ten, fri: ten, sat: ten }))).toBe('Study 10:00-22:00, no study Sun')
+    expect(studyHoursSummary(only({ mon: ten, tue: ten, wed: ten, thu: ten, fri: ten }))).toBe('Study 10:00-22:00, no study Sat, Sun')
+    expect(studyHoursSummary(only({ mon: ten, wed: ten }))).toBe('Study 10:00-22:00 on Mon, Wed')
+  })
+
+  it('says they vary when the days differ, and when no day has study', () => {
+    expect(studyHoursSummary(hours)).toBe('Study hours vary by day')
+    expect(studyHoursSummary(only({}))).toBe('No study on any day')
+  })
+
+  it('sameStudyHours compares day by day', () => {
+    expect(sameStudyHours(DEFAULT_STUDY_HOURS, { ...DEFAULT_STUDY_HOURS })).toBe(true)
+    expect(sameStudyHours(DEFAULT_STUDY_HOURS, hours)).toBe(false)
+    expect(sameStudyHours(hours, { ...hours, sun: { start: '09:00', end: '22:00' } })).toBe(false)
   })
 })

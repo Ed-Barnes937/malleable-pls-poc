@@ -1,5 +1,5 @@
 import { DEFAULT_PREFERENCES, localDayRange, studyDays, weekLayout, type PlanItem, type StudyHours, type UserPreferences } from '@pls/substrate'
-import { COURSES, clockTime, startOfLocalDay } from '@pls/shared-ui'
+import { COURSES } from '@pls/shared-ui'
 
 type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype' | 'title' | 'course'>
 
@@ -12,17 +12,6 @@ export interface TodayLine {
   studyLeftMin: number
   /** The phone's shorter form: "Tue" and the blocks not over yet, by start time ("shift 17:00"). */
   short: { weekday: string; upcoming: string[] }
-}
-
-const weekdayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'long' })
-const shortWeekdayFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'short' })
-
-/** Today's local day as [start, end), DST-safe. */
-export function todayRange(now: number): { start: number; end: number } {
-  const start = startOfLocalDay(now)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-  return { start: start.getTime(), end: end.getTime() }
 }
 
 export interface TodayStudyOptions {
@@ -47,27 +36,23 @@ export function todayStudyOptions(
   return { timeZone: p.time_zone ?? browserZone, studyHours: p.study_hours, studyMinPerDay: p.study_min_per_day }
 }
 
-/**
- * The plan item rows the line needs: today as the browser shows it (the
- * events) and today in the zone study time is counted in, when that differs.
- */
-export function todayRowsRange(now: number, timeZone: string): { start: number; end: number } {
-  const shown = todayRange(now)
-  const study = localDayRange(now, timeZone)
-  return { start: Math.min(shown.start, study.start), end: Math.max(shown.end, study.end) }
+/** "14:00" in `timeZone`. */
+function clockIn(timeZone: string): (iso: string) => string {
+  const format = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone })
+  return (iso) => format.format(new Date(Date.parse(iso)))
 }
 
-function eventLabel(row: Row): string {
-  const start = clockTime(row.starts_at!)
-  if (row.subtype === 'shift') return `shift ${start}-${clockTime(row.ends_at!)}`
+function eventLabel(row: Row, clock: (iso: string) => string): string {
+  const start = clock(row.starts_at!)
+  if (row.subtype === 'shift') return `shift ${start}-${clock(row.ends_at!)}`
   const course = row.subtype === 'class' && row.course
     ? COURSES.find((c) => c.value === row.course)?.label
     : undefined
   return `${course ?? row.title} ${start}`
 }
 
-function shortEventLabel(row: Row): string {
-  return row.subtype === 'shift' ? `shift ${clockTime(row.starts_at!)}` : eventLabel(row)
+function shortEventLabel(row: Row, clock: (iso: string) => string): string {
+  return row.subtype === 'shift' ? `shift ${clock(row.starts_at!)}` : eventLabel(row, clock)
 }
 
 /**
@@ -76,14 +61,17 @@ function shortEventLabel(row: Row): string {
  * the weekday, each class and shift not over yet, and the study time left
  * (a lecture that ended at 12:00 is no longer news at noon). Study time
  * comes from the same `weekLayout` / `studyDays` Help me plan uses, so the
- * two never disagree: today in `timeZone`, inside `studyHours`. Null when today has no class or shift: an empty day
- * has nothing worth a line.
+ * two never disagree: inside `studyHours`. The whole line is today in
+ * `timeZone` (the student's), weekday, times and study time alike, so it
+ * never mixes two days when the browser is somewhere else. Null when today
+ * has no class or shift: an empty day has nothing worth a line.
  */
 export function todayLine(
   rows: ReadonlyArray<Row>,
   opts: { now: number; timeZone: string; studyHours?: StudyHours; studyMinPerDay?: number },
 ): TodayLine | null {
-  const day = todayRange(opts.now)
+  const day = localDayRange(opts.now, opts.timeZone)
+  const clock = clockIn(opts.timeZone)
   const commitments = rows
     .filter((r) => r.kind === 'commitment' && r.status !== 'dismissed' && r.starts_at && r.ends_at)
     .filter((r) => {
@@ -93,17 +81,18 @@ export function todayLine(
     .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!))
   if (commitments.length === 0) return null
 
-  const studyDay = localDayRange(opts.now, opts.timeZone)
-  const layout = weekLayout(rows, studyDay, { timeZone: opts.timeZone, studyHours: opts.studyHours, studyMinPerDay: opts.studyMinPerDay })
-  const today = studyDays(layout, opts.now).find((d) => d.day === studyDay.start)
+  const layout = weekLayout(rows, day, { timeZone: opts.timeZone, studyHours: opts.studyHours, studyMinPerDay: opts.studyMinPerDay })
+  const today = studyDays(layout, opts.now).find((d) => d.day === day.start)
   const upcoming = commitments.filter((r) => Date.parse(r.ends_at!) > opts.now)
+  const weekday = (style: 'long' | 'short') =>
+    new Intl.DateTimeFormat('en-GB', { weekday: style, timeZone: opts.timeZone }).format(new Date(opts.now))
   return {
-    weekday: weekdayFormat.format(new Date(opts.now)),
-    events: upcoming.map(eventLabel),
+    weekday: weekday('long'),
+    events: upcoming.map((r) => eventLabel(r, clock)),
     studyLeftMin: today?.leftMin ?? 0,
     short: {
-      weekday: shortWeekdayFormat.format(new Date(opts.now)),
-      upcoming: upcoming.map(shortEventLabel),
+      weekday: weekday('short'),
+      upcoming: upcoming.map((r) => shortEventLabel(r, clock)),
     },
   }
 }

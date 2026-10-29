@@ -54,6 +54,7 @@
  *   Scrims     bg-scrim (behind a dialog), bg-scrim-light (behind Activity)
  *   Calendar   bg-shift + border-shift-line + text-shift-ink (work shifts),
  *              border-free-line (free gaps), bg-past (days gone by),
+ *              bg-off-hours (outside study hours, while planning),
  *              hatch-<colour> (drafted blocks, a shortfall: diagonal
  *              stripes in any colour token, over a bg- colour)
  *   Type       text-meta 12 (meta, labels), text-body 14 (default),
@@ -142,6 +143,7 @@
   --color-shift-ink: #5A5047;
   --color-free-line: #CFC2B1;
   --color-past: rgba(120, 100, 80, 0.045);
+  --color-off-hours: rgba(120, 100, 80, 0.07);
 
   /* ── Scrims: behind a dialog, and lighter behind the Activity panel ── */
   --color-scrim: rgba(43, 37, 32, 0.4);
@@ -251,6 +253,7 @@ body {
   --color-shift-ink: #CFC5BA;
   --color-free-line: #554B41;
   --color-past: rgba(255, 255, 255, 0.025);
+  --color-off-hours: rgba(0, 0, 0, 0.2);
   --color-scrim: rgba(0, 0, 0, 0.55);
   --color-scrim-light: rgba(0, 0, 0, 0.35);
 

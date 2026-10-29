@@ -1,7 +1,11 @@
 import { useCallback } from 'react'
 import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
-import type { PlanItemQuery, RefitPreview, WorkflowWithJobs } from '@pls/substrate'
+import { useQueryClient } from '@tanstack/react-query'
+import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
+
+/** Mutation scope for preference saves: they run one at a time, in order. */
+const PREFERENCES_SCOPE = 'preferences'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adapt<T>(query: { data: any; isLoading: boolean; error: any }): QueryResult<T> {
@@ -168,10 +172,26 @@ export const substrateTrpc: SubstrateWriter = {
 
   useUpdatePreferences() {
     const utils = trpc.useUtils()
+    const queryClient = useQueryClient()
     return adaptMutation(trpc.preferences.update.useMutation({
-      // Resolves once every reader has the new value. The re-fit preview is
-      // placed inside study hours and the budget, so it refreshes too.
-      onSuccess: () => Promise.all([utils.preferences.invalidate(), utils.planItems.refitPreview.invalidate()]),
+      // Saves go to the server one at a time, in the order made, so two
+      // quick changes can't land the wrong way round.
+      scope: { id: PREFERENCES_SCOPE },
+      // Every reader shows the change straight away (a select never snaps
+      // back while it saves), each change on top of the last.
+      onMutate: async (patch) => {
+        await utils.preferences.get.cancel()
+        utils.preferences.get.setData(undefined, (prefs) => (prefs ? applyPreferencesUpdate(prefs, patch) : prefs))
+      },
+      // Once the last save is done (or failed), every reader re-reads what the
+      // server has; resolves when they have it. The re-fit preview is placed
+      // inside study hours and the budget, so it refreshes too.
+      onSettled: () => {
+        const saving = queryClient.isMutating({ predicate: (m) => m.options.scope?.id === PREFERENCES_SCOPE })
+        // This save still counts as pending here.
+        if (saving > 1) return
+        return Promise.all([utils.preferences.invalidate(), utils.planItems.refitPreview.invalidate()])
+      },
     }))
   },
 

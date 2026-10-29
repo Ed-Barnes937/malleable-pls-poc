@@ -8,6 +8,7 @@ import {
   longestBlockMin,
   noteWithoutAmounts,
   openTime,
+  outsideStudyHours,
   draftPlan,
   formatMinutes,
   matchesWeakTopic,
@@ -80,6 +81,22 @@ describe("study hours (the student's preference)", () => {
     const slots = placeReviews([], [{ id: 'r', durationMin: 20, markedAt: at(5, 21), latest: at(7, 23) }], { start: at(5, 0), end: at(8, 0) }, { now: at(5, 21), timeZone: tz, studyHours: { ...studyHours } })
     // Saturday's window ends at 22:00, an hour after the mark: too late. Next is Monday 10:00 (9 Nov).
     expect(slots.get('r')).toEqual({ start: at(7, 10), end: at(7, 10, 20) })
+  })
+
+  it('outsideStudyHours is the rest of the week: before, after, and all of a no-study day', () => {
+    expect(outsideStudyHours(week, tz, studyHours)).toEqual([
+      { start: at(0, 0), end: at(0, 10) },
+      { start: at(0, 22), end: at(1, 9) },
+      { start: at(1, 22), end: at(2, 13) },
+      { start: at(2, 17), end: at(3, 9) },
+      { start: at(3, 22), end: at(4, 9) },
+      { start: at(4, 22), end: at(5, 9) },
+      // Saturday night runs into a Sunday with no study at all.
+      { start: at(5, 22), end: at(7, 0) },
+    ])
+    // A day that ends at 24:00 leaves nothing after it.
+    const lateMonday = outsideStudyHours({ start: at(0, 0), end: at(1, 0) }, tz, { ...studyHours, mon: { start: '10:00', end: '24:00' } })
+    expect(lateMonday).toEqual([{ start: at(0, 0), end: at(0, 10) }])
   })
 
   it("re-fit spends the student's own budget", () => {
