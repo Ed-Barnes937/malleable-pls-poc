@@ -117,7 +117,7 @@ test.describe('First run on an empty board', () => {
     const host = page.getByTestId('toast-host')
     await expect(host).toContainText('Calendar, To-do and Coming up added')
     await expect(host).toHaveAttribute('data-layout', 'bar')
-    await expect(host).toHaveAttribute('aria-live', 'polite')
+    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
     const toast = (await host.getByTestId('toast').boundingBox())!
     const barHeight = (await host.boundingBox())!.height
     // At the right, under the board: the board ends where the bar starts.

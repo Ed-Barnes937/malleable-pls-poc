@@ -48,10 +48,21 @@ interface ToastState {
   hold: (id: number) => void
   /** Starts it again, from its full duration. */
   release: (id: number) => void
+  /**
+   * The toasts on screen now (`ToastHost`). Only these count down: one
+   * waiting behind newer ones pauses and, shown again, has the rest of its
+   * time, so every toast is on screen for its whole duration.
+   */
+  setShown: (ids: ReadonlyArray<number>) => void
 }
 
 let nextId = 0
 const timers = new Map<number, ReturnType<typeof setTimeout>>()
+/** Time each toast still has on screen, and when its current countdown started. */
+const left = new Map<number, number>()
+const startedAt = new Map<number, number>()
+const shownIds = new Set<number>()
+const heldIds = new Set<number>()
 
 function durationOf(toast: Omit<Toast, 'id'>): number | null {
   if (toast.durationMs !== undefined) return toast.durationMs
@@ -64,29 +75,65 @@ export const useToastStore = create<ToastState>((set, get) => {
     if (timer) clearTimeout(timer)
     timers.delete(id)
   }
-  const schedule = (toast: Toast) => {
-    clear(toast.id)
-    const ms = durationOf(toast)
-    if (ms === null) return
-    timers.set(toast.id, setTimeout(() => get().dismiss(toast.id), ms))
+  /** Stops the countdown, keeping the time left. */
+  const pause = (id: number) => {
+    if (!timers.has(id)) return
+    left.set(id, Math.max(0, (left.get(id) ?? 0) - (Date.now() - (startedAt.get(id) ?? Date.now()))))
+    clear(id)
+  }
+  /** Counts down the time left, if it is on screen and nobody is holding it. */
+  const resume = (id: number) => {
+    const ms = left.get(id)
+    if (ms === undefined || timers.has(id) || !shownIds.has(id) || heldIds.has(id)) return
+    startedAt.set(id, Date.now())
+    timers.set(id, setTimeout(() => get().dismiss(id), ms))
+  }
+  const forget = (id: number) => {
+    clear(id)
+    left.delete(id)
+    startedAt.delete(id)
+    shownIds.delete(id)
+    heldIds.delete(id)
   }
   return {
     toasts: [],
     push: (toast) => {
       const next = { ...toast, id: ++nextId }
       const replaced = get().toasts.filter((t) => toast.key && t.key === toast.key)
-      for (const t of replaced) clear(t.id)
+      for (const t of replaced) forget(t.id)
+      const ms = durationOf(next)
+      if (ms !== null) left.set(next.id, ms)
       set((s) => ({ toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), next] }))
-      schedule(next)
     },
     dismiss: (id) => {
-      clear(id)
+      forget(id)
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
     },
-    hold: (id) => clear(id),
+    hold: (id) => {
+      pause(id)
+      heldIds.add(id)
+    },
     release: (id) => {
       const toast = get().toasts.find((t) => t.id === id)
-      if (toast) schedule(toast)
+      heldIds.delete(id)
+      if (!toast) return
+      const ms = durationOf(toast)
+      if (ms === null) return
+      clear(id)
+      left.set(id, ms)
+      resume(id)
+    },
+    setShown: (ids) => {
+      const next = new Set(ids)
+      for (const id of [...shownIds]) {
+        if (next.has(id)) continue
+        pause(id)
+        shownIds.delete(id)
+      }
+      for (const id of next) {
+        shownIds.add(id)
+        resume(id)
+      }
     },
   }
 })
@@ -101,9 +148,13 @@ const SHOWN_NARROW = 1
  * covers the board and nothing on the board moves as toasts come and go.
  * At the right on a wider screen, newest last, two at most; on a phone the
  * newest one, full width (an older one shows again once newer ones go).
- * Render it last in the page's full-height column. The live region is
- * always mounted, so a screen reader announces the first toast too. A toast
- * stops counting down while the pointer or focus is on it.
+ * Render it last in the page's full-height column. A toast counts down
+ * only while it is on screen, and not while the pointer or focus is on it.
+ *
+ * Screen readers hear each toast once, as it happens, from a separate live
+ * region that always holds every current toast's message (always mounted,
+ * so the first toast is announced too); the bar itself isn't live, so a
+ * toast shown again after waiting behind newer ones isn't announced twice.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
@@ -118,12 +169,17 @@ export function ToastHost() {
   }, [toasts, activeBoard, dismiss])
 
   const shown = toasts.slice(-(narrow ? SHOWN_NARROW : SHOWN_WIDE))
+  const shownKey = shown.map((t) => t.id).join(',')
+  useEffect(() => {
+    useToastStore.getState().setShown(shownKey ? shownKey.split(',').map(Number) : [])
+  }, [shownKey])
 
   return (
     <section aria-label="Notifications" className="contents">
+      <div role="status" aria-live="polite" data-testid="toast-announcer" className="sr-only">
+        {toasts.map((toast) => <p key={toast.id}>{toast.message}</p>)}
+      </div>
       <div
-        role="status"
-        aria-live="polite"
         data-testid="toast-host"
         data-layout="bar"
         className={cn(

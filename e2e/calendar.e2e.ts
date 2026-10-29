@@ -240,8 +240,10 @@ test.describe('Calendar', () => {
 
     // The toasts' live region is there before anything is said, so the first toast is announced.
     const toast = page.getByTestId('toast-host')
-    await expect(toast).toBeAttached()
-    await expect(toast).toHaveAttribute('aria-live', 'polite')
+    const announcer = page.getByTestId('toast-announcer')
+    await expect(announcer).toBeAttached()
+    await expect(announcer).toHaveAttribute('aria-live', 'polite')
+    await expect(announcer).toHaveAttribute('role', 'status')
 
     await calendar.block('Review: chloroplast DNA').click()
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
