@@ -19,6 +19,7 @@ export const TRPC_URL = 'http://localhost:3999/trpc'
 export class BackendSimulator {
   readonly db: InMemoryDb
   private router: ProcedureRouter
+  private frozenNow: number | null = null
 
   constructor(seed?: SeedData) {
     this.db = new InMemoryDb(seed ?? createDefaultSeedData())
@@ -37,7 +38,16 @@ export class BackendSimulator {
     registerLinksHandlers(this.router, this.db)
     registerAggregatesHandlers(this.router, this.db)
     registerWorkflowsHandlers(this.router, this.db)
-    registerPlanItemsHandlers(this.router, this.db)
+    registerPlanItemsHandlers(this.router, this.db, () => this.frozenNow ?? Date.now())
+  }
+
+  /**
+   * The "now" the server-side rules (what counts as missed, planning) use,
+   * for a test that freezes the browser clock too (`page.clock`); the real
+   * time until called.
+   */
+  freezeNow(at: Date): void {
+    this.frozenNow = at.getTime()
   }
 
   async handleNetworking(page: Page): Promise<void> {

@@ -24,7 +24,9 @@ function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id
   }
 }
 
-function seedWeek(simulator: BackendSimulator) {
+function seedWeek(simulator: BackendSimulator, base = monday) {
+  const at = (day: number, h: number, m = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + day, h, m)
+  const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString()
   seed(simulator, [
     { id: 'bio-lecture', kind: 'commitment', title: 'Biology lecture', subtype: 'class', starts_at: iso(0, 10), ends_at: iso(0, 11), recurrence: { freq: 'weekly', timeZone: tz }, course: 'biology' },
     { id: 'chem-lecture', kind: 'commitment', title: 'Chemistry lecture', subtype: 'class', starts_at: iso(1, 9), ends_at: iso(1, 10, 30), course: 'chemistry' },
@@ -58,8 +60,26 @@ async function point(page: Page, dayIndex: number, hours: number) {
 
 const block = (page: Page, title: string) => page.getByTestId('calendar-block').filter({ hasText: title })
 
+/** Mondays of the weeks the clock is frozen in: a plain week, and the week of the autumn clock change (Sun 25 Oct 2026, London). */
+const FROZEN_MONDAY = new Date(2026, 9, 26)
+const DST_MONDAY = new Date(2026, 9, 19)
+
+/**
+ * Freeze "now" before mounting, in the browser (Date only; timers keep
+ * running) and in the simulated server (which decides what was missed), so
+ * nothing here depends on the day or hour the suite runs.
+ */
+async function freezeAt(page: Page, simulator: BackendSimulator, day: Date, h: number, m = 0) {
+  const now = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m)
+  await page.clock.setFixedTime(now)
+  simulator.freezeNow(now)
+}
+
 test('renders the week: fixed commitments, study time and what is due', async ({ mount, page, simulator }) => {
-  seedWeek(simulator)
+  // Monday morning: nothing has been missed yet, so no re-fit banner takes
+  // room from the grid (it appears, and the grid scrolls, once study blocks pass).
+  await freezeAt(page, simulator, FROZEN_MONDAY, 9)
+  seedWeek(simulator, FROZEN_MONDAY)
   await mount(<CalendarHarness />)
 
   await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
@@ -77,6 +97,47 @@ test('renders the week: fixed commitments, study time and what is due', async ({
     expect(y).toBeLessThanOrEqual(scroll!.y + scroll!.height)
   }
 })
+
+// The hour rows are the same whichever day it is, with or without the re-fit
+// banner above the grid (which appears once study blocks have passed): 24
+// equal rows, 08:00 at the top, and 22:00 within the window or one scroll away.
+const FROZEN_DAYS: [string, Date, number, number][] = [
+  ['Mon', FROZEN_MONDAY, 9, 0], ['Tue', addDays(FROZEN_MONDAY, 1), 12, 0], ['Wed', addDays(FROZEN_MONDAY, 2), 21, 0],
+  ['Thu', addDays(FROZEN_MONDAY, 3), 10, 0], ['Fri', addDays(FROZEN_MONDAY, 4), 23, 30],
+  ['Sat', addDays(FROZEN_MONDAY, 5), 8, 0], ['Sun', addDays(FROZEN_MONDAY, 6), 18, 0],
+  ['DST Sat', addDays(DST_MONDAY, 5), 12, 0], ['DST Sun (clock change)', addDays(DST_MONDAY, 6), 12, 0],
+  ['DST Mon after change', FROZEN_MONDAY, 0, 30],
+]
+for (const [label, day, h, m] of FROZEN_DAYS) {
+  test(`hour rows stay true to scale on ${label}`, async ({ mount, page, simulator }) => {
+    const base = startOfWeek(day)
+    await freezeAt(page, simulator, day, h, m)
+    seedWeek(simulator, base)
+    await mount(<CalendarHarness />)
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
+    await expect(block(page, 'Biology lecture')).toBeVisible()
+
+    await point(page, 0, 12) // waits for the grid to stop re-fitting
+    const scroll = (await page.getByTestId('calendar-scroll').boundingBox())!
+    const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+    // 24 rows of one height, never cramped below 32px.
+    const hourPx = grid.height / 24
+    expect(hourPx).toBeGreaterThanOrEqual(32 - 0.5)
+    // Starts scrolled to 08:00 (a little headroom for its label).
+    expect(grid.y - scroll.y + (8 / 24) * grid.height).toBeCloseTo(8, 0)
+    // The whole working day fits when the window is tall enough for it, else
+    // the bottom of the grid is a scroll away: never a short grid.
+    const fits = scroll.height >= 14 * 32 + 16
+    if (fits) {
+      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+    } else {
+      expect(hourPx).toBeCloseTo(32, 0)
+      await page.getByTestId('calendar-scroll').evaluate((el) => { el.scrollTop = el.scrollHeight })
+      const after = (await page.getByTestId('calendar-grid').boundingBox())!
+      expect(after.y + (22 / 24) * after.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+    }
+  })
+}
 
 test('block language: a class is a solid course tint, a shift neutral with a cup, study time a soft tint with a bar and a grab handle', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
@@ -616,6 +677,8 @@ test("a block straight after a 15-minute one never paints over the short one's t
   await mount(<CalendarHarness />)
   const title = block(page, 'Quick check').getByTestId('calendar-block-title')
   await expect(title).toBeVisible()
+  // The grid re-fits as rows load: sample positions only once it has settled.
+  await point(page, 0, 12)
   const box = (await title.boundingBox())!
   // What is drawn at the top and bottom of the title line is the short block itself.
   for (const y of [box.y + 1, box.y + box.height - 1]) {

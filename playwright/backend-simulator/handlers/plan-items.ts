@@ -34,7 +34,7 @@ import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
  * as a 'plan_item' tag, as on the server. Workflow events are not dispatched
  * (the simulator has no workflow engine).
  */
-export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryDb): void {
+export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryDb, clock: () => number = Date.now): void {
   const courseOf = (id: string): string | null => {
     const tags = db.tags
       .filter((t) => t.target_type === 'plan_item' && t.target_id === id)
@@ -131,7 +131,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   // simulator keeps no confidence-derived weak topics: reviews still count.
   router.register('planning.autofill', (input) => {
     const q = parse(planAutofillInput, input)
-    const now = Date.now()
+    const now = clock()
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
     const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
@@ -154,14 +154,14 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
 
   router.register('planItems.refitPreview', (input) => {
     const { timeZone } = parse(refitPreviewInput, input)
-    const opts = { now: Date.now(), timeZone }
+    const opts = { now: clock(), timeZone }
     const missed = missedNow(opts.now)
     return missed.length ? planRefit(missed, rangeItems(missed, opts), opts) : []
   })
 
   router.register('planItems.refit', (input) => {
     const { timeZone, blocks } = parse(refitAcceptInput, input)
-    const now = Date.now()
+    const now = clock()
     const missed = new Map(missedNow(now).map((p) => [p.id, p]))
     const accepted = blocks.map((b) => {
       if (!missed.has(b.id)) throw new SimulatorError('CONFLICT', 'A block was already moved, done or removed.')
