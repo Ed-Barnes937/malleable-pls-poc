@@ -80,6 +80,17 @@ test('an unscoped board shows every course with its pill', async ({ mount, page,
   await expect(page.getByTestId('hidden-elsewhere')).toHaveCount(0)
 })
 
+/**
+ * Stops the fake clock from running in real time, so only the test advances it.
+ * `install()` alone lets time keep running, so under load more than the fade
+ * window can pass between `runFor` and the next assertion and the row has
+ * already moved on. Call it once the lens has loaded (loading needs timers
+ * to run) and before the tick that starts the timers under test.
+ */
+async function freezeClock(page: Page) {
+  await page.clock.pauseAt(new Date(Date.now() + 60_000))
+}
+
 test('a ticked to-do strikes through in place with Done · Undo, then fades to Done today', async ({ mount, page, simulator }) => {
   seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Flashcards', duration_min: 60, course: 'biology', created_at: daysFromNow(-2, 9) })
   seedPlanItem(simulator, { id: 'todo-2', kind: 'task', title: 'Lab notes', created_at: daysFromNow(-1, 9) })
@@ -91,7 +102,11 @@ test('a ticked to-do strikes through in place with Done · Undo, then fades to D
     </TestProviders>,
   )
 
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toBeVisible()
+  await freezeClock(page)
   await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
+  // The save's request batching waits on a timer; give it a tick, far inside the just-done window.
+  await page.clock.runFor(50)
   // Saved straight away, but it stays where it was, struck through, for a moment.
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'todo-1')!.status).toBe('done')
   const rows = page.getByTestId('todo-item')
@@ -129,6 +144,8 @@ test('Undo right after ticking reopens the to-do where it was', async ({ mount, 
     </TestProviders>,
   )
 
+  await expect(page.getByRole('checkbox', { name: 'Done: Flashcards' })).toBeVisible()
+  await freezeClock(page)
   await page.getByRole('checkbox', { name: 'Done: Flashcards' }).click()
   await page.getByRole('button', { name: 'Undo: Flashcards' }).click()
 
@@ -483,7 +500,7 @@ test.describe('blocks that did not happen', () => {
     )
     await expect(note).toHaveText('Moved 2 blocks to next week.')
     await expect(page.getByRole('button', { name: 'Show next week' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Dismiss' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Dismiss note' })).toHaveCount(0)
 
     // Back again: the action, and a way to dismiss the note without using it.
     await component.update(
@@ -492,7 +509,7 @@ test.describe('blocks that did not happen', () => {
       </TestProviders>,
     )
     await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
-    await page.getByRole('button', { name: 'Dismiss' }).click()
+    await page.getByRole('button', { name: 'Dismiss note' }).click()
     await expect(note).toHaveCount(0)
   })
 
