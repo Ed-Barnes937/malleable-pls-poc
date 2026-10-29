@@ -28,6 +28,7 @@ import { registerLinksHandlers } from './handlers/links'
 import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
+import { registerPreferencesHandlers } from './handlers/preferences'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -45,6 +46,7 @@ function makeRouter(): ProcedureRouter {
   registerAggregatesHandlers(router, db)
   registerWorkflowsHandlers(router, db)
   registerPlanItemsHandlers(router, db)
+  registerPreferencesHandlers(router, db)
   return router
 }
 
@@ -364,6 +366,28 @@ describe('simulator parity - plan items behave like the server router', () => {
       (await query(router, 'planItems.list', { scheduled }) as { title: string }[]).map((r) => r.title)
     expect(await titles(true)).toEqual(['Placed'])
     expect(await titles(false)).toEqual(['Loose'])
+  })
+})
+
+describe('simulator parity - preferences', () => {
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    router = makeRouter()
+  })
+
+  it('reads the defaults until set, updates only the given fields, and null resets one', async () => {
+    const every = { start: '09:00', end: '22:00' }
+    const defaultHours = { mon: every, tue: every, wed: every, thu: every, fri: every, sat: every, sun: every }
+    expect(await query(router, 'preferences.get')).toEqual({ time_zone: null, study_hours: defaultHours, study_min_per_day: 120 })
+
+    const hours = { ...defaultHours, mon: { start: '10:00', end: '22:00' }, sun: null }
+    await mutate(router, 'preferences.update', { study_hours: hours, study_min_per_day: 90 })
+    expect(await query(router, 'preferences.get')).toEqual({ time_zone: null, study_hours: hours, study_min_per_day: 90 })
+
+    await mutate(router, 'preferences.update', { study_min_per_day: null })
+    expect(await query(router, 'preferences.get')).toEqual({ time_zone: null, study_hours: hours, study_min_per_day: 120 })
+    await expect(mutate(router, 'preferences.update', { study_hours: { ...hours, tue: { start: '9', end: '22:00' } } })).rejects.toThrow()
   })
 })
 

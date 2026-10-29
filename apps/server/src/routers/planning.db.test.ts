@@ -61,7 +61,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
     await caller(bob).planItems.create({ kind: 'task', title: 'Bob to-do', duration_min: 30 })
 
     const before = await api.planItems.list()
-    const advice = await api.planning.autofill({ ...week, studyMinPerDay: 120, estimates: { [cards.id]: 60 } })
+    const advice = await api.planning.autofill({ ...week, estimates: { [cards.id]: 60 } })
 
     // Soonest due first, the weak topic (a review) before the quiz due at the same time.
     expect(advice.order).toEqual([review.id, quiz.id, lab.id, cards.id])
@@ -82,16 +82,36 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
 
   it('returns empty advice without calling the model when nothing needs planning', async () => {
     const calls = llm.calls.length
-    expect(await caller(bob).planning.autofill({ from: at(14, 0), to: at(21, 0), timeZone: TZ, studyMinPerDay: 120 }))
+    expect(await caller(bob).planning.autofill({ from: at(14, 0), to: at(21, 0), timeZone: TZ }))
       .toMatchObject({ trims: [], note: expect.anything() })
     // Bob has one to-do, so the model runs; a user with none does not.
     const nobody = `test-nobody-${randomUUID().slice(0, 8)}`
-    expect(await caller(nobody).planning.autofill({ ...week, studyMinPerDay: 120 })).toEqual({ order: [], trims: [], note: null })
+    expect(await caller(nobody).planning.autofill({ ...week })).toEqual({ order: [], trims: [], note: null })
     expect(llm.calls.length).toBe(calls + 1)
   })
 
+  it("reads study hours and study time per day from the student's preference", async () => {
+    const pat = `test-pat-${randomUUID().slice(0, 8)}`
+    const api = caller(pat)
+    try {
+      await api.planItems.create({ kind: 'task', title: 'Essay plan', duration_min: 120 })
+      // Study only Monday 09:00-10:00 and Thursday 18:00-20:00, at most 45 minutes a day.
+      const none = { mon: null, tue: null, wed: null, thu: null, fri: null, sat: null, sun: null }
+      await api.preferences.update({
+        study_hours: { ...none, mon: { start: '09:00', end: '10:00' }, thu: { start: '18:00', end: '20:00' } },
+        study_min_per_day: 45,
+      })
+      await api.planning.autofill(week)
+      // 45m on each of the two days with study hours; nothing on the others.
+      expect(llm.calls.at(-1)!.input).toMatchObject({ freeMin: 90, neededMin: 120, minutesPerDay: 45 })
+    } finally {
+      await db.sql`DELETE FROM user_preferences WHERE user_id = ${pat}`
+      await db.sql`DELETE FROM plan_items WHERE user_id = ${pat}`
+    }
+  })
+
   it('rejects a range longer than a week', async () => {
-    await expect(caller(alice).planning.autofill({ from: at(0, 0), to: at(14, 0), timeZone: TZ, studyMinPerDay: 120 })).rejects.toThrow()
+    await expect(caller(alice).planning.autofill({ from: at(0, 0), to: at(14, 0), timeZone: TZ })).rejects.toThrow()
   })
 
   it('accepting a drafted block makes it fixed: a later review is placed around it', async () => {
@@ -107,9 +127,9 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
       patch: { starts_at: new Date(first.start).toISOString(), ends_at: new Date(first.end).toISOString() },
     })
 
-    const { findReviewSlots } = await import('../planning/review-automation')
-    const slots = await db.withUser(alice, (tx) =>
-      findReviewSlots(tx, alice, [{ id: 'new-review', durationMin: 20, markedAt: now, latest: Date.parse(at(2, 0)) }], { now, timeZone: TZ }))
+    const { findReviewSlots, reviewPlacement } = await import('../planning/review-automation')
+    const slots = await db.withUser(alice, async (tx) =>
+      findReviewSlots(tx, alice, [{ id: 'new-review', durationMin: 20, markedAt: now, latest: Date.parse(at(2, 0)) }], { now, placement: await reviewPlacement(tx, alice, TZ) }))
     const slot = slots.get('new-review') as { start: number; end: number }
     expect(slot.end <= first.start || slot.start >= first.end).toBe(true)
   })

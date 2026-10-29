@@ -8,10 +8,12 @@ import {
   type ReviewSlot,
   type ReviewTaskParams,
   type ReviewToPlace,
+  type StudyHours,
 } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { eventPayload, fetchOne, insertPlanItem, listPlanItems } from '../plan-items/store'
 import { recordingCourse } from '../routers/_shared'
+import { getPreferences, placementTimeZone } from '../preferences/store'
 
 // The confusion automation's server side: where a review goes in time
 // ("AI suggests, code decides": the LLM only names it), and moving the
@@ -22,15 +24,40 @@ import { recordingCourse } from '../routers/_shared'
 // block (accepted, dragged by hand, made by anything else) is fixed and busy.
 
 // Placement (`placeReviews` in @pls/substrate's planning module, shared with
-// Help me plan's study day, gap and budget): the earliest free time in the
-// review's window, at least an hour after the mark, from 09:00, on a day with
-// study time left.
+// Help me plan's study hours, gap and budget): the earliest free time in the
+// review's window, at least an hour after the mark, inside the student's
+// study hours, on a day with study time left (their daily budget).
 
 const MINUTE_MS = 60_000
 
-/** The review must end by this instant: the end of the local day `windowDays` after it was marked. */
-export function reviewDeadline(markedAt: number, params: Pick<ReviewTaskParams, 'windowDays' | 'timeZone'>): number {
-  return startOfLocalDay(markedAt, params.timeZone, params.windowDays + 1)
+/**
+ * The review must end by this instant: the end of the local day `windowDays`
+ * after it was marked, in `timeZone` (the placement's zone, see
+ * `reviewPlacement`, so the due date and the slot always agree).
+ */
+export function reviewDeadline(markedAt: number, windowDays: number, timeZone: string): number {
+  return startOfLocalDay(markedAt, timeZone, windowDays + 1)
+}
+
+/** Where and how much a review may be placed: the student's study hours and budget, in one zone. */
+export interface ReviewPlacement {
+  timeZone: string
+  studyHours: StudyHours
+  studyMinPerDay: number
+}
+
+/**
+ * The student's preference, read once per placement: their zone if they set
+ * one, else the automation's (`automationZone`), and their study hours and
+ * study time per day.
+ */
+export async function reviewPlacement(tx: TransactionSql, userId: string, automationZone: string): Promise<ReviewPlacement> {
+  const prefs = await getPreferences(tx, userId)
+  return {
+    timeZone: placementTimeZone(prefs, automationZone),
+    studyHours: prefs.study_hours,
+    studyMinPerDay: prefs.study_min_per_day,
+  }
 }
 
 /** Stored as the to-do's due time so lists can say "by Thu": 23:59 local on the last day. */
@@ -41,30 +68,30 @@ function dueAtFor(deadline: number): string {
 export type { ReviewSlot, ReviewToPlace }
 
 /**
- * Finds a slot for each review, earliest-first inside its window, around
- * every commitment of every course and every other scheduled task. Earlier
- * entries get first pick. Read-only.
+ * Finds a slot for each review, earliest-first inside its window and the
+ * student's study hours (`placement`, from `reviewPlacement`), around every
+ * commitment of every course and every other scheduled task. Earlier entries
+ * get first pick. Read-only.
  */
 export async function findReviewSlots(
   tx: TransactionSql,
   userId: string,
   reviews: ReviewToPlace[],
-  opts: { now: number; timeZone: string },
+  opts: { now: number; placement: ReviewPlacement },
 ): Promise<Map<string, ReviewSlot>> {
   if (reviews.length === 0) return new Map()
   const horizon = Math.max(...reviews.map((r) => r.latest))
   if (horizon <= opts.now) return new Map(reviews.map((r) => [r.id, { reason: 'window-closed' as const }]))
 
-  const range: Interval = { start: startOfLocalDay(opts.now, opts.timeZone), end: horizon }
+  const { placement } = opts
+  const range: Interval = { start: startOfLocalDay(opts.now, placement.timeZone), end: horizon }
   // Scope never applies here: a Biology review still avoids Chemistry and shifts.
   const items = await listPlanItems(tx, userId, {
     from: new Date(range.start).toISOString(),
     to: new Date(range.end).toISOString(),
     statuses: ['open', 'done'],
   })
-  // The daily budget is the default (2h): the board's Calendar setting is
-  // panel config the server can't see. Moves to a user preference with S1.
-  return placeReviews(items, reviews, range, opts)
+  return placeReviews(items, reviews, range, { now: opts.now, ...placement })
 }
 
 /** The fields a placement result writes on the review. */
@@ -151,7 +178,9 @@ export async function createReview(
   const existing = await findOpenReview(tx, userId, moment)
   if (existing) return { item: existing, created: false }
 
-  const deadline = reviewDeadline(now, params)
+  // One zone for both the due date and the slot.
+  const placement = await reviewPlacement(tx, userId, params.timeZone)
+  const deadline = reviewDeadline(now, params.windowDays, placement.timeZone)
   const created = await insertPlanItem(tx, userId, {
     kind: 'task',
     title: args.title,
@@ -168,7 +197,7 @@ export async function createReview(
     tx,
     userId,
     [{ id: created.id, durationMin: params.durationMin, markedAt: now, latest: deadline }],
-    { now, timeZone: params.timeZone },
+    { now, placement },
   )
   const slot = slots.get(created.id)
   const placed = placementColumns(slot)
@@ -236,7 +265,9 @@ export async function replaceAutomationReviews(
   }
   if (movable.length === 0) return { moved: 0, resized: 0, unscheduled: 0 }
 
-  const deadlines = new Map(movable.map((item) => [item.id, reviewDeadline(Date.parse(item.created_at), params)]))
+  // One zone for both the due dates and the slots.
+  const placement = await reviewPlacement(tx, userId, params.timeZone)
+  const deadlines = new Map(movable.map((item) => [item.id, reviewDeadline(Date.parse(item.created_at), params.windowDays, placement.timeZone)]))
   const slots = await findReviewSlots(
     tx,
     userId,
@@ -246,7 +277,7 @@ export async function replaceAutomationReviews(
       markedAt: Date.parse(item.created_at),
       latest: deadlines.get(item.id)!,
     })),
-    { now, timeZone: params.timeZone },
+    { now, placement },
   )
 
   const result: ReplaceResult = { moved: 0, resized: 0, unscheduled: 0 }

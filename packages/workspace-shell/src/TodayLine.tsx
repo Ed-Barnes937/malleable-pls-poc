@@ -1,9 +1,9 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { usePlanItemList, useWorkspacePanels } from '@pls/substrate-client'
+import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
 import { cn } from '@pls/shared-ui'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { shortLineOptions, todayLine, todayRange } from './today-line'
+import { shortLineOptions, todayLine, todayRowsRange, todayStudyOptions } from './today-line'
 
 const MINUTE_MS = 60_000
 
@@ -17,16 +17,6 @@ function useMinuteClock(): number {
   return now
 }
 
-/** The board's Calendar study time per day, so the line agrees with its Help me plan. */
-function useBoardStudyMinPerDay(workspaceId: string): number | undefined {
-  const { data: panels } = useWorkspacePanels(workspaceId)
-  return useMemo(() => {
-    const rows = (panels ?? []) as unknown as { lens_type: string; config: Record<string, unknown> | null }[]
-    const value = rows.find((p) => p.lens_type === 'calendar')?.config?.studyMinPerDay
-    return typeof value === 'number' && value > 0 ? value : undefined
-  }, [panels])
-}
-
 /**
  * "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study": a quiet
  * summary of today in the top bar. Shown only on a day with a class or shift,
@@ -34,18 +24,23 @@ function useBoardStudyMinPerDay(workspaceId: string): number | undefined {
  * nothing between phone and wide, where the bar has no room); a phone gets
  * the `short` form under the tabs, "Tue · shift 17:00 · 2h to study".
  */
-export function TodayLine({ workspaceId, short = false }: { workspaceId: string; short?: boolean }) {
+export function TodayLine({ short = false }: { short?: boolean }) {
   const now = useMinuteClock()
-  const day = todayRange(now)
-  const from = new Date(day.start).toISOString()
-  const to = new Date(day.end).toISOString()
+  // The student's study hours, study time per day and zone, as Help me plan uses them.
+  const preferences = usePreferences()
+  const browserZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
+  const counting = useMemo(
+    () => todayStudyOptions(preferences.data, preferences.isError, browserZone),
+    [preferences.data, preferences.isError, browserZone],
+  )
+  const rows = todayRowsRange(now, counting?.timeZone ?? browserZone)
+  const from = new Date(rows.start).toISOString()
+  const to = new Date(rows.end).toISOString()
   const { data } = usePlanItemList({ from, to, statuses: ['open', 'done'] })
-  const studyMinPerDay = useBoardStudyMinPerDay(workspaceId)
-  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, [])
 
   const line = useMemo(
-    () => (data ? todayLine(data as PlanItemOccurrence[], { now, timeZone, studyMinPerDay }) : null),
-    [data, now, timeZone, studyMinPerDay],
+    () => (data && counting ? todayLine(data as PlanItemOccurrence[], { now, ...counting }) : null),
+    [data, now, counting],
   )
   if (!line) return null
 
