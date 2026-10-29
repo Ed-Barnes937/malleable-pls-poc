@@ -7,6 +7,7 @@ import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
+import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -123,6 +124,8 @@ type Drag =
       x: number
       y: number
       moved: boolean
+      /** The press closed this block's own popover: a click (no move) leaves it closed. */
+      closedOwnPopover: boolean
     }
 
 export function TimeGrid({
@@ -140,6 +143,8 @@ export function TimeGrid({
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  /** The due marker whose own popover the last press closed: the click that follows leaves it closed (a toggle). */
+  const dueClosedBy = useRef<string | null>(null)
 
   // Size hours so the working day fits the panel, then start scrolled to it.
   useLayoutEffect(() => {
@@ -254,14 +259,16 @@ export function TimeGrid({
   }
 
   const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-block]')) return
+    // A press that closed a popover only closes it: no new block from it.
+    if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     areaRef.current!.setPointerCapture(e.pointerId)
     setDrag({ type: 'create', dayIndex, fromMin: minute, toMin: minute, x: e.clientX, y: e.clientY, moved: false })
   }
 
   const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
-    if (e.button !== 0) return
+    // A press that only closes a popover (its save is in flight) moves nothing.
+    if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
     e.stopPropagation()
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     const start = new Date(item.starts_at!)
@@ -276,6 +283,7 @@ export function TimeGrid({
       x: e.clientX,
       y: e.clientY,
       moved: false,
+      closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
     })
   }
 
@@ -329,7 +337,10 @@ export function TimeGrid({
     const ghost = ghostId(drag.item)
     if (!drag.moved) {
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
-      if (!ghost) onOpen(drag.item, anchor)
+      if (!ghost) {
+        // A click on the block whose popover it just closed leaves it closed (a toggle).
+        if (!drag.closedOwnPopover) onOpen(drag.item, anchor)
+      }
       // A tap or click selects it instead: focused, its buttons show (on a
       // short ghost they are hidden until then, and touch has no hover).
       // After the click that follows, which would otherwise take focus away.
@@ -434,7 +445,16 @@ export function TimeGrid({
                       type="button"
                       data-block="due"
                       data-testid="calendar-due"
-                      onClick={(e) => onOpen(m.item, { clientX: e.clientX, clientY: e.clientY })}
+                      onPointerDown={(e) => {
+                        dueClosedBy.current = closedPopoverOf(e.nativeEvent, m.key) ? m.key : null
+                      }}
+                      onClick={(e) => {
+                        // A pointer click (detail > 0) that closed this marker's popover leaves it
+                        // closed; Enter or Space (detail 0) always opens.
+                        const toggledOff = e.detail > 0 && dueClosedBy.current === m.key
+                        dueClosedBy.current = null
+                        if (!toggledOff) onOpen(m.item, { clientX: e.clientX, clientY: e.clientY })
+                      }}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
                         '@container flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 text-left text-meta font-semibold transition-opacity',

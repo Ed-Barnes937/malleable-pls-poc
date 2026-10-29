@@ -121,6 +121,8 @@ export function StudyBlockPopover({
       aria-label={row.title}
       data-testid="calendar-popover"
       data-variant="study-block"
+      // A press in here doesn't close it (CalendarLens).
+      data-calendar-popover
       onPointerDown={(e) => e.stopPropagation()}
       className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
       style={{ left: pos.left, top: pos.top, width: WIDTH }}
