@@ -5,6 +5,7 @@ import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
+import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
@@ -93,24 +94,9 @@ export function gridScrollFor(
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
-/**
- * Blocks are drawn to scale, so a 30-minute block is visibly longer than a
- * 20-minute one; nothing shorter than this many minutes' worth, though.
- */
-const MIN_BLOCK_MIN = 15
-/**
- * Shorter than this, a block is one compact line: its title, which may
- * overhang the box by a pixel or two and is drawn above the blocks around it,
- * so the next block never paints over it.
- */
-const COMPACT_BLOCK_PX = 18
 /** The glow around a revealed compact block: at least this tall, centred on it. */
 const REVEAL_HALO_PX = 24
 
-/** A block's height on the grid: proportional to its length, with a 2px gap below. */
-function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
-  return (Math.max(MIN_BLOCK_MIN, seg.endMin - seg.startMin) / 60) * hourPx - 2
-}
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
 /** Tall enough for a free gap's "1h 30m free" label. */
@@ -201,6 +187,8 @@ export function TimeGrid({
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // Short blocks' title captions, per day (see captionSides).
+  const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
   // the grid to it, scroll the board so it is on screen (with the moment it
   // came from, when both fit), then glow it once (a still ring under reduced
@@ -549,6 +537,7 @@ export function TimeGrid({
                       key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
                       seg={seg}
                       hourPx={hourPx}
+                      caption={captions[dayIndex].get(seg.key) ?? null}
                       dimmed={isDimmed(seg.item)}
                       linked={isLinked(seg.item)}
                       active={activeKey === seg.item.occurrence_key}
@@ -563,7 +552,7 @@ export function TimeGrid({
                     <RevealCallout
                       key={`callout:${revealed!.requestId}`}
                       item={seg.item}
-                      top={(seg.endMin / 60) * hourPx + 6}
+                      top={(seg.endMin / 60) * hourPx + 6 + (captions[dayIndex].get(seg.key) === 'below' ? CAPTION_PX : 0)}
                       alignRight={days.length > 1 && dayIndex >= days.length - 2}
                     />
                   ))}
@@ -640,11 +629,13 @@ interface BlockProps {
   preview?: boolean
   /** Just revealed ("See it"): glows once in its course colour. */
   glow?: boolean
+  /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
+  caption?: 'below' | 'above' | null
   onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onKeyOpen?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, onPointerDown, onKeyOpen }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -655,6 +646,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
   // time is in the tooltip and the accessible name.
   const height = blockHeight(seg, hourPx)
   const compact = height < COMPACT_BLOCK_PX
+  // Its title reads beside it (the caption), so the block is just its tint and bar.
+  const captioned = compact && !!caption && !preview
   const roomy = height >= 38
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
@@ -720,7 +713,24 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         />
       )}
       {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar, compact && 'rounded-l-item')} />}
-      <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
+      {captioned && (
+        // Part of the block (a click or drag on it is one on the block); the
+        // block's accessible name already carries the title.
+        <span
+          aria-hidden
+          data-testid="calendar-block-caption"
+          data-side={caption}
+          className={cn(
+            'absolute inset-x-0 flex items-center gap-1 truncate pl-[11px] pr-1 text-meta font-semibold leading-4',
+            caption === 'below' ? 'top-full mt-px' : 'bottom-full mb-px',
+            done && 'line-through',
+          )}
+          style={{ height: CAPTION_PX }}
+        >
+          <span className="min-w-0 truncate">{item.title}</span>
+        </span>
+      )}
+      <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center', captioned && 'hidden')}>
         <div className="flex min-w-0 shrink-0 items-start gap-1">
           {done && <Check className="mt-px h-3 w-3 shrink-0" />}
           {item.subtype === 'shift' && <Coffee data-testid="calendar-shift-icon" className="mt-px h-3 w-3 shrink-0" aria-hidden />}

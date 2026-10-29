@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
-import { SEED_MISSED_IDS } from './seed-week'
+import { SEED_MISSED_IDS, weekMonday } from './seed-week'
 import { trpcMutation, trpcQuery } from './api'
 
 /**
@@ -29,6 +29,24 @@ function daysFromNow(days: number, hour: number): string {
   d.setDate(d.getDate() + days)
   d.setHours(hour, 0, 0, 0)
   return d.toISOString()
+}
+
+/**
+ * The re-fit note for blocks moved to `starts`, as of now: "in your calendar"
+ * when they stayed this week, else the week they went to (re-fit looks a
+ * week ahead, so at most next week; the copy is unit-tested in
+ * missed-blocks.test.tsx). Late on a Sunday, tomorrow is next week.
+ * `showNextWeek`: the note's widget offers "Show next week" when blocks went
+ * there (the To-do does, on a board with a Calendar to show it in).
+ */
+function movedNoteFor(starts: ReadonlyArray<string | null>, { showNextWeek }: { showNextWeek: boolean }): string {
+  const week = (ms: number) => JSON.stringify(weekMonday(ms))
+  const later = starts.filter((s) => week(Date.parse(s!)) !== week(Date.now())).length
+  const n = starts.length
+  const action = showNextWeek && later > 0 ? ' Show next week' : ''
+  if (later === 0) return `Moved ${n} blocks. They're in your calendar.`
+  if (later === n) return `Moved ${n} blocks to next week.${action}`
+  return `Moved ${n} blocks: ${n - later} this week, ${later} next week.${action}`
 }
 
 test.describe('Weak topics', () => {
@@ -208,12 +226,13 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect(banner.getByTestId('refit-proposal').first()).toContainText('Read chapter 5')
     await banner.getByRole('button', { name: 'Move them' }).click()
 
-    await expect(todo.getByRole('status')).toHaveText("Moved 2 blocks. They're in your calendar.")
     await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     await expect(todo.getByText(/^Still to do from /)).toHaveCount(0)
-
     const items = await trpcQuery<Item[]>(request, 'planItems.list', {})
     const byId = (id: string) => items.find((i) => i.id === id)!
+    // A To-do-only board: no Calendar to show next week in.
+    await expect(todo.getByTestId('refit-note')).toHaveText(movedNoteFor([readChapter, labWriteUp].map((t) => byId(t.id).starts_at), { showNextWeek: false }))
+
     for (const task of [readChapter, labWriteUp]) {
       expect(Date.parse(byId(task.id).starts_at!)).toBeGreaterThan(Date.now() - 5 * 60_000)
     }
@@ -255,6 +274,43 @@ test.describe('Re-fit blocks that did not happen', () => {
     return [readChapter, labWriteUp]
   }
 
+  test('blocks moved past this week: To-do says they went to next week and shows that week in the Calendar', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const missed = await seedMissed(request)
+    // Away for the rest of this week, so their new times are next week (as from a Thursday on in the demo).
+    const m = weekMonday(Date.now())
+    const nextMonday = new Date(m.year, m.month - 1, m.day + 7).toISOString()
+    await trpcMutation(request, 'planItems.create', { kind: 'commitment', title: 'Away this week', starts_at: daysFromNow(0, 0), ends_at: nextMonday })
+    await board(request, 'My week', ['calendar', 'todo'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const todo = new PanelGridPom(page).panelByLabel('To-do')
+    const thisWeek = await calendar.root.getByTestId('calendar-title').textContent()
+
+    const banner = todo.getByTestId('refit-banner')
+    await expect(banner).toContainText("2 blocks didn't happen. Re-fit them?", { timeout: 10000 })
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    await expect(banner.getByTestId('refit-proposal')).toHaveCount(2)
+    await banner.getByRole('button', { name: 'Move them' }).click()
+
+    const note = todo.getByTestId('refit-note')
+    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
+    const items = await trpcQuery<Item[]>(request, 'planItems.list', {})
+    const starts = missed.map((t) => Date.parse(items.find((i) => i.id === t.id)!.starts_at!))
+    for (const start of starts) expect(start).toBeGreaterThanOrEqual(Date.parse(nextMonday))
+    // The calendar still shows this week until asked.
+    await expect(calendar.root.getByTestId('calendar-title')).toHaveText(thisWeek!)
+
+    await note.getByRole('button', { name: 'Show next week' }).click()
+    await expect(calendar.root.getByTestId('calendar-title')).not.toHaveText(thisWeek!)
+    const first = missed[starts.indexOf(Math.min(...starts))]
+    const block = calendar.block(first.title)
+    await expect(block).toHaveAttribute('data-revealed', 'true')
+    await expect(block).toBeInViewport()
+    await expect(note).toHaveCount(0)
+  })
+
   test('Calendar shows the new times as ghosts and accepting moves them, clear of every commitment', async ({ page, request }) => {
     const missed = await seedMissed(request)
     const before = await trpcQuery<Item[]>(request, 'planItems.list', {})
@@ -273,8 +329,10 @@ test.describe('Re-fit blocks that did not happen', () => {
     expect(await trpcQuery<Item[]>(request, 'planItems.list', {})).toEqual(before)
 
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(calendar.root.getByTestId('refit-note')).toHaveText("Moved 2 blocks. They're in your calendar.")
     await expect(ghosts).toHaveCount(0)
+    const moved = await trpcQuery<Item[]>(request, 'planItems.list', {})
+    // The Calendar's own note has no action: it opens the week they went to itself.
+    await expect(calendar.root.getByTestId('refit-note')).toHaveText(movedNoteFor(missed.map((t) => moved.find((i) => i.id === t.id)!.starts_at), { showNextWeek: false }))
     await expect(calendar.block('Read chapter 5')).toBeVisible()
 
     const tomorrow = { from: daysFromNow(1, 0), to: daysFromNow(2, 0) }

@@ -5,7 +5,7 @@ import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
-import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP } from './geometry'
+import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -136,8 +136,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
 
 /* ── Narrow layout ── */
 
-/** Below this canvas width, panels stack in one scrolling column instead of floating. */
-export const STACK_BREAKPOINT = 640
+export { STACK_BREAKPOINT }
 
 function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
   const [narrow, setNarrow] = useState(false)

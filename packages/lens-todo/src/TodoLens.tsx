@@ -11,7 +11,7 @@ import { useStatusWrites } from './useStatusWrites'
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
 
-export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment }: LensProps) {
+export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, onShowPlanItem }: LensProps) {
   const reader = useSubstrate()
   const writer = useSubstrateMutations()
   const course = scope.courseTag
@@ -104,7 +104,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
         {hidden}
       </div>
 
-      <RefitBanner course={course} />
+      <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
 
       <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {

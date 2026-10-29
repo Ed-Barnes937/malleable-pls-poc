@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot } from './geometry'
+import { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel } from './geometry'
 
 const canvas = { width: 800, height: 600 }
 const panel = { width: 300, height: 200 }
@@ -162,5 +162,49 @@ describe('findFreeSpot', () => {
 
   it('pins to 0,0 when the panel is bigger than the canvas', () => {
     expect(findFreeSpot([], size, { width: 200, height: 100 })).toEqual({ x: 0, y: 0 })
+  })
+})
+
+describe('placeNewPanel', () => {
+  // The demo board at 1440x900: a board view 771px tall, the Calendar the
+  // height of the view on the left, the To-do top right.
+  const view = { width: 1440, height: 771 }
+  const calendar = { x: 20, y: 11, width: 900, height: 760 }
+  const todo = { x: 940, y: 20, width: 360, height: 440 }
+
+  it('uses the default size where it fits in view', () => {
+    expect(placeNewPanel([calendar], { width: 360, height: 440, minHeight: 220 }, view)).toEqual({ x: 940, y: 20, height: 440 })
+  })
+
+  it('shortens it, down to its minimum, to keep it in view rather than below the fold', () => {
+    // Coming up (320px) would end at 800px, under the bottom of the view.
+    expect(placeNewPanel([calendar, todo], { width: 360, height: 320, minHeight: 200 }, view)).toEqual({ x: 940, y: 480, height: 271 })
+  })
+
+  it('stops short of a widget below the spot', () => {
+    const below = { x: 940, y: 700, width: 360, height: 300 }
+    expect(placeNewPanel([calendar, todo, below], { width: 360, height: 320, minHeight: 200 }, { width: 1440, height: 1000 }))
+      .toEqual({ x: 940, y: 480, height: 200 })
+  })
+
+  it('goes below the fold at its default size when not even its minimum fits in view', () => {
+    const full = [calendar, { ...todo, height: 600 }]
+    expect(placeNewPanel(full, { width: 360, height: 320, minHeight: 200 }, view)).toEqual({ ...findFreeSpot(full, { width: 360, height: 320 }, view), height: 320 })
+    // No minimum: never shortened.
+    expect(placeNewPanel([calendar, todo], { width: 360, height: 320 }, view)).toEqual({ x: 940, y: 480, height: 320 })
+  })
+
+  it('keeps the default height on an empty board, even where it ends below the fold', () => {
+    // A short laptop: the first widget is not shortened (its height is saved).
+    const short = { width: 1280, height: 600 }
+    expect(placeNewPanel([], { width: 900, height: 760, minHeight: 400 }, short)).toEqual({ ...findFreeSpot([], { width: 900, height: 760 }, short), height: 760 })
+  })
+
+  it('keeps the default height on the narrow (stacked) layout', () => {
+    // A phone: the Calendar first, then the To-do under it; neither is shortened.
+    const phone = { width: 400, height: 700 }
+    const cal = { x: 0, y: 0, width: 900, height: 760 }
+    expect(placeNewPanel([cal], { width: 360, height: 440, minHeight: 220 }, phone)).toEqual({ ...findFreeSpot([cal], { width: 360, height: 440 }, phone), height: 440 })
+    expect(placeNewPanel([], { width: 900, height: 760, minHeight: 400 }, phone).height).toBe(760)
   })
 })

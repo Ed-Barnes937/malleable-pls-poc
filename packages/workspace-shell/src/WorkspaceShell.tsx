@@ -18,7 +18,7 @@ import {
   CanvasEngine,
   WorkspaceBackground,
   useCanvasStore,
-  findFreeSpot,
+  placeNewPanel,
   scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
@@ -228,7 +228,10 @@ export function WorkspaceShell() {
 
   /**
    * Adds a widget at its default size. Without a position (a palette click)
-   * it goes in the first free area of the visible board. `quiet` skips the
+   * it goes in the first free area of the visible board, shortened (down to
+   * its minimum height) when that keeps it in view next to the widgets already
+   * there on the desktop layout (see placeNewPanel). A drop (`at`) keeps its
+   * default height. `quiet` skips the
    * scroll into view and the toasts, for a caller adding a group of widgets
    * to an empty board and announcing the outcome itself (`onSettled`).
    */
@@ -244,7 +247,8 @@ export function WorkspaceShell() {
         ...pending.map((a) => a.box),
       ]
       const canvas = canvasRef.current
-      const spot = at ?? findFreeSpot(taken, { width, height }, {
+      // A click places it in view, on the desktop layout a little shorter if that is what fits (see placeNewPanel).
+      const spot = at ? { ...at, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
         width: canvas?.clientWidth ?? 0,
         height: canvas?.clientHeight ?? 0,
       })
@@ -252,7 +256,7 @@ export function WorkspaceShell() {
         x: Math.round(spot.x),
         y: Math.round(spot.y),
         width,
-        height,
+        height: spot.height,
         z: taken.length > 0 ? Math.max(...taken.map((t) => t.z)) + 1 : 1,
       }
       const add: PendingAdd = { workspaceId: activeWorkspaceId, box }
@@ -267,7 +271,7 @@ export function WorkspaceShell() {
         pos_x: box.x,
         pos_y: box.y,
         width,
-        height,
+        height: box.height,
         z_index: box.z,
       }).then(
         (row) => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type { PlanItem, RefitProposal } from '@pls/substrate'
-import { noFitLabel, useMissedBlocks } from './missed-blocks'
+import { movedNote, movedPastThisWeek, noFitLabel, useMissedBlocks } from './missed-blocks'
 import { SubstrateProvider } from './substrate-context'
 import type { SubstrateReader, SubstrateWriter } from './substrate-contract'
 
@@ -65,5 +65,51 @@ describe('noFitLabel', () => {
   it('says there is no free time', () => {
     expect(noFitLabel(proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })))
       .toBe('No free time this week. It stays on your list.')
+  })
+})
+
+describe('movedNote', () => {
+  // Thursday 29 Oct 2026, 11:20 London: the week of 26 Oct.
+  const now = Date.parse('2026-10-29T11:20:00Z')
+  const sat = '2026-10-31T09:00:00.000Z'
+  const mon = '2026-11-02T12:15:00.000Z'
+  const later = '2026-11-10T09:00:00.000Z'
+
+  it("says they're in the calendar when they stay this week", () => {
+    expect(movedNote([sat, sat], [], now)).toBe("Moved 2 blocks. They're in your calendar.")
+    expect(movedNote([sat], [], now)).toBe("Moved 1 block. It's in your calendar.")
+  })
+
+  it('names the week they went to when it is a later one', () => {
+    expect(movedNote([mon, mon], [], now)).toBe('Moved 2 blocks to next week.')
+    expect(movedNote([later], [], now)).toBe('Moved 1 block to the week of 9 Nov.')
+  })
+
+  it('splits by week when they went to more than one', () => {
+    expect(movedNote([mon, sat, later], [], now)).toBe('Moved 3 blocks: 1 this week, 1 next week, 1 in the week of 9 Nov.')
+  })
+
+  it('still reports the ones that did not fit', () => {
+    const noFit = proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })
+    expect(movedNote([mon], [noFit], now)).toBe("Moved 1 block to next week. 1 didn't fit this week, so it stays on your to-do list.")
+    expect(movedNote([], [noFit], now)).toBe("1 didn't fit this week, so it stays on your to-do list.")
+  })
+})
+
+describe('movedPastThisWeek', () => {
+  const now = Date.parse('2026-10-29T11:20:00Z')
+
+  it('offers to show the earliest block past this week', () => {
+    expect(movedPastThisWeek([
+      { id: 'b', startsAt: '2026-11-03T09:00:00.000Z' },
+      { id: 'a', startsAt: '2026-11-02T12:15:00.000Z' },
+      { id: 'sat', startsAt: '2026-10-31T09:00:00.000Z' },
+    ], now)).toEqual({ id: 'a', startsAt: '2026-11-02T12:15:00.000Z', label: 'Show next week' })
+    expect(movedPastThisWeek([{ id: 'x', startsAt: '2026-11-10T09:00:00.000Z' }], now))
+      .toEqual({ id: 'x', startsAt: '2026-11-10T09:00:00.000Z', label: 'Show the week of 9 Nov' })
+  })
+
+  it('offers nothing when they all stayed this week', () => {
+    expect(movedPastThisWeek([{ id: 'sat', startsAt: '2026-10-31T09:00:00.000Z' }], now)).toBeNull()
   })
 })

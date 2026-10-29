@@ -27,8 +27,8 @@ export interface RefitDraft {
   missed: MissedBlocks
   /** What accepting re-fit ghosts writes: one atomic `planItems.refit` for all of them. */
   save: (proposals: Proposal[]) => Promise<unknown>
-  /** Blocks moved in this preview so far. */
-  moved: number
+  /** The new start (ISO) of each block moved in this preview so far. */
+  moved: ReadonlyArray<string>
   /**
    * The server refused the last accept (the week changed): `fresh` is the
    * preview fetched straight after (null while it loads), until its times
@@ -55,7 +55,7 @@ export interface RefitDraft {
  * atomic, stale-preview check covers every block.
  */
 export function useRefitDraft(missed: MissedBlocks): RefitDraft {
-  const [moved, setMoved] = useState(0)
+  const [moved, setMoved] = useState<ReadonlyArray<string>>([])
   const [stale, setStale] = useState<{ fresh: RefitProposal[] | null } | null>(null)
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
   const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
@@ -64,8 +64,8 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
   const save = useCallback(async (proposals: Proposal[]) => {
     const { accept, refresh } = latest.current
     try {
-      const result = await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
-      setMoved((n) => n + result.moved)
+      await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
+      setMoved((prev) => [...prev, ...proposals.map((p) => p.startsAt)])
       answer(proposals.map((p) => p.taskId))
     } catch (err) {
       if (isConflictError(err)) {
@@ -87,7 +87,7 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
       if (source === REFIT_SOURCE) answer(proposals.map((p) => p.taskId))
     }, [answer]),
     reset: useCallback(() => {
-      setMoved(0)
+      setMoved([])
       setStale(null)
       setAnswered(new Set())
     }, []),
@@ -140,7 +140,7 @@ export function RefitBanner({
     if (!session || previewing || stale) return
     missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
     missed.endPreview()
-    if (moved > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
+    if (moved.length > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
     setSession(null)
     setChanged(false)
     reset()
@@ -185,7 +185,7 @@ export function RefitBanner({
     if (fits.length === 0) {
       // Nothing to show on the grid: say so once and leave them on the list.
       missed.markHandled(current)
-      setNote(movedNote(0, noFit))
+      setNote(movedNote([], noFit))
       return
     }
     reset()

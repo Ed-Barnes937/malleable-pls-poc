@@ -163,6 +163,8 @@ const TEXT_PAIRS: [string, string][] = [
   ['attn', 'surface-inset'],
   ['attn', 'attn-soft'],
   ['text-primary', 'attn-soft'],
+  // Help me plan's "Shrunk ... to 2h. Undo": the Undo link on the attention tint.
+  ['accent', 'attn-soft'],
   ['confused', 'surface-raised'],
   ['confused', 'confused-soft'],
   ['surface-raised', 'confused'],
@@ -178,6 +180,8 @@ const TEXT_PAIRS: [string, string][] = [
     [`course-${c}-ink`, `course-${c}-tint`],
     [`course-${c}-ink`, `course-${c}-soft`],
     [`course-${c}-ink`, 'surface-raised'],
+    // A short block's caption on the Calendar grid, on a day gone by too.
+    [`course-${c}-ink`, 'past'],
     // A to-do's "From <lecture> · m:ss" link on a hovered row.
     [`course-${c}-ink`, 'surface-inset'],
     // A study block's quote of its lecture moment (Calendar popover) and a

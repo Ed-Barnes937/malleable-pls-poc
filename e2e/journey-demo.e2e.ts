@@ -6,6 +6,7 @@ import { AudioCapturePom, CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, S
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
 import { expectedReviewSlots } from './review-placement'
+import { movedNote, movedPastThisWeek } from '../packages/lens-framework/src/missed-blocks'
 import { SEED_MISSED_IDS, SEED_TIME_ZONE, weekMonday } from './seed-week'
 
 /**
@@ -75,6 +76,24 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const comingUp = grid.panelByLabel('Coming up')
     await expect(comingUp.getByText('Biology quiz')).toBeVisible()
     await expect(comingUp.getByText('Chemistry lab report')).toBeVisible()
+    // Adding them leaves all three fully in the board's view, headers
+    // included: nothing scrolled under the top bar. (Settled first: the board
+    // may still be gliding to the last one added.)
+    const boxes = () => Promise.all(['Calendar', 'To-do', 'Coming up'].map((label) => grid.panelByLabel(label).boundingBox()))
+    let last = ''
+    await expect.poll(async () => {
+      const now = JSON.stringify(await boxes())
+      const settled = now === last
+      last = now
+      return settled
+    }, { intervals: [250] }).toBe(true)
+    const view = (await page.getByTestId('canvas-container').boundingBox())!
+    for (const [i, box] of (await boxes()).entries()) {
+      const label = ['Calendar', 'To-do', 'Coming up'][i]
+      expect(box!.y, `${label} top`).toBeGreaterThanOrEqual(view.y)
+      expect(box!.y + box!.height, `${label} bottom`).toBeLessThanOrEqual(view.y + view.height)
+      await expect(grid.panelByLabel(label).getByTestId('panel-title')).toBeInViewport({ ratio: 1 })
+    }
 
     // 2. Plan the week: an honest capacity line, one by hand, then Auto-fill.
     await calendar.root.getByTestId('help-me-plan').click()
@@ -264,13 +283,22 @@ test.describe('Journey: the demo script (mock AI)', () => {
     // On the real clock, an accepted block that has passed too may have no
     // room before it is due at 2h a day: the note then says so.
     const noFit = await proposals.filter({ hasText: 'It stays on your list.' }).count()
-    const moved = (await proposals.count()) - noFit
+    const movedTitles = await proposals.filter({ hasNotText: 'It stays on your list.' })
+      .evaluateAll((rows) => rows.map((row) => row.querySelector('span')?.textContent ?? ''))
+    expect(movedTitles.length).toBeGreaterThanOrEqual(2)
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(todo.getByRole('status')).toHaveText(new RegExp(
-      `^Moved ${moved} blocks\\. They're in your calendar\\.${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}$`,
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
+    // The note says where they went, as of the browser's "now": "in your
+    // calendar" this week; on the real clock later in the week, "to next
+    // week" with a way to show it (copy unit-tested in missed-blocks.test.tsx).
+    const tasks = await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] })
+    const moved = movedTitles.map((title) => tasks.find((t) => t.title === title)!)
+    const show = movedPastThisWeek(moved.map((t) => ({ id: t.id, startsAt: t.starts_at! })), NOW)
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    await expect(todo.getByTestId('refit-note')).toHaveText(new RegExp(
+      `^${escape(movedNote(moved.map((t) => t.starts_at!), [], NOW))}${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}${show ? ` ${escape(show.label)}` : ''}$`,
     ))
-    const missedAfter = (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))
-      .filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
+    const missedAfter = tasks.filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     for (const item of missedAfter) {
       expect(Date.parse(item.starts_at!), item.title).toBeGreaterThan(Date.now() - 5 * 60_000)
     }

@@ -767,3 +767,44 @@ test('with no study time left, a draft says nothing fits and offers no Shrink', 
   await expect(draft.getByTestId('autofill-block')).toHaveCount(0)
   await expect(draft.getByTestId('autofill-trim')).toHaveCount(0)
 })
+
+test('the demo on a Tuesday: over the weekend the narrow panel keeps its heading, numbers, draft and buttons in view', async ({ mount, page, simulator }) => {
+  // Priya's week at the journey-demo's default time, on the demo board's
+  // Calendar at 1440x900 (an 858px grid area: the weekend is about 236px).
+  const now = new Date('2026-10-27T10:30:00Z')
+  for (const { id, ...row } of priyaWeek(now.getTime())) seed(simulator, [{ id, ...row } as Partial<StoredPlanItem> & { id: string }])
+  await page.clock.setFixedTime(now)
+  await mount(<CalendarHarness width={882} height={712} />)
+  await page.getByTestId('help-me-plan').click()
+  const panel = page.getByTestId('help-me-plan-panel')
+  await panel.getByTestId('plan-todo').filter({ hasText: 'Revise for the Biology quiz' }).getByTestId('plan-suggestion').first().click()
+  await expect(page.getByTestId('calendar-block').filter({ hasText: 'Revise for the Biology quiz' })).toBeVisible()
+  await panel.getByTestId('autofill').click()
+  await panel.getByRole('button', { name: 'Shrink to 2h' }).click()
+  await expect(panel.getByTestId('autofill-block')).toHaveCount(3)
+
+  const box = (await panel.boundingBox())!
+  expect(box.width).toBeLessThan(260)
+  const inside = async (name: string, el: ReturnType<typeof panel.getByTestId>) => {
+    const b = (await el.boundingBox())!
+    expect(b.y, `${name} top`).toBeGreaterThanOrEqual(box.y)
+    expect(b.y + b.height, `${name} bottom`).toBeLessThanOrEqual(box.y + box.height)
+    return b
+  }
+  // "Plan your time" on one line.
+  const heading = (await panel.getByRole('heading', { name: 'Plan your time' }).boundingBox())!
+  expect(heading.height).toBeLessThan(30)
+  // The capacity line stays put above the scrolling draft.
+  await expect(panel.getByTestId('plan-capacity')).toContainText('About 7 hours of study time left this week (2h a day). Your to-dos need 10.')
+  await inside('capacity', panel.getByTestId('plan-capacity'))
+  // Every drafted block shows without scrolling the panel, above its buttons.
+  const accept = await inside('Accept draft', panel.getByRole('button', { name: 'Accept draft' }))
+  for (const row of await panel.getByTestId('autofill-block').all()) {
+    const b = (await row.boundingBox())!
+    expect(b.y).toBeGreaterThanOrEqual(box.y)
+    expect(b.y + b.height, await row.textContent() ?? '').toBeLessThanOrEqual(accept.y)
+  }
+  // Accept draft and Keep my plan side by side.
+  const keep = await inside('Keep my plan', panel.getByRole('button', { name: 'Keep my plan' }))
+  expect(Math.abs(keep.y + keep.height / 2 - (accept.y + accept.height / 2))).toBeLessThan(2)
+})
