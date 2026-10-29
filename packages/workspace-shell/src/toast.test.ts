@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import { useToastStore } from './toast'
+import { announcement, useToastStore } from './toast'
 
 /** As the bar does: every current toast is on screen. */
 const showAll = () => useToastStore.getState().setShown(useToastStore.getState().toasts.map((t) => t.id))
@@ -102,5 +102,32 @@ describe('toast store', () => {
     expect(useToastStore.getState().toasts).toHaveLength(1)
     vi.advanceTimersByTime(1)
     expect(useToastStore.getState().toasts).toEqual([])
+  })
+
+  it('a toast held (hovered) when pushed out of view counts down again once it is back', () => {
+    const { push, hold, setShown } = useToastStore.getState()
+    push({ message: 'Transcript ready', tone: 'success' })
+    const [first] = useToastStore.getState().toasts
+    setShown([first.id])
+    vi.advanceTimersByTime(1000)
+    hold(first.id)
+    // A newer toast takes its place; its element goes, so it is never released.
+    push({ message: 'Lecture summary ready', tone: 'success' })
+    const second = useToastStore.getState().toasts[1]
+    setShown([second.id])
+    vi.advanceTimersByTime(4000)
+    setShown([first.id])
+    vi.advanceTimersByTime(2999)
+    expect(useToastStore.getState().toasts).toHaveLength(1)
+    vi.advanceTimersByTime(1)
+    expect(useToastStore.getState().toasts).toEqual([])
+  })
+})
+
+describe('announcement', () => {
+  it('is the message, and names the action and where it is when there is one', () => {
+    expect(announcement({ message: 'Transcript added' })).toBe('Transcript added')
+    expect(announcement({ message: 'Review added to your plan', action: { label: 'See it', onClick: () => {} } }))
+      .toBe('Review added to your plan. Notifications has a See it button.')
   })
 })

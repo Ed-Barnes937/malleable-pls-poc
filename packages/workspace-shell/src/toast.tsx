@@ -129,6 +129,9 @@ export const useToastStore = create<ToastState>((set, get) => {
         if (next.has(id)) continue
         pause(id)
         shownIds.delete(id)
+        // Its element is gone, so no mouse-leave or blur will release it: it
+        // counts down again when it is back on screen.
+        heldIds.delete(id)
       }
       for (const id of next) {
         shownIds.add(id)
@@ -137,6 +140,15 @@ export const useToastStore = create<ToastState>((set, get) => {
     },
   }
 })
+
+/**
+ * What a screen reader hears for a toast: its message, and its action when
+ * it has one, so the student knows there is a button to go to, and where
+ * ("Review added to your plan. Notifications has a See it button.").
+ */
+export function announcement(toast: Pick<Toast, 'message' | 'action'>): string {
+  return toast.action ? `${toast.message}. Notifications has a ${toast.action.label} button.` : toast.message
+}
 
 /** How many toasts the bar shows at once: it has room for one row. */
 const SHOWN_WIDE = 2
@@ -177,7 +189,7 @@ export function ToastHost() {
   return (
     <section aria-label="Notifications" className="contents">
       <div role="status" aria-live="polite" data-testid="toast-announcer" className="sr-only">
-        {toasts.map((toast) => <p key={toast.id}>{toast.message}</p>)}
+        {toasts.map((toast) => <p key={toast.id}>{announcement(toast)}</p>)}
       </div>
       <div
         data-testid="toast-host"

@@ -10,7 +10,7 @@ import { trpcMutation } from './api'
  * screen for its whole time, with its action, and is announced once.
  */
 
-// The app's own toast store, as the dev server serves it (same module instance).
+// The app's own toast store, as the dev server serves it (the page imports the same instance).
 const TOAST_MODULE = `/@fs${path.resolve(__dirname, '../packages/workspace-shell/src/toast.tsx')}`
 
 const TOASTS = [
@@ -57,7 +57,9 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
         requestAnimationFrame(tick)
       })
       await page.evaluate(async ({ mod, toasts }) => {
-        const { useToastStore } = await import(/* @vite-ignore */ mod)
+        // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
+        const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((n) => new URL(n).pathname.endsWith('/workspace-shell/src/toast.tsx')).at(-1)
+        const { useToastStore } = await import(/* @vite-ignore */ loaded ?? mod)
         for (const t of toasts) {
           useToastStore.getState().push({
             message: t.message, tone: 'success', ...(t.action ? { action: { label: t.action, onClick: () => {} } } : {}),
@@ -78,8 +80,8 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
         expect(s.to - s.from, t.message).toBeGreaterThan(t.ms - 300)
         expect(s.action, t.message).toBe(!!t.action)
       }
-      // Each said once, when it happened.
-      expect(announced.sort()).toEqual(TOASTS.map((t) => t.message).sort())
+      // Each said once, when it happened, naming its action.
+      expect(announced.sort()).toEqual(TOASTS.map((t) => (t.action ? `${t.message}. Notifications has a ${t.action} button.` : t.message)).sort())
     })
 
     test('a toast pushed out by newer ones and shown again is announced once', async ({ page, request }) => {
@@ -94,7 +96,9 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
         }).observe(document.querySelector('[data-testid="toast-announcer"]')!, { childList: true })
       })
       const push = (message: string) => page.evaluate(async ({ mod, message }) => {
-        const { useToastStore } = await import(/* @vite-ignore */ mod)
+        // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
+        const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((n) => new URL(n).pathname.endsWith('/workspace-shell/src/toast.tsx')).at(-1)
+        const { useToastStore } = await import(/* @vite-ignore */ loaded ?? mod)
         useToastStore.getState().push({ message, tone: 'success', action: { label: 'Show', onClick: () => {} } })
       }, { mod: TOAST_MODULE, message })
       const toasts = page.getByTestId('toast-host').getByTestId('toast')
@@ -108,7 +112,35 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
       if (viewport.width < 640) await toasts.filter({ hasText: 'Lecture summary ready' }).getByRole('button', { name: 'Dismiss' }).click()
       await expect(toasts.filter({ hasText: 'Transcript ready' })).toBeVisible()
       const announced = await page.evaluate(() => (window as unknown as { announced: string[] }).announced)
-      expect(announced.filter((m) => m === 'Transcript ready')).toHaveLength(1)
+      expect(announced.filter((m) => m === 'Transcript ready. Notifications has a Show button.')).toHaveLength(1)
+    })
+
+    test('a toast pushed out while hovered still times out once it is back', async ({ page }) => {
+      await reseed()
+      await page.goto('/')
+      await expect(page.getByTestId('toast-announcer')).toBeAttached()
+      const push = (message: string, durationMs?: number) => page.evaluate(async ({ mod, message, durationMs }) => {
+        // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
+        const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((n) => new URL(n).pathname.endsWith('/workspace-shell/src/toast.tsx')).at(-1)
+        const { useToastStore } = await import(/* @vite-ignore */ loaded ?? mod)
+        useToastStore.getState().push({ message, tone: 'success', ...(durationMs ? { durationMs } : {}) })
+      }, { mod: TOAST_MODULE, message, durationMs })
+      const toasts = page.getByTestId('toast-host').getByTestId('toast')
+      const first = toasts.filter({ hasText: 'Transcript ready' })
+      await push('Transcript ready')
+      await first.hover()
+      // Newer toasts take its place under the pointer; it is held as it goes.
+      await push('Lecture summary ready', 600_000)
+      await push('Connections found', 600_000)
+      await expect(first).toHaveCount(0)
+      await page.mouse.move(5, 5)
+      await toasts.filter({ hasText: 'Connections found' }).getByRole('button', { name: 'Dismiss' }).click()
+      if (viewport.width < 640) await toasts.filter({ hasText: 'Lecture summary ready' }).getByRole('button', { name: 'Dismiss' }).click()
+      await expect(first).toBeVisible()
+      // (On a phone it comes back right under the pointer, on the Dismiss just clicked.)
+      await page.mouse.move(5, 5)
+      // Back on screen, it counts down again (at most its 4s), rather than staying held for good.
+      await expect(first).toHaveCount(0, { timeout: 5_000 })
     })
   })
 }
