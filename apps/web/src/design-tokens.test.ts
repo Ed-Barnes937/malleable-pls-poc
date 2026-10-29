@@ -3,27 +3,33 @@
  * restyle (a type scale, a palette, the radii) stays one edit there.
  *
  * Every source file that renders UI (packages/lens-*, workspace-shell,
- * panel-system, shared-ui, and apps/web/src) is parsed as TSX. The checks
- * run on what the parser finds, never on comments or JSX text:
+ * panel-system, shared-ui, and apps/web/src) is parsed as TypeScript or TSX
+ * by its extension. The checks run on what the parser finds, never on
+ * comments, JSX text, or `href` and `id` values:
  *
  * - every string literal and template-literal part, for
  *   - text sizes that bypass the four type tokens (text-meta/body/title/
  *     heading): arbitrary (`text-[11px]`) or stock (`text-xs`, `text-sm`);
  *   - raw palette colours in any colour utility (`bg-neutral-800`,
  *     `text-white`, `ring-amber-200/15`, `inset-ring-black/10`,
- *     `text-shadow-white`) and colour literals in a utility (`bg-[#fff]`);
- *   - colour values anywhere in a string (`#fff`, `rgb(...)`, `oklch(...)`);
+ *     `text-shadow-white`) and colour literals in a utility (`bg-[#fff]`,
+ *     `bg-[red]`, `border-[color:tomato]`);
+ *   - colour values anywhere in a string (`#fff`, `rgb(...)`, `oklch(...)`),
+ *     but not a hex that a word or `/` runs into, or a number reference
+ *     like "Issue #123";
  *   - radius that bypasses the radius tokens (rounded-widget/control/item,
  *     rounded-track/tab/toast): bare `rounded`, stock sizes (`rounded-md`,
  *     `rounded-t-lg`) and arbitrary values (`rounded-[14px]`).
  *     `rounded-full` (pills, dots, avatars) and `rounded-none` (squaring off
  *     one side) are not a scale, so they stay;
  *   - `uppercase` (sentence-case labels only);
- * - inline styles: a literal `fontSize`, or a literal colour in `color`,
- *   `background`, `backgroundColor`, `borderColor`, `fill` or `stroke`
- *   (`var(--...)`, `currentColor`, `none`, `transparent` and `inherit` stay);
- * - SVG `fill` and `stroke` attributes with a literal colour (`currentColor`
- *   and `none` stay).
+ * - inline styles: a literal `fontSize`, or a literal colour (hex, colour
+ *   function or CSS named colour) in any `*Color` key, `background`, `fill`,
+ *   `stroke`, `boxShadow`, `textShadow`, `outline` or a `border*` shorthand
+ *   (tokens, `color-mix` of tokens, `currentColor`, `none`, `transparent`
+ *   and `inherit` stay);
+ * - `fill`, `stroke` and `color` attributes with a literal colour
+ *   (`currentColor` and `none` stay).
  *
  * Tests (unit and component) are exempt: they may pass any class through to
  * check it lands. The few deliberate exceptions are in ALLOWED, each with
@@ -71,7 +77,7 @@ type Rule =
   | 'uppercase label'
   | 'literal font size'
   | 'literal style colour'
-  | 'literal svg paint'
+  | 'literal paint attribute'
 
 interface Violation {
   file: string
@@ -95,31 +101,63 @@ const ALLOWED: [string, Rule, RegExp, string][] = [
 const PALETTE = 'white|black|slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 const COLOR_UTILITY = 'bg|text|text-shadow|border(?:-[trblxyse])?|ring|ring-offset|inset-ring|outline|fill|stroke|from|via|to|divide|decoration|placeholder|caret|accent|shadow|inset-shadow'
 const COLOR_FN = 'rgba?|hsla?|oklch|oklab|lab|lch'
+/** The CSS named colours (CSS Color 4), so `bg-[red]` or `color: 'tomato'` can't slip through. */
+const NAMED = [
+  'aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue blueviolet brown',
+  'burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan',
+  'darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid',
+  'darkred darksalmon darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet',
+  'deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro',
+  'ghostwhite gold goldenrod gray green greenyellow grey honeydew hotpink indianred indigo ivory khaki',
+  'lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan lightgoldenrodyellow',
+  'lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue lightslategray',
+  'lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine',
+  'mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise',
+  'mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab',
+  'orange orangered orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru',
+  'pink plum powderblue purple rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown',
+  'seagreen seashell sienna silver skyblue slateblue slategray slategrey snow springgreen steelblue tan',
+  'teal thistle tomato turquoise violet wheat white whitesmoke yellow yellowgreen',
+].join(' ').split(' ').join('|')
 
-/** Rules for the text of a string literal or template-literal part. */
-const STRING_RULES: [Rule, RegExp][] = [
+const HEX = /(?<![\w/])#([0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\w-])/g
+const COLOUR_FN_CALL = new RegExp(`(?<![\\w-])(?:${COLOR_FN})\\(`, 'g')
+const NAMED_WORD = new RegExp(`(?<![\\w-])(?:${NAMED})(?![\\w-])`, 'i')
+
+/**
+ * Hex colours and colour functions in a string. A hex is not a colour when a
+ * word or `/` runs into it (`a#bc`, `/#top`), or when it is all digits after a
+ * word and a space: a number reference like "Issue #123".
+ */
+function colourValues(text: string): string[] {
+  const hexes = [...text.matchAll(HEX)]
+    .filter((m) => !(/^\d+$/.test(m[1]!) && /[A-Za-z]\s$/.test(text.slice(0, m.index))))
+    .map((m) => m[0])
+  return [...hexes, ...[...text.matchAll(COLOUR_FN_CALL)].map((m) => m[0])]
+}
+
+/** Any literal colour in a CSS value: a hex, a colour function or a named colour. */
+const holdsColour = (value: string) => colourValues(value).length > 0 || NAMED_WORD.test(value)
+
+/** Rules for the text of a string literal or template-literal part: a pattern, or a finder. */
+const STRING_RULES: [Rule, RegExp | ((text: string) => string[])][] = [
   ['arbitrary text size', /(?<![\w-])text-\[(?:length:)?[\d.]+(?:px|rem|em)\]/g],
   ['stock text size', /(?<![\w-])text-(?:xs|sm|base|lg|xl|[2-9]xl)(?![\w-])/g],
   ['raw palette colour', new RegExp(`(?<![\\w-])(?:${COLOR_UTILITY})-(?:${PALETTE})(?:-\\d{2,3})?(?:/\\d+)?(?![\\w-])`, 'g')],
-  ['colour literal in a utility', new RegExp(`(?<![\\w-])(?:${COLOR_UTILITY})-\\[(?:#|(?:${COLOR_FN})\\()`, 'g')],
-  ['colour value', new RegExp(`#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{3,4})(?![\\w-])|(?<![\\w-])(?:${COLOR_FN})\\(`, 'g')],
+  ['colour literal in a utility', new RegExp(`(?<![\\w-])(?:${COLOR_UTILITY})-\\[(?:#|(?:${COLOR_FN})\\(|(?:color:)?(?:${NAMED})\\])`, 'gi')],
+  ['colour value', colourValues],
   ['raw radius', /(?<![\w-])rounded(?:-(?:t|r|b|l|s|e|tl|tr|bl|br|ss|se|es|ee))?(?:-(?:xs|sm|md|lg|xl|[2-4]xl|\[[^\]]*\]))?(?![\w[-])/g],
   ['uppercase label', /(?<![\w-])uppercase(?![\w-])/g],
 ]
 
-const STYLE_COLOR_KEYS = new Set(['color', 'background', 'backgroundColor', 'borderColor', 'fill', 'stroke'])
-const SVG_PAINT_ATTRS = new Set(['fill', 'stroke'])
-/**
- * A value that names no colour of its own: a token (`var(--x)`), a mix of
- * tokens (`color-mix(in oklab, var(--x) 25%, transparent)`), or a keyword.
- */
-function notAColour(value: string): boolean {
-  const rest = value
-    .replace(/var\(--[\w-]+\)/g, '')
-    .replace(/\b(?:color-mix|in|srgb|oklab|oklch|currentColor|none|transparent|inherit)\b/g, '')
-    .replace(/[\d.]+%|[\s(),]/g, '')
-  return rest === ''
-}
+/** Style keys that can hold a colour: any `*color`, backgrounds, paint, shadows, outlines and the border shorthands. */
+const isStyleColourKey = (key: string) =>
+  /color$/i.test(key) ||
+  /^(?:background|fill|stroke|boxShadow|textShadow|outline|border(?:Top|Right|Bottom|Left|Block|Inline)?(?:Start|End)?)$/.test(key)
+/** JSX attributes that paint (SVG fill and stroke, and `color` on icons). */
+const PAINT_ATTRS = new Set(['fill', 'stroke', 'color'])
+/** Attributes whose values are addresses or names, never styling (`href="#add"`). */
+const SKIPPED_ATTRS = new Set(['href', 'id'])
 
 // Loose ESTree shapes: only the fields the walk reads.
 interface AstNode {
@@ -142,19 +180,21 @@ function literalsUnder(node: AstNode): AstNode[] {
 const keyName = (key: unknown): string | undefined =>
   isNode(key) ? (key.type === 'Identifier' || key.type === 'JSXIdentifier' ? (key.name as string) : key.type === 'Literal' ? String(key.value) : undefined) : undefined
 
-/** Every violation in `src`, a TSX module called `file`. */
+/** Every violation in `src`, a module called `file` (parsed as TS or TSX by its extension). */
 function violations(file: string, src: string): Violation[] {
   const found: Violation[] = []
   const lineAt = (offset: number) => src.slice(0, offset).split('\n').length
   const report = (rule: Rule, match: string, at: number) => found.push({ file, line: lineAt(at), rule, match })
 
   const checkText = (text: string, at: number) => {
-    for (const [rule, pattern] of STRING_RULES) {
-      for (const m of text.matchAll(pattern)) report(rule, m[0], at)
+    for (const [rule, find] of STRING_RULES) {
+      const matches = typeof find === 'function' ? find(text) : [...text.matchAll(find)].map((m) => m[0])
+      for (const match of matches) report(rule, match, at)
     }
   }
 
   const walk = (node: AstNode) => {
+    if (node.type === 'JSXAttribute' && SKIPPED_ATTRS.has(keyName(node.name) ?? '')) return
     if (node.type === 'Literal' && typeof node.value === 'string') checkText(node.value, node.start)
     if (node.type === 'TemplateElement') checkText((node.value as { cooked?: string; raw: string }).cooked ?? (node.value as { raw: string }).raw, node.start)
 
@@ -163,35 +203,35 @@ function violations(file: string, src: string): Violation[] {
     const properties = node.type === 'ObjectExpression' ? (node.properties as AstNode[]).filter((p) => p.type === 'Property') : []
     for (const property of properties) {
       const key = keyName(property.key)
-      if (key === 'fontSize' || (key && STYLE_COLOR_KEYS.has(key))) {
+      if (key === 'fontSize' || (key && isStyleColourKey(key))) {
         for (const lit of literalsUnder(property.value as AstNode)) {
           const value = lit.value
           if (key === 'fontSize') {
             if (typeof value === 'number' || (typeof value === 'string' && /^[\d.]+(?:px|rem|em)?$/.test(value))) {
               report('literal font size', String(value), lit.start)
             }
-          } else if (typeof value === 'string' && !notAColour(value)) {
+          } else if (typeof value === 'string' && holdsColour(value)) {
             report('literal style colour', value, lit.start)
           }
         }
       }
     }
 
-    // SVG paint attributes: fill="#333", stroke={'red'}.
-    if (node.type === 'JSXAttribute' && SVG_PAINT_ATTRS.has(keyName(node.name) ?? '') && node.value) {
+    // Paint attributes: fill="#333", stroke={'red'}, color="tomato".
+    if (node.type === 'JSXAttribute' && PAINT_ATTRS.has(keyName(node.name) ?? '') && node.value) {
       for (const lit of literalsUnder(node.value as AstNode)) {
-        if (typeof lit.value === 'string' && !notAColour(lit.value)) report('literal svg paint', lit.value, lit.start)
+        if (typeof lit.value === 'string' && holdsColour(lit.value)) report('literal paint attribute', lit.value, lit.start)
       }
     }
 
     for (const child of children(node)) walk(child)
   }
 
-  walk(parseAst(src, { lang: 'tsx' }) as unknown as AstNode)
+  walk(parseAst(src, { lang: file.endsWith('.tsx') ? 'tsx' : 'ts' }) as unknown as AstNode)
   return found
 }
 
-const rulesFired = (src: string) => [...new Set(violations('x.tsx', src).map((v) => v.rule))].sort()
+const rulesFired = (src: string, file = 'x.tsx') => [...new Set(violations(file, src).map((v) => v.rule))].sort()
 
 describe('widgets use the design tokens', () => {
   it('finds the UI source', () => {
@@ -231,8 +271,17 @@ describe('widgets use the design tokens', () => {
       [`const a = <i style={{ fontSize: '11px' }} />`, ['literal font size']],
       [`const a = <i style={{ color: 'red' }} />`, ['literal style colour']],
       [`const a = <i style={{ background: on ? '#fff' : 'var(--color-surface)' }} />`, ['colour value', 'literal style colour']],
-      [`const a = <path fill="red" />`, ['literal svg paint']],
-      [`const a = <path stroke="#333" />`, ['colour value', 'literal svg paint']],
+      [`const a = <path fill="red" />`, ['literal paint attribute']],
+      [`const a = <path stroke="#333" />`, ['colour value', 'literal paint attribute']],
+      [`const a = <Icon color="tomato" />`, ['literal paint attribute']],
+      [`const c = 'bg-[red]'`, ['colour literal in a utility']],
+      [`const c = 'border-[color:rebeccapurple]'`, ['colour literal in a utility']],
+      [`const a = <i style={{ outlineColor: 'red' }} />`, ['literal style colour']],
+      [`const a = <i style={{ boxShadow: '0 0 0 1px black' }} />`, ['literal style colour']],
+      [`const a = <i style={{ border: '1px solid #ddd' }} />`, ['colour value', 'literal style colour']],
+      [`const a = <i style={{ borderTop: '1px solid tomato' }} />`, ['literal style colour']],
+      [`const a = <i style={{ outline: '2px solid rgb(0 0 0)' }} />`, ['colour value', 'literal style colour']],
+      [`const c = 'see #fff and Issue #12'`, ['colour value']],
     ]
     for (const [src, rules] of bad) expect(rulesFired(src), src).toEqual([...rules].sort())
 
@@ -249,11 +298,22 @@ describe('widgets use the design tokens', () => {
       `const c = 'h-2 w-2 rounded-full rounded-b-none rounded-t-none'`,
       `const a = <i style={{ fontSize: 'var(--text-meta)', color: 'var(--color-attn)', background: 'transparent' }} />`,
       `const a = <path fill="currentColor" stroke="none" />`,
+      `const a = <Icon color="currentColor" />`,
+      `const a = <i style={{ boxShadow: '0 0 0 2px var(--color-accent)', border: '1px solid var(--color-border)', outline: 'none' }} />`,
+      `const c = 'Issue #123 is fixed'`,
+      `const a = <a href="#add" id="bad">x</a>`,
+      `const c = 'docs/#cafe and a#bad'`,
       `const a = <i style={{ color: 'color-mix(in oklab, var(--color-text-primary) 25%, transparent)' }} />`,
       `function Bar({ color = 'bg-accent' }) { return color }`,
       `const a = <a href="#top">x</a>`,
     ]
     for (const src of good) expect(rulesFired(src), src).toEqual([])
+  })
+
+  it('parses .ts as TypeScript and .tsx as TSX', () => {
+    // A generic arrow only parses as plain TypeScript (TSX reads <T> as a tag).
+    expect(rulesFired(`const f = <T>(x: T) => x; const c = 'text-xs'`, 'x.ts')).toEqual(['stock text size'])
+    expect(rulesFired(`const a = <p className="text-xs" />`, 'x.tsx')).toEqual(['stock text size'])
   })
 
   it('has no arbitrary or stock sizes, raw colours, raw radius or uppercase labels', () => {
