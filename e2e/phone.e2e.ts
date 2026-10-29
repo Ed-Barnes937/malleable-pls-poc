@@ -1,4 +1,4 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
@@ -100,6 +100,162 @@ test.describe('Phone', () => {
     await expect(todo.getByText('Done today')).toBeVisible({ timeout: 10000 })
     await expect(row.getByRole('checkbox', { name: `Not done yet: ${title}` })).toHaveAttribute('aria-checked', 'true')
     await expect(row.getByRole('button', { name: `Undo: ${title}` })).toHaveCount(0)
+  })
+})
+
+/**
+ * A real tap fires its mouse events and click after the finger lifts, at the
+ * point tapped. The Calendar opens a popover as the finger lifts, and on a
+ * phone the popover fills the grid, so that click used to land on whatever
+ * was under the finger: a block tapped at 16:00 was marked done instead of
+ * showing its popover.
+ */
+/** Records every press (mouse event or click) that reaches a calendar popover, past any listener that cancels it first. */
+async function watchPressesInPopover(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as { pressedInPopover: string[] }
+    w.pressedInPopover = []
+    for (const type of ['mousedown', 'mouseup', 'click']) {
+      document.addEventListener(type, (e) => {
+        if ((e.target as Element).closest?.('[data-calendar-popover]')) w.pressedInPopover.push(type)
+      }, true)
+    }
+  })
+}
+
+/** The presses that reached a popover so far, once the tap's own have had two frames to arrive. */
+async function pressesInPopover(page: Page) {
+  return page.evaluate(async () => {
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return (window as unknown as { pressedInPopover: string[] }).pressedInPopover
+  })
+}
+
+test.describe('Phone calendar taps', () => {
+  test.use({ viewport: { width: 400, height: 860 }, hasTouch: true, isMobile: true })
+  test.beforeEach(async ({ request }) => {
+    await reseed()
+    await myWeekBoard(request)
+  })
+  test.afterAll(async () => { await reseed() })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`a tap on a block opens its popover and presses nothing in it (${theme})`, async ({ page, request }) => {
+      const today = new Date()
+      const at = (h: number, m = 0) => new Date(today.getFullYear(), today.getMonth(), today.getDate(), h, m)
+      // Early, mid-morning and late in the day, long and short; the lecture
+      // moment ones have Go to moment, Mark done and Edit time in theirs.
+      const fromMoment = { source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000 }
+      const blocks = [
+        { title: 'Tap early', start: at(7), min: 60, extra: {} },
+        { title: 'Tap ten', start: at(10), min: 60, extra: fromMoment },
+        { title: 'Tap four', start: at(16), min: 60, extra: fromMoment },
+        { title: 'Tap short', start: at(16, 30), min: 20, extra: fromMoment },
+        { title: 'Tap late', start: at(20), min: 60, extra: {} },
+      ]
+      const ids: Record<string, string> = {}
+      for (const b of blocks) {
+        const row = await trpcMutation<{ id: string }>(request, 'planItems.create', {
+          kind: 'task', title: b.title, course: 'biology', duration_min: b.min,
+          starts_at: b.start.toISOString(), ends_at: new Date(b.start.getTime() + b.min * 60_000).toISOString(), ...b.extra,
+        })
+        ids[b.title] = row.id
+      }
+      await page.addInitScript((t) => localStorage.setItem('pls-theme', t), theme)
+      await page.goto('/')
+      await new TopBarPom(page).switchToWorkspace('My week')
+      if (theme === 'dark') await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+      else await expect(page.locator('html')).not.toHaveAttribute('data-theme', 'dark')
+      await watchPressesInPopover(page)
+
+      const calendar = new CalendarPom(page)
+      for (const b of blocks) {
+        const block = calendar.block(b.title)
+        await block.scrollIntoViewIfNeeded()
+        const box = (await block.boundingBox())!
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+
+        await expect(calendar.popover, b.title).toBeVisible()
+        expect(await pressesInPopover(page), b.title).toEqual([])
+        const saved = await trpcQuery<{ status: string }>(request, 'planItems.byId', ids[b.title])
+        expect(saved.status, b.title).toBe('open')
+
+        await page.keyboard.press('Escape')
+        await expect(calendar.popover).toHaveCount(0)
+      }
+    })
+  }
+
+  test('a quick second tap, on Mark done in the popover the first one opened, marks the block done', async ({ page, request }) => {
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16)
+    const row = await trpcMutation<{ id: string }>(request, 'planItems.create', {
+      kind: 'task', title: 'Tap then done', course: 'biology', duration_min: 60,
+      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Tap then done')
+    await block.scrollIntoViewIfNeeded()
+    const box = (await block.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+    // Straight away: no waiting for the first tap's click to have come and gone.
+    const done = (await calendar.popover.getByRole('button', { name: 'Mark done' }).boundingBox())!
+    await page.touchscreen.tap(done.x + done.width / 2, done.y + done.height / 2)
+    await expect.poll(async () => (await trpcQuery<{ status: string }>(request, 'planItems.byId', row.id)).status).toBe('done')
+  })
+
+  test("after a tap opened and closed a block's popover, a ghost's Accept works on the first tap", async ({ page, request }) => {
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10)
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Tap before refit', course: 'biology', duration_min: 60,
+      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Tap before refit')
+    await block.scrollIntoViewIfNeeded()
+    const box = (await block.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+    await expect(calendar.popover).toBeVisible()
+    await calendar.popover.getByRole('button', { name: 'Close' }).tap()
+    await expect(calendar.popover).toHaveCount(0)
+
+    // Re-fit the seeded blocks that didn't happen, then find a day with one of its ghosts.
+    const banner = calendar.root.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Re-fit' }).tap()
+    await expect(banner.getByRole('button', { name: 'Move them' })).toBeVisible()
+    const ghosts = calendar.root.getByTestId('calendar-ghost')
+    for (let day = 0; day < 7 && (await ghosts.count()) === 0; day++) {
+      await calendar.root.getByRole('button', { name: 'Next day' }).tap()
+    }
+    const ghost = ghosts.first()
+    const label = (await ghost.getAttribute('aria-label'))!
+    const title = /^Suggested: (.*), [^,]+$/.exec(label)![1]
+    await ghost.scrollIntoViewIfNeeded()
+    const accept = (await ghost.getByRole('button', { name: `Accept ${title}` }).boundingBox())!
+    await page.touchscreen.tap(accept.x + accept.width / 2, accept.y + accept.height / 2)
+    await expect(calendar.root.getByTestId('calendar-ghost').filter({ hasText: title })).toHaveCount(0)
+    await expect(calendar.block(title)).toBeVisible()
+  })
+
+  test('a tap on empty time opens a new block and presses nothing in it', async ({ page }) => {
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    await watchPressesInPopover(page)
+    const calendar = new CalendarPom(page)
+    // 03:30, free time near the top of the grid: the new block's popover opens over it.
+    const scroll = calendar.root.getByTestId('calendar-scroll')
+    await scroll.scrollIntoViewIfNeeded()
+    await scroll.evaluate((el) => { el.scrollTop = 0 })
+    const point = await calendar.point(0, 3.5)
+    await page.touchscreen.tap(point.x, point.y)
+    await expect(calendar.popover).toBeVisible()
+    expect(await pressesInPopover(page)).toEqual([])
   })
 })
 

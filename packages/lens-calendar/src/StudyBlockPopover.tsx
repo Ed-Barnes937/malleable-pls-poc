@@ -3,7 +3,7 @@ import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
-import { useEscapeToClose, usePopoverPosition } from './popover-position'
+import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 /**
@@ -38,6 +38,8 @@ export interface StudyBlockPopoverProps {
   /** Position relative to the calendar root. */
   x: number
   y: number
+  /** The block pressed, relative to the calendar root: a popover that can't sit beside it goes above or below it. */
+  span?: Span
   bounds: { width: number; height: number }
   /** A block made from a lecture moment: `source_type = 'recording'`. */
   row: PlanItemOccurrence
@@ -79,11 +81,11 @@ function minutesLabel(minutes: number): string {
  * when an automation moves the block the popover follows.
  */
 export function StudyBlockPopover({
-  x, y, bounds, row, moment, canShowMoment, canEdit, busy, pending, error,
+  x, y, span, bounds, row, moment, canShowMoment, canEdit, busy, pending, error,
   onGoToMoment, onToggleDone, onEditTime, onEditAutomation, onClose,
 }: StudyBlockPopoverProps) {
   const ref = useRef<HTMLDivElement>(null)
-  const pos = usePopoverPosition(ref, { x, y, bounds, width: WIDTH })
+  const pos = usePopoverPosition(ref, { x, y, span, bounds, width: WIDTH })
   useEscapeToClose(onClose)
 
   const substrate = useSubstrate()

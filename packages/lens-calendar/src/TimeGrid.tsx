@@ -17,6 +17,8 @@ import {
 export interface Anchor {
   clientX: number
   clientY: number
+  /** The top and bottom of the block pressed (or the new block a press on empty time makes), in client coordinates. */
+  span?: { top: number; bottom: number }
 }
 
 export interface TimeGridProps {
@@ -126,6 +128,8 @@ type Drag =
       moved: boolean
       /** The press closed this block's own popover: a click (no move) leaves it closed. */
       closedOwnPopover: boolean
+      /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
+      span: { top: number; bottom: number }
     }
 
 export function TimeGrid({
@@ -143,6 +147,16 @@ export function TimeGrid({
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  /**
+   * A touch tap just opened a popover. The tap's mouse events and click come
+   * after pointerup, at the point tapped, where the popover now is (on a
+   * phone it covers the grid): its touchend cancels them, so the tap never
+   * presses anything in it. A pen sends no touch events, and its click, like
+   * a mouse's, goes to where its press started (the grid holds the capture).
+   * Every press in the grid starts afresh (captured, so a ghost's buttons,
+   * which stop their pointerdown, reset it too), and so does a cancelled touch.
+   */
+  const tapOpened = useRef(false)
   /** The due marker whose own popover the last press closed: the click that follows leaves it closed (a toggle). */
   const dueClosedBy = useRef<string | null>(null)
 
@@ -270,6 +284,7 @@ export function TimeGrid({
     // A press that only closes a popover (its save is in flight) moves nothing.
     if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
     e.stopPropagation()
+    const box = ((e.target as Element).closest('[data-block]') ?? e.currentTarget).getBoundingClientRect()
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     const start = new Date(item.starts_at!)
     const end = new Date(item.ends_at!)
@@ -284,6 +299,7 @@ export function TimeGrid({
       y: e.clientY,
       moved: false,
       closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
+      span: { top: box.top, bottom: box.bottom },
     })
   }
 
@@ -324,14 +340,13 @@ export function TimeGrid({
     const anchor = { clientX: e.clientX, clientY: e.clientY }
     if (drag.type === 'create') {
       const day = days[drag.dayIndex]
-      if (drag.moved) {
-        const a = snap(Math.min(drag.fromMin, drag.toMin))
-        const b = snap(Math.max(drag.fromMin, drag.toMin))
-        onCreate(atMinutes(day, a), atMinutes(day, Math.max(b, a + SNAP_MIN)), anchor)
-      } else {
-        const from = Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
-        onCreate(atMinutes(day, from), atMinutes(day, from + 60), anchor)
-      }
+      // A drag makes the block it covers; a tap, an hour from the half hour.
+      const from = drag.moved ? snap(Math.min(drag.fromMin, drag.toMin)) : Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
+      const to = drag.moved ? Math.max(snap(Math.max(drag.fromMin, drag.toMin)), from + SNAP_MIN) : from + 60
+      // Its popover keeps clear of the new block.
+      const top = areaRef.current!.getBoundingClientRect().top
+      onCreate(atMinutes(day, from), atMinutes(day, to), { ...anchor, span: { top: top + (from / 60) * hourPx, bottom: top + (to / 60) * hourPx } })
+      tapOpened.current = e.pointerType === 'touch'
       return
     }
     const ghost = ghostId(drag.item)
@@ -339,7 +354,10 @@ export function TimeGrid({
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
       if (!ghost) {
         // A click on the block whose popover it just closed leaves it closed (a toggle).
-        if (!drag.closedOwnPopover) onOpen(drag.item, anchor)
+        if (!drag.closedOwnPopover) {
+          onOpen(drag.item, { ...anchor, span: drag.span })
+          tapOpened.current = e.pointerType === 'touch'
+        }
       }
       // A tap or click selects it instead: focused, its buttons show (on a
       // short ghost they are hidden until then, and touch has no hover).
@@ -499,10 +517,17 @@ export function TimeGrid({
             data-testid="calendar-grid"
             className={cn('relative grid flex-1 select-none', drag?.type === 'create' && 'cursor-ns-resize')}
             style={{ ...cols, touchAction: 'none' }}
+            onPointerDownCapture={() => { tapOpened.current = false }}
             onPointerDown={startCreate}
             onPointerMove={handleMove}
             onPointerUp={handleUp}
             onPointerCancel={() => setDrag(null)}
+            onTouchEnd={(e) => {
+              if (!tapOpened.current) return
+              tapOpened.current = false
+              e.preventDefault()
+            }}
+            onTouchCancel={() => { tapOpened.current = false }}
             onDragOver={handleDragOver}
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null)

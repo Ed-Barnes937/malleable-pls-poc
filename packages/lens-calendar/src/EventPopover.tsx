@@ -4,13 +4,15 @@ import { COURSES, Select, TextField, cn } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
-import { useEscapeToClose, usePopoverPosition } from './popover-position'
+import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
   x: number
   y: number
+  /** What was pressed, relative to the calendar root: a popover that can't sit beside it goes above or below it. */
+  span?: Span
   /** Bounds to stay inside. */
   bounds: { width: number; height: number }
   /** Absent when creating. */
@@ -35,12 +37,12 @@ const KINDS: PlanItemKind[] = ['commitment', 'task', 'deadline']
 
 /** Create / edit card for a calendar item, anchored where the student clicked. */
 export function EventPopover({
-  x, y, bounds, row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  x, y, span, bounds, row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
 }: EventPopoverProps) {
   const ref = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<Draft>(initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const pos = usePopoverPosition(ref, { x, y, bounds, width: WIDTH })
+  const pos = usePopoverPosition(ref, { x, y, span, bounds, width: WIDTH })
   const isCreate = !row
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
