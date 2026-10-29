@@ -7,6 +7,7 @@ import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
@@ -21,12 +22,12 @@ import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel
 type View = 'week' | 'day'
 
 type Popover =
-  | { mode: 'create'; x: number; y: number; draft: Draft }
+  | { mode: 'create'; x: number; y: number; span?: Span; draft: Draft }
   /**
    * A block from a lecture moment opens on where it came from; `editingTime`
    * swaps that for the date and time pickers.
    */
-  | { mode: 'edit'; x: number; y: number; key: string; moment?: MomentState; editingTime?: boolean }
+  | { mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -364,8 +365,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   )
 
   const relative = (anchor: Anchor) => {
-    const rect = rootRef.current?.getBoundingClientRect()
-    return { x: anchor.clientX - (rect?.left ?? 0), y: anchor.clientY - (rect?.top ?? 0) }
+    const left = rootRef.current?.getBoundingClientRect().left ?? 0
+    const top = rootRef.current?.getBoundingClientRect().top ?? 0
+    const span = anchor.span && { top: anchor.span.top - top, bottom: anchor.span.bottom - top }
+    return { x: anchor.clientX - left, y: anchor.clientY - top, span }
   }
 
   /**
@@ -709,6 +712,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           key={`create-${popover.draft.start.toISOString()}`}
           x={popover.x}
           y={popover.y}
+          span={popover.span}
           bounds={bounds}
           initial={popover.draft}
           canEdit
@@ -723,6 +727,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         <StudyBlockPopover
           x={popover.x}
           y={popover.y}
+          span={popover.span}
           bounds={bounds}
           row={editing}
           moment={popover.moment}
@@ -753,6 +758,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           key={`edit-${editing.occurrence_key}-${editing.updated_at}`}
           x={popover.x}
           y={popover.y}
+          span={popover.span}
           bounds={bounds}
           row={editing}
           initial={draftFromRow(editing)}
