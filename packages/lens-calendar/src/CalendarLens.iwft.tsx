@@ -636,19 +636,32 @@ test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add
   await expect(add).toBeFocused()
 })
 
-test('a 20-minute block keeps a legible title and its time in the tooltip', async ({ mount, page, simulator }) => {
+test('a 20-minute block, drawn to scale, reads by its title in a caption just under it', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])
   await mount(<CalendarHarness />)
   const short = block(page, 'Quick review')
   await expect(short).toHaveAttribute('title', /19:00 - 19:20/)
-  const title = short.getByTestId('calendar-block-title')
-  await expect(title).toHaveText('Quick review')
-  await expect(title).toBeVisible()
-  // One whole line of 12px text, not cut by the short box.
-  expect(await title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12)
-  expect((await title.boundingBox())!.height).toBeGreaterThanOrEqual(12)
-  expect(await short.evaluate((el) => getComputedStyle(el).overflowY)).toBe('visible')
+  await expect(short).toHaveAttribute('aria-label', /^Quick review, study time, 19:00 - 19:20$/)
+  const caption = short.getByTestId('calendar-block-caption')
+  await expect(caption).toHaveText('Quick review')
+  await expect(caption).toHaveAttribute('data-side', 'below')
+  await expect(caption).toBeVisible()
+  // Settled grid, then: one whole, uncut line of 12px text right under the block.
+  await point(page, 0, 12)
+  const box = (await short.boundingBox())!
+  const text = (await caption.boundingBox())!
+  expect(await caption.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12)
+  expect(text.height).toBeGreaterThanOrEqual(16)
+  expect(text.y).toBeGreaterThanOrEqual(box.y + box.height)
+  expect(text.y).toBeLessThanOrEqual(box.y + box.height + 2)
+  expect(await caption.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  // The block keeps its own size: the caption is beside it, not in it.
+  expect(box.height).toBeLessThan(16)
+  await expect(short.getByTestId('calendar-block-title')).toBeHidden()
+  // The caption is the block: clicking it opens the block.
+  await caption.click()
+  await expect(page.getByTestId('calendar-popover')).toBeVisible()
 })
 
 test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute one at the default zoom', async ({ mount, page, simulator }) => {
@@ -668,19 +681,44 @@ test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute o
   expect((await heightOf('Review thirty')) - (await heightOf('Review twenty'))).toBeGreaterThanOrEqual(4)
 })
 
-test("a block straight after a 15-minute one never paints over the short one's title", async ({ mount, page, simulator }) => {
+test("a 15-minute block right before another puts its caption over itself, never on the next block", async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seed(simulator, [
     { id: 'quick', kind: 'task', title: 'Quick check', starts_at: iso(4, 19), ends_at: iso(4, 19, 15), duration_min: 15 },
     { id: 'next', kind: 'commitment', title: 'Next block', starts_at: iso(4, 19, 15), ends_at: iso(4, 20, 15) },
   ])
   await mount(<CalendarHarness />)
-  const title = block(page, 'Quick check').getByTestId('calendar-block-title')
-  await expect(title).toBeVisible()
+  const quick = block(page, 'Quick check')
+  const caption = quick.getByTestId('calendar-block-caption')
+  await expect(caption).toHaveAttribute('data-side', 'above')
   // The grid re-fits as rows load: sample positions only once it has settled.
   await point(page, 0, 12)
+  const box = (await caption.boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual((await quick.boundingBox())!.y)
+  const next = (await block(page, 'Next block').boundingBox())!
+  expect(box.y + box.height).toBeLessThanOrEqual(next.y)
+  // What is drawn at the top and bottom of the caption is the short block itself.
+  for (const y of [box.y + 1, box.y + box.height - 1]) {
+    const owner = await page.evaluate(([x, yy]) => document.elementFromPoint(x, yy)?.closest('[data-testid="calendar-block"]')?.textContent, [box.x + 10, y])
+    expect(owner).toContain('Quick check')
+  }
+})
+
+test("a short block with blocks right above and below keeps its title inside, painted over its neighbours", async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [
+    { id: 'before', kind: 'commitment', title: 'Before block', starts_at: iso(4, 18), ends_at: iso(4, 19) },
+    { id: 'quick', kind: 'task', title: 'Quick check', starts_at: iso(4, 19), ends_at: iso(4, 19, 15), duration_min: 15 },
+    { id: 'next', kind: 'commitment', title: 'Next block', starts_at: iso(4, 19, 15), ends_at: iso(4, 20, 15) },
+  ])
+  await mount(<CalendarHarness />)
+  const quick = block(page, 'Quick check')
+  await expect(quick.getByTestId('calendar-block-caption')).toHaveCount(0)
+  const title = quick.getByTestId('calendar-block-title')
+  await expect(title).toBeVisible()
+  await point(page, 0, 12)
   const box = (await title.boundingBox())!
-  // What is drawn at the top and bottom of the title line is the short block itself.
+  expect(box.height).toBeGreaterThanOrEqual(12)
   for (const y of [box.y + 1, box.y + box.height - 1]) {
     const owner = await page.evaluate(([x, yy]) => document.elementFromPoint(x, yy)?.closest('[data-testid="calendar-block"]')?.textContent, [box.x + 10, y])
     expect(owner).toContain('Quick check')
@@ -719,4 +757,39 @@ test('a September weekly class stays at its local time through the clock-change 
   await page.getByRole('button', { name: 'Next week' }).click()
   await expect(page.getByTestId('calendar-title')).toHaveText('26 Oct - 1 Nov 2026')
   await expect(block(page, 'Autumn lecture')).toHaveAttribute('aria-label', /10:00 - 11:00/)
+})
+
+test('the source line wraps only where it reads well: never on its spaced dash, the time with the last word', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  // The demo's upload title, which used to wrap as "From Mitochondrial DNA - / today · 9:00".
+  simulator.db.recordings.find((r) => r.id === 'rec-bio-4')!.title = 'Mitochondrial DNA - today'
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').click()
+  const source = page.getByTestId('calendar-popover').getByTestId('calendar-moment-source')
+  await expect(source).toHaveText('From Mitochondrial DNA - today · 9:00')
+  // Read the text's own lines: each line's first and last word.
+  const lines = await source.evaluate((el) => {
+    const range = document.createRange()
+    const out: { top: number; text: string }[] = []
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const text = node.textContent ?? ''
+      for (let i = 0; i < text.length; i++) {
+        range.setStart(node, i)
+        range.setEnd(node, i + 1)
+        const top = Math.round(range.getBoundingClientRect().top)
+        const line = out.find((l) => Math.abs(l.top - top) < 4)
+        if (line) line.text += text[i]
+        else out.push({ top, text: text[i] })
+      }
+    }
+    return out.map((l) => l.text.replace(/\s+/g, ' ').trim())
+  })
+  // It wraps in the popover's width (else this test checks nothing).
+  expect(lines.length).toBe(2)
+  for (const line of lines) {
+    expect(line, 'a line ends on the dash').not.toMatch(/-$/)
+    expect(line, 'a line starts with the dash').not.toMatch(/^-/)
+  }
+  expect(lines.at(-1)).toBe('DNA - today · 9:00')
 })

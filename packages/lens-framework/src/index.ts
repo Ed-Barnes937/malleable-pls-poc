@@ -56,6 +56,7 @@ export {
   missedQuestion,
   refitAsk,
   movedNote,
+  movedPastThisWeek,
   noFitLabel,
   type MissedBlocks,
 } from './missed-blocks'

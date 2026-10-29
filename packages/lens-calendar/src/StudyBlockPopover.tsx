@@ -14,6 +14,23 @@ export function momentSourceLabel(title: string, offsetMs: number | null | undef
   return fromMomentLabel(title, offsetMs).replace(/ · (\S+)$/, '\u00a0·\u00a0$1')
 }
 
+/**
+ * The label split where it may wrap: the end that stays on one line is the
+ * time with the title's last word and, after a spaced dash, the word before
+ * it too ("DNA - today · 1:18"), so no line ends on a dash or starts with one
+ * (a browser may break after "-" even before a no-break space).
+ */
+export function momentSourceParts(label: string): [head: string, tail: string] {
+  const tail = /([^ ]+ - )?[^ ]+$/.exec(label)?.[0] ?? label
+  return [label.slice(0, label.length - tail.length), tail]
+}
+
+/** A moment's source label that wraps only where it reads well (see `momentSourceParts`). */
+export function MomentSourceText({ label }: { label: string }) {
+  const [head, tail] = momentSourceParts(label)
+  return <>{head}<span className="whitespace-nowrap">{tail}</span></>
+}
+
 /** Where a block's lecture moment went after "Go to moment". */
 export type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
 
@@ -111,7 +128,7 @@ export function StudyBlockPopover({
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
           <AudioLines className="h-4 w-4 shrink-0" />
-          <span className="line-clamp-2">{momentSourceLabel(recording?.title ?? 'a lecture', offsetMs)}</span>
+          <span className="line-clamp-2"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', offsetMs)} /></span>
         </p>
         <button
           type="button"

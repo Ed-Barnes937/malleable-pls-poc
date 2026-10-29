@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, useMissedBlocks } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, movedNote, movedPastThisWeek, noFitLabel, refitAsk, useMissedBlocks, type LensProps, type PlanItemRef } from '@pls/lens-framework'
 import { cn, dayAndTime } from '@pls/shared-ui'
 import { CalendarClock, RotateCcw } from 'lucide-react'
 
@@ -18,12 +18,20 @@ type Problem = 'conflict' | 'failed' | null
  * Calendar, see `useMissedBlocks`). Commitments are never involved.
  * On a course board, only that course's blocks.
  */
-export function RefitBanner({ course }: { course: string | undefined }) {
+export function RefitBanner({ course, onShowPlanItem }: {
+  course: string | undefined
+  /** Shows a block on the board's calendar, when it has one (see `LensProps`). */
+  onShowPlanItem?: LensProps['onShowPlanItem']
+}) {
   const missed = useMissedBlocks({ course })
 
   const [step, setStep] = useState<Step>('ask')
   const [problem, setProblem] = useState<Problem>(null)
-  const [note, setNote] = useState<string | null>(null)
+  /**
+   * What happened, and, when blocks went past this week (which the calendar
+   * opens on), a way to show the first of them.
+   */
+  const [note, setNote] = useState<{ text: string; show: PlanItemRef & { label: string } | null } | null>(null)
 
   // Blocks the student already answered for (here or in another widget) are left out.
   const proposals = missed.proposals
@@ -40,9 +48,10 @@ export function RefitBanner({ course }: { course: string | undefined }) {
     }
   }, [open, endPreview])
 
-  // A short "done" line, then nothing.
+  // A short "done" line, then nothing; one with a way to see the blocks
+  // stays until it is used (no time limit on an action).
   useEffect(() => {
-    if (!note) return
+    if (!note || note.show) return
     const t = setTimeout(() => setNote(null), 6000)
     return () => clearTimeout(t)
   }, [note])
@@ -50,7 +59,28 @@ export function RefitBanner({ course }: { course: string | undefined }) {
   const markHandled = (ps: RefitProposal[]) => missed.markHandled(ps)
 
   if (!open) {
-    return note ? <p role="status" className="px-1 text-meta text-text-muted">{note}</p> : null
+    if (!note) return null
+    const { show } = note
+    return (
+      <p role="status" data-testid="refit-note" className="px-1 text-meta text-text-muted">
+        {note.text}
+        {show && (
+          <>
+            {' '}
+            <button
+              type="button"
+              onClick={() => {
+                onShowPlanItem?.({ id: show.id, startsAt: show.startsAt })
+                setNote(null)
+              }}
+              className="rounded-item font-semibold text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {show.label}
+            </button>
+          </>
+        )}
+      </p>
+    )
   }
 
   const n = proposals.length
@@ -60,10 +90,16 @@ export function RefitBanner({ course }: { course: string | undefined }) {
     setStep('saving')
     setProblem(null)
     missed.accept(fits.map((p) => ({ id: p.item.id, starts_at: p.starts_at!, ends_at: p.ends_at! }))).then(
-      (result) => {
+      () => {
         // Shown once here, so they don't bring the question straight back.
         markHandled(noFit)
-        setNote(movedNote(result.moved, noFit))
+        // The move is atomic: every block with a new time moved.
+        const moved = fits.map((p) => ({ id: p.item.id, startsAt: p.starts_at! }))
+        const later = onShowPlanItem ? movedPastThisWeek(moved) : null
+        setNote({
+          text: movedNote(moved.map((b) => b.startsAt), noFit),
+          show: later,
+        })
       },
       (err: unknown) => {
         // A conflict refreshes the preview (the mutation invalidates it); show that one.

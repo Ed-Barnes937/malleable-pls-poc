@@ -14,5 +14,5 @@ export {
   type BackgroundType,
 } from './canvas-store'
 export { snapToGrid, GRID_SIZE } from './snap'
-export { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, PLACEMENT_GAP } from './geometry'
+export { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel, PLACEMENT_GAP } from './geometry'
 export { scrollPanelIntoView } from './reveal'

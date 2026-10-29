@@ -22,7 +22,7 @@ import {
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
 import { cn, doByLabel } from '@pls/shared-ui'
-import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, Undo2, X } from 'lucide-react'
+import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, X } from 'lucide-react'
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
@@ -254,14 +254,14 @@ export function HelpMePlanPanel({
       ref={panelRef}
       data-testid="help-me-plan-panel"
       aria-labelledby={headingId}
-      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
+      className="@container flex h-full min-h-0 w-full flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
-      <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5">
+      <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5 @max-[17rem]:pl-3 @max-[17rem]:pr-1.5">
         <h3
           ref={headingRef}
           id={headingId}
           tabIndex={-1}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-item text-heading font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-item text-heading font-semibold text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-accent @max-[17rem]:gap-1.5 @max-[17rem]:text-title"
         >
           <Sparkles className="h-[18px] w-[18px] shrink-0 text-accent" aria-hidden />
           Plan your time
@@ -286,16 +286,22 @@ export function HelpMePlanPanel({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 pt-1">
-        <p className="text-body text-text-secondary">
-          Drag a to-do onto a free gap, or let Auto-fill draft the rest. Nothing is saved until you accept.
-        </p>
+      {/* Stays put while the rest scrolls, so the numbers are in view as a draft changes them. */}
+      <div className="shrink-0 px-4 pb-3 pt-1 @max-[17rem]:px-3 @max-[17rem]:pb-2">
         <CapacityBar
           freeMin={cap.freeMin}
           neededMin={cap.neededMin}
           copy={capacityCopy(cap, weekLabel, layout.budget.minutesPerDay)}
           assumed={missing.length}
         />
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 @max-[17rem]:gap-3 @max-[17rem]:px-3">
+        {!showDraft && (
+          <p className="text-body text-text-secondary">
+            Drag a to-do onto a free gap, or let Auto-fill draft the rest. Nothing is saved until you accept.
+          </p>
+        )}
 
         {showDraft ? (
           <DraftSummary
@@ -377,14 +383,14 @@ export function HelpMePlanPanel({
       </div>
 
       {showDraft ? (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3 @max-[17rem]:flex-nowrap @max-[17rem]:gap-1 @max-[17rem]:px-3 @max-[17rem]:pb-3">
           <button
             type="button"
             onClick={() => void layer.acceptAll()}
             disabled={layer.saving || openDraftBlocks === 0}
             className={cn(primaryButton, 'flex-1 justify-center gap-1.5 whitespace-nowrap px-3')}
           >
-            <Check className="h-4 w-4" />
+            <Check className="h-4 w-4 @max-[17rem]:hidden" />
             Accept draft
           </button>
           <button type="button" onClick={keepPlan} disabled={layer.saving} className={cn(ghostButton, 'whitespace-nowrap')}>
@@ -392,7 +398,7 @@ export function HelpMePlanPanel({
           </button>
         </div>
       ) : autofill.state !== 'confirm-estimates' && (
-        <div className="flex shrink-0 border-t border-border-subtle px-4 pb-4 pt-3">
+        <div className="flex shrink-0 border-t border-border-subtle px-4 pb-4 pt-3 @max-[17rem]:px-3 @max-[17rem]:pb-3">
           <button
             ref={autofillRef}
             type="button"
@@ -425,8 +431,8 @@ function CapacityBar({ freeMin, neededMin, copy, assumed }: { freeMin: number; n
   const fitting = Math.min(freeMin, neededMin)
   const short = Math.max(0, neededMin - freeMin)
   return (
-    <div data-testid="plan-capacity" className="flex flex-col gap-2.5 rounded-item border border-border-subtle bg-surface-inset px-3.5 py-3">
-      <p className="text-title font-semibold text-text-primary">{copy}</p>
+    <div data-testid="plan-capacity" className="flex flex-col gap-2.5 rounded-item border border-border-subtle bg-surface-inset px-3.5 py-3 @max-[17rem]:gap-2 @max-[17rem]:px-3 @max-[17rem]:py-2.5">
+      <p className="text-title font-semibold text-text-primary @max-[17rem]:text-body">{copy}</p>
       <div
         role="img"
         aria-label={`${formatMinutes(freeMin)} of study time left, ${formatMinutes(neededMin)} needed`}
@@ -543,18 +549,22 @@ function DraftSummary({
         const task = originalTasks.find((t) => t.id === trim.taskId)
         const tooLong = !!task && task.durationMin > longest
         return (
-          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-3">
+          <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-3 @max-[17rem]:gap-2 @max-[17rem]:px-3 @max-[17rem]:py-2.5">
             {applied ? (
-              <div className="flex flex-wrap items-center gap-2 text-body text-text-primary">
-                <Scissors className="h-4 w-4 shrink-0 text-attn" aria-hidden />
-                <span className="min-w-0 flex-1 basis-40">
-                  Shrunk <span className="font-semibold">{title(trim.taskId)}</span> to {formatMinutes(trims.get(trim.taskId)!)}.
-                </span>
-                <button type="button" data-trim-action="undo" data-task-id={trim.taskId} onClick={() => trimTask(trim.taskId, null)} className={quietButton}>
-                  <Undo2 className="h-3.5 w-3.5" />
+              // Undo runs on after the sentence, as a link, so the draft under it stays in view.
+              <p className="text-body text-text-primary">
+                <Scissors className="mr-1.5 inline h-4 w-4 align-[-3px] text-attn" aria-hidden />
+                Shrunk <span className="font-semibold">{title(trim.taskId)}</span> to {formatMinutes(trims.get(trim.taskId)!)}.{' '}
+                <button
+                  type="button"
+                  data-trim-action="undo"
+                  data-task-id={trim.taskId}
+                  onClick={() => trimTask(trim.taskId, null)}
+                  className={cn(linkButton, 'rounded-item outline-none focus-visible:ring-2 focus-visible:ring-accent')}
+                >
                   Undo
                 </button>
-              </div>
+              </p>
             ) : (
               <>
                 <p className="text-body text-text-primary">
