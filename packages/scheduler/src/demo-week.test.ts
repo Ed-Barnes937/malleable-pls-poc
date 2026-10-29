@@ -3,7 +3,7 @@
  * the public API, the way T7, T9 and T10 are expected to call it.
  */
 import { describe, expect, it } from 'vitest'
-import { capacity, freeSlots, place, refit, startOfLocalDay, suggestSlots, wallClock } from './index'
+import { capacity, freeSlots, place, startOfLocalDay, suggestSlots, wallClock } from './index'
 
 const TZ = 'Europe/London'
 const at = (iso: string) => Date.parse(iso)
@@ -94,21 +94,6 @@ describe('demo week', () => {
     const s = suggestSlots(todos[2], free, 3, { now, existingPlacements: r.placements })
     expect(s.length).toBeGreaterThan(0)
   })
-
-  it('T10: missed blocks are re-fit into free time after now', () => {
-    const now = at('2026-10-30T09:00:00Z')
-    const free = freeSlots(priyasWeek, { start: now, end: week.end }, prefs)
-    const r = refit(
-      [
-        { taskId: 'a', start: at('2026-10-27T08:00:00Z'), end: at('2026-10-27T09:00:00Z') },
-        { taskId: 'b', start: at('2026-10-28T08:00:00Z'), end: at('2026-10-28T08:30:00Z') },
-      ],
-      free,
-      { now },
-    )
-    expect(r.placements).toEqual([
-      { taskId: 'a', start: at('2026-10-30T09:00:00Z'), end: at('2026-10-30T10:00:00Z') },
-      { taskId: 'b', start: at('2026-10-30T10:00:00Z'), end: at('2026-10-30T10:30:00Z') },
-    ])
-  })
+  // T10's re-fit is placed by @pls/substrate's planRefit (Help me plan's week,
+  // the confusion reviews' rule); see substrate/src/refit-rules.test.ts.
 })

@@ -24,7 +24,9 @@ function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id
   }
 }
 
-function seedWeek(simulator: BackendSimulator) {
+function seedWeek(simulator: BackendSimulator, base = monday) {
+  const at = (day: number, h: number, m = 0) => new Date(base.getFullYear(), base.getMonth(), base.getDate() + day, h, m)
+  const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString()
   seed(simulator, [
     { id: 'bio-lecture', kind: 'commitment', title: 'Biology lecture', subtype: 'class', starts_at: iso(0, 10), ends_at: iso(0, 11), recurrence: { freq: 'weekly', timeZone: tz }, course: 'biology' },
     { id: 'chem-lecture', kind: 'commitment', title: 'Chemistry lecture', subtype: 'class', starts_at: iso(1, 9), ends_at: iso(1, 10, 30), course: 'chemistry' },
@@ -58,8 +60,26 @@ async function point(page: Page, dayIndex: number, hours: number) {
 
 const block = (page: Page, title: string) => page.getByTestId('calendar-block').filter({ hasText: title })
 
+/** Mondays of the weeks the clock is frozen in: a plain week, and the week of the autumn clock change (Sun 25 Oct 2026, London). */
+const FROZEN_MONDAY = new Date(2026, 9, 26)
+const DST_MONDAY = new Date(2026, 9, 19)
+
+/**
+ * Freeze "now" before mounting, in the browser (Date only; timers keep
+ * running) and in the simulated server (which decides what was missed), so
+ * nothing here depends on the day or hour the suite runs.
+ */
+async function freezeAt(page: Page, simulator: BackendSimulator, day: Date, h: number, m = 0) {
+  const now = new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, m)
+  await page.clock.setFixedTime(now)
+  simulator.freezeNow(now)
+}
+
 test('renders the week: fixed commitments, study time and what is due', async ({ mount, page, simulator }) => {
-  seedWeek(simulator)
+  // Monday morning: nothing has been missed yet, so no re-fit banner takes
+  // room from the grid (it appears, and the grid scrolls, once study blocks pass).
+  await freezeAt(page, simulator, FROZEN_MONDAY, 9)
+  seedWeek(simulator, FROZEN_MONDAY)
   await mount(<CalendarHarness />)
 
   await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
@@ -77,6 +97,47 @@ test('renders the week: fixed commitments, study time and what is due', async ({
     expect(y).toBeLessThanOrEqual(scroll!.y + scroll!.height)
   }
 })
+
+// The hour rows are the same whichever day it is, with or without the re-fit
+// banner above the grid (which appears once study blocks have passed): 24
+// equal rows, 08:00 at the top, and 22:00 within the window or one scroll away.
+const FROZEN_DAYS: [string, Date, number, number][] = [
+  ['Mon', FROZEN_MONDAY, 9, 0], ['Tue', addDays(FROZEN_MONDAY, 1), 12, 0], ['Wed', addDays(FROZEN_MONDAY, 2), 21, 0],
+  ['Thu', addDays(FROZEN_MONDAY, 3), 10, 0], ['Fri', addDays(FROZEN_MONDAY, 4), 23, 30],
+  ['Sat', addDays(FROZEN_MONDAY, 5), 8, 0], ['Sun', addDays(FROZEN_MONDAY, 6), 18, 0],
+  ['DST Sat', addDays(DST_MONDAY, 5), 12, 0], ['DST Sun (clock change)', addDays(DST_MONDAY, 6), 12, 0],
+  ['DST Mon after change', FROZEN_MONDAY, 0, 30],
+]
+for (const [label, day, h, m] of FROZEN_DAYS) {
+  test(`hour rows stay true to scale on ${label}`, async ({ mount, page, simulator }) => {
+    const base = startOfWeek(day)
+    await freezeAt(page, simulator, day, h, m)
+    seedWeek(simulator, base)
+    await mount(<CalendarHarness />)
+    await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
+    await expect(block(page, 'Biology lecture')).toBeVisible()
+
+    await point(page, 0, 12) // waits for the grid to stop re-fitting
+    const scroll = (await page.getByTestId('calendar-scroll').boundingBox())!
+    const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+    // 24 rows of one height, never cramped below 32px.
+    const hourPx = grid.height / 24
+    expect(hourPx).toBeGreaterThanOrEqual(32 - 0.5)
+    // Starts scrolled to 08:00 (a little headroom for its label).
+    expect(grid.y - scroll.y + (8 / 24) * grid.height).toBeCloseTo(8, 0)
+    // The whole working day fits when the window is tall enough for it, else
+    // the bottom of the grid is a scroll away: never a short grid.
+    const fits = scroll.height >= 14 * 32 + 16
+    if (fits) {
+      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+    } else {
+      expect(hourPx).toBeCloseTo(32, 0)
+      await page.getByTestId('calendar-scroll').evaluate((el) => { el.scrollTop = el.scrollHeight })
+      const after = (await page.getByTestId('calendar-grid').boundingBox())!
+      expect(after.y + (22 / 24) * after.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+    }
+  })
+}
 
 test('block language: a class is a solid course tint, a shift neutral with a cup, study time a soft tint with a bar and a grab handle', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
@@ -323,6 +384,52 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
 })
 
+test('while a save is pending the popover fields are read-only, still legible, and take no edits', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  // Registered after the simulator's route, so it wins for updates only.
+  await page.route('**/planItems.update**', async (route) => {
+    await held
+    await route.fallback()
+  })
+  await block(page, 'Biology lecture').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByLabel('Start time').fill('11:00')
+  await popover.getByRole('button', { name: 'Save' }).click()
+  await expect(popover.getByRole('button', { name: 'Saving...' })).toHaveAttribute('aria-busy', 'true')
+
+  const title = popover.getByLabel('Title')
+  const start = popover.getByLabel('Start time')
+  const course = popover.getByLabel('Course', { exact: true })
+  const weekly = popover.getByRole('checkbox', { name: 'Repeats weekly' })
+  for (const field of [title, start, popover.getByLabel('End time'), popover.getByLabel('Date')]) {
+    await expect(field).toHaveJSProperty('readOnly', true)
+    await expect(field).toBeEnabled()
+    // Not greyed out: still legible.
+    await expect(field).toHaveCSS('opacity', '1')
+  }
+  await expect(course).toHaveAttribute('aria-readonly', 'true')
+  await expect(weekly).toHaveAttribute('aria-readonly', 'true')
+
+  // Typing and picking do nothing.
+  await title.focus()
+  await page.keyboard.type('Zzz')
+  await expect(title).toHaveValue('Biology lecture')
+  await expect(title).toBeFocused()
+  await course.selectOption('physics')
+  await expect(course).toHaveValue('biology')
+  await weekly.click()
+  await expect(weekly).toBeChecked()
+  await expect(start).toHaveValue('11:00')
+
+  release()
+  await expect(popover).toHaveCount(0)
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.starts_at).toBe(iso(0, 11))
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.title).toBe('Biology lecture')
+})
+
 test('a block from a lecture moment leads with where it came from', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
@@ -534,9 +641,50 @@ test('a 20-minute block keeps a legible title and its time in the tooltip', asyn
   seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])
   await mount(<CalendarHarness />)
   const short = block(page, 'Quick review')
-  expect((await short.boundingBox())!.height).toBeGreaterThanOrEqual(22)
   await expect(short).toHaveAttribute('title', /19:00 - 19:20/)
-  await expect(short.getByText('Quick review')).toBeVisible()
+  const title = short.getByTestId('calendar-block-title')
+  await expect(title).toHaveText('Quick review')
+  await expect(title).toBeVisible()
+  // One whole line of 12px text, not cut by the short box.
+  expect(await title.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(12)
+  expect((await title.boundingBox())!.height).toBeGreaterThanOrEqual(12)
+  expect(await short.evaluate((el) => getComputedStyle(el).overflowY)).toBe('visible')
+})
+
+test('blocks are drawn to scale: a 30-minute review is longer than a 20-minute one at the default zoom', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [
+    { id: 'twenty', kind: 'task', title: 'Review twenty', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 },
+    { id: 'thirty', kind: 'task', title: 'Review thirty', starts_at: iso(5, 19), ends_at: iso(5, 19, 30), duration_min: 30 },
+    { id: 'hour', kind: 'task', title: 'Review hour', starts_at: iso(6, 19), ends_at: iso(6, 20), duration_min: 60 },
+  ])
+  await mount(<CalendarHarness />)
+  await expect(block(page, 'Review hour')).toBeVisible()
+  const heightOf = async (title: string) => (await block(page, title).boundingBox())!.height
+  const hourPx = (await heightOf('Review hour')) + 2
+  // The default zoom fits 08:00-22:00, so short blocks are small: they still differ.
+  expect(await heightOf('Review twenty')).toBeCloseTo(hourPx / 3 - 2, 0)
+  expect(await heightOf('Review thirty')).toBeCloseTo(hourPx / 2 - 2, 0)
+  expect((await heightOf('Review thirty')) - (await heightOf('Review twenty'))).toBeGreaterThanOrEqual(4)
+})
+
+test("a block straight after a 15-minute one never paints over the short one's title", async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  seed(simulator, [
+    { id: 'quick', kind: 'task', title: 'Quick check', starts_at: iso(4, 19), ends_at: iso(4, 19, 15), duration_min: 15 },
+    { id: 'next', kind: 'commitment', title: 'Next block', starts_at: iso(4, 19, 15), ends_at: iso(4, 20, 15) },
+  ])
+  await mount(<CalendarHarness />)
+  const title = block(page, 'Quick check').getByTestId('calendar-block-title')
+  await expect(title).toBeVisible()
+  // The grid re-fits as rows load: sample positions only once it has settled.
+  await point(page, 0, 12)
+  const box = (await title.boundingBox())!
+  // What is drawn at the top and bottom of the title line is the short block itself.
+  for (const y of [box.y + 1, box.y + box.height - 1]) {
+    const owner = await page.evaluate(([x, yy]) => document.elementFromPoint(x, yy)?.closest('[data-testid="calendar-block"]')?.textContent, [box.x + 10, y])
+    expect(owner).toContain('Quick check')
+  }
 })
 
 test("resizing stays within the block's own day", async ({ mount, page, simulator }) => {

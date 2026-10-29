@@ -379,10 +379,9 @@ export function WorkspaceShell() {
             } : undefined}
             onShowPlanItem={canShowPlanItem ? handleShowPlanItem : undefined}
             focusedPlanItem={manifest?.showsPlanItems ? focusedPlanItem ?? undefined : undefined}
-            onPlanItemShown={manifest?.showsPlanItems ? (requestId) => {
-              clearPlanItem(requestId)
-              scrollPanelIntoView(canvasRef.current, panel.id)
-            } : undefined}
+            // The viewer brings the block itself into view on the board
+            // (not the whole widget), so it is not scrolled here.
+            onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
           />
         </PanelContainer>
       )

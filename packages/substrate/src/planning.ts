@@ -14,7 +14,7 @@ import {
   freeSlots,
   minutesByDay,
   place,
-  refit,
+  splitByLocalDay,
   startOfLocalDay,
   subtract,
   suggestSlots,
@@ -24,6 +24,7 @@ import {
   type ExistingPlacement,
   type Interval,
   type Placement,
+  type SchedulerTask,
   type Unplaced,
   type UnplacedReason,
 } from '@pls/scheduler'
@@ -317,23 +318,44 @@ export function placeReviews(
   const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)), { padReviews: false })
   const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
-  // One at a time, in priority order, so each placed review is busy for the next.
-  for (const r of reviews) {
-    const task = { id: r.id, durationMin: r.durationMin, earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS, latest: r.latest }
-    const rules = { now: opts.now, existingPlacements: busy, anchor: 'earliest' as const, gapMin: STUDY_BLOCK_GAP_MIN }
-    const withinBudget = place([task], free, { ...rules, dailyBudget: budget })
-    // Every day in the window is at its study time: a review is short and
-    // time-sensitive, so it goes over the budget rather than off the calendar.
+  const tasks = reviews.map((r) => ({ id: r.id, durationMin: r.durationMin, earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS, latest: r.latest }))
+  const result = placeEachOverBudgetIfNeeded(tasks, free, busy, { now: opts.now, budget })
+  for (const p of result.placements) slots.set(p.taskId, { start: p.start, end: p.end })
+  for (const u of result.unplaced) slots.set(u.taskId, { reason: u.reason })
+  return slots
+}
+
+/**
+ * The rule for blocks that must not drop off the calendar (confusion reviews,
+ * decision 11; re-fitted blocks, decision 20): placed one at a time, in the
+ * order given (each is busy for the next), at the earliest free time,
+ * `STUDY_BLOCK_GAP_MIN` clear of other study blocks, within each day's study
+ * time when any day in the task's window has room. When none has, it goes in
+ * the earliest free slot anyway, over the budget; it is unplaced only when
+ * its window has no free slot at all.
+ */
+function placeEachOverBudgetIfNeeded(
+  tasks: ReadonlyArray<SchedulerTask>,
+  free: ReadonlyArray<Interval>,
+  busy: ReadonlyArray<ExistingPlacement>,
+  opts: { now: number; budget: DailyBudget },
+): DraftResult {
+  const taken = [...busy]
+  const placements: Placement[] = []
+  const unplaced: Unplaced[] = []
+  for (const task of tasks) {
+    const rules = { now: opts.now, existingPlacements: taken, anchor: 'earliest' as const, gapMin: STUDY_BLOCK_GAP_MIN }
+    const withinBudget = place([task], free, { ...rules, dailyBudget: opts.budget })
     const result = withinBudget.placements.length ? withinBudget : place([task], free, rules)
     const [p] = result.placements
     if (p) {
-      slots.set(r.id, { start: p.start, end: p.end })
-      busy.push({ start: p.start, end: p.end, taskId: `placed:${r.id}` })
+      placements.push(p)
+      taken.push({ start: p.start, end: p.end, taskId: `placed:${task.id}` })
     } else {
-      slots.set(r.id, { reason: result.unplaced[0]?.reason ?? 'no-free-slot' })
+      unplaced.push({ taskId: task.id, reason: result.unplaced[0]?.reason ?? 'no-free-slot' })
     }
   }
-  return slots
+  return { placements, unplaced }
 }
 
 // ---------------------------------------------------------------------------
@@ -570,28 +592,102 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
 /**
  * The draft's own numbers, from what was actually placed: "Drafted 6h of
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
- * contradict the ghosts beside it. `shortGapMin` (see `shortGapMinutes`)
- * is free time the draft couldn't use because every gap left is too short:
- * named, so drafted + that adds up to the headline's free time.
+ * contradict the ghosts beside it. `leftover` (see `leftoverStudyTime`) is
+ * study time the headline counts that the draft couldn't use, each part
+ * named for its real reason, so drafted + leftover adds up to the headline,
+ * except for what `leftoverStudyTime` can't explain and any part under 15
+ * minutes, which go unnamed (so the sum can fall short there).
+ * `unplacedCount` is how many to-dos didn't fit ("for it" / "for them").
  */
-export function draftCopy(placedMin: number, unplacedMin: number, shortGapMin = 0): string {
+export function draftCopy(placedMin: number, unplacedMin: number, leftover: Leftover = NO_LEFTOVER, unplacedCount = 1): string {
   const drafted = placedMin > 0 ? `Drafted ${formatMinutes(placedMin)} of study time.` : 'Nothing fits as it is.'
   if (unplacedMin <= 0) return `${drafted} Everything fits.`
   const missed = `${drafted} ${formatMinutes(unplacedMin)} didn't fit.`
-  if (shortGapMin < 15) return missed
+  const gaps = leftover.gapMin >= 15 ? leftover.gapMin : 0
+  const days = leftover.dayMin >= 15 ? leftover.dayMin : 0
+  if (!gaps && !days) return missed
   const the = placedMin > 0 ? 'The other' : 'The'
-  return `${missed} ${the} ${formatMinutes(shortGapMin)} of free time is in gaps too short for it.`
+  const them = unplacedCount === 1 ? 'it' : 'them'
+  const inGaps = `of free time is in gaps too short for ${them}`
+  const onDays = `is on days with too little study time left for ${them}`
+  if (gaps && days) return `${missed} ${the} ${formatMinutes(gaps)} ${inGaps}, and ${formatMinutes(days)} ${onDays}.`
+  return `${missed} ${the} ${formatMinutes(gaps || days)} ${gaps ? inGaps : onDays}.`
+}
+
+/** Study time a draft left unused, by why (see `leftoverStudyTime`). */
+export interface Leftover {
+  /** On days with budget enough, but in gaps shorter than any to-do left. */
+  gapMin: number
+  /** On days whose study time left (the daily budget) is less than any to-do left. */
+  dayMin: number
+}
+
+const NO_LEFTOVER: Leftover = { gapMin: 0, dayMin: 0 }
+
+/**
+ * The study time each day still has once `drafted` is in (as the headline
+ * counts it: free time capped by the day's budget), split by why the to-dos
+ * left over (`unplaced`) can't use it: a day whose budget left is shorter
+ * than the shortest of them (`dayMin`: the binding cause, even when its gaps
+ * are short too), or else a day whose free gaps, 10 minutes clear of study
+ * blocks, are all shorter than it (`gapMin`). So short gaps are never blamed
+ * for the daily budget.
+ * Only when every one of them simply found no slot: any other reason (too
+ * long for a day, due too soon) is named on its own line instead, so both
+ * are 0. Time neither explains (a day with a long enough gap and budget
+ * left that the to-dos still couldn't use) is not blamed on anything and
+ * goes unnamed, as does a part under 15 minutes (`draftCopy`): there the
+ * draft's numbers fall short of the headline's.
+ */
+export function leftoverStudyTime(
+  layout: WeekLayout,
+  now: number,
+  drafted: ReadonlyArray<Interval>,
+  unplaced: ReadonlyArray<{ durationMin: number; reason: UnplacedReason }>,
+): Leftover {
+  if (unplaced.length === 0 || unplaced.some((u) => u.reason !== 'no-free-slot')) return NO_LEFTOVER
+  const need = Math.min(...unplaced.map((u) => u.durationMin))
+  let gapMin = 0
+  let dayMin = 0
+  for (const d of roomByDay(layout, now, drafted)) {
+    if (d.budgetLeftMin < need) dayMin += d.leftMin
+    else if (d.longestGapMin < need) gapMin += d.leftMin
+  }
+  return { gapMin, dayMin }
 }
 
 /**
- * Study time the headline counts (`freeMin`) that a draft placing
- * `placedMin` left unused, but only when that is down to short gaps: every
- * to-do that didn't fit had no gap long enough. Any other reason (too long
- * for a day, due too soon) is named on its own line instead, so this is 0.
+ * Why a to-do of `durationMin` found no slot (`no-free-slot`) once `drafted`
+ * is in, by the same rule as `leftoverStudyTime`: `'budget'` when no day with
+ * free time ahead has that much of its study time left, else `'gaps'` (the
+ * days that have the study time have no gap that long, or no day has free
+ * time at all).
  */
-export function shortGapMinutes(freeMin: number, placedMin: number, unplacedReasons: ReadonlyArray<UnplacedReason>): number {
-  if (unplacedReasons.length === 0 || unplacedReasons.some((r) => r !== 'no-free-slot')) return 0
-  return Math.max(0, freeMin - placedMin)
+export function noSlotCause(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>, durationMin: number): 'budget' | 'gaps' {
+  const days = roomByDay(layout, now, drafted)
+  return days.length > 0 && days.every((d) => d.budgetLeftMin < durationMin) ? 'budget' : 'gaps'
+}
+
+/**
+ * Each day with free time ahead once `drafted` is in: its study time left
+ * (as the headline counts it, possibly 0), the budget it has left, and its
+ * longest free gap, 10 minutes clear of study blocks.
+ */
+function roomByDay(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>) {
+  const after: WeekLayout = { ...layout, busy: [...layout.busy, ...drafted] }
+  const used = minutesByDay(after.busy, layout.timeZone)
+  const open = subtract(layout.free, [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
+  const longest = new Map<number, number>()
+  for (const p of splitByLocalDay(open, layout.timeZone)) {
+    longest.set(p.day, Math.max(longest.get(p.day) ?? 0, (p.end - p.start) / MINUTE_MS))
+  }
+  return studyDays(after, now)
+    .filter((d) => d.freeMin > 0)
+    .map((d) => ({
+      leftMin: d.leftMin,
+      budgetLeftMin: layout.budget.minutesPerDay - (used.get(d.day) ?? 0),
+      longestGapMin: longest.get(d.day) ?? 0,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -635,10 +731,15 @@ export interface RefitProposal {
 }
 
 /**
- * New times for the missed blocks, oldest first, earliest free fit from now,
- * around every commitment and every other block in `items` (the range from
- * `refitRange`, expanded). A to-do still due later must fit before it is due;
- * one whose due date has passed just goes in the next free time. Read-only.
+ * New times for the missed blocks, oldest first, by the confusion reviews'
+ * rule (`placeEachOverBudgetIfNeeded`, decision 20) over Help me plan's week
+ * (`weekLayout`): the earliest free fit from now inside the study day, around
+ * every commitment and every other block in `items` (the range from
+ * `refitRange`, expanded), 10 minutes clear of other study blocks, within
+ * each day's study time (the default 2h, as the server's review placement
+ * uses) when any day before it is due has room, else over it. A to-do still
+ * due later must fit before it is due; one whose due date has passed just
+ * goes in the next free time. Read-only.
  */
 export function planRefit(
   missed: ReadonlyArray<PlanItem>,
@@ -647,23 +748,22 @@ export function planRefit(
 ): RefitProposal[] {
   if (missed.length === 0) return []
   const range = refitRange(missed, opts)
-  const { commitments, busy } = busyTime(items, new Set(missed.map((m) => m.id)))
-  const free = freeSlots(commitments, range, { timeZone: opts.timeZone, ...STUDY_DAY })
-  const result = refit(
-    missed.map((item) => ({
-      taskId: item.id,
-      start: Date.parse(item.starts_at!),
-      end: Date.parse(item.ends_at!),
-      durationMin: item.duration_min ?? undefined,
-      latest: latestFor(item, opts.now),
+  const oldestFirst = [...missed].sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
+  const layout = weekLayout(items, range, { timeZone: opts.timeZone, except: new Set(missed.map((m) => m.id)) })
+  const result = placeEachOverBudgetIfNeeded(
+    oldestFirst.map((item) => ({
+      id: item.id,
+      // A block keeps its length when the to-do has no estimate.
+      durationMin: item.duration_min ?? (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
+      latest: latestFor(item, opts.now) ?? range.end,
     })),
-    free,
-    { now: opts.now, existingPlacements: busy },
+    layout.free,
+    layout.busy,
+    { now: opts.now, budget: layout.budget },
   )
   const placed = new Map(result.placements.map((p) => [p.taskId, p]))
   const unplaced = new Map(result.unplaced.map((u) => [u.taskId, u.reason]))
-  return [...missed]
-    .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!) || a.id.localeCompare(b.id))
+  return oldestFirst
     .map((item) => {
       const p = placed.get(item.id)
       return p

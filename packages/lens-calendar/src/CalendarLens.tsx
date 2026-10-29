@@ -3,7 +3,7 @@ import { DEFAULT_STUDY_MIN_PER_DAY, openTime, weekLayout, type PlanItemOccurrenc
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
-import { TimeGrid, type Anchor } from './TimeGrid'
+import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
@@ -15,6 +15,7 @@ import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
 import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
+import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
 
@@ -136,7 +137,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
   // A block another widget asked to show ("See it" on a new review): open
   // its week (or day), then the grid scrolls to it and it glows once.
-  const [reveal, setReveal] = useState<{ id: string; requestId: number } | null>(null)
+  const [reveal, setReveal] = useState<Reveal | null>(null)
   useEffect(() => {
     if (!focusedPlanItem) return
     const day = startOfDay(new Date(focusedPlanItem.startsAt))
@@ -145,22 +146,56 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       const until = view === 'day' ? addDays(current, 1) : addDays(startOfWeek(current), 7)
       return day >= shown && day < until ? current : day
     })
-    setReveal({ id: focusedPlanItem.id, requestId: focusedPlanItem.requestId })
+    setReveal({
+      id: focusedPlanItem.id,
+      requestId: focusedPlanItem.requestId,
+      requestedAt: focusedPlanItem.requestedAt,
+      keepInView: focusedPlanItem.keepInView,
+      landsInMs: focusedPlanItem.landsInMs,
+    })
     onPlanItemShown?.(focusedPlanItem.requestId)
   }, [focusedPlanItem, onPlanItemShown, view])
 
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
+  // Open to-dos with no time yet: what Help me plan offers, and what an
+  // Auto-fill ghost's to-do must still be when it is accepted.
+  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
+
+  /**
+   * To-dos being given a time by hand (a suggested slot, a drop, Pick a
+   * time), until the saved block arrives: already on the grid and busy for
+   * Help me plan, and no longer waiting for a time, so an Auto-fill started
+   * meanwhile drafts around them rather than over them.
+   */
+  const [assigning, setAssigning] = useState<ReadonlyMap<string, PlanItemOccurrence>>(new Map())
 
   const items = useMemo(() => {
     const rows = (data ?? []) as PlanItemOccurrence[]
-    if (pending.size === 0) return rows
-    return rows.map((r) => {
+    const moved = pending.size === 0 ? rows : rows.map((r) => {
       const p = pending.get(r.occurrence_key)
       return p && p.basis === r.updated_at ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
     })
-  }, [data, pending])
+    const extra = [...assigning.values()].filter((a) => !moved.some((r) => r.id === a.id && r.starts_at))
+    return extra.length ? [...moved, ...extra] : moved
+  }, [data, pending, assigning])
+
+  // An assignment is done once its block is in the week's rows and the to-do
+  // has left the unscheduled list.
+  useEffect(() => {
+    if (assigning.size === 0 || !data || !todoData) return
+    const shown = (at: string) => Date.parse(at) >= Date.parse(range.from) && Date.parse(at) < Date.parse(range.to)
+    const landed = [...assigning].filter(([id, at]) =>
+      (!shown(at.starts_at!) || (data as PlanItemOccurrence[]).some((r) => r.id === id && r.starts_at != null && Date.parse(r.starts_at) === Date.parse(at.starts_at!)))
+      && !(todoData as PlanItemOccurrence[]).some((t) => t.id === id))
+    if (landed.length === 0) return
+    setAssigning((prev) => {
+      const next = new Map(prev)
+      for (const [id] of landed) next.delete(id)
+      return next
+    })
+  }, [assigning, data, todoData, range])
 
   // Drop overrides once fresher rows arrive.
   useEffect(() => {
@@ -177,10 +212,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     })
   }, [data, pending])
 
-  // Open to-dos with no time yet: what Help me plan offers, and what an
-  // Auto-fill ghost's to-do must still be when it is accepted.
-  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
-  const todos = useMemo(() => (todoData ? (todoData as PlanItemOccurrence[]) : null), [todoData])
+  const todos = useMemo(
+    () => (todoData ? (todoData as PlanItemOccurrence[]).filter((t) => !assigning.has(t.id)) : null),
+    [todoData, assigning],
+  )
 
   /** The block a study block for `taskId` at [start, end) would overlap (commitments and other study time). */
   const clashAt = useCallback(
@@ -240,6 +275,16 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       : undefined),
     [planLayout, now, layer.proposals],
   )
+  // Where the panel floats: over the days already past, else the weekend,
+  // never over a draft (see plan-panel.ts).
+  const gridAreaRef = useRef<HTMLDivElement>(null)
+  const geometry = useWeekGeometry(gridAreaRef, !!planLayout, range.from)
+  const pastDays = days.filter((d) => d.getTime() < startOfDay(now).getTime()).length
+  const draftDays = layer.proposals
+    .filter((p) => !layer.savedIds.has(p.id))
+    .map((p) => days.findIndex((d) => d.getTime() === startOfDay(new Date(p.startsAt)).getTime()))
+    .filter((i) => i >= 0)
+  const placement = geometry ? planPanelPlacement(geometry, pastDays, draftDays) : { side: 'right' as const, width: PLAN_PANEL_PX }
   const thisWeek = startOfWeek(now).getTime()
   const weekLabel = days[0].getTime() === thisWeek ? 'this week'
     : days[0].getTime() === addDays(new Date(thisWeek), 7).getTime() ? 'next week' : 'that week'
@@ -253,10 +298,19 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     const end = start.getTime() + durationMin * 60_000
     const clash = clashAt(todo.id, start.getTime(), end)
     if (clash) throw new ScheduleClash(`"${todo.title}" would overlap ${clash.title} there. Pick a free time.`)
-    await updateItem.mutateAsync({
-      id: todo.id,
-      patch: { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin },
-    })
+    const patch = { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin }
+    const row = todos?.find((t) => t.id === todo.id)
+    if (row) setAssigning((prev) => new Map(prev).set(todo.id, { ...row, ...patch, occurrence_key: todo.id }))
+    try {
+      await updateItem.mutateAsync({ id: todo.id, patch })
+    } catch (e) {
+      setAssigning((prev) => {
+        const next = new Map(prev)
+        next.delete(todo.id)
+        return next
+      })
+      throw e
+    }
   }
 
   const isDimmed = useCallback(
@@ -517,7 +571,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       />
       {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
-      <div className="@container/cal relative flex min-h-0 flex-1 gap-3">
+      <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
         <TimeGrid
           days={days}
           items={items}
@@ -525,6 +579,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           isDimmed={isDimmed}
           isLinked={isLinked}
           activeKey={popover?.mode === 'edit' ? popover.key : undefined}
+          popoverOpen={!!popover}
           onCreate={handleCreate}
           onOpen={handleOpen}
           onMove={handleMove}
@@ -553,16 +608,28 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             type="button"
             autoFocus
             onClick={() => setPlanCollapsed(false)}
-            className="absolute bottom-3 right-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90"
+            className={cn(
+              'absolute bottom-3 z-30 inline-flex h-9 items-center gap-2 rounded-full bg-accent px-3.5 text-body font-medium text-accent-foreground shadow-pop transition-opacity hover:opacity-90',
+              placement.side === 'left' ? 'left-3' : 'right-3',
+            )}
           >
             <Sparkles className="h-4 w-4" />
             Show plan
           </button>
         )}
         {planLayout && !planCollapsed && (
-          // Floats over the weekend columns, so Monday to Friday keep their
-          // full width; "Hide" tucks it away to see what is under it.
-          <div className="absolute inset-y-0 right-0 z-30 flex max-w-full rounded-widget shadow-pop">
+          // Floats over the days already past or the weekend, so the days
+          // being planned keep their full width; docks beside the grid
+          // rather than hide a draft. "Hide" tucks it away.
+          <div
+            data-placement={placement.side}
+            className={cn(
+              'z-30 flex max-w-full rounded-widget shadow-pop',
+              placement.side === 'docked' ? 'relative shrink-0' : 'absolute inset-y-0',
+              placement.side === 'right' && 'right-0',
+            )}
+            style={{ width: placement.width, ...(placement.side === 'left' ? { left: placement.left } : {}) }}
+          >
             <HelpMePlanPanel
               layout={planLayout}
               weekLabel={weekLabel}

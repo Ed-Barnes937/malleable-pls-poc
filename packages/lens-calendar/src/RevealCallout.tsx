@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone, fromMomentLabel } from '@pls/shared-ui'
+import { cn, courseTone } from '@pls/shared-ui'
 import { AudioLines } from 'lucide-react'
 import { formatSpan, formatWeekday } from './time'
+import { momentSourceLabel } from './StudyBlockPopover'
 
 interface RevealCalloutProps {
   item: PlanItemOccurrence
@@ -50,7 +51,7 @@ export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
       {recordingId && (
         <p className={cn('flex items-center gap-1 text-meta font-semibold', courseTone(item.course).ink)}>
           <AudioLines className="h-3 w-3 shrink-0" aria-hidden />
-          {fromMomentLabel(recording?.title ?? 'a lecture', item.source_offset_ms)}
+          {momentSourceLabel(recording?.title ?? 'a lecture', item.source_offset_ms)}
         </p>
       )}
       <p className="text-meta tabular-nums text-text-secondary">

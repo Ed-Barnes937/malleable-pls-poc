@@ -1,6 +1,5 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { createPortal } from 'react-dom'
 import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
@@ -49,10 +48,21 @@ interface ToastState {
   hold: (id: number) => void
   /** Starts it again, from its full duration. */
   release: (id: number) => void
+  /**
+   * The toasts on screen now (`ToastHost`). Only these count down: one
+   * waiting behind newer ones pauses and, shown again, has the rest of its
+   * time, so every toast is on screen for its whole duration.
+   */
+  setShown: (ids: ReadonlyArray<number>) => void
 }
 
 let nextId = 0
 const timers = new Map<number, ReturnType<typeof setTimeout>>()
+/** Time each toast still has on screen, and when its current countdown started. */
+const left = new Map<number, number>()
+const startedAt = new Map<number, number>()
+const shownIds = new Set<number>()
+const heldIds = new Set<number>()
 
 function durationOf(toast: Omit<Toast, 'id'>): number | null {
   if (toast.durationMs !== undefined) return toast.durationMs
@@ -65,41 +75,98 @@ export const useToastStore = create<ToastState>((set, get) => {
     if (timer) clearTimeout(timer)
     timers.delete(id)
   }
-  const schedule = (toast: Toast) => {
-    clear(toast.id)
-    const ms = durationOf(toast)
-    if (ms === null) return
-    timers.set(toast.id, setTimeout(() => get().dismiss(toast.id), ms))
+  /** Stops the countdown, keeping the time left. */
+  const pause = (id: number) => {
+    if (!timers.has(id)) return
+    left.set(id, Math.max(0, (left.get(id) ?? 0) - (Date.now() - (startedAt.get(id) ?? Date.now()))))
+    clear(id)
+  }
+  /** Counts down the time left, if it is on screen and nobody is holding it. */
+  const resume = (id: number) => {
+    const ms = left.get(id)
+    if (ms === undefined || timers.has(id) || !shownIds.has(id) || heldIds.has(id)) return
+    startedAt.set(id, Date.now())
+    timers.set(id, setTimeout(() => get().dismiss(id), ms))
+  }
+  const forget = (id: number) => {
+    clear(id)
+    left.delete(id)
+    startedAt.delete(id)
+    shownIds.delete(id)
+    heldIds.delete(id)
   }
   return {
     toasts: [],
     push: (toast) => {
       const next = { ...toast, id: ++nextId }
       const replaced = get().toasts.filter((t) => toast.key && t.key === toast.key)
-      for (const t of replaced) clear(t.id)
+      for (const t of replaced) forget(t.id)
+      const ms = durationOf(next)
+      if (ms !== null) left.set(next.id, ms)
       set((s) => ({ toasts: [...s.toasts.filter((t) => !toast.key || t.key !== toast.key), next] }))
-      schedule(next)
     },
     dismiss: (id) => {
-      clear(id)
+      forget(id)
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
     },
-    hold: (id) => clear(id),
+    hold: (id) => {
+      pause(id)
+      heldIds.add(id)
+    },
     release: (id) => {
       const toast = get().toasts.find((t) => t.id === id)
-      if (toast) schedule(toast)
+      heldIds.delete(id)
+      if (!toast) return
+      const ms = durationOf(toast)
+      if (ms === null) return
+      clear(id)
+      left.set(id, ms)
+      resume(id)
+    },
+    setShown: (ids) => {
+      const next = new Set(ids)
+      for (const id of [...shownIds]) {
+        if (next.has(id)) continue
+        pause(id)
+        shownIds.delete(id)
+        // Its element is gone, so no mouse-leave or blur will release it: it
+        // counts down again when it is back on screen.
+        heldIds.delete(id)
+      }
+      for (const id of next) {
+        shownIds.add(id)
+        resume(id)
+      }
     },
   }
 })
 
 /**
- * Toasts, bottom right. On a phone they sit in a bar under the board instead,
- * which makes room for them rather than covering the bottom of the board (a
- * "Back to My week" toast stays until dismissed). Render it last in the
- * page's full-height column. The live region is always mounted (empty, and
- * no height, when there is nothing to say), so a screen reader announces the
- * first toast too. A toast stops counting down while the pointer or focus is
- * on it.
+ * What a screen reader hears for a toast: its message, and its action when
+ * it has one, so the student knows there is a button to go to, and where
+ * ("Review added to your plan. Notifications has a See it button.").
+ */
+export function announcement(toast: Pick<Toast, 'message' | 'action'>): string {
+  return toast.action ? `${toast.message}. Notifications has a ${toast.action.label} button.` : toast.message
+}
+
+/** How many toasts the bar shows at once: it has room for one row. */
+const SHOWN_WIDE = 2
+const SHOWN_NARROW = 1
+
+/**
+ * Toasts sit in a bar of their own under the board: always there and always
+ * the same height (empty when there is nothing to say), so a toast never
+ * covers the board and nothing on the board moves as toasts come and go.
+ * At the right on a wider screen, newest last, two at most; on a phone the
+ * newest one, full width (an older one shows again once newer ones go).
+ * Render it last in the page's full-height column. A toast counts down
+ * only while it is on screen, and not while the pointer or focus is on it.
+ *
+ * Screen readers hear each toast once, as it happens, from a separate live
+ * region that always holds every current toast's message (always mounted,
+ * so the first toast is announced too); the bar itself isn't live, so a
+ * toast shown again after waiting behind newer ones isn't announced twice.
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts)
@@ -113,20 +180,26 @@ export function ToastHost() {
     for (const t of toasts) if (t.board && t.board !== activeBoard) dismiss(t.id)
   }, [toasts, activeBoard, dismiss])
 
-  const host = (
+  const shown = toasts.slice(-(narrow ? SHOWN_NARROW : SHOWN_WIDE))
+  const shownKey = shown.map((t) => t.id).join(',')
+  useEffect(() => {
+    useToastStore.getState().setShown(shownKey ? shownKey.split(',').map(Number) : [])
+  }, [shownKey])
+
+  return (
     <section aria-label="Notifications" className="contents">
+      <div role="status" aria-live="polite" data-testid="toast-announcer" className="sr-only">
+        {toasts.map((toast) => <p key={toast.id}>{announcement(toast)}</p>)}
+      </div>
       <div
-        role="status"
-        aria-live="polite"
         data-testid="toast-host"
-        data-layout={narrow ? 'bar' : 'float'}
-        className={
-          narrow
-            ? cn('flex shrink-0 flex-col gap-2', toasts.length > 0 && 'px-3 pt-2 pb-3')
-            : 'fixed bottom-4 right-4 z-[20000] flex flex-col items-end gap-2'
-        }
+        data-layout="bar"
+        className={cn(
+          'flex shrink-0 items-center gap-2 overflow-hidden',
+          narrow ? 'h-[4.25rem] px-3 py-1.5' : 'h-16 justify-end px-5 py-2.5',
+        )}
       >
-        {toasts.map((toast) => {
+        {shown.map((toast) => {
           const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
           const ActionIcon = toast.action?.icon
           return (
@@ -140,14 +213,14 @@ export function ToastHost() {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) release(toast.id)
               }}
               className={cn(
-                'flex items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
-                // A phone's narrow bar: the message keeps a readable width and
-                // the action (with the dismiss) drops under it when it must.
-                narrow ? 'flex-wrap gap-y-1 py-2 pr-2 pl-3.5' : 'py-3 pr-3 pl-4 shadow-pop',
+                'flex min-w-0 items-center gap-3 rounded-[14px] bg-inverse text-inverse-foreground',
+                // One row whatever the width: on a phone it fills the bar and
+                // the message takes two lines at most.
+                narrow ? 'h-14 flex-1 pr-2 pl-3.5' : 'h-11 pr-3 pl-4 shadow-pop',
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className={cn('text-body', narrow && 'min-w-48 flex-1')}>{toast.message}</span>
+              <span className={cn('min-w-0 text-body', narrow ? 'line-clamp-2 flex-1 leading-tight' : 'truncate')}>{toast.message}</span>
               {toast.action && (
                 <button
                   type="button"
@@ -157,7 +230,6 @@ export function ToastHost() {
                   }}
                   className={cn(
                     'inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap rounded-item px-1.5 py-1 text-body font-semibold text-inverse-accent transition-colors hover:underline',
-                    narrow && 'ml-auto',
                   )}
                 >
                   {ActionIcon && <ActionIcon className="h-4 w-4" />}
@@ -179,5 +251,4 @@ export function ToastHost() {
       </div>
     </section>
   )
-  return narrow ? host : createPortal(host, document.body)
 }

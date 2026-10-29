@@ -56,3 +56,21 @@ Run settings: integration branch `feat/student-planning-ux` (from `main` @ 4865d
 - U6b merged into `feat/student-planning-ux` (PR #88) after re-review PASS. Failed-save after close shows an inline Calendar alert (orchestrator accepted inline over a shell toast).
 - Follow-up ticket dispatched: TodayLine ResizeObserver warning (flushSync only on change), `useFocusTrap` CT/unit tests, popover fields read-only while a save is pending.
 - Pass-1 wrap-up dispatched in parallel: dress rehearsal storyboard + runbook update.
+- PR #89 (TodayLine RO warning, useFocusTrap CT, popover read-only while saving) merged after reviewer PASS (mutation-tested).
+- Pass-1 rehearsal PR #90 (storyboard + runbook) opened; held until rehearsal fixes land, then re-rehearse. Findings F1-F14: F1 high (ripple off screen), F2/F3 medium, rest low; F12 deferred to U7.
+- Dispatched R1 (ripple visibility: F1, F4, F7, F9, F10) and R2 (calendar/planning: F2, F3, F5, F6, F8, F11, F13, F14).
+- R2 PR #91 opened (all 8 findings, suites green); fresh reviewer running. Ed: Re-fit over budget as last resort (decision 20), to send with review findings.
+- R1 PR #92 opened (ripple follows to the block, See it scroll, summary in list, toast bar at all widths); fresh reviewer running. Decision 21 on block-over-chip priority.
+- R2 review round 1: CHANGES NEEDED (Tuesday panel docks and squeezes all days to 73px; Auto-fill race with a just-assigned block; short-block label overlap; ghost heights). Sent back with decision 20.
+- R1 review round 1: ripple verified visible end to end; CHANGES NEEDED (desktop toast bar shifts content 64px on dismiss, wheel lost mid-glide, no-Calendar target, off-screen moment, resize anchoring, long task). Sent back.
+- R2 merged into `feat/student-planning-ux` (PR #91) after re-review PASS plus a touch fix for short drafts. R1 fixes pushed (26f81fe); re-review next, against the branch with R2.
+- R1 re-review: round-1 findings fixed; CHANGES NEEDED for a double-applied wheel after the glide (GLIDE_MS window too long). Sent back with merge of R2 and a minimum glow halo for short revealed blocks. Next round is R1's third; escalate to Ed if it fails.
+- R1 round 3: CHANGES NEEDED (H1: toast-bar restore cancels See it's glide; real cause of the journey-demo flake). Escalated to Ed; decision 22: simplify the toast bar. Round 4 dispatched.
+- 2026-10-29: R1 toast bar simplified (ae9abe0, -94/+53 lines); final review running. New: CT 'renders the week' fails on Thursdays on the integration branch (date-dependent); fix ticket dispatched (Sonnet). Reviewer also checking whether runbook step 2 misbehaves on a Thursday.
+- PR #93 (calendar CT date-dependence: simulator freezeNow, per-day tests) merged after reviewer PASS; no other date-sensitive CTs found. Follow-up: short-block CT flake (elementFromPoint before settle) dispatched.
+- PR #94 (short-block CT settle wait, 2-line test-only) merged; orchestrator read the diff instead of a separate reviewer. Original flake not reproducible (0/40).
+- R1 round 4 (post-escalation): H1 fixed; one contained fix (queued toasts expire unseen) sent back. Runbook step 2 on Thursday confirmed fine. New small copy ticket: leftover sentence blames short gaps when the daily budget is the limit.
+- PR #95 (leftover copy) review: logic sound; CHANGES NEEDED (exact e2e string on frozen Tuesday, budget-first precedence, tests, copy per decision 23). Sent back.
+- R1 round 5: PASS. Two small follow-ups (held toast pushed out never times out; announce the toast action) requested before merge. PR #95 delta check running.
+- PR #95 (leftover copy: budget vs gaps named honestly, per-to-do reason agrees; decision 23) merged after delta check PASS.
+- R1 merged into `feat/student-planning-ux` (PR #92) after round-5 PASS and two small toast fixes. All rehearsal fix tickets merged; re-running the rehearsal on PR #90.

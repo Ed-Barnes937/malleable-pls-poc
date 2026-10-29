@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
+import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 
 type Box = { x: number; y: number; width: number; height: number }
 
@@ -11,6 +12,8 @@ const overlaps = (a: Box, b: Box) =>
 const TUESDAY = new Date('2026-10-27T09:00:00Z')
 /** Saturday 31 Oct 2026, 09:00 in London: no class or shift. */
 const SATURDAY = new Date('2026-10-31T09:00:00Z')
+/** Biology runs 10:00-12:00 on Wednesdays: over by now. */
+const WEDNESDAY_NOON = new Date('2026-10-28T12:00:00Z')
 
 async function newBoard(page: Page, name = 'My week') {
   const topBar = new TopBarPom(page)
@@ -107,6 +110,50 @@ test.describe('First run on an empty board', () => {
     await expect(grid.emptyState).toBeHidden()
   })
 
+  test('the "added" toast sits in a bar under the board, covering no widget, and the keyboard reaches it', async ({ page }) => {
+    const { grid } = await newBoard(page)
+    await grid.starter('Plan my time').click()
+    await grid.expectPanelCount(3)
+    const host = page.getByTestId('toast-host')
+    await expect(host).toContainText('Calendar, To-do and Coming up added')
+    await expect(host).toHaveAttribute('data-layout', 'bar')
+    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
+    const toast = (await host.getByTestId('toast').boundingBox())!
+    const barHeight = (await host.boundingBox())!.height
+    // At the right, under the board: the board ends where the bar starts.
+    const board = (await grid.root.boundingBox())!
+    expect(board.y + board.height).toBeLessThanOrEqual(toast.y + 1)
+    expect(toast.x + toast.width).toBeGreaterThan(1440 - 40)
+    expect(toast.y + toast.height).toBeLessThanOrEqual(900)
+    // What shows of each widget (the board clips one that runs below its fold) stays clear of the toast.
+    for (const panel of await grid.panels.all()) {
+      const p = (await panel.boundingBox())!
+      const bottom = Math.min(p.y + p.height, board.y + board.height)
+      expect(overlaps({ ...p, height: Math.max(0, bottom - p.y) }, toast)).toBe(false)
+    }
+    // Reachable from the keyboard.
+    const dismiss = host.getByRole('button', { name: 'Dismiss' })
+    await dismiss.focus()
+    await page.keyboard.press('Enter')
+    await expect(host.getByTestId('toast')).toHaveCount(0)
+    // With nothing to say, the bar keeps its room (decision 22): nothing on the board moves.
+    expect((await host.boundingBox())!.height).toBe(barHeight)
+    expect((await grid.root.boundingBox())!.height).toBe(board.height)
+  })
+
+  test('a toast leaving while the board is scrolled to its bottom moves nothing under the pointer', async ({ page }) => {
+    const { topBar, grid } = await newBoard(page)
+    await grid.starter('Plan my time').click()
+    await grid.expectPanelCount(3)
+    // Added on a full board: it lands below the others and the board scrolls down to it (the demo's step 4).
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Transcript')
+    await page.keyboard.press('Escape')
+    const host = page.getByTestId('toast-host')
+    await expect(host).toContainText('Transcript added')
+    await expectStillAtBottomAsToastLeaves(page, grid)
+  })
+
   test('a starter that fails says so once and comes back', async ({ page }) => {
     const { grid } = await newBoard(page)
     await page.route('**/workspaces.addPanel**', (route) => route.fulfill({ status: 500, body: 'down' }))
@@ -143,6 +190,43 @@ test.describe('The today line', () => {
     await page.setViewportSize({ width: 400, height: 860 })
     await expect(topBar.todayLine).toBeVisible()
     await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
+  })
+
+  test('skips what is already over: at noon on Wednesday, not the 10:00 lecture', async ({ page }) => {
+    await reseed({ now: WEDNESDAY_NOON })
+    await page.clock.setFixedTime(WEDNESDAY_NOON)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.todayLine).toBeVisible()
+    // Biology 10:00-12:00 has ended; Wednesday has no other class or shift.
+    await expect(topBar.todayLine).toHaveAttribute('title', /^Wednesday · \S.* to study$/)
+    await expect(topBar.todayLine).not.toHaveAttribute('title', /Biology/)
+  })
+
+  test('the today line raises no ResizeObserver loop error while the window is resized through every layout', async ({ page }) => {
+    await reseed({ now: TUESDAY })
+    await page.clock.setFixedTime(TUESDAY)
+    // The browser reports this one as a window `error` event that Playwright's
+    // `pageerror` does not surface, so count them in the page.
+    await page.addInitScript(() => {
+      const w = window as unknown as { __roErrors: string[] }
+      w.__roErrors = []
+      window.addEventListener('error', (e) => { w.__roErrors.push(e.message) })
+    })
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.todayLine).toBeAttached()
+
+    // Down into the phone layout (where the line mounts) and back up, twice.
+    for (const width of [1440, 900, 400, 360, 639, 640, 1279, 1280, 1440, 400, 1280]) {
+      await page.setViewportSize({ width, height: 900 })
+      // Let layout, the observers and paint run before the next size.
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))))
+    }
+    const errors = await page.evaluate(() => (window as unknown as { __roErrors: string[] }).__roErrors)
+    expect(errors.filter((m) => m.includes('ResizeObserver loop'))).toEqual([])
   })
 
   test('drops the weekday, then steps aside, rather than cutting off when the bar is crowded', async ({ page }) => {

@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, TagPill, TAG_STYLES, useArrivals } from '@pls/shared-ui'
+import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
-function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: () => void }) {
+function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (chip: HTMLElement) => void }) {
   const minutes = review.duration_min ? `${review.duration_min} min` : null
   const done = review.status === 'done'
   const Icon = done ? CalendarCheck : review.starts_at ? CalendarClock : ListTodo
@@ -35,7 +35,7 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
       data-testid="review-chip"
       title="Show on calendar"
       aria-label={`${label}, show on calendar`}
-      onClick={onShow}
+      onClick={(e) => onShow(e.currentTarget)}
       className={cn(className, 'text-left transition-colors hover:border-attn focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-attn')}
     >
       <Icon className="h-3 w-3" />
@@ -45,61 +45,170 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
   )
 }
 
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+const LIFT_OFF_WIDTH_PX = 256
+/** From the moment the review arrives until its card lands (and the block glows). */
+const RIPPLE_MS = 1300
+/** The first part of that: the card rises off the moment before it flies. */
+const LIFT_MS = 280
+/** How long to wait for a new to-do row to reach the list. */
+const TODO_ROW_WAIT_MS = 2000
+
+/** Scrolls `list` (only) just enough to show `el`, without gliding: the card starts from where it now is. */
+function scrollWithin(list: HTMLElement, el: Element) {
+  const l = list.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  if (r.bottom > l.bottom - 4) list.scrollTop += r.bottom - l.bottom + MOMENT_TOP_GAP
+  else if (r.top < l.top) list.scrollTop -= l.top - r.top + MOMENT_TOP_GAP
+}
+
+/** The review's row in the board's To-do list, once it is there. */
+function todoRow(review: PlanItemOccurrence): Element | null {
+  return document.querySelector(`[data-testid="todo-item"][data-plan-item-id="${CSS.escape(review.id)}"]`)
 }
 
 /**
- * The one signature motion: a card for the new review lifts off the moment
- * and flies toward the board's Calendar, or its To-do list when the review
- * found no time (to the right if neither is on the board).
- * Decorative only; never shown under reduced motion.
+ * Where the card is headed, looked up each frame (the board and the calendar
+ * scroll while it flies): the review's Calendar block, or with no Calendar
+ * on the board, its To-do row.
  */
-function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrence; recordingTitle: string; onDone: (id: string) => void }) {
-  // Drawn over the whole page (the transcript list would clip it), starting
-  // at the moment's top-right corner.
+function rippleTarget(review: PlanItemOccurrence, toCalendar: boolean): Element | null {
+  return toCalendar
+    ? document.querySelector(`[data-testid="calendar-block"][data-plan-item-id="${CSS.escape(review.id)}"]`) ?? document.querySelector('[data-testid="calendar"]')
+    : todoRow(review) ?? document.querySelector('ul[aria-label="To-dos"]')
+}
+
+/** Roughly the card's height, to keep it on screen from its first frame. */
+const LIFT_OFF_HEIGHT_PX = 76
+
+const easeInOut = (t: number) => (t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2)
+
+/**
+ * The ripple of marking a moment confusing, once per new review. The moment
+ * scrolls its review chip into view; the board follows the review to its
+ * Calendar block (or, with no Calendar on the board or no time found, its
+ * To-do row), keeping the moment in view too when both fit, unless the
+ * student scrolls the board meanwhile; and the one signature motion: a card
+ * lifts off the visible part of the moment and flies there, and the block
+ * glows as it lands. No card when the board has neither widget, or under
+ * reduced motion (the board jumps).
+ */
+function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanItem, onDone }: {
+  review: PlanItemOccurrence
+  recordingTitle: string
+  reducedMotion: boolean
+  /** When the student last marked a moment (a `watchUserScroll` mark): their own scrolling since then wins. */
+  markedAt: number | null
+  onShowPlanItem?: LensProps['onShowPlanItem']
+  onDone: (id: string) => void
+}) {
   const anchorRef = useRef<HTMLSpanElement>(null)
-  const [flight, setFlight] = useState<{ left: number; top: number; x: number; y: number } | null>(null)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const started = useRef(false)
+  const since = useRef(0)
+  const chipRef = useRef<Element | null>(null)
+  const [flight, setFlight] = useState<{ left: number; top: number } | null>(null)
   const tone = courseTone(review.course)
+  // The shell offers to show a block only on a board with a Calendar.
+  const toCalendar = !!review.starts_at && !!onShowPlanItem
+
   useLayoutEffect(() => {
-    const anchor = anchorRef.current?.getBoundingClientRect()
-    if (!anchor) return
-    const left = anchor.right - LIFT_OFF_WIDTH_PX
-    const top = anchor.top
-    // A review with a time flies to the Calendar; one left without a time, to the To-do list.
-    const target = document.querySelector(review.starts_at ? '[data-testid="calendar"]' : 'ul[aria-label="To-dos"]')?.getBoundingClientRect()
-    setFlight(target
-      ? {
-          left,
-          top,
-          x: target.left + target.width / 2 - (left + LIFT_OFF_WIDTH_PX / 2),
-          y: target.top + target.height / 3 - top,
-        }
-      : { left, top, x: 160, y: 0 })
-  }, [review.starts_at])
+    if (started.current) return
+    started.current = true
+    since.current = Math.min(watchUserScroll(), markedAt ?? Infinity)
+    const moment = anchorRef.current?.closest<HTMLElement>('[data-segment-id]')
+    const list = moment?.parentElement
+    if (!moment || !list) return
+    const chip = moment.querySelector('[data-testid="review-chip"]')
+    chipRef.current = chip
+    if (chip) scrollWithin(list, chip)
+    if (toCalendar) {
+      // Next frame, so the Calendar's work doesn't hold up this one (the card's first).
+      const item = { id: review.id, startsAt: review.starts_at!, keepInView: chip, landsInMs: reducedMotion ? 0 : RIPPLE_MS, scrolledSince: since.current }
+      requestAnimationFrame(() => onShowPlanItem?.(item))
+    }
+    if (reducedMotion || !rippleTarget(review, toCalendar)) return
+    // From the part of the moment that is on screen: inside the list and the
+    // board's view, even if the moment has been scrolled away.
+    const m = moment.getBoundingClientRect()
+    const l = list.getBoundingClientRect()
+    const b = list.closest('[data-canvas-scroll]')?.getBoundingClientRect() ?? new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+    const viewTop = Math.max(b.top, 0)
+    const viewBottom = Math.min(b.bottom, window.innerHeight) - LIFT_OFF_HEIGHT_PX
+    const highest = Math.max(l.top, viewTop)
+    const lowest = Math.min(l.bottom - LIFT_OFF_HEIGHT_PX, viewBottom)
+    const top = highest <= lowest
+      ? Math.min(Math.max(m.top, highest), Math.max(highest, m.bottom - 40), lowest)
+      // The list is (almost) off screen: from the board's edge nearest it.
+      : l.top >= viewBottom ? Math.max(viewTop, viewBottom) : viewTop
+    setFlight({ left: Math.max(b.left, Math.min(m.right, l.right) - LIFT_OFF_WIDTH_PX - 8), top })
+  }, [review, onShowPlanItem, reducedMotion, markedAt, toCalendar])
+
+  // The new To-do row, once it is there: in full view in its list, and when
+  // the board isn't following the Calendar, on screen too.
+  useEffect(() => {
+    const until = performance.now() + TODO_ROW_WAIT_MS
+    let frame = 0
+    const look = () => {
+      const row = todoRow(review)
+      if (!row) {
+        if (performance.now() < until) frame = requestAnimationFrame(look)
+        return
+      }
+      const list = row.closest('ul')
+      if (list) scrollWithin(list, row)
+      if (toCalendar) return
+      const chip = chipRef.current?.isConnected ? chipRef.current.getBoundingClientRect() : null
+      showOnBoard(row, row.getBoundingClientRect(), { keep: [chip], since: since.current, smooth: !reducedMotion })
+    }
+    frame = requestAnimationFrame(look)
+    return () => cancelAnimationFrame(frame)
+  }, [review, reducedMotion, toCalendar])
+
+  // The card: rises, then flies to wherever its target is now.
+  useEffect(() => {
+    const card = cardRef.current
+    if (!flight || !card) return
+    const t0 = performance.now()
+    let frame = 0
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / RIPPLE_MS)
+      const lift = Math.min(1, (now - t0) / LIFT_MS)
+      const fly = easeInOut(Math.max(0, (now - t0 - LIFT_MS) / (RIPPLE_MS - LIFT_MS)))
+      const box = rippleTarget(review, toCalendar)?.getBoundingClientRect()
+      const fromX = flight.left + LIFT_OFF_WIDTH_PX / 2
+      const fromY = flight.top + card.offsetHeight / 2
+      const dx = box ? box.left + box.width / 2 - fromX : 160
+      const dy = box ? box.top + Math.min(box.height / 2, 40) - fromY : 0
+      const scale = 1 - 0.12 * fly
+      card.style.opacity = String(t > 0.85 ? (1 - t) / 0.15 : lift)
+      card.style.transform = `translate(${dx * fly}px, ${dy * fly - 6 * lift}px) rotate(${-2 * lift}deg) scale(${scale})`
+      if (t < 1) frame = requestAnimationFrame(step)
+    }
+    frame = requestAnimationFrame(step)
+    return () => cancelAnimationFrame(frame)
+  }, [flight, review, toCalendar])
+
   // Gone after its run, even if the animation never ends (e.g. a hidden tab).
   useEffect(() => {
-    const t = setTimeout(() => onDone(review.id), 1400)
+    // Long enough for the card and for the new To-do row to arrive.
+    const t = setTimeout(() => onDone(review.id), Math.max(RIPPLE_MS + 100, TODO_ROW_WAIT_MS))
     return () => clearTimeout(t)
   }, [onDone, review.id])
+
   return (
     <>
       <span ref={anchorRef} aria-hidden className="pointer-events-none absolute right-2 top-1" />
       {flight && createPortal(
+        // Drawn over the whole page: the transcript list would clip it.
         <div
+          ref={cardRef}
           aria-hidden
           data-testid="review-lift-off"
           className={cn(
-            'pointer-events-none fixed z-50 hidden rounded-item border-l-4 bg-surface-raised px-3 py-2 shadow-pop motion-safe:block motion-safe:animate-lift-off',
+            'pointer-events-none fixed z-50 rounded-item border-l-4 bg-surface-raised px-3 py-2 opacity-0 shadow-pop will-change-transform motion-reduce:hidden',
             tone.stripeBorder,
           )}
-          style={{
-            left: flight.left,
-            top: flight.top,
-            width: LIFT_OFF_WIDTH_PX,
-            '--lift-x': `${flight.x}px`,
-            '--lift-y': `${flight.y}px`,
-          } as CSSProperties}
+          style={{ left: flight.left, top: flight.top, width: LIFT_OFF_WIDTH_PX }}
         >
           <p className={cn('flex items-center gap-1 text-meta font-semibold', tone.ink)}>
             <Sparkles className="h-3 w-3" />
@@ -117,8 +226,6 @@ function LiftOff({ review, recordingTitle, onDone }: { review: PlanItemOccurrenc
     </>
   )
 }
-
-const LIFT_OFF_WIDTH_PX = 256
 
 /** Space kept above a shown moment too tall to centre. */
 const MOMENT_TOP_GAP = 8
@@ -281,7 +388,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   }, [reviews])
 
   // A review that arrives while the lecture is open (the student just marked
-  // its moment) gets the lift-off once; reviews already there never do.
+  // its moment) gets the ripple once; reviews already there never do.
   const arrived = useArrivals(reviews?.map((r) => r.id), recordingId)
   const [landedIds, setLandedIds] = useState<ReadonlySet<string>>(() => new Set())
   const reducedMotion = useMemo(prefersReducedMotion, [])
@@ -291,8 +398,11 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   const transcribing = recording?.processing === 'transcribing' && !segments?.length
   const summarising = recording?.processing === 'summarising'
 
+  /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
+  const markedAt = useRef<number | null>(null)
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
+    markedAt.current = watchUserScroll()
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
   }
 
@@ -357,42 +467,42 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         </section>
       )}
 
-      {summaryLines.length > 0 && (
-        <section
-          aria-label="Lecture summary"
-          // Capped so a long summary in a short widget still leaves the
-          // transcript room to show and take clicks.
-          className={cn('shrink-0 rounded-item bg-surface-inset px-3.5', summaryOpen ? 'max-h-[40%] overflow-y-auto py-2.5' : 'py-2')}
-        >
-          {/* One row either way, so the toggle stays where it is (and keeps focus). */}
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
-            {summaryOpen
-              ? <p className="min-w-0 flex-1 text-meta font-semibold text-text-muted">Summary</p>
-              : <p data-testid="summary-line" className="min-w-0 flex-1 truncate text-body text-text-secondary">{summaryLines[0]}</p>}
-            <button
-              type="button"
-              aria-expanded={summaryOpen}
-              aria-controls={summaryOpen ? `summary-${recordingId}` : undefined}
-              onClick={() => setSummaryOpen((open) => !open)}
-              className="inline-flex shrink-0 items-center gap-0.5 text-body font-semibold text-accent hover:underline"
-            >
-              {summaryOpen ? 'Hide summary' : 'Show summary'}
-              <ChevronRight className={cn('h-4 w-4 transition-transform', summaryOpen && 'rotate-90')} />
-            </button>
-          </div>
-          {summaryOpen && (
-            <ul id={`summary-${recordingId}`} className="mt-1 space-y-0.5">
-              {summaryLines.map((line, i) => (
-                <li key={i} className="text-body text-text-secondary">{line}</li>
-              ))}
-            </ul>
-          )}
-        </section>
-      )}
-
       <div hidden={transcribing} className="flex min-h-0 flex-1 gap-1.5">
       <div ref={listRef} className="relative -ml-3 min-h-0 flex-1 space-y-px overflow-y-auto pl-3 pr-1">
+        {summaryLines.length > 0 && (
+          <section
+            aria-label="Lecture summary"
+            // The head of the transcript, scrolling with it: open, it shows
+            // every line and the moments follow it, so even in a short widget
+            // it never covers them.
+            className={cn('mb-2 rounded-item bg-surface-inset px-3.5', summaryOpen ? 'py-2.5' : 'py-2')}
+          >
+            {/* One row either way, so the toggle stays where it is (and keeps focus). */}
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-accent" />
+              {summaryOpen
+                ? <p className="min-w-0 flex-1 text-meta font-semibold text-text-muted">Summary</p>
+                : <p data-testid="summary-line" className="min-w-0 flex-1 truncate text-body text-text-secondary">{summaryLines[0]}</p>}
+              <button
+                type="button"
+                aria-expanded={summaryOpen}
+                aria-controls={summaryOpen ? `summary-${recordingId}` : undefined}
+                onClick={() => setSummaryOpen((open) => !open)}
+                className="inline-flex shrink-0 items-center gap-0.5 text-body font-semibold text-accent hover:underline"
+              >
+                {summaryOpen ? 'Hide summary' : 'Show summary'}
+                <ChevronRight className={cn('h-4 w-4 transition-transform', summaryOpen && 'rotate-90')} />
+              </button>
+            </div>
+            {summaryOpen && (
+              <ul id={`summary-${recordingId}`} className="mt-1 space-y-0.5">
+                {summaryLines.map((line, i) => (
+                  <li key={i} className="text-body text-text-secondary">{line}</li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)
@@ -466,14 +576,21 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                     <ReviewChip
                       review={review}
                       onShow={onShowPlanItem && review.starts_at
-                        ? () => onShowPlanItem({ id: review.id, startsAt: review.starts_at! })
+                        ? (chip) => onShowPlanItem({ id: review.id, startsAt: review.starts_at!, keepInView: chip })
                         : undefined}
                     />
                   )}
                 </div>
               )}
-              {review && !reducedMotion && arrived.has(review.id) && !landedIds.has(review.id) && (
-                <LiftOff review={review} recordingTitle={recording?.title ?? 'this lecture'} onDone={landed} />
+              {review && arrived.has(review.id) && !landedIds.has(review.id) && (
+                <Ripple
+                  review={review}
+                  recordingTitle={recording?.title ?? 'this lecture'}
+                  reducedMotion={reducedMotion}
+                  markedAt={markedAt.current}
+                  onShowPlanItem={onShowPlanItem}
+                  onDone={landed}
+                />
               )}
 
               {isSelected && isCapture && (

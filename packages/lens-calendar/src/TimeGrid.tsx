@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone } from '@pls/shared-ui'
+import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -51,21 +51,66 @@ export interface TimeGridProps {
    * A block to bring into view and glow once ("See it"), by plan item id; a
    * new `requestId` reveals it again. Waits until the block is on the grid.
    */
-  reveal?: { id: string; requestId: number } | null
+  reveal?: Reveal | null
+  /** A popover is open: a reveal callout gives way to it. */
+  popoverOpen?: boolean
+}
+
+/** A block to show: scrolled to in the grid and on the board, then glowing once. */
+export interface Reveal {
+  id: string
+  requestId: number
+  /** Board scrolls by the student after this (a `watchUserScroll` mark) win over ours. */
+  requestedAt?: number
+  /** Kept in view with the block when both fit (e.g. the moment it came from). */
+  keepInView?: Element | null
+  /** Glow this long after the request (a card from the moment lands then). */
+  landsInMs?: number
 }
 
 /** How long a revealed block keeps its callout (and, under reduced motion, its still ring). */
 const REVEAL_MS = 4000
 
-function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+/**
+ * Where the grid scrolls to show a block from `startMin` to `endMin` (minutes
+ * into the day): nowhere when it is already in view; otherwise with it in the
+ * top third, but never showing the night before the day starts (08:00)
+ * unless the block is there.
+ */
+export function gridScrollFor(
+  { startMin, endMin }: { startMin: number; endMin: number },
+  hourPx: number,
+  view: { scrollTop: number; height: number },
+): number | null {
+  const top = (startMin / 60) * hourPx
+  const bottom = (endMin / 60) * hourPx
+  if (top >= view.scrollTop + LABEL_ROOM_PX && bottom <= view.scrollTop + view.height - LABEL_ROOM_PX) return null
+  const dayTop = DAY_START_HOUR * hourPx - LABEL_ROOM_PX
+  const context = hourPx / 2
+  return Math.max(0, top - view.height / 3, Math.min(dayTop, top - context))
 }
 
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
-/** Smallest block height: enough for one line of title. */
-const MIN_BLOCK_PX = 22
+/**
+ * Blocks are drawn to scale, so a 30-minute block is visibly longer than a
+ * 20-minute one; nothing shorter than this many minutes' worth, though.
+ */
+const MIN_BLOCK_MIN = 15
+/**
+ * Shorter than this, a block is one compact line: its title, which may
+ * overhang the box by a pixel or two and is drawn above the blocks around it,
+ * so the next block never paints over it.
+ */
+const COMPACT_BLOCK_PX = 18
+/** The glow around a revealed compact block: at least this tall, centred on it. */
+const REVEAL_HALO_PX = 24
+
+/** A block's height on the grid: proportional to its length, with a 2px gap below. */
+function blockHeight(seg: { startMin: number; endMin: number }, hourPx: number): number {
+  return (Math.max(MIN_BLOCK_MIN, seg.endMin - seg.startMin) / 60) * hourPx - 2
+}
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
 /** Tall enough for a free gap's "1h 30m free" label. */
@@ -97,25 +142,38 @@ type Drag =
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, incoming, onDropIncoming,
-  reveal,
+  reveal, popoverOpen,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
+  const headerRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
+  const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
 
   // Size hours so the working day fits the panel, then start scrolled to it.
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el) return
+    let fitted = 0
     const fit = () => {
       // A little headroom so the 08:00 and 22:00 labels are not clipped.
       const px = Math.max(MIN_HOUR_PX, (el.clientHeight - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
-      setHourPx(px)
-      if (!userScrolled.current) el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+      // The hour to keep at the top: the day's start until the student (or a
+      // block shown) scrolls, then whatever is there, as the hours resize.
+      const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
+      if (px !== fitted) {
+        // Scrolled once the grid has re-rendered at the new size, so the scroll isn't clamped to the old height.
+        keepTopHour.current = topHour
+        setHourPx(px)
+      } else if (!userScrolled.current) {
+        el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+      }
+      fitted = px
     }
     const markScrolled = () => { userScrolled.current = true }
     fit()
@@ -131,34 +189,61 @@ export function TimeGrid({
       el.removeEventListener('keydown', markScrolled)
     }
   }, [])
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el || keepTopHour.current === null) return
+    el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    keepTopHour.current = null
+  }, [hourPx])
 
   // Ghosts are laid out with real blocks, so a dragged one never hides another.
   const segments = useMemo(
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
-  // "See it": once the block is laid out, scroll it into the top third and
-  // glow it once (a still ring under reduced motion), with a short callout.
+  // "See it" (or a review card landing): once the block is laid out, scroll
+  // the grid to it, scroll the board so it is on screen (with the moment it
+  // came from, when both fit), then glow it once (a still ring under reduced
+  // motion) with a short callout.
   const [revealed, setRevealed] = useState<{ key: string; requestId: number } | null>(null)
   const handledReveal = useRef<number | null>(null)
+  const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
     if (!reveal || reveal.requestId === handledReveal.current) return
     const el = scrollRef.current
     const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
     if (!el || !seg) return
     handledReveal.current = reveal.requestId
-    userScrolled.current = true
-    el.scrollTo({
-      top: Math.max(0, (seg.startMin / 60) * hourPx - el.clientHeight / 3),
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-    })
-    setRevealed({ key: seg.key, requestId: reveal.requestId })
+    const smooth = !prefersReducedMotion()
+    const gridTop = gridScrollFor(seg, hourPx, { scrollTop: el.scrollTop, height: el.clientHeight })
+    if (gridTop !== null) {
+      userScrolled.current = true
+      el.scrollTo({ top: gridTop, behavior: smooth ? 'smooth' : 'auto' })
+    }
+    // Where the block will be on screen once the grid has scrolled.
+    const block = el.querySelector(`[data-segment-key="${CSS.escape(seg.key)}"]`)?.getBoundingClientRect()
+    if (block) {
+      const shift = gridTop === null ? 0 : gridTop - el.scrollTop
+      // Then, if they fit: where it came from, and the day headers saying when.
+      const from = reveal.keepInView?.isConnected ? reveal.keepInView.getBoundingClientRect() : null
+      const headers = headerRef.current?.getBoundingClientRect()
+      showOnBoard(el, { top: block.top - shift, bottom: block.bottom - shift }, { keep: [from, headers], since: reveal.requestedAt, smooth })
+    }
+    const glow = () => setRevealed({ key: seg.key, requestId: reveal.requestId })
+    clearTimeout(glowTimer.current)
+    if (reveal.landsInMs) glowTimer.current = setTimeout(glow, reveal.landsInMs)
+    else glow()
   }, [reveal, segments, hourPx])
+  useEffect(() => () => clearTimeout(glowTimer.current), [])
   useEffect(() => {
     if (!revealed) return
     const t = setTimeout(() => setRevealed(null), REVEAL_MS)
     return () => clearTimeout(t)
   }, [revealed])
+  // An open popover takes the block's place: the callout would cover it.
+  useEffect(() => {
+    if (popoverOpen) setRevealed(null)
+  }, [popoverOpen])
 
   const freeSegments = useMemo(() => (freeTime?.length ? shadeDays(freeTime, days) : null), [freeTime, days])
   const [dropAt, setDropAt] = useState<{ dayIndex: number; minute: number } | null>(null)
@@ -257,6 +342,10 @@ export function TimeGrid({
     if (!drag.moved) {
       // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
       if (!ghost) onOpen(drag.item, anchor)
+      // A tap or click selects it instead: focused, its buttons show (on a
+      // short ghost they are hidden until then, and touch has no hover).
+      // After the click that follows, which would otherwise take focus away.
+      else requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
       return
     }
     if (!isMovable(drag.item)) return
@@ -306,7 +395,7 @@ export function TimeGrid({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
       {/* Day headers (scrollbar gutter kept so columns line up with the body) */}
-      <div className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
+      <div ref={headerRef} className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
         <div className={cn(GUTTER, 'shrink-0')} />
         <div className="grid flex-1" style={cols}>
           {days.map((day) => {
@@ -315,6 +404,7 @@ export function TimeGrid({
               <div
                 key={day.toISOString()}
                 data-testid="calendar-day-header"
+                data-day-column
                 className={cn(
                   // Narrow columns (phone) stack the weekday over the date.
                   '@container flex min-h-11 min-w-0 items-center justify-center border-l border-border-subtle text-body',
@@ -498,7 +588,7 @@ export function TimeGrid({
                       key={seg.key}
                       data-testid="calendar-drop-preview"
                       className="pointer-events-none absolute inset-x-1 z-30 rounded-item bg-accent-soft ring-2 ring-accent"
-                      style={{ top: (seg.startMin / 60) * hourPx + 1, height: Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2) }}
+                      style={{ top: (seg.startMin / 60) * hourPx + 1, height: blockHeight(seg, hourPx) }}
                     >
                       <span className="block truncate px-2 py-0.5 text-meta font-semibold text-accent">
                         {incoming?.title} · {formatSpan(new Date(seg.item.starts_at!), new Date(seg.item.ends_at!))}
@@ -561,9 +651,10 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
   const movable = isMovable(item)
   const done = item.status === 'done'
   const top = (seg.startMin / 60) * hourPx
-  // Short blocks (a 20-minute review) keep a legible title; the time is in
-  // the tooltip and the accessible name.
-  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  // Short blocks (a 20-minute review) keep a legible one-line title; the
+  // time is in the tooltip and the accessible name.
+  const height = blockHeight(seg, hourPx)
+  const compact = height < COMPACT_BLOCK_PX
   const roomy = height >= 38
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
@@ -578,6 +669,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
       tabIndex={preview ? undefined : 0}
       data-block={item.kind}
       data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
+      data-plan-item-id={preview ? undefined : item.id}
+      data-segment-key={preview ? undefined : seg.key}
       data-kind={item.kind}
       data-look={look}
       data-dimmed={dimmed || undefined}
@@ -593,7 +686,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         onKeyOpen?.({ clientX: rect.right, clientY: rect.top })
       }}
       className={cn(
-        'group absolute overflow-hidden rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
+        'group absolute rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
+        // A compact block's one line may overhang its box rather than be cut.
+        compact ? 'z-[5] overflow-visible' : 'overflow-hidden',
         isCommitment ? tone.commitment : tone.study,
         'focus-visible:ring-2 focus-visible:ring-accent',
         movable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
@@ -614,12 +709,25 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
         width: `calc(${100 / seg.columns}% - 4px)`,
       }}
     >
-      {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar)} />}
+      {/* A short block (a 20-min review is about 9px) glows in a halo of
+          readable size around it, so the landing shows without the callout. */}
+      {glow && compact && (
+        <span
+          aria-hidden
+          data-testid="calendar-reveal-halo"
+          className="pointer-events-none absolute -inset-x-1 top-1/2 -z-10 -translate-y-1/2 rounded-item bg-[color-mix(in_oklab,var(--glow)_18%,transparent)] motion-safe:animate-glow-once motion-reduce:glow-ring"
+          style={{ height: REVEAL_HALO_PX }}
+        />
+      )}
+      {!isCommitment && <span aria-hidden className={cn('absolute inset-y-0 left-0 w-1', tone.bar, compact && 'rounded-l-item')} />}
       <div className={cn('relative flex h-full min-w-0 flex-col pr-1.5', isCommitment ? 'pl-2' : 'pl-[11px]', roomy ? 'py-1' : 'justify-center')}>
         <div className="flex min-w-0 shrink-0 items-start gap-1">
           {done && <Check className="mt-px h-3 w-3 shrink-0" />}
           {item.subtype === 'shift' && <Coffee data-testid="calendar-shift-icon" className="mt-px h-3 w-3 shrink-0" aria-hidden />}
-          <span className={cn('min-w-0 flex-1 text-meta font-semibold leading-tight', twoLines ? 'line-clamp-2' : 'truncate', done && 'line-through')}>
+          <span
+            data-testid="calendar-block-title"
+            className={cn('min-w-0 flex-1 text-meta font-semibold', compact ? 'leading-none' : 'leading-tight', twoLines ? 'line-clamp-2' : 'truncate', done && 'line-through')}
+          >
             {item.title}
           </span>
           {fromMoment && <AudioLines className="mt-px h-3 w-3 shrink-0" aria-hidden />}
@@ -640,7 +748,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, onP
           data-testid="calendar-block-resize"
           aria-hidden
           onPointerDown={(e) => onPointerDown?.(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          // A third of a short block at most, so most of it still moves the block.
+          style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-current opacity-50" />
         </div>
@@ -689,7 +799,10 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const top = (seg.startMin / 60) * hourPx
-  const height = Math.max(MIN_BLOCK_PX, ((seg.endMin - seg.startMin) / 60) * hourPx - 2)
+  // Drawn to scale like a block; a short one shows its accept and dismiss
+  // buttons over it on hover or focus, overhanging rather than cut.
+  const height = blockHeight(seg, hourPx)
+  const compact = height < COMPACT_BLOCK_PX
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
@@ -699,6 +812,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
     <div
       data-block="ghost"
       data-testid="calendar-ghost"
+      data-ghost-id={ghostId(item) ?? undefined}
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
@@ -723,7 +837,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
       className={cn(
-        'group absolute z-10 overflow-hidden rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
+        compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
         tone.ghost,
         'transition-[opacity,box-shadow] duration-200',
         saved ? 'cursor-default opacity-70' : 'cursor-grab hover:shadow-[0_0_0_3px_var(--color-accent-soft)] active:cursor-grabbing',
@@ -739,7 +854,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       }}
     >
       <div className={cn('relative flex h-full min-w-0 flex-col pl-2 pr-1', roomy ? 'py-1' : 'justify-center')}>
-        <span className={cn('min-w-0 shrink-0 text-meta font-semibold leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
+        <span className={cn('min-w-0 shrink-0 text-meta font-semibold', compact ? 'leading-none' : 'leading-tight', height >= TWO_LINE_TITLE_PX + GHOST_BUTTONS_PX ? 'line-clamp-2' : 'truncate')}>{item.title}</span>
         {roomy && (
           <span className="shrink-0 truncate text-meta tabular-nums leading-tight opacity-85">
             {saved ? 'Saving...' : span}
@@ -752,7 +867,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
               'flex gap-1',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
-                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100',
+                : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
             )}
           >
               <button
@@ -778,11 +893,13 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
           </div>
         )}
       </div>
-      {!saved && (
+      {/* No edge to resize on a compact draft: on touch it would catch the taps meant for Accept (drag it, or use the keyboard). */}
+      {!saved && !compact && (
         <div
           aria-hidden
           onPointerDown={(e) => onPointerDown(e, 'resize')}
-          className="absolute inset-x-0 bottom-0 flex h-2 cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
+          style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
           <span className="mb-0.5 h-0.5 w-6 rounded-full bg-current opacity-50" />
         </div>

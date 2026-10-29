@@ -17,7 +17,8 @@ import {
   planTasks,
   rankForPlan,
   sanitizeAdvice,
-  shortGapMinutes,
+  leftoverStudyTime,
+  noSlotCause,
   studyDays,
   suggestTaskSlots,
   weekLayout,
@@ -123,20 +124,27 @@ describe('capacity and copy', () => {
     expect(draftCopy(360, 150)).toBe("Drafted 6h of study time. 2h 30m didn't fit.")
     expect(draftCopy(90, 0)).toBe('Drafted 1h 30m of study time. Everything fits.')
     expect(draftCopy(0, 240)).toBe("Nothing fits as it is. 4h didn't fit.")
-    // Free time left in gaps too short is named, so the numbers add up to the headline's.
-    expect(draftCopy(420, 300, 120)).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
-    expect(draftCopy(0, 120, 90)).toBe("Nothing fits as it is. 2h didn't fit. The 1h 30m of free time is in gaps too short for it.")
-    expect(draftCopy(420, 300, 10)).toBe("Drafted 7h of study time. 5h didn't fit.")
-    expect(draftCopy(420, 0, 120)).toBe('Drafted 7h of study time. Everything fits.')
+    // Study time left unused is named for its real reason, so the numbers add up to the headline's.
+    const gaps = (gapMin: number) => ({ gapMin, dayMin: 0 })
+    const days = (dayMin: number) => ({ gapMin: 0, dayMin })
+    expect(draftCopy(420, 300, gaps(120))).toBe("Drafted 7h of study time. 5h didn't fit. The other 2h of free time is in gaps too short for it.")
+    // It agrees in number with the to-dos that didn't fit.
+    expect(draftCopy(300, 240, gaps(120), 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 2h of free time is in gaps too short for them.")
+    expect(draftCopy(0, 120, gaps(90))).toBe("Nothing fits as it is. 2h didn't fit. The 1h 30m of free time is in gaps too short for it.")
+    // Held back by the 2h a day, not by short gaps: said so.
+    expect(draftCopy(300, 240, days(60), 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 1h is on days with too little study time left for them.")
+    expect(draftCopy(300, 120, days(60))).toBe("Drafted 5h of study time. 2h didn't fit. The other 1h is on days with too little study time left for it.")
+    expect(draftCopy(0, 120, days(60))).toBe("Nothing fits as it is. 2h didn't fit. The 1h is on days with too little study time left for it.")
+    expect(draftCopy(300, 240, { gapMin: 60, dayMin: 30 }, 2)).toBe(
+      "Drafted 5h of study time. 4h didn't fit. The other 1h of free time is in gaps too short for them, and 30m is on days with too little study time left for them.",
+    )
+    // A part under 15 minutes goes unnamed.
+    expect(draftCopy(300, 240, { gapMin: 60, dayMin: 10 }, 2)).toBe("Drafted 5h of study time. 4h didn't fit. The other 1h of free time is in gaps too short for them.")
+    expect(draftCopy(420, 300, gaps(10))).toBe("Drafted 7h of study time. 5h didn't fit.")
+    expect(draftCopy(420, 0, gaps(120))).toBe('Drafted 7h of study time. Everything fits.')
   })
 
-  it('blames short gaps only when that is why every to-do did not fit', () => {
-    expect(shortGapMinutes(540, 420, ['no-free-slot', 'no-free-slot'])).toBe(120)
-    // Too long for a day, or due too soon: those reasons are named instead.
-    expect(shortGapMinutes(540, 420, ['no-free-slot', 'over-daily-budget'])).toBe(0)
-    expect(shortGapMinutes(720, 60, ['window-closed'])).toBe(0)
-    expect(shortGapMinutes(540, 540, [])).toBe(0)
-    expect(shortGapMinutes(100, 120, ['no-free-slot'])).toBe(0)
+  it('formats amounts of time', () => {
     expect(formatMinutes(90)).toBe('1h 30m')
     expect(formatMinutes(45)).toBe('45m')
     expect(formatMinutes(120)).toBe('2h')
@@ -327,5 +335,69 @@ describe('placeReviews', () => {
     ], [review('a'), review('b')], range, { now: at(0, 11), timeZone: tz })
     expect(slots.get('a')).toEqual({ start: at(0, 12), end: at(0, 12, 20) })
     expect(slots.get('b')).toEqual({ start: at(0, 12, 30), end: at(0, 12, 50) })
+  })
+})
+
+describe('leftoverStudyTime', () => {
+  // Monday and Tuesday (GMT), the default 2h of study a day.
+  const monday = { start: at(0, 0), end: at(1, 0) }
+  const twoDays = { start: at(0, 0), end: at(2, 0) }
+  const now = monday.start
+  const tz = { timeZone: 'Europe/London' }
+  /** A class on `day` (0 = Monday) from `from` to `to`, in hours (10.5 is 10:30). */
+  const commitment = (id: string, from: number, to: number, day = 0) => ({
+    id, kind: 'commitment' as const, status: 'open' as const, subtype: null,
+    starts_at: iso(day, Math.floor(from), (from % 1) * 60), ends_at: iso(day, Math.floor(to), (to % 1) * 60),
+  })
+  // Classes 10:30-12:00 and 13:30-22:00: two 70-minute gaps (10 minutes clear of each class).
+  const shortGapsMonday = [commitment('a', 10.5, 12), commitment('b', 13.5, 22)]
+  const stuck = (durationMin: number) => ({ durationMin, reason: 'no-free-slot' as const })
+
+  it('blames short gaps when the day has budget to spare but no gap long enough', () => {
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 120, dayMin: 0 })
+  })
+
+  it("blames the day's study time, not gaps, when the 2h a day is what is left short (the Thursday rehearsal)", () => {
+    // A 1h block drafted: 1h of the day's 2h is left, in one long free stretch; a 2h to-do can't use it.
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    expect(leftoverStudyTime(weekLayout([], monday, tz), now, drafted, [stuck(120), stuck(120)])).toEqual({ gapMin: 0, dayMin: 60 })
+  })
+
+  it('a day short of both budget and gap length is blamed on the budget, the binding cause', () => {
+    // A 1h block drafted at 09:00: 1h of budget left, and the gaps left are 20 and 70 minutes.
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, monday, tz), now, drafted, [stuck(90)])).toEqual({ gapMin: 0, dayMin: 60 })
+  })
+
+  it('splits a week by day: one day short of gaps, another short of budget', () => {
+    // Monday: 70-minute gaps, budget to spare. Tuesday: free all day, 1h 30m already drafted.
+    const drafted = [{ start: at(1, 9), end: at(1, 10, 30) }]
+    expect(leftoverStudyTime(weekLayout(shortGapsMonday, twoDays, tz), now, drafted, [stuck(90)])).toEqual({ gapMin: 120, dayMin: 30 })
+  })
+
+  it('blames neither when something else kept a to-do out (too long for a day, due too soon)', () => {
+    const layout = weekLayout(shortGapsMonday, monday, tz)
+    expect(leftoverStudyTime(layout, now, [], [stuck(90), { durationMin: 180, reason: 'over-daily-budget' }])).toEqual({ gapMin: 0, dayMin: 0 })
+    expect(leftoverStudyTime(layout, now, [], [{ durationMin: 60, reason: 'window-closed' }])).toEqual({ gapMin: 0, dayMin: 0 })
+    expect(leftoverStudyTime(layout, now, [], [])).toEqual({ gapMin: 0, dayMin: 0 })
+  })
+
+  it("names each to-do's own reason by the same rule (noSlotCause)", () => {
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    // Short gaps, budget to spare.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, [], 90)).toBe('gaps')
+    // 1h of the 2h left in a long free day: a 2h to-do is short of study time.
+    expect(noSlotCause(weekLayout([], monday, tz), now, drafted, 120)).toBe('budget')
+    // Short of both on Monday: the budget binds.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, drafted, 90)).toBe('budget')
+    // A day used up to its 2h, with free time still ahead, is short of study time too.
+    expect(noSlotCause(weekLayout([], monday, tz), now, [{ start: at(0, 9), end: at(0, 11) }], 60)).toBe('budget')
+    // One day with the budget (Monday, short gaps) is enough to blame the gaps.
+    expect(noSlotCause(weekLayout(shortGapsMonday, twoDays, tz), now, [{ start: at(1, 9), end: at(1, 10, 30) }], 90)).toBe('gaps')
+  })
+
+  it('leaves unnamed what neither explains: a day with a long enough gap and budget left', () => {
+    // Free all day with the full 2h: a 90-minute to-do could go there, so nothing is blamed.
+    expect(leftoverStudyTime(weekLayout([], monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 0, dayMin: 0 })
   })
 })

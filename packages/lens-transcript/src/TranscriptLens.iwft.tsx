@@ -85,6 +85,42 @@ test('shows the lecture summary at the top and the review a confused moment beca
   await expect(chip).toHaveAttribute('title', 'Review: maternal inheritance')
 })
 
+test('an open three-line summary shows every line in a default-size widget, and scrolls with the transcript', async ({ mount, page, simulator }) => {
+  simulator.db.annotations.push({
+    id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',
+    anchor_start_ms: null, anchor_end_ms: null,
+    body: [
+      'Mitochondria carry their own small circular DNA, separate from the DNA in the nucleus.',
+      'You inherit it from your mother only: the father\'s mitochondria are tagged and destroyed.',
+      'That makes it useful for tracing family lines, and explains maternally inherited diseases.',
+    ].join('\n'),
+    created_at: '2026-04-16T11:00:00Z', author_id: 'dev-user-1',
+  })
+  // The content area of a Transcript at its default 420x380.
+  await mount(
+    <TestProviders>
+      <div style={{ width: 380, height: 310 }}>
+        <TranscriptLens {...defaultProps} />
+      </div>
+    </TestProviders>,
+  )
+
+  const summary = page.getByRole('region', { name: 'Lecture summary' })
+  await summary.getByRole('button', { name: 'Show summary' }).click()
+  await expect(summary.getByRole('listitem')).toHaveCount(3)
+  // Every line shows in full: no scrolling inside the summary.
+  await expect(summary.getByRole('listitem').nth(2)).toBeInViewport({ ratio: 1 })
+  expect(await summary.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(1)
+  // The moments follow it in the same scrolling list, so the summary covers none of them.
+  const first = page.getByText(/continuing our discussion of mitochondria/)
+  const list = page.locator('[data-segment-id]').first().locator('..')
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await list.evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await expect(summary.getByRole('listitem').nth(2)).not.toBeInViewport()
+  await first.scrollIntoViewIfNeeded()
+  await first.click({ trial: true, timeout: 3000 })
+})
+
 test('a long summary in a short widget leaves the transcript room to take clicks', async ({ mount, page, simulator }) => {
   simulator.db.annotations.push({
     id: 'ann-summary', anchor_type: 'recording_summary', anchor_id: 'rec-bio-4',

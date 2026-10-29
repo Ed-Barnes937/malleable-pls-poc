@@ -31,12 +31,14 @@ export function RefitBanner({ course }: { course: string | undefined }) {
   const open = proposals.length > 0
 
   // Once nothing is left to ask about, the next miss starts with the question.
+  const { endPreview } = missed
   useEffect(() => {
     if (!open) {
       setStep('ask')
       setProblem(null)
+      endPreview()
     }
-  }, [open])
+  }, [open, endPreview])
 
   // A short "done" line, then nothing.
   useEffect(() => {
@@ -73,7 +75,14 @@ export function RefitBanner({ course }: { course: string | undefined }) {
 
   const keepPlan = () => {
     markHandled(proposals)
+    missed.endPreview()
     setNote(null)
+  }
+
+  // The Calendar stops asking about these while their new times show here.
+  const showTimes = () => {
+    missed.startPreview(proposals)
+    setStep('preview')
   }
 
   const question = missedQuestion(n)
@@ -125,7 +134,7 @@ export function RefitBanner({ course }: { course: string | undefined }) {
       <div className="flex flex-wrap gap-1.5 pl-6">
         {step === 'ask' ? (
           <>
-            <button type="button" onClick={() => setStep('preview')} className={primary}>Re-fit</button>
+            <button type="button" onClick={showTimes} className={primary}>Re-fit</button>
             <button type="button" onClick={keepPlan} className={secondary}>Not now</button>
           </>
         ) : (

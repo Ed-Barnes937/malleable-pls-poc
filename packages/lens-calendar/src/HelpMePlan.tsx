@@ -12,7 +12,8 @@ import {
   planCapacity,
   planTasks,
   rankForPlan,
-  shortGapMinutes,
+  leftoverStudyTime,
+  noSlotCause,
   studyDays,
   suggestTaskSlots,
   type PlanItemOccurrence,
@@ -253,7 +254,7 @@ export function HelpMePlanPanel({
       ref={panelRef}
       data-testid="help-me-plan-panel"
       aria-labelledby={headingId}
-      className="flex h-full min-h-0 w-[280px] max-w-full shrink-0 flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-widget border border-border-subtle bg-surface-raised"
     >
       <div className="flex items-center gap-1 pb-1 pl-4 pr-2.5 pt-3.5">
         <h3
@@ -309,6 +310,7 @@ export function HelpMePlanPanel({
             pickDefaultFor={pickDefaultFor}
             onPick={(todo, start, durationMin) => void schedule(todo, start, durationMin)}
             freeMin={cap.freeMin}
+            layout={layout}
             headingRef={draftHeadingRef}
           />
         ) : (
@@ -375,7 +377,7 @@ export function HelpMePlanPanel({
       </div>
 
       {showDraft ? (
-        <div className="flex shrink-0 items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-border-subtle px-4 pb-4 pt-3">
           <button
             type="button"
             onClick={() => void layer.acceptAll()}
@@ -385,7 +387,7 @@ export function HelpMePlanPanel({
             <Check className="h-4 w-4" />
             Accept draft
           </button>
-          <button type="button" onClick={keepPlan} disabled={layer.saving} className={ghostButton}>
+          <button type="button" onClick={keepPlan} disabled={layer.saving} className={cn(ghostButton, 'whitespace-nowrap')}>
             Keep my plan
           </button>
         </div>
@@ -467,8 +469,11 @@ function DraftSummary({
   pickDefaultFor,
   onPick,
   freeMin,
+  layout,
   headingRef,
 }: {
+  /** The week planned: what the leftover study time is measured against. */
+  layout: WeekLayout
   /** Study time left, as the capacity headline counts it. */
   freeMin: number
   /** Focused when Auto-fill finishes. */
@@ -523,8 +528,10 @@ function DraftSummary({
   // The numbers come from the draft itself, so they always match the ghosts.
   const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
   const placedMin = proposalMinutes(layer.proposals)
-  // Study time the headline counts that the draft left in gaps too short for what is left.
-  const summary = draftCopy(placedMin, unplacedMin, shortGapMinutes(freeMin, placedMin, unplaced.map((u) => u.reason)))
+  // Study time the headline counts that the draft left unused, by why: gaps too short, or days with too little left.
+  const drafted = layer.proposals.map((p) => ({ start: Date.parse(p.startsAt), end: Date.parse(p.endsAt) }))
+  const leftover = leftoverStudyTime(layout, now, drafted, unplaced.map((u) => ({ durationMin: u.task.durationMin, reason: u.reason })))
+  const summary = draftCopy(placedMin, unplacedMin, leftover, unplaced.length)
 
   return (
     <div ref={rootRef} data-testid="autofill-draft" className="flex flex-col gap-3.5">
@@ -595,7 +602,7 @@ function DraftSummary({
             return (
               <div key={u.taskId} className="flex flex-col gap-1.5">
                 <p>
-                  {u.task.title} ({formatMinutes(u.task.durationMin)}) didn't fit: {unplacedReason(u.reason, minutesPerDay)}.{' '}
+                  {u.task.title} ({formatMinutes(u.task.durationMin)}) didn't fit: {unplacedReason(u.reason, minutesPerDay, u.reason === 'no-free-slot' ? noSlotCause(layout, now, drafted, u.task.durationMin) : undefined)}.{' '}
                   <button
                     type="button"
                     onClick={() => setPicking((id) => (id === u.taskId ? null : u.taskId))}

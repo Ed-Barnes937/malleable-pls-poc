@@ -109,6 +109,28 @@ test.describe('Weak topics', () => {
     await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
   })
 
+  test("a topic from another lecture switches this board's lecture, says so and offers the way back", async ({ page, request }) => {
+    const ws = await board(request, 'Revision', ['weakest-topics', 'transcript'])
+    // The board shows another Biology lecture to start with.
+    await trpcMutation(request, 'workspaces.setScope', { workspaceId: ws, scopeType: 'recording', scopeValue: 'rec-bio-1' })
+    const before = (await trpcQuery<{ title: string }>(request, 'recordings.byId', 'rec-bio-1')).title
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Revision')
+    await expect(topBar.scopeChip).toContainText(before, { timeout: 10000 })
+
+    const grid = new PanelGridPom(page)
+    await grid.panelByLabel('Weakest Topics').getByRole('button', { name: /^Maternal inheritance: go to this moment/ }).click()
+    const moment = grid.panelByLabel('Transcript').locator('[data-moment]')
+    await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
+    await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
+    const toast = page.getByTestId('toast-host')
+    await expect(toast).toContainText('Opened 9:00 in Biology Lecture: Mitochondrial DNA')
+    await toast.getByRole('button', { name: `Back to ${before}` }).click()
+    await expect(topBar.scopeChip).toContainText(before)
+    await expect(topBar.scopeChip).not.toContainText('Mitochondrial DNA')
+  })
+
   test('from a board without a Transcript, it opens the moment on one that has it, with a way back', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
@@ -287,6 +309,8 @@ test.describe('Re-fit blocks that did not happen', () => {
 
     await banner.getByRole('button', { name: 'Re-fit' }).click()
     await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(2)
+    // One question at a time: while the Calendar shows new times, the To-do doesn't ask.
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     await banner.getByRole('button', { name: 'Keep my plan' }).click()
 
     await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
@@ -294,5 +318,76 @@ test.describe('Re-fit blocks that did not happen', () => {
     // Answered once, for every widget.
     await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     expect(await trpcQuery<Item[]>(request, 'planItems.list', {})).toEqual(before)
+  })
+
+  test('a block due before any day with study time left goes over the 2h a day rather than off the calendar', async ({ page, request }) => {
+    // Away all today; tomorrow already has its 2h; due the day after at 09:30,
+    // before that day's study time can fit an hour.
+    await trpcMutation(request, 'planItems.create', { kind: 'commitment', title: 'Away today', starts_at: daysFromNow(0, 0), ends_at: daysFromNow(1, 0) })
+    const tomorrowStudy = await trpcMutation<Item>(request, 'planItems.create', {
+      kind: 'task', title: 'Essay plan', duration_min: 120, starts_at: daysFromNow(1, 7), ends_at: daysFromNow(1, 9),
+    })
+    const due = new Date(Date.parse(daysFromNow(2, 9)) + 30 * 60_000).toISOString()
+    const quizPrep = await trpcMutation<Item>(request, 'planItems.create', {
+      kind: 'task', title: 'Quiz prep', duration_min: 60, starts_at: daysFromNow(-1, 10), ends_at: daysFromNow(-1, 11), due_at: due,
+    })
+    await board(request, 'My week', ['todo'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const banner = new PanelGridPom(page).panelByLabel('To-do').getByTestId('refit-banner')
+    await expect(banner).toContainText("1 block didn't happen. Re-fit it?", { timeout: 10000 })
+    await banner.getByRole('button', { name: 'Re-fit' }).click()
+    await expect(banner.getByTestId('refit-proposal')).not.toContainText('It stays on your list.')
+    await banner.getByRole('button', { name: 'Move it' }).click()
+    await expect(banner).toHaveCount(0)
+
+    const items = await trpcQuery<Item[]>(request, 'planItems.list', { from: daysFromNow(1, 0), to: daysFromNow(2, 0), statuses: ['open', 'done'] })
+    const moved = items.find((i) => i.id === quizPrep.id)!
+    // Tomorrow, before it is due, 10 minutes clear of the 2h already there: over the budget.
+    expect(Date.parse(moved.ends_at!)).toBeLessThanOrEqual(Date.parse(due))
+    expect(new Date(moved.starts_at!).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }))
+      .toBe(new Date(tomorrowStudy.starts_at!).toLocaleDateString('en-GB', { timeZone: 'Europe/London' }))
+    const study = items.filter((i) => i.kind === 'task' && i.starts_at)
+    expect(study.reduce((sum, i) => sum + (Date.parse(i.ends_at!) - Date.parse(i.starts_at!)) / 60_000, 0)).toBeGreaterThan(120)
+  })
+
+  test("Re-fit in the To-do: the Calendar stops asking while it shows the new times, and the moves keep Help me plan's rules", async ({ page, request }) => {
+    const missed = await seedMissed(request)
+    // Tomorrow already has its 2h of study: re-fit must not add to it.
+    const tomorrowStudy = await trpcMutation<Item>(request, 'planItems.create', {
+      kind: 'task', title: 'Essay plan', duration_min: 120, starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 11),
+    })
+    await board(request, 'My week', ['calendar', 'todo'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendarBanner = new CalendarPom(page).root.getByTestId('refit-banner')
+    const todoBanner = new PanelGridPom(page).panelByLabel('To-do').getByTestId('refit-banner')
+    await expect(calendarBanner).toContainText("2 blocks didn't happen. Re-fit them?", { timeout: 10000 })
+
+    await todoBanner.getByRole('button', { name: 'Re-fit' }).click()
+    await expect(todoBanner).toContainText('Here is where they could go:')
+    // Not a second "Re-fit them?" beside the preview.
+    await expect(calendarBanner).toHaveCount(0)
+    await todoBanner.getByRole('button', { name: 'Move them' }).click()
+    await expect(todoBanner).toHaveCount(0)
+    await expect(calendarBanner).toHaveCount(0)
+
+    // Where they went: Help me plan's rules (2h a day, 10 minutes apart, from 09:00).
+    const items = await trpcQuery<Item[]>(request, 'planItems.list', { from: daysFromNow(0, 0), to: daysFromNow(9, 0), statuses: ['open', 'done'] })
+    const study = items.filter((i) => i.kind === 'task' && i.starts_at && i.ends_at)
+    const minutes = (i: Item) => (Date.parse(i.ends_at!) - Date.parse(i.starts_at!)) / 60_000
+    const localDay = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { timeZone: 'Europe/London' })
+    for (const task of missed) {
+      const moved = study.find((i) => i.id === task.id)!
+      expect(localDay(moved.starts_at!), `${task.title} went on the day already at 2h`).not.toBe(localDay(tomorrowStudy.starts_at!))
+      const sameDay = study.filter((i) => localDay(i.starts_at!) === localDay(moved.starts_at!))
+      expect(sameDay.reduce((sum, i) => sum + minutes(i), 0), `study on ${localDay(moved.starts_at!)}`).toBeLessThanOrEqual(120)
+      const hour = Number(new Date(moved.starts_at!).toLocaleTimeString('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }))
+      expect(hour).toBeGreaterThanOrEqual(9)
+      for (const other of sameDay.filter((i) => i.id !== moved.id)) {
+        const gap = Math.max(Date.parse(other.starts_at!) - Date.parse(moved.ends_at!), Date.parse(moved.starts_at!) - Date.parse(other.ends_at!))
+        expect(gap, `${task.title} and ${other.title}`).toBeGreaterThanOrEqual(10 * 60_000)
+      }
+    }
   })
 })

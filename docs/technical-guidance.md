@@ -178,6 +178,11 @@ gesture, not lens-to-lens messaging, and it works like scope:
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
+On a board already focused on another lecture, that focus changes under the
+student (e.g. a Weakest Topics row from an older lecture), so the shell says
+so with a toast ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") whose
+action ("Back to Mitochondrial DNA - today") puts the board's lecture back.
+
 When the board has no moment viewer, the shell switches to a board that has
 one: a viewer set up for reviewing (not a Transcript in capture mode) first,
 then one already focused on that recording, then tab order. It shows the
@@ -203,10 +208,17 @@ Transcript's "Review planned" chip call `LensProps.onShowPlanItem({ id,
 startsAt })`. The shell keeps it as ephemeral `focusedPlanItem` (a fresh
 `requestId` per request) and hands it to widgets whose manifest declares
 `showsPlanItems: true` (the Calendar), which open that week, scroll the block
-into view, glow it once (a still ring under reduced motion) and call
+into view in the grid and on the board (`showOnBoard` in `@pls/shared-ui`),
+glow it once (a still ring under reduced motion) and call
 `onPlanItemShown(requestId)`. It only works on the board in view: the shell
 passes `onShowPlanItem`, and the toast offers "See it", only when that board
 has a Calendar.
+
+The confused-to-calendar ripple uses the same request when a new review
+arrives on the lecture just marked: `keepInView` (the moment's chip) stays on
+screen with the block when both fit, `landsInMs` delays the glow until the
+Transcript's flying card lands, and `scrolledSince` (when the moment was
+marked) makes the board stay put if the student has scrolled it since.
 
 ---
 

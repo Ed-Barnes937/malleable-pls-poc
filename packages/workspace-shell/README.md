@@ -14,7 +14,7 @@ Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` s
 |-----------|-------------|
 | `WorkspaceShell` | Root layout: top bar + board menu + canvas; adds widgets (palette click places in the first free area, drag drops at the cursor) |
 | `TopBar` | Board menu button, board tabs, "Showing: ..." chip, activity, theme, appearance, tidy up |
-| `DrawerSidebar` | Board menu: widget palette, "Showing" scope pickers, board automations |
+| `DrawerSidebar` | Board menu: "Showing" scope pickers first (compact, in view at 900px), widget palette, board automations; opens at the top |
 | `PanelContainer` | Wrapper connecting a panel slot to its lens |
 | `ThemeToggle` | Light / dark mode switch |
 | `JobStatusIndicator` | Activity button and panel for background automation runs |
