@@ -8,7 +8,6 @@ import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
-import { swallowTapFollowUp } from './tap-follow-up'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
@@ -18,6 +17,8 @@ import {
 export interface Anchor {
   clientX: number
   clientY: number
+  /** The top and bottom of the block pressed (or the new block a press on empty time makes), in client coordinates. */
+  span?: { top: number; bottom: number }
 }
 
 export interface TimeGridProps {
@@ -127,6 +128,8 @@ type Drag =
       moved: boolean
       /** The press closed this block's own popover: a click (no move) leaves it closed. */
       closedOwnPopover: boolean
+      /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
+      span: { top: number; bottom: number }
     }
 
 export function TimeGrid({
@@ -144,6 +147,14 @@ export function TimeGrid({
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
+  /**
+   * A touch tap just opened a popover. The tap's mouse events and click come
+   * after pointerup, at the point tapped, where the popover now is (on a
+   * phone it covers the grid): its touchend cancels them, so the tap never
+   * presses anything in it. A pen sends no touch events, and its click, like
+   * a mouse's, goes to where its press started (the grid holds the capture).
+   */
+  const tapOpened = useRef(false)
   /** The due marker whose own popover the last press closed: the click that follows leaves it closed (a toggle). */
   const dueClosedBy = useRef<string | null>(null)
 
@@ -261,6 +272,7 @@ export function TimeGrid({
 
   const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
     // A press that closed a popover only closes it: no new block from it.
+    tapOpened.current = false
     if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     areaRef.current!.setPointerCapture(e.pointerId)
@@ -268,9 +280,11 @@ export function TimeGrid({
   }
 
   const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
+    tapOpened.current = false
     // A press that only closes a popover (its save is in flight) moves nothing.
     if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
     e.stopPropagation()
+    const box = ((e.target as Element).closest('[data-block]') ?? e.currentTarget).getBoundingClientRect()
     const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
     const start = new Date(item.starts_at!)
     const end = new Date(item.ends_at!)
@@ -285,6 +299,7 @@ export function TimeGrid({
       y: e.clientY,
       moved: false,
       closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
+      span: { top: box.top, bottom: box.bottom },
     })
   }
 
@@ -325,16 +340,13 @@ export function TimeGrid({
     const anchor = { clientX: e.clientX, clientY: e.clientY }
     if (drag.type === 'create') {
       const day = days[drag.dayIndex]
-      if (drag.moved) {
-        const a = snap(Math.min(drag.fromMin, drag.toMin))
-        const b = snap(Math.max(drag.fromMin, drag.toMin))
-        onCreate(atMinutes(day, a), atMinutes(day, Math.max(b, a + SNAP_MIN)), anchor)
-      } else {
-        const from = Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
-        onCreate(atMinutes(day, from), atMinutes(day, from + 60), anchor)
-      }
-      // The new block's popover opens under the finger: the rest of the tap mustn't press it.
-      swallowTapFollowUp(e.pointerType)
+      // A drag makes the block it covers; a tap, an hour from the half hour.
+      const from = drag.moved ? snap(Math.min(drag.fromMin, drag.toMin)) : Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
+      const to = drag.moved ? Math.max(snap(Math.max(drag.fromMin, drag.toMin)), from + SNAP_MIN) : from + 60
+      // Its popover keeps clear of the new block.
+      const top = areaRef.current!.getBoundingClientRect().top
+      onCreate(atMinutes(day, from), atMinutes(day, to), { ...anchor, span: { top: top + (from / 60) * hourPx, bottom: top + (to / 60) * hourPx } })
+      tapOpened.current = e.pointerType === 'touch'
       return
     }
     const ghost = ghostId(drag.item)
@@ -343,9 +355,8 @@ export function TimeGrid({
       if (!ghost) {
         // A click on the block whose popover it just closed leaves it closed (a toggle).
         if (!drag.closedOwnPopover) {
-          onOpen(drag.item, anchor)
-          // Its popover opens under the finger: the rest of the tap mustn't press it.
-          swallowTapFollowUp(e.pointerType)
+          onOpen(drag.item, { ...anchor, span: drag.span })
+          tapOpened.current = e.pointerType === 'touch'
         }
       }
       // A tap or click selects it instead: focused, its buttons show (on a
@@ -510,6 +521,11 @@ export function TimeGrid({
             onPointerMove={handleMove}
             onPointerUp={handleUp}
             onPointerCancel={() => setDrag(null)}
+            onTouchEnd={(e) => {
+              if (!tapOpened.current) return
+              tapOpened.current = false
+              e.preventDefault()
+            }}
             onDragOver={handleDragOver}
             onDragLeave={(e) => {
               if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt(null)

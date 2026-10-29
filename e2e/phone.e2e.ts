@@ -186,6 +186,27 @@ test.describe('Phone calendar taps', () => {
     })
   }
 
+  test('a quick second tap, on Mark done in the popover the first one opened, marks the block done', async ({ page, request }) => {
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16)
+    const row = await trpcMutation<{ id: string }>(request, 'planItems.create', {
+      kind: 'task', title: 'Tap then done', course: 'biology', duration_min: 60,
+      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Tap then done')
+    await block.scrollIntoViewIfNeeded()
+    const box = (await block.boundingBox())!
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+    // Straight away: no waiting for the first tap's click to have come and gone.
+    const done = (await calendar.popover.getByRole('button', { name: 'Mark done' }).boundingBox())!
+    await page.touchscreen.tap(done.x + done.width / 2, done.y + done.height / 2)
+    await expect.poll(async () => (await trpcQuery<{ status: string }>(request, 'planItems.byId', row.id)).status).toBe('done')
+  })
+
   test('a tap on empty time opens a new block and presses nothing in it', async ({ page }) => {
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('My week')
