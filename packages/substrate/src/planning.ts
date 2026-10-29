@@ -594,7 +594,9 @@ export { totalMinutes, type Capacity, type Interval, type Placement, type Unplac
  * study time. 2h 30m didn't fit." Never from capacity or the LLM, so it can't
  * contradict the ghosts beside it. `leftover` (see `leftoverStudyTime`) is
  * study time the headline counts that the draft couldn't use, each part
- * named for its real reason, so drafted + leftover adds up to the headline.
+ * named for its real reason, so drafted + leftover adds up to the headline,
+ * except for what `leftoverStudyTime` can't explain and any part under 15
+ * minutes, which go unnamed (so the sum can fall short there).
  * `unplacedCount` is how many to-dos didn't fit ("for it" / "for them").
  */
 export function draftCopy(placedMin: number, unplacedMin: number, leftover: Leftover = NO_LEFTOVER, unplacedCount = 1): string {
@@ -606,16 +608,15 @@ export function draftCopy(placedMin: number, unplacedMin: number, leftover: Left
   if (!gaps && !days) return missed
   const the = placedMin > 0 ? 'The other' : 'The'
   const them = unplacedCount === 1 ? 'it' : 'them'
-  const needs = unplacedCount === 1 ? 'it needs' : 'they need'
   const inGaps = `of free time is in gaps too short for ${them}`
-  const onDays = `of study time is on days with less left than ${needs}`
+  const onDays = `is on days with too little study time left for ${them}`
   if (gaps && days) return `${missed} ${the} ${formatMinutes(gaps)} ${inGaps}, and ${formatMinutes(days)} ${onDays}.`
   return `${missed} ${the} ${formatMinutes(gaps || days)} ${gaps ? inGaps : onDays}.`
 }
 
 /** Study time a draft left unused, by why (see `leftoverStudyTime`). */
 export interface Leftover {
-  /** On days with study time to spare, but in gaps shorter than any to-do left. */
+  /** On days with budget enough, but in gaps shorter than any to-do left. */
   gapMin: number
   /** On days whose study time left (the daily budget) is less than any to-do left. */
   dayMin: number
@@ -626,13 +627,17 @@ const NO_LEFTOVER: Leftover = { gapMin: 0, dayMin: 0 }
 /**
  * The study time each day still has once `drafted` is in (as the headline
  * counts it: free time capped by the day's budget), split by why the to-dos
- * left over (`unplaced`) can't use it: a day whose free gaps, 10 minutes
- * clear of study blocks, are all shorter than the shortest of them
- * (`gapMin`), or else a day with a long enough gap whose budget left is
- * shorter (`dayMin`), so short gaps are never blamed for the daily budget.
+ * left over (`unplaced`) can't use it: a day whose budget left is shorter
+ * than the shortest of them (`dayMin`: the binding cause, even when its gaps
+ * are short too), or else a day whose free gaps, 10 minutes clear of study
+ * blocks, are all shorter than it (`gapMin`). So short gaps are never blamed
+ * for the daily budget.
  * Only when every one of them simply found no slot: any other reason (too
  * long for a day, due too soon) is named on its own line instead, so both
- * are 0. Time it can't explain either way is not blamed on anything.
+ * are 0. Time neither explains (a day with a long enough gap and budget
+ * left that the to-dos still couldn't use) is not blamed on anything and
+ * goes unnamed, as does a part under 15 minutes (`draftCopy`): there the
+ * draft's numbers fall short of the headline's.
  */
 export function leftoverStudyTime(
   layout: WeekLayout,
@@ -654,8 +659,8 @@ export function leftoverStudyTime(
   for (const d of studyDays(after, now)) {
     if (d.leftMin <= 0) continue
     const budgetLeft = layout.budget.minutesPerDay - (used.get(d.day) ?? 0)
-    if ((longest.get(d.day) ?? 0) < need) gapMin += d.leftMin
-    else if (budgetLeft < need) dayMin += d.leftMin
+    if (budgetLeft < need) dayMin += d.leftMin
+    else if ((longest.get(d.day) ?? 0) < need) gapMin += d.leftMin
   }
   return { gapMin, dayMin }
 }

@@ -516,7 +516,7 @@ test.describe('where the panel floats, by day of the week (frozen clock)', () =>
     await panel.getByRole('button', { name: 'Shrink to 2h' }).click()
     // Saturday has a long free stretch but only 1h of its 2h left: no to-do left fits in 1h.
     await expect(panel.getByTestId('autofill-summary')).toHaveText(
-      "Drafted 7h of study time. 4h didn't fit. The other 1h of study time is on days with less left than they need.",
+      "Drafted 7h of study time. 4h didn't fit. The other 1h is on days with too little study time left for them.",
     )
   })
 
@@ -634,16 +634,17 @@ function seedFragmentedWeek(simulator: BackendSimulator) {
   ])
 }
 
-test('free time left in short gaps is named, and Pick a time never defaults onto a drafted block', async ({ mount, page, simulator }) => {
+test('study time the draft leaves is named for why, and Pick a time never defaults onto a drafted block', async ({ mount, page, simulator }) => {
   seedFragmentedWeek(simulator)
   await mount(<CalendarHarness />)
   const panel = await openPlan(page)
   await expect(panel.getByTestId('plan-capacity')).toContainText('About 4 hours of study time left next week (2h a day). Your to-dos need 4.5.')
   await panel.getByTestId('autofill').click()
   const draft = panel.getByTestId('autofill-draft')
-  // 3h drafted + 1h in two 30-minute pieces = the 4h the headline counts.
+  // 3h drafted + 1h in two 30-minute pieces = the 4h the headline counts. Each day has only
+  // 30 minutes of its 2h left, less than a 90-minute to-do (its gaps are short too: the budget binds).
   await expect(draft.getByTestId('autofill-summary')).toHaveText(
-    "Drafted 3h of study time. 1h 30m didn't fit. The other 1h of free time is in gaps too short for it.",
+    "Drafted 3h of study time. 1h 30m didn't fit. The other 1h is on days with too little study time left for it.",
   )
   await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
 

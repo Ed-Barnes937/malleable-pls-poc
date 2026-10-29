@@ -23,7 +23,7 @@ What the reseed gives you: weekly Biology lectures (Mon, Wed 10-12), Chemistry (
 **2. Plan the week**
 - In the Calendar, **Help me plan**. The panel ("Plan your time", floating over the days already past, e.g. Mon-Tue on a Wednesday, or over the weekend on a Monday or Tuesday; never over a draft) reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."; the bar hatches the 3h short. Free gaps on the grid show their length ("2h free").
 - Assign one by hand: on "Revise for the Biology quiz", click its first suggested time (e.g. "Today 10:30"). Copy updates to 7 hours / 10.
-- **Auto-fill**. Ghost blocks appear; the note says what is due soonest; "Lab report write-up (3h) is too long for one day." Click **Shrink to 2h**: the draft lists its blocks and says "Drafted ... of study time. ... didn't fit." (plus any study time left over: in gaps too short, or on days with less of the 2h left than a to-do needs), and names each to-do that didn't fit with **Pick a time**.
+- **Auto-fill**. Ghost blocks appear; the note says what is due soonest; "Lab report write-up (3h) is too long for one day." Click **Shrink to 2h**: the draft lists its blocks and says "Drafted ... of study time. ... didn't fit." (plus any study time left over, e.g. "The other 2h is on days with too little study time left for them.", or free time in gaps too short), and names each to-do that didn't fit with **Pick a time**.
 - **Accept draft**. Close the panel (x), then drag any accepted study block to a new time (e.g. to Saturday afternoon).
 
 **3. Scope**
