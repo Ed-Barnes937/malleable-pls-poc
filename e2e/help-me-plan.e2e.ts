@@ -123,7 +123,7 @@ test.describe('Help me plan', () => {
       "Drafted 4h 30m of study time. 1h 30m didn't fit. The other 1h 30m is on days with too little study time left for it.",
       { timeout: 15000 },
     )
-    await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: no free gap long enough.")
+    await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: too little study time left on any day.")
   })
 
   test('a to-do too long for a day is named as the reason, not short gaps', async ({ page, request }) => {

@@ -38,6 +38,7 @@ export {
   defaultTrims,
   draftCopy,
   leftoverStudyTime,
+  noSlotCause,
   type Leftover,
   longestBlockMin,
   noteWithoutAmounts,

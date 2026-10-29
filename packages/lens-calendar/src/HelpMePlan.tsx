@@ -13,6 +13,7 @@ import {
   planTasks,
   rankForPlan,
   leftoverStudyTime,
+  noSlotCause,
   studyDays,
   suggestTaskSlots,
   type PlanItemOccurrence,
@@ -601,7 +602,7 @@ function DraftSummary({
             return (
               <div key={u.taskId} className="flex flex-col gap-1.5">
                 <p>
-                  {u.task.title} ({formatMinutes(u.task.durationMin)}) didn't fit: {unplacedReason(u.reason, minutesPerDay)}.{' '}
+                  {u.task.title} ({formatMinutes(u.task.durationMin)}) didn't fit: {unplacedReason(u.reason, minutesPerDay, u.reason === 'no-free-slot' ? noSlotCause(layout, now, drafted, u.task.durationMin) : undefined)}.{' '}
                   <button
                     type="button"
                     onClick={() => setPicking((id) => (id === u.taskId ? null : u.taskId))}

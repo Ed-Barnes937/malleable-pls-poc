@@ -18,6 +18,7 @@ import {
   rankForPlan,
   sanitizeAdvice,
   leftoverStudyTime,
+  noSlotCause,
   studyDays,
   suggestTaskSlots,
   weekLayout,
@@ -379,6 +380,20 @@ describe('leftoverStudyTime', () => {
     expect(leftoverStudyTime(layout, now, [], [stuck(90), { durationMin: 180, reason: 'over-daily-budget' }])).toEqual({ gapMin: 0, dayMin: 0 })
     expect(leftoverStudyTime(layout, now, [], [{ durationMin: 60, reason: 'window-closed' }])).toEqual({ gapMin: 0, dayMin: 0 })
     expect(leftoverStudyTime(layout, now, [], [])).toEqual({ gapMin: 0, dayMin: 0 })
+  })
+
+  it("names each to-do's own reason by the same rule (noSlotCause)", () => {
+    const drafted = [{ start: at(0, 9), end: at(0, 10) }]
+    // Short gaps, budget to spare.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, [], 90)).toBe('gaps')
+    // 1h of the 2h left in a long free day: a 2h to-do is short of study time.
+    expect(noSlotCause(weekLayout([], monday, tz), now, drafted, 120)).toBe('budget')
+    // Short of both on Monday: the budget binds.
+    expect(noSlotCause(weekLayout(shortGapsMonday, monday, tz), now, drafted, 90)).toBe('budget')
+    // A day used up to its 2h, with free time still ahead, is short of study time too.
+    expect(noSlotCause(weekLayout([], monday, tz), now, [{ start: at(0, 9), end: at(0, 11) }], 60)).toBe('budget')
+    // One day with the budget (Monday, short gaps) is enough to blame the gaps.
+    expect(noSlotCause(weekLayout(shortGapsMonday, twoDays, tz), now, [{ start: at(1, 9), end: at(1, 10, 30) }], 90)).toBe('gaps')
   })
 
   it('leaves unnamed what neither explains: a day with a long enough gap and budget left', () => {

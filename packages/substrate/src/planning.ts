@@ -647,6 +647,33 @@ export function leftoverStudyTime(
 ): Leftover {
   if (unplaced.length === 0 || unplaced.some((u) => u.reason !== 'no-free-slot')) return NO_LEFTOVER
   const need = Math.min(...unplaced.map((u) => u.durationMin))
+  let gapMin = 0
+  let dayMin = 0
+  for (const d of roomByDay(layout, now, drafted)) {
+    if (d.budgetLeftMin < need) dayMin += d.leftMin
+    else if (d.longestGapMin < need) gapMin += d.leftMin
+  }
+  return { gapMin, dayMin }
+}
+
+/**
+ * Why a to-do of `durationMin` found no slot (`no-free-slot`) once `drafted`
+ * is in, by the same rule as `leftoverStudyTime`: `'budget'` when no day with
+ * free time ahead has that much of its study time left, else `'gaps'` (the
+ * days that have the study time have no gap that long, or no day has free
+ * time at all).
+ */
+export function noSlotCause(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>, durationMin: number): 'budget' | 'gaps' {
+  const days = roomByDay(layout, now, drafted)
+  return days.length > 0 && days.every((d) => d.budgetLeftMin < durationMin) ? 'budget' : 'gaps'
+}
+
+/**
+ * Each day with free time ahead once `drafted` is in: its study time left
+ * (as the headline counts it, possibly 0), the budget it has left, and its
+ * longest free gap, 10 minutes clear of study blocks.
+ */
+function roomByDay(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>) {
   const after: WeekLayout = { ...layout, busy: [...layout.busy, ...drafted] }
   const used = minutesByDay(after.busy, layout.timeZone)
   const open = subtract(layout.free, [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
@@ -654,15 +681,13 @@ export function leftoverStudyTime(
   for (const p of splitByLocalDay(open, layout.timeZone)) {
     longest.set(p.day, Math.max(longest.get(p.day) ?? 0, (p.end - p.start) / MINUTE_MS))
   }
-  let gapMin = 0
-  let dayMin = 0
-  for (const d of studyDays(after, now)) {
-    if (d.leftMin <= 0) continue
-    const budgetLeft = layout.budget.minutesPerDay - (used.get(d.day) ?? 0)
-    if (budgetLeft < need) dayMin += d.leftMin
-    else if ((longest.get(d.day) ?? 0) < need) gapMin += d.leftMin
-  }
-  return { gapMin, dayMin }
+  return studyDays(after, now)
+    .filter((d) => d.freeMin > 0)
+    .map((d) => ({
+      leftMin: d.leftMin,
+      budgetLeftMin: layout.budget.minutesPerDay - (used.get(d.day) ?? 0),
+      longestGapMin: longest.get(d.day) ?? 0,
+    }))
 }
 
 // ---------------------------------------------------------------------------

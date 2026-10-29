@@ -338,7 +338,8 @@ test('changing study time per day during a draft re-drafts it; a too-long to-do 
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 4h didn't fit.")
 
   await draft.getByRole('button', { name: 'Shrink to 1h' }).click()
-  await expect(draft.getByTestId('autofill-unplaced')).toContainText("Flashcards: organelles (1h) didn't fit: no free gap long enough.")
+  // Both open days already have their 1h: the study time, not a gap, is what's short.
+  await expect(draft.getByTestId('autofill-unplaced')).toContainText("Flashcards: organelles (1h) didn't fit: too little study time left on any day.")
   await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 2h of study time. 1h didn't fit.")
 
   // 3h a day: the offer is the new day length, not the 2h the advice said.
@@ -622,7 +623,6 @@ test('keyboard: focus moves into the panel, follows Hide, Show plan and Auto-fil
   await expect(page.getByTestId('help-me-plan')).toBeFocused()
 })
 
-/** Monday and Tuesday mornings free (2h a day); three 90-minute to-dos, so each day keeps a 30-minute piece. */
 /**
  * Every day: classes 10:30-12:00 and 13:30-22:00, so the free time is two
  * short gaps (09:00-10:20 and 12:10-13:20) with the whole 2h of study time
@@ -645,6 +645,9 @@ test('free time in gaps shorter than the to-dos, with study time to spare, is bl
   await expect(panel.getByTestId('autofill-summary')).toHaveText(
     "Nothing fits as it is. 3h didn't fit. The 14h of free time is in gaps too short for them.",
   )
+  // Each to-do's own line agrees.
+  await expect(panel.getByTestId('autofill-unplaced')).toContainText("Essay draft (1h 30m) didn't fit: no free gap long enough.")
+  await expect(panel.getByTestId('autofill-unplaced')).toContainText("Past paper (1h 30m) didn't fit: no free gap long enough.")
 })
 
 test('short gaps and a day with too little study time left are each named for what they are', async ({ mount, page, simulator }) => {
@@ -659,6 +662,7 @@ test('short gaps and a day with too little study time left are each named for wh
   )
 })
 
+/** Monday and Tuesday mornings free (2h a day); three 90-minute to-dos, so each day keeps a 30-minute piece. */
 function seedFragmentedWeek(simulator: BackendSimulator) {
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
     id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 2 ? 12 : 8), ends_at: iso(d, 22),
