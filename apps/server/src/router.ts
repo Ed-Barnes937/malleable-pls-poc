@@ -1,5 +1,6 @@
 import { router } from './trpc'
 import { recordingsRouter } from './routers/recordings'
+import { lecturesRouter } from './routers/lectures'
 import { transcriptsRouter } from './routers/transcripts'
 import { tagsRouter } from './routers/tags'
 import { annotationsRouter } from './routers/annotations'
@@ -15,6 +16,7 @@ import { planningRouter } from './routers/planning'
 import { preferencesRouter } from './routers/preferences'
 
 export const appRouter = router({
+  lectures: lecturesRouter,
   recordings: recordingsRouter,
   transcripts: transcriptsRouter,
   tags: tagsRouter,

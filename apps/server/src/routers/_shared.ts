@@ -23,12 +23,21 @@ export const boardScope = z.object({
 })
 
 /**
- * Targets that carry a course. The course is a `tags` row on the target whose
- * label is the course: lectures as `recording`, plan items as `plan_item`.
- * Anything else (segments, tags, confidence, links) inherits the course of
- * the recording it belongs to.
+ * Targets that carry a course. A lecture holds its course as a column
+ * (`lectures.course`) and a recording's course is its lecture's; a plan item
+ * carries its course as a `tags` row (`target_type = 'plan_item'`) whose
+ * label is the course. Anything else (segments, tags, confidence, links)
+ * inherits the course of the recording it belongs to.
  */
-export type CourseTarget = 'recording' | 'plan_item'
+export type CourseTarget = 'lecture' | 'recording' | 'plan_item'
+
+/** True for a course key the API accepts. */
+export function isCourse(course: string): boolean {
+  return COURSE_LABELS.includes(course)
+}
+
+/** A course key from COURSE_LABELS. */
+export const courseKey = z.string().max(100).refine(isCourse, { message: 'Unknown course' })
 
 type Fragment = ReturnType<TxSql['unsafe']>
 
@@ -48,9 +57,28 @@ export async function requireOwnBoard(tx: TxSql, userId: string, workspaceId: st
 }
 
 /**
+ * Checks that `lectureId` is one of the student's lectures before a write
+ * that names it, and holds it until the transaction ends. Throws NOT_FOUND
+ * otherwise, for the same reason as `requireOwnBoard`: foreign keys skip
+ * row-level security, so without it a recording or a board could point at
+ * another student's lecture.
+ */
+export async function requireOwnLecture(
+  tx: TxSql,
+  userId: string,
+  lectureId: string,
+): Promise<{ id: string; course: string | null }> {
+  const [lecture] = await tx`
+    SELECT id, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE
+  `
+  if (!lecture) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lecture not found' })
+  return { id: lecture.id as string, course: (lecture.course as string | null) ?? null }
+}
+
+/**
  * The one place board course scope is turned into SQL: an `EXISTS (...)`
  * predicate that is true when `target` (identified by the SQL expression
- * `targetId`, e.g. tx`ts.recording_id`) is tagged with `course`.
+ * `targetId`, e.g. tx`ts.recording_id`) is in `course`.
  */
 export function inCourse(
   tx: TxSql,
@@ -59,6 +87,27 @@ export function inCourse(
   target: CourseTarget,
   targetId: Fragment,
 ): Fragment {
+  if (target === 'lecture') {
+    return tx`
+      EXISTS (
+        SELECT 1 FROM lectures course_lecture
+        WHERE course_lecture.user_id = ${userId}
+          AND course_lecture.id = ${targetId}
+          AND course_lecture.course = ${course}
+      )
+    `
+  }
+  if (target === 'recording') {
+    return tx`
+      EXISTS (
+        SELECT 1 FROM recordings course_recording
+        JOIN lectures course_lecture ON course_lecture.id = course_recording.lecture_id
+        WHERE course_lecture.user_id = ${userId}
+          AND course_recording.id = ${targetId}
+          AND course_lecture.course = ${course}
+      )
+    `
+  }
   return tx`
     EXISTS (
       SELECT 1 FROM tags course_tag
@@ -89,15 +138,14 @@ export function andInCourse(
 }
 
 /**
- * A lecture's course as a column (`... AS course`): its first course tag,
- * or NULL when it is filed under none. `recordingId` is the SQL expression
+ * A recording's course as a column (`... AS course`): its lecture's course,
+ * or NULL when that is filed under none. `recordingId` is the SQL expression
  * for the recording's id, e.g. tx`r.id`.
  */
 export function recordingCourse(tx: TxSql, recordingId: Fragment): Fragment {
   return tx`(
-    SELECT t.label FROM tags t
-    WHERE t.target_type = 'recording' AND t.target_id = ${recordingId}
-      AND t.label IN ${tx(COURSE_LABELS)}
-    ORDER BY t.created_at, t.id LIMIT 1
+    SELECT l.course FROM recordings lr
+    JOIN lectures l ON l.id = lr.lecture_id
+    WHERE lr.id = ${recordingId}
   )`
 }

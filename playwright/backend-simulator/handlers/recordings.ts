@@ -10,7 +10,8 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
     const tag = db.tags
       .filter((t) => t.target_type === 'recording' && t.target_id === r.id && COURSE_LABELS.has(t.label))
       .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]
-    return { ...r, course: tag?.label ?? null }
+    // One lecture per recording, as the server's lectures migration backfills them.
+    return { ...r, lecture_id: `lec-${r.id}`, course: tag?.label ?? null }
   }
 
   router.register('recordings.list', (input) => {

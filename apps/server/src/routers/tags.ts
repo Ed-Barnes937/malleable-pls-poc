@@ -1,9 +1,10 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { boardIdInput } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
-import { boardScope, andInCourse } from './_shared'
+import { boardScope, andInCourse, isCourse } from './_shared'
 
 export const tagsRouter = router({
   list: publicProcedure
@@ -53,6 +54,10 @@ export const tagsRouter = router({
       workspaceId: boardIdInput,
     }))
     .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
+      // A recording's course is its lecture's (lectures.update), never a tag.
+      if (input.target_type === 'recording' && isCourse(input.label)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: "A recording's course is its lecture's: set it on the lecture" })
+      }
       return withUser(ctx.userId, async (tx) => {
         const [tag] = await tx`
           INSERT INTO tags (user_id, target_type, target_id, label)

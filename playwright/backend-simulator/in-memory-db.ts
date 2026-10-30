@@ -15,8 +15,11 @@ import type {
 /** A plan item as stored: course is derived from `tags`, as on the server. */
 export type StoredPlanItem = Omit<PlanItem, 'course'>
 
-/** A lecture as stored: course is derived from `tags` ('recording' tags), as on the server. */
-export type StoredRecording = Omit<Recording, 'course' | 'processing'>
+/**
+ * A recording as stored. Course is still derived from 'recording' tags here
+ * (the server moved it to `lectures.course`); lecture_id is derived.
+ */
+export type StoredRecording = Omit<Recording, 'course' | 'processing' | 'lecture_id'>
 
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {
