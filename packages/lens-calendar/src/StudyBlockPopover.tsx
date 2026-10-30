@@ -92,7 +92,7 @@ export function StudyBlockPopover({
   const recordingId = row.source_id ?? ''
   const offsetMs = row.source_offset_ms ?? 0
   const { data: recording } = substrate.useRecording(recordingId)
-  const { data: segments } = substrate.useTranscript(recordingId)
+  const { data: segments, isLoading: quoteLoading } = substrate.useTranscript(recordingId)
   const { data: tags } = substrate.useTags({ recordingId })
   const { data: automation } = substrate.useAutomation(row.created_by_workflow_id ?? '')
 
@@ -165,7 +165,7 @@ export function StudyBlockPopover({
         {done && <span className="inline-flex items-center gap-1 font-semibold text-good"><Check className="h-3.5 w-3.5" />Done</span>}
       </div>
 
-      {segment && (
+      {(segment || quoteLoading) && (
         <figure
           data-testid="calendar-moment-quote"
           className={cn('flex flex-col gap-1 rounded-item border-l-4 px-3 py-2.5', tone.soft, markStyle?.line ?? tone.stripeBorder)}
@@ -176,11 +176,11 @@ export function StudyBlockPopover({
               {MARK_WORDS[mark]}
             </figcaption>
           )}
-          <blockquote className="line-clamp-3 text-body text-text-primary">"{segment.text}"</blockquote>
+          <blockquote className={cn('line-clamp-3 text-body text-text-primary', !segment && 'min-h-[3lh]')}>{segment ? `"${segment.text}"` : null}</blockquote>
         </figure>
       )}
 
-      <div data-testid="calendar-moment" className="flex flex-col gap-1.5">
+      <div data-testid="calendar-moment" data-popover-anchor={canEdit ? undefined : ''} className="flex flex-col gap-1.5">
         {canShowMoment && moment !== 'nowhere' && (
           <button
             type="button"
@@ -204,7 +204,7 @@ export function StudyBlockPopover({
       </div>
 
       {canEdit && (
-        <div className="grid grid-cols-2 gap-2">
+        <div data-popover-anchor className="grid grid-cols-2 gap-2">
           {onToggleDone && (
             <button
               type="button"
