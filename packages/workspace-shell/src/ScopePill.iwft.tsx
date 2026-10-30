@@ -55,11 +55,16 @@ test.describe('a change per arrow press (a closed select on Windows and Linux)',
     await arrowTo(page, 'c')
     await expect(text).toHaveText('A very long option label that cannot fit in a narrow pill')
     await expect(page.getByTestId('pill')).toHaveAttribute('data-draft', 'true')
+    // A draft reads differently from a saved choice: italic, with a dashed outline.
+    await expect(page.getByTestId('pill')).toHaveCSS('font-style', 'italic')
+    await expect(page.getByTestId('pill')).toHaveCSS('outline-style', 'dashed')
     await expect(page.getByTestId('changes')).toHaveText('')
 
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('changes')).toHaveText('c')
     await expect(page.getByTestId('pill')).not.toHaveAttribute('data-draft')
+    await expect(page.getByTestId('pill')).toHaveCSS('font-style', 'normal')
+    await expect(page.getByTestId('pill')).toHaveCSS('outline-style', 'none')
     // Enter again changes nothing more.
     await page.keyboard.press('Enter')
     await select.blur()

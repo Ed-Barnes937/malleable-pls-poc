@@ -71,7 +71,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
   return (
     <header
       data-testid="top-bar"
-      className="flex shrink-0 items-center gap-3.5 border-b border-border-subtle px-5 py-2.5 sm:min-h-16"
+      className="flex shrink-0 items-center gap-3.5 border-b border-border-subtle px-4 py-2.5 md:px-5 sm:min-h-16"
       style={{
         background: 'var(--color-surface-raised)',
         transition: 'var(--transition-panel)',
@@ -82,7 +82,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       {menuButton}
 
       {/* Board tabs */}
-      <div data-testid="board-tabs" className="min-w-0">{tabs}</div>
+      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}

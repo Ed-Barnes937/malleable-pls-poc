@@ -78,6 +78,8 @@ export const ScopePill = forwardRef<HTMLSelectElement, ScopePillProps>(function 
         // WebKit) makes the pill wider than its box.
         'relative inline-flex h-10 min-w-0 items-center gap-1.5 overflow-hidden rounded-full bg-surface-overlay pr-2.5 pl-3 text-body font-semibold text-text-primary transition-colors hover:bg-border-subtle sm:h-9',
         'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-accent',
+        // A key-driven draft: shown, not yet saved (Enter or leaving the pill saves it).
+        'data-[draft]:italic data-[draft]:outline-1 data-[draft]:-outline-offset-1 data-[draft]:outline-dashed data-[draft]:outline-accent',
         className,
       )}
     >

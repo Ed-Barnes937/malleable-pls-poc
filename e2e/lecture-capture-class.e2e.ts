@@ -90,9 +90,8 @@ test.describe('Record makes its lecture as it starts', () => {
     await expect(transcript.getByTestId('recording-live')).toHaveCount(0)
 
     // The audio is in the class lecture, the only one made; the board still shows it.
-    const after = await trpcQuery<Lecture>(request, 'lectures.byId', lectureId)
-    expect(after.recordings).toHaveLength(1)
-    expect((await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'physics' })).filter((l) => l.class_item_id === physicsClass.id)).toHaveLength(1)
+    await expect.poll(async () => (await trpcQuery<Lecture>(request, 'lectures.byId', lectureId)).recordings).toHaveLength(1)
+    await expect.poll(async () => (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'physics' })).filter((l) => l.class_item_id === physicsClass.id)).toHaveLength(1)
     await topBar.expectScope('Physics', lecture.title)
     expect(scopeWrites).toEqual([])
 
@@ -118,6 +117,7 @@ test.describe('Record makes its lecture as it starts', () => {
 
     await audio.getByRole('button', { name: 'Start recording' }).click()
     await expect(transcript.getByTestId('recording-live')).toHaveText('Recording...', { timeout: 10000 })
+    await expect.poll(async () => (await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', ws)).some((s) => s.scope_type === 'lecture')).toBe(true)
     const scopes = await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', ws)
     const lecture = await trpcQuery<Lecture>(request, 'lectures.byId', scopes.find((s) => s.scope_type === 'lecture')!.scope_value)
     expect(lecture).toMatchObject({ course: 'chemistry', class_item_id: null })

@@ -85,7 +85,7 @@ test.describe('A board selects a lecture', () => {
       const parts = transcript.getByRole('group', { name: 'Lecture parts' }).getByRole('button')
       await expect(parts).toHaveText(['Part 1', 'Part 2'], { timeout: 10000 })
       await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
-      expect((await trpcQuery<Lecture[]>(request, 'lectures.list', {})).filter((l) => l.title === 'Enzymes')).toHaveLength(1)
+      await expect.poll(async () => (await trpcQuery<Lecture[]>(request, 'lectures.list', {})).filter((l) => l.title === 'Enzymes')).toHaveLength(1)
 
       // New lecture: the board has no lecture; the course stays.
       await audio.getByRole('button', { name: 'New lecture' }).click()
@@ -119,8 +119,9 @@ test.describe('A board selects a lecture', () => {
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       await expect(transcript.getByText(/\d+ segments/)).toBeVisible({ timeout: 20000 })
 
-      const made = (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).filter((l) => !before.includes(l.id))
-      expect(made).toHaveLength(1)
+      const madeNow = async () => (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).filter((l) => !before.includes(l.id))
+      await expect.poll(async () => (await madeNow()).length).toBe(1)
+      const made = await madeNow()
       await topBar.expectScope('Chemistry', made[0].title)
       await expect(topBar.lectureSelect).toHaveValue(made[0].id)
     })
@@ -190,7 +191,7 @@ test.describe('A board selects a lecture', () => {
     await topBar.expectScope('Chemistry', 'Chemistry Lecture: Organic Reactions', { timeout: 10000 })
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('SN1 is a two-step mechanism', { timeout: 10000 })
-    expect(await trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
       expect.objectContaining({ scope_type: 'lecture', scope_value: 'lec-rec-chem-1' }),
       expect.objectContaining({ scope_type: 'tag', scope_value: 'chemistry' }),
     ])

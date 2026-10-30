@@ -162,8 +162,10 @@ test.describe('Header scope pickers', () => {
         [activity.x + activity.width / 2, activity.y + activity.height / 2])
       expect(hit).toBe('activity-button')
 
-      // The lecture title is cut short rather than pushing anything out, and still readable.
-      expect(lecture.width).toBeGreaterThanOrEqual(96)
+      // The lecture title is cut short rather than pushing anything out, and still readable;
+      // the tabs keep a floor (7rem) so the active board's name stays readable.
+      expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 96)
+      expect(tabs.width).toBeGreaterThanOrEqual(112)
       // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
       expect(right(lastButton)).toBeLessThanOrEqual(width)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
