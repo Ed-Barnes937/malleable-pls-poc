@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
+import { ensureDefaultAutomations } from './workflows/defaults'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -176,6 +177,8 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const audioUrl = `/uploads/${filename}`
 
     await withUser(userId, async (tx) => {
+      // An account's first upload may come before anything else it has sent.
+      await ensureDefaultAutomations(tx, userId)
       await tx`
         INSERT INTO recordings (id, user_id, title, duration, audio_url, status)
         VALUES (${recordingId}, ${userId}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
