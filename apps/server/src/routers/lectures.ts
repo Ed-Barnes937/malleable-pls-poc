@@ -4,7 +4,7 @@ import { DEFAULT_REVIEW_TIME_ZONE, defaultLectureTitle, timeZoneInput, type Lect
 import { router, publicProcedure } from '../trpc'
 import { getPreferences, placementTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, requireOwnBoard, requireOwnLecture } from './_shared'
-import { writeBoardScope } from './_board-scope'
+import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
 
 const lectureId = z.string().max(255)
 const lectureTitle = z.string().trim().min(1).max(500)
@@ -116,7 +116,13 @@ export const lecturesRouter = router({
             WHERE scope_type = 'lecture' AND scope_value = ${input.id} AND user_id = ${ctx.userId}
           `
           for (const board of boards) {
-            await writeBoardScope(tx, ctx.userId, board.workspace_id as string, { lectureId: input.id })
+            const workspaceId = board.workspace_id as string
+            // Under the board's scope lock, only if it still has the lecture
+            // selected: a scope write since the select above may have
+            // cleared it, and that must not bring it back.
+            await lockBoardScope(tx, ctx.userId, workspaceId)
+            if ((await readBoardScope(tx, ctx.userId, workspaceId)).lectureId !== input.id) continue
+            await writeBoardScope(tx, ctx.userId, workspaceId, { lectureId: input.id })
           }
         }
         return (await lectureById(tx, ctx.userId, input.id))!

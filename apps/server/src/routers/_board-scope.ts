@@ -26,7 +26,30 @@ export async function readBoardScope(tx: TxSql, userId: string, workspaceId: str
   return { courseTag: value(SCOPE_TYPE.courseTag), lectureId: value(SCOPE_TYPE.lectureId) }
 }
 
-/** Replaces the board's row of one scope type with `value` (none when null). */
+/**
+ * Takes the board's scope write lock until the transaction ends, so
+ * concurrent scope writes to one board run one after another and each reads
+ * the scope the previous one left. Every write to a board's
+ * `workspace_scopes` takes it first. Throws NOT_FOUND unless the board is
+ * the student's own.
+ *
+ * FOR NO KEY UPDATE rather than FOR UPDATE: it conflicts with itself but
+ * not with the FOR KEY SHARE that `requireOwnBoard` and foreign key checks
+ * take, so two transactions that already hold that can both queue for this
+ * one without deadlocking.
+ */
+export async function lockBoardScope(tx: TxSql, userId: string, workspaceId: string): Promise<void> {
+  const [board] = await tx`
+    SELECT id FROM workspaces WHERE id = ${workspaceId} AND user_id = ${userId} FOR NO KEY UPDATE
+  `
+  if (!board) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
+}
+
+/**
+ * Sets the board's row of one scope type to `value` (removes it when null).
+ * A board has at most one row per type (`uq_workspace_scopes_dimension`).
+ * The caller holds `lockBoardScope`.
+ */
 export async function replaceScopeRow(
   tx: TxSql,
   userId: string,
@@ -34,14 +57,17 @@ export async function replaceScopeRow(
   scopeType: string,
   value: string | null,
 ): Promise<void> {
-  await tx`
-    DELETE FROM workspace_scopes
-    WHERE workspace_id = ${workspaceId} AND scope_type = ${scopeType} AND user_id = ${userId}
-  `
-  if (value === null) return
+  if (value === null) {
+    await tx`
+      DELETE FROM workspace_scopes
+      WHERE workspace_id = ${workspaceId} AND scope_type = ${scopeType} AND user_id = ${userId}
+    `
+    return
+  }
   await tx`
     INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
     VALUES (${userId}, ${workspaceId}, ${scopeType}, ${value})
+    ON CONFLICT (workspace_id, scope_type) DO UPDATE SET scope_value = EXCLUDED.scope_value
   `
 }
 
@@ -57,9 +83,10 @@ export async function replaceScopeRow(
  *   "All courses" clearing a lecture that has a course (I1 would otherwise
  *   force the course straight back).
  *
- * The caller has already checked the board is the student's own
- * (`requireOwnBoard`); the lecture is checked here (`requireOwnLecture`).
- * Returns the board's scope after the write.
+ * Takes the board's scope lock (`lockBoardScope`, which also checks the
+ * board is the student's own) before it reads the current scope, and checks
+ * the lecture (`requireOwnLecture`). Returns the board's scope after the
+ * write.
  */
 export async function writeBoardScope(
   tx: TxSql,
@@ -67,6 +94,7 @@ export async function writeBoardScope(
   workspaceId: string,
   patch: BoardScopePatch,
 ): Promise<BoardScope> {
+  await lockBoardScope(tx, userId, workspaceId)
   const current = await readBoardScope(tx, userId, workspaceId)
   let courseTag = patch.courseTag === undefined ? current.courseTag : patch.courseTag
   let lectureId = patch.lectureId === undefined ? current.lectureId : patch.lectureId

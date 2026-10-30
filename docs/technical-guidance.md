@@ -103,6 +103,8 @@ workspace_scopes
   -- course, and a course change clears a lecture outside it. (Until the
   -- client moves to lectures, the deprecated setScope keeps the old
   -- recording-focus behaviour over 'lecture' rows.)
+  -- At most one row per (workspace_id, scope_type), enforced by a unique
+  -- index; writers upsert under the board's scope lock (lockBoardScope).
   -- Scope is the user's primary dial. Changing scope is frequent and low-friction.
   -- A workspace with no scope rows sees all data (widest aperture).
 ```

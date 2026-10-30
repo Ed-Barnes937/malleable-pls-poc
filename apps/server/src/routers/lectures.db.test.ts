@@ -5,15 +5,15 @@
  * migrated database, e.g.
  *
  *   TEST_DATABASE_URL=postgres://pls:pls@localhost:5433/malleable_pls_t4 pnpm test lectures.db
+ *
+ * The lectures migration itself is tested in lectures-migration.db.test.ts,
+ * on a database of its own.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
-const MIGRATION = readFileSync(resolve(__dirname, '../../../../packages/db/src/migrations/017_lectures.sql'), 'utf-8')
 
 describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   let db: typeof import('@pls/db')
@@ -64,6 +64,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
     // Scopes cascade with their board, recordings with their lecture.
     await db.sql`DELETE FROM workspaces WHERE user_id = ANY(${[alice, bob]})`
     await db.sql`DELETE FROM lectures WHERE user_id = ANY(${[alice, bob]})`
+    await db.sql`DELETE FROM tags WHERE user_id = ANY(${[alice, bob]})`
     await db.sql.end()
   })
 
@@ -124,6 +125,56 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       const ws = await board()
       await expect(api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'astrology' })).rejects.toEqual(badRequest)
     })
+
+    it('concurrent scope writes to one board leave one row per dimension and keep the rule', async () => {
+      const physics = await api().lectures.create({ course: 'physics', title: 'Race' })
+      for (let round = 0; round < 10; round++) {
+        const ws = await board('biology')
+        await Promise.all([
+          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio }),
+          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem }),
+          api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'chemistry' }),
+          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled }),
+          api().lectures.create({ course: 'chemistry', title: `Race ${round}`, workspaceId: ws }),
+          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: physics.id }),
+          api().lectures.update({ id: physics.id, course: round % 2 ? 'physics' : 'chemistry' }),
+        ])
+        const rows = await storedScope(ws)
+        const types = rows.map(([type]) => type)
+        expect(types).toEqual([...new Set(types)])
+        const lectureId = rows.find(([type]) => type === 'lecture')?.[1] ?? null
+        const course = rows.find(([type]) => type === 'tag')?.[1] ?? null
+        if (lectureId) expect(course).toBe((await api().lectures.byId(lectureId))!.course)
+      }
+    })
+
+    it('concurrent writes through the old setScope never duplicate a row either', async () => {
+      for (let round = 0; round < 10; round++) {
+        const ws = await board()
+        await Promise.all([
+          api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: bioRec }),
+          api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: chemRec }),
+          api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: 'chemistry' }),
+          api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: 'biology' }),
+          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled }),
+        ])
+        const types = (await storedScope(ws)).map(([type]) => type)
+        expect(types).toEqual([...new Set(types)])
+      }
+    })
+
+    it('the database refuses a second row of one dimension', async () => {
+      const ws = await board('biology')
+      await expect(db.sql`
+        INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value) VALUES (${alice}, ${ws}, 'tag', 'physics')
+      `).rejects.toThrow(/uq_workspace_scopes_dimension/)
+    })
+  })
+
+  it('a course is not a tag on a recording: tags.create refuses one', async () => {
+    await expect(api().tags.create({ target_type: 'recording', target_id: bioRec, label: 'chemistry' })).rejects.toEqual(badRequest)
+    await api().tags.create({ target_type: 'recording', target_id: bioRec, label: 'favourite' })
+    expect(await api().lectures.byId(bio)).toMatchObject({ course: 'biology' })
   })
 
   describe('the recording focus shim (current client)', () => {
@@ -243,69 +294,5 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
     const { lectureId } = await db.withUser(alice, (tx) => insertRecording(tx, { id: gone, userId: alice, title: 'Gone' }))
     await db.withUser(alice, (tx) => tx`DELETE FROM lectures WHERE id = ${lectureId}`)
     expect(await api().recordings.byId(gone)).toBeNull()
-  })
-
-  describe('migration 017', () => {
-    /** Runs `body` in a transaction that is always rolled back. */
-    async function rolledBack(body: (tx: import('@pls/db').TxSql) => Promise<void>) {
-      const rollback = new Error('rollback')
-      await expect(db.sql.begin(async (tx) => {
-        await body(tx as unknown as import('@pls/db').TxSql)
-        throw rollback
-      })).rejects.toBe(rollback)
-    }
-
-    it('gives each pre-017 recording a lecture with its course, drops the course tags and moves board focus to the lecture', async () => {
-      const carol = `test-carol-${randomUUID().slice(0, 8)}`
-      await rolledBack(async (tx) => {
-        // Data as it was before 017: no lecture, course as a 'recording' tag.
-        await tx.unsafe('ALTER TABLE recordings ALTER COLUMN lecture_id DROP NOT NULL')
-        await tx`
-          INSERT INTO recordings (id, user_id, title, created_at) VALUES
-            ('rec-a', ${carol}, 'Cells', '2026-04-01T10:00:00Z'),
-            ('rec-b', ${carol}, 'Untagged', '2026-04-02T10:00:00Z'),
-            ('rec-c', ${carol}, '', '2026-04-03T10:00:00Z')
-        `
-        await tx`
-          INSERT INTO tags (id, user_id, target_type, target_id, label, created_at) VALUES
-            ('t-fav', ${carol}, 'recording', 'rec-a', 'favourite', '2026-04-01T09:00:00Z'),
-            ('t-chem', ${carol}, 'recording', 'rec-a', 'chemistry', '2026-04-01T10:00:01Z'),
-            ('t-bio', ${carol}, 'recording', 'rec-a', 'biology', '2026-04-01T10:00:02Z')
-        `
-        const [ws] = await tx`INSERT INTO workspaces (user_id, name) VALUES (${carol}, 'Board') RETURNING id`
-        await tx`
-          INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value) VALUES
-            (${carol}, ${ws.id}, 'tag', 'biology'),
-            (${carol}, ${ws.id}, 'recording', 'rec-a')
-        `
-        const [ws2] = await tx`INSERT INTO workspaces (user_id, name) VALUES (${carol}, 'Stale') RETURNING id`
-        await tx`INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value) VALUES (${carol}, ${ws2.id}, 'recording', 'rec-deleted')`
-
-        await tx.unsafe(MIGRATION)
-        // Idempotent: e2e/reseed.ts runs it again on a migrated database.
-        await tx.unsafe(MIGRATION)
-
-        const lectures = await tx`SELECT id, title, course, starts_at FROM lectures WHERE user_id = ${carol} ORDER BY id`
-        expect(lectures.map((l) => [l.id, l.title, l.course, (l.starts_at as Date).toISOString()])).toEqual([
-          // The first course tag wins, as recordingCourse did.
-          ['lec-rec-a', 'Cells', 'chemistry', '2026-04-01T10:00:00.000Z'],
-          ['lec-rec-b', 'Untagged', null, '2026-04-02T10:00:00.000Z'],
-          ['lec-rec-c', 'Untitled lecture', null, '2026-04-03T10:00:00.000Z'],
-        ])
-        const recordings = await tx`SELECT id, lecture_id FROM recordings WHERE user_id = ${carol} ORDER BY id`
-        expect(recordings.map((r) => [r.id, r.lecture_id])).toEqual([['rec-a', 'lec-rec-a'], ['rec-b', 'lec-rec-b'], ['rec-c', 'lec-rec-c']])
-        const tags = await tx`SELECT label FROM tags WHERE user_id = ${carol}`
-        expect(tags.map((t) => t.label)).toEqual(['favourite'])
-        const scopes = await tx`SELECT workspace_id, scope_type, scope_value FROM workspace_scopes WHERE user_id = ${carol} ORDER BY scope_type`
-        expect(scopes.map((s) => [s.workspace_id, s.scope_type, s.scope_value])).toEqual([
-          [ws.id, 'lecture', 'lec-rec-a'],
-          [ws.id, 'tag', 'biology'],
-        ])
-        const [{ is_nullable }] = await tx`
-          SELECT is_nullable FROM information_schema.columns WHERE table_name = 'recordings' AND column_name = 'lecture_id'
-        `
-        expect(is_nullable).toBe('NO')
-      })
-    })
   })
 })

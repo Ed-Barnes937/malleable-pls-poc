@@ -12,10 +12,15 @@
 -- 4. Board focus rows ('recording' = a recording id) become 'lecture' rows
 --    naming that recording's lecture. A focus on a recording that no longer
 --    exists is dropped.
--- 5. Every recording now has a lecture: lecture_id NOT NULL.
+-- 5. A board has at most one row per scope dimension: duplicates are
+--    dropped and a unique index keeps it so (writers upsert).
+-- 6. Boards that break the strict rule (a selected lecture means the board
+--    course is that lecture's course) are fixed in place: the board course
+--    becomes the lecture's, or "All courses" when it has none.
+-- 7. Every recording now has a lecture: lecture_id NOT NULL.
 --
--- Idempotent: e2e/reseed.ts re-runs it after the SQL seeds, which insert
--- recordings, course tags and focus rows the old way.
+-- Idempotent (safe to re-run). e2e/reseed.ts does not run it: the seeds
+-- write lectures themselves.
 
 CREATE TABLE IF NOT EXISTS lectures (
   id            TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
@@ -78,7 +83,22 @@ ON CONFLICT (id) DO NOTHING;
 
 UPDATE recordings SET lecture_id = 'lec-' || id WHERE lecture_id IS NULL;
 
--- 3. The course lives on the lecture now.
+-- 3. The course lives on the lecture now. A recording with two course tags
+-- keeps only the first as its lecture's course; say how many were dropped.
+DO $$
+DECLARE dropped integer;
+BEGIN
+  SELECT count(DISTINCT (t.target_id, t.label)) INTO dropped
+  FROM tags t
+  JOIN recordings r ON r.id = t.target_id AND r.user_id = t.user_id
+  JOIN lectures l ON l.id = r.lecture_id
+  WHERE t.target_type = 'recording' AND t.label IN ('biology', 'chemistry', 'physics')
+    AND t.label IS DISTINCT FROM l.course;
+  IF dropped > 0 THEN
+    RAISE NOTICE 'lectures migration: dropped % course tag(s) on recordings that disagreed with the first course tag, now the lecture''s course', dropped;
+  END IF;
+END $$;
+
 DELETE FROM tags
 WHERE target_type = 'recording' AND label IN ('biology', 'chemistry', 'physics');
 
@@ -90,5 +110,33 @@ WHERE ws.scope_type = 'recording' AND r.id = ws.scope_value AND r.user_id = ws.u
 
 DELETE FROM workspace_scopes WHERE scope_type = 'recording';
 
--- 5.
+-- A focus on a lecture that no longer exists is dropped too.
+DELETE FROM workspace_scopes ws
+WHERE ws.scope_type = 'lecture'
+  AND NOT EXISTS (SELECT 1 FROM lectures l WHERE l.id = ws.scope_value AND l.user_id = ws.user_id);
+
+-- 5. One row per board and dimension: keep the lowest id of any duplicates
+-- (e.g. two focus rows that both became 'lecture' rows above).
+DELETE FROM workspace_scopes ws
+USING workspace_scopes keep
+WHERE keep.workspace_id = ws.workspace_id AND keep.scope_type = ws.scope_type AND keep.id < ws.id;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_workspace_scopes_dimension
+  ON workspace_scopes(workspace_id, scope_type);
+
+-- 6. The strict rule at rest: a board's course is its lecture's course.
+INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
+SELECT ws.user_id, ws.workspace_id, 'tag', l.course
+FROM workspace_scopes ws
+JOIN lectures l ON l.id = ws.scope_value AND l.user_id = ws.user_id
+WHERE ws.scope_type = 'lecture' AND l.course IS NOT NULL
+ON CONFLICT (workspace_id, scope_type) DO UPDATE SET scope_value = EXCLUDED.scope_value;
+
+DELETE FROM workspace_scopes course
+USING workspace_scopes ws, lectures l
+WHERE course.scope_type = 'tag'
+  AND ws.workspace_id = course.workspace_id AND ws.scope_type = 'lecture'
+  AND l.id = ws.scope_value AND l.user_id = ws.user_id AND l.course IS NULL;
+
+-- 7.
 ALTER TABLE recordings ALTER COLUMN lecture_id SET NOT NULL;

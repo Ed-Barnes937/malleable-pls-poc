@@ -5,7 +5,7 @@ import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { BoardScope } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
-import { replaceScopeRow, writeBoardScope } from './_board-scope'
+import { lockBoardScope, replaceScopeRow, writeBoardScope } from './_board-scope'
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -40,12 +40,8 @@ export const workspacesRouter = router({
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
-        if (input.courseTag) {
-          await tx`
-            INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
-            VALUES (${ctx.userId}, ${ws.id}, 'tag', ${input.courseTag})
-          `
-        }
+        // A board no other transaction can see yet, so no scope lock.
+        if (input.courseTag) await replaceScopeRow(tx, ctx.userId, ws.id as string, 'tag', input.courseTag)
         return ws
       })
     }),
@@ -225,7 +221,6 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {
       return withUser(ctx.userId, async (tx) => {
-        await requireOwnBoard(tx, ctx.userId, workspaceId)
         return writeBoardScope(tx, ctx.userId, workspaceId, patch)
       })
     }),
@@ -247,7 +242,7 @@ export const workspacesRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        await requireOwnBoard(tx, ctx.userId, input.workspaceId)
+        await lockBoardScope(tx, ctx.userId, input.workspaceId)
         if (input.scopeType === 'tag') {
           if (input.scopeValue === null) {
             await replaceScopeRow(tx, ctx.userId, input.workspaceId, 'tag', null)

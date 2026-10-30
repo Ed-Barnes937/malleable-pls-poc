@@ -10,6 +10,7 @@ import { resolve } from 'path'
 import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
+import { SEED_LECTURES, withoutSeedRecordings } from './seed-lectures'
 
 const DATABASE_URL = resolveDatabaseUrl()
 
@@ -43,33 +44,31 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
   const sql = pg.default(DATABASE_URL, { max: 1 })
 
   try {
-    // One transaction: the server never sees a half-seeded student, nor
-    // recordings without a lecture (see 017 below).
+    // One transaction: the server never sees a half-seeded student. Data
+    // only (no DDL), so it takes no table locks the running server waits on.
     await sql.begin(async (tx: Sql) => {
       for (const table of TABLES) {
         await tx.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
       }
-      // 002 inserts recordings the pre-017 way (no lecture, course as a
-      // tag); 017 gives each its lecture and restores NOT NULL before the
-      // transaction ends.
-      await tx.unsafe('ALTER TABLE recordings ALTER COLUMN lecture_id DROP NOT NULL')
-      // Re-running 017 says "already exists, skipping" for each IF NOT EXISTS.
-      await tx.unsafe('SET LOCAL client_min_messages = warning')
+      // The seeded lectures and their recordings first: 002 inserts its
+      // recordings the old way (no lecture), so reseed writes them itself.
+      await insertSeedLectures(tx)
 
       // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
       // columns), since 006 replaced the grid columns 002 originally used;
       // 010 moves the seeded recording focus from panel config to the
       // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
       // 013 swaps the stub automations for the lecture AI ones; 014 resizes
-      // the seeded panels for the redesigned widget chrome; 017 files each
-      // seeded recording under its own lecture ('lec-' || recording id).
-      for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql', '017_lectures.sql']) {
-        const seedSql = readFileSync(
+      // the seeded panels for the redesigned widget chrome.
+      for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql']) {
+        let seedSql = readFileSync(
           resolve(__dirname, `../packages/db/src/migrations/${file}`),
           'utf-8',
         )
+        if (file === '002_seed.sql') seedSql = withoutSeedRecordings(seedSql)
         await tx.unsafe(seedSql)
       }
+      await fileSeedsUnderLectures(tx)
 
       await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
     })
@@ -81,6 +80,53 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
 // `postgres` is resolved at runtime from @pls/db (see above), so its types
 // are not visible here.
 type Sql = any
+
+/** Inserts SEED_LECTURES for dev-user-1, each with its recording. */
+async function insertSeedLectures(sql: Sql) {
+  for (const { id, title, course, startsAt, recording } of SEED_LECTURES) {
+    await sql`
+      INSERT INTO lectures (id, user_id, title, course, starts_at, created_at, updated_at)
+      VALUES (${id}, 'dev-user-1', ${title}, ${course}, ${startsAt}, ${startsAt}, ${startsAt})
+    `
+    await sql`
+      INSERT INTO recordings (id, user_id, lecture_id, title, created_at, duration, audio_url, status)
+      VALUES (${recording.id}, 'dev-user-1', ${id}, ${title}, ${startsAt}, ${recording.durationMs}, NULL, 'ready')
+    `
+  }
+}
+
+/**
+ * Brings what the older SQL seeds write into the lectures model, as the
+ * lectures migration does for real data: no course tags on recordings (the
+ * lecture holds the course), and each seeded board focus (010, a
+ * 'recording' row) becomes that recording's lecture, with the board course
+ * set to the lecture's.
+ */
+async function fileSeedsUnderLectures(sql: Sql) {
+  await sql`
+    DELETE FROM tags
+    WHERE user_id = 'dev-user-1' AND target_type = 'recording' AND label IN ('biology', 'chemistry', 'physics')
+  `
+  const focus = await sql`
+    DELETE FROM workspace_scopes ws
+    USING recordings r JOIN lectures l ON l.id = r.lecture_id
+    WHERE ws.user_id = 'dev-user-1' AND ws.scope_type = 'recording' AND r.id = ws.scope_value AND r.user_id = ws.user_id
+    RETURNING ws.workspace_id, l.id AS lecture_id, l.course
+  `
+  for (const { workspace_id, lecture_id, course } of focus) {
+    const rows: [string, string | null][] = [['lecture', lecture_id], ['tag', course]]
+    for (const [scopeType, value] of rows) {
+      await sql`DELETE FROM workspace_scopes WHERE workspace_id = ${workspace_id} AND scope_type = ${scopeType}`
+      if (value === null) continue
+      await sql`
+        INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
+        VALUES ('dev-user-1', ${workspace_id}, ${scopeType}, ${value})
+      `
+    }
+  }
+  const [{ remaining }] = await sql`SELECT count(*)::int AS remaining FROM workspace_scopes WHERE user_id = 'dev-user-1' AND scope_type = 'recording'`
+  if (remaining > 0) throw new Error(`Reseed left ${remaining} board focus row(s) on a recording`)
+}
 
 /** Inserts plan items for dev-user-1 with their course as a 'plan_item' tag, as the server stores them. */
 export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
