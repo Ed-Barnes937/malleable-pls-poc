@@ -30,6 +30,7 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
+import { registerResourcesHandlers } from './handlers/resources'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -49,6 +50,7 @@ function makeRouter(): ProcedureRouter {
   registerWorkflowsHandlers(router, db)
   registerPlanItemsHandlers(router, db)
   registerPreferencesHandlers(router, db)
+  registerResourcesHandlers(router, db)
   return router
 }
 
@@ -496,6 +498,49 @@ describe('simulator parity - which automation made a plan item', () => {
     await call('workflows.delete', { workflowId: 'wf-confused-review' })
     expect(await call('workflows.byId', 'wf-confused-review')).toBeNull()
     expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
+  })
+})
+
+describe('simulator parity - resources behave like the server router', () => {
+  let router: ProcedureRouter
+  beforeEach(() => {
+    router = makeRouter()
+  })
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message)
+
+  it('creates links and notes, filed under a lecture or a course, and filters like the server', async () => {
+    const link = await mutate(router, 'resources.createLink', { url: 'https://docs.google.com/document/d/1x/edit', courseTag: 'biology' })
+    expect(link).toMatchObject({ kind: 'link', provider: 'google_doc', title: 'Google Doc', course: 'biology', lecture_id: null })
+    const note = await mutate(router, 'resources.createNote', { lectureId: 'lec-rec-chem-1' }) as { id: string }
+    expect(note).toMatchObject({ kind: 'note', title: 'Untitled note', body_md: '', lecture_course: 'chemistry' })
+    await mutate(router, 'resources.createNote', { title: 'Loose' })
+
+    const titles = async (input?: unknown) => ((await query(router, 'resources.list', input)) as { title: string }[]).map((r) => r.title).sort()
+    expect(await titles({ courseTag: 'biology' })).toEqual(['Google Doc'])
+    expect(await titles({ courseTag: 'chemistry' })).toEqual(['Untitled note'])
+    expect(await titles({ lectureId: 'lec-rec-chem-1' })).toEqual(['Untitled note'])
+    expect(await titles()).toEqual(['Google Doc', 'Loose', 'Untitled note'])
+    expect((await query(router, 'resources.list')) as object[]).not.toContainEqual(expect.objectContaining({ body_md: expect.anything() }))
+  })
+
+  it('refuses what the server refuses', async () => {
+    expect(await errorOf(mutate(router, 'resources.createLink', { url: 'javascript:alert(1)' }))).toMatch(/http/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-rec-bio-1', courseTag: 'biology' }))).toMatch(/not both/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { courseTag: 'history' }))).toMatch(/Unknown course/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-missing' }))).toMatch(/not found/)
+    expect(await errorOf(mutate(router, 'resources.delete', 'res-missing'))).toMatch(/not found/)
+  })
+
+  it('moves, edits, and refuses a stale save', async () => {
+    const note = await mutate(router, 'resources.createNote', { courseTag: 'biology' }) as { id: string; updated_at: string }
+    const saved = await mutate(router, 'resources.update', { id: note.id, patch: { body_md: '**hi**' }, expectedUpdatedAt: note.updated_at }) as { updated_at: string; excerpt: string }
+    expect(saved.excerpt).toBe('hi')
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { body_md: 'old' }, expectedUpdatedAt: note.updated_at }))).toMatch(/another device/)
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { lectureId: 'lec-rec-bio-1' } })).toMatchObject({ lecture_id: 'lec-rec-bio-1', course: null })
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { courseTag: 'physics' } })).toMatchObject({ lecture_id: null, course: 'physics' })
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { url: 'https://x.test' } }))).toMatch(/Only a link/)
+    expect(await mutate(router, 'resources.delete', note.id)).toEqual({ id: note.id })
+    expect(await query(router, 'resources.get', note.id)).toBeNull()
   })
 })
 

@@ -13,10 +13,12 @@ import { manifest as weakestTopics } from '@pls/lens-weakest-topics'
 import { manifest as calendar } from '@pls/lens-calendar'
 import { manifest as todo } from '@pls/lens-todo'
 import { manifest as comingUp } from '@pls/lens-coming-up'
+import { manifest as resources } from '@pls/lens-resources'
 import { TRPC_URL } from './backend-simulator'
 
 const manifests: PanelManifest[] = [
   audioCapture,
+  resources,
   transcript,
   testMe,
   weeklyOverview,

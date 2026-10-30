@@ -11,6 +11,7 @@ import type {
   WorkspaceScope,
   PlanItem,
   StoredPreferences,
+  ResourceWithBody,
 } from '@pls/substrate'
 
 /** A plan item as stored: course is derived from `tags`, as on the server. */
@@ -18,6 +19,9 @@ export type StoredPlanItem = Omit<PlanItem, 'course'>
 
 /** A recording as stored: its course is its lecture's, as on the server. */
 export type StoredRecording = Omit<Recording, 'course' | 'processing'>
+
+/** A resource as stored: its lecture's title and course and the excerpt are read through. */
+export type StoredResource = Omit<ResourceWithBody, 'lecture_title' | 'lecture_course' | 'excerpt'>
 
 /** A lecture as stored (`lectures`); its recordings point at it. */
 export type StoredLecture = Omit<Lecture, 'recordings'>
@@ -75,6 +79,8 @@ export interface SeedData {
   planItems: StoredPlanItem[]
   /** The user's study rhythm row; null = never set (all defaults), as with no `user_preferences` row. */
   preferences: StoredPreferences | null
+  /** Links and notes; none unless given. */
+  resources?: StoredResource[]
 }
 
 const EMPTY_SEED: SeedData = {
@@ -111,6 +117,7 @@ export class InMemoryDb {
   jobRuns: JobRun[] = []
   planItems: StoredPlanItem[] = []
   preferences: StoredPreferences | null = null
+  resources: StoredResource[] = []
 
   constructor(seed?: SeedData) {
     if (seed) {
@@ -170,5 +177,6 @@ export class InMemoryDb {
     this.jobRuns = [...seed.jobRuns]
     this.planItems = seed.planItems.map((p) => ({ ...p }))
     this.preferences = seed.preferences ? { ...seed.preferences } : null
+    this.resources = (seed.resources ?? []).map((r) => ({ ...r }))
   }
 }

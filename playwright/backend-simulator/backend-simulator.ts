@@ -15,6 +15,7 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
+import { registerResourcesHandlers } from './handlers/resources'
 
 export const TRPC_URL = 'http://localhost:3999/trpc'
 
@@ -43,6 +44,7 @@ export class BackendSimulator {
     registerWorkflowsHandlers(this.router, this.db)
     registerPlanItemsHandlers(this.router, this.db, () => this.frozenNow ?? Date.now())
     registerPreferencesHandlers(this.router, this.db)
+    registerResourcesHandlers(this.router, this.db)
   }
 
   /**
