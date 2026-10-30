@@ -38,7 +38,7 @@ export type {
   WidgetGroup,
   LiveCapturePhase,
 } from './substrate-contract'
-export { isConflictError } from './substrate-contract'
+export { isConflictError, isNotFoundError } from './substrate-contract'
 export {
   ManifestRegistryProvider,
   LensRegistryProvider,

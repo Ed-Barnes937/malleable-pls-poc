@@ -52,6 +52,17 @@ plan_items
   source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
   created_at, updated_at
   -- course: a tag with target_type 'plan_item' (lectures hold theirs as a column)
+
+resources
+  id, kind (link|note|file), title,
+  url?, provider?,                 -- link: http(s) only; provider from parseResourceUrl
+                                   --   (google_doc|google_sheet|google_slides|google_form|google_drive|web)
+  body_md?,                        -- note: markdown, the stored format whatever the editor
+  file_key?, file_name?, mime_type?, size_bytes?,   -- file (uploads, a later PR)
+  lecture_id? (ON DELETE CASCADE), course?,         -- one or neither (= unfiled), never both
+  sort_order?, created_at, updated_at
+  -- a lecture's resources take its course (read through the join, never stored),
+  -- so they follow the lecture to another course. Private to the student.
 ```
 
 Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator, as are the input schemas). Occurrence rows keep the stored times in `series_starts_at` / `series_ends_at`; mutations always apply to the whole series.
@@ -160,7 +171,8 @@ the lecture), and an optional `recordingId` (not a board dimension: one
 recording of a lecture, e.g. the one a study block came from), all combined
 by `andInScope` in `apps/server/src/routers/_shared.ts`. A lecture's course is
 `lectures.course` and a recording's is its lecture's; a plan item's is a `tags`
-row (`target_type = 'plan_item'`, used by `planItems.list`); segments, tags,
+row (`target_type = 'plan_item'`, used by `planItems.list`); a resource's is
+`resources.course`, or its lecture's (`inCourse(..., 'resource', ...)`); segments, tags,
 confidence and links inherit the course of their recording. Highlighting
 widgets ring what belongs to the lecture with `useLinkedToLecture`
 (`packages/lens-framework/src/lecture.ts`): items made from a moment of any of
@@ -184,7 +196,35 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | Weakest topics | `filter` | `ignore` | all |
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
 | To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
+| Resources | `filter` + "+N elsewhere"; new items go under the course; a lecture's resources count as its course's | `target`: "This lecture" first (new items attach to it, or to the whole course if the student picks that), then the course's own; other lectures' resources under a collapsed "Other lectures (N)" | the course's own resources, then "In lectures (N)" grouped by lecture (a lecture's title selects it) |
 | Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings blocks from the lecture's moments and its class occurrence) | current week, everything |
+
+### Resources and the note editor
+
+The Resources widget (`packages/lens-resources`) keeps links and markdown
+notes for a course or a lecture (`resources` router, `resources.ts` in
+`@pls/substrate` for the URL recognition, excerpt and input schemas shared by
+the server and the CT simulator). Notes are edited with Milkdown's headless
+core (`@milkdown/core`, the CommonMark and GFM presets and history, made and
+destroyed by our own small React wrapper; never `@milkdown/react`, the Crepe
+preset or a theme), styled with our tokens. `NoteEditor.tsx` is the only file
+that imports Milkdown, so the editor can be swapped without touching stored
+notes (`body_md` is plain markdown), and it is lazy loaded on the first note
+opened. Raw HTML in a note shows as escaped text, images as a link to them,
+and links open only for http, https and mailto.
+
+Autosave lives in `noteSavers.ts`: one saver per note for the whole page, not
+per view. Saves are debounced and serialised, and each names the
+`updated_at` it last read (`expectedUpdatedAt`): a save on top of a change
+made elsewhere fails with a CONFLICT and the note offers "Reload" or "Keep
+mine". Leaving a note saves what is left, and a note reopened while a save is
+still on its way (or after one failed) starts from the saver's text, never
+from the cached copy. Text that will not save without the student (a
+conflict, a failed save) is kept and its row says "Not saved"; leaving such a
+note asks first, and so does the page (`beforeunload`). The page being hidden
+(`visibilitychange`, `pagehide`) saves at once; coming back `online` retries.
+A save updates the lists' rows in place (`setQueriesData`); only a move
+reads the lists again.
 
 ### Lectures and class occurrences
 

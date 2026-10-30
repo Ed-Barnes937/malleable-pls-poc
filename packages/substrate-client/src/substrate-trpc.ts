@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
 import { useQueryClient } from '@tanstack/react-query'
-import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
+import { applyPreferencesUpdate, type PlanItemQuery, type ResourceListQuery, type ResourceWithBody, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
 import { setLiveCapture, useLiveCaptureOf } from './live-capture'
@@ -272,6 +272,53 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useResources(filter?: ResourceListQuery) {
+    return adapt(trpc.resources.list.useQuery(
+      filter?.courseTag || filter?.lectureId ? { courseTag: filter.courseTag, lectureId: filter.lectureId } : undefined,
+    ))
+  },
+
+  useResource(id: string | undefined) {
+    const query = trpc.resources.get.useQuery(id ?? '', { enabled: !!id })
+    return {
+      ...adapt<ResourceWithBody>(query),
+      refetch: async () => ((await query.refetch()).data as ResourceWithBody | null | undefined) ?? null,
+    }
+  },
+
+  useCreateResourceLink() {
+    return useOnBoard(useResourceMutation(trpc.resources.createLink))
+  },
+
+  useCreateResourceNote() {
+    return useOnBoard(useResourceMutation(trpc.resources.createNote))
+  },
+
+  useUpdateResource() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.update.useMutation({
+      onSuccess: (saved, { patch }) => {
+        utils.resources.get.setData(saved.id, saved)
+        // A move changes which lists hold it: they read again.
+        if ('lectureId' in patch || 'courseTag' in patch) return utils.resources.list.invalidate()
+        // A rename or an edit (autosave) changes the row in place, without
+        // reading the lists again or waiting for anything.
+        const { body_md: _body, ...row } = saved
+        utils.resources.list.setQueriesData(undefined, {}, (rows) => rows?.map((r) => (r.id === saved.id ? { ...r, ...row } : r)))
+      },
+    }))
+  },
+
+  useDeleteResource() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.delete.useMutation({
+      onSuccess: ({ id }) => {
+        utils.resources.get.setData(id, null)
+        return utils.resources.list.invalidate()
+      },
+    }))
+  },
+
   useAcceptRefit() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.planItems.refit.useMutation({
@@ -281,6 +328,23 @@ export const substrateTrpc: SubstrateWriter = {
       },
     }))
   },
+}
+
+/**
+ * A new resource goes straight into its `get` cache (so a new note opens
+ * without a fetch) and the lists refresh, resolving once they have.
+ */
+function useResourceMutation(procedure: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useMutation: (opts: { onSuccess: (saved: ResourceWithBody) => Promise<unknown> }) => any
+}) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: (saved) => {
+      utils.resources.get.setData(saved.id, saved)
+      return utils.resources.list.invalidate()
+    },
+  })
 }
 
 /**

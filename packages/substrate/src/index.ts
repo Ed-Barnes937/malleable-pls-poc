@@ -169,3 +169,28 @@ export type {
 } from './types'
 
 export type { WorkflowJob, WorkflowWithJobs } from '@pls/workflows'
+
+export {
+  MAX_NOTE_LENGTH,
+  MAX_RESOURCE_TITLE_LENGTH,
+  MAX_RESOURCE_URL_LENGTH,
+  UNTITLED_NOTE,
+  newResourceLinkInput,
+  newResourceNoteInput,
+  noteExcerpt,
+  parseResourceUrl,
+  resourceCourse,
+  resourceIdInput,
+  resourceLinkLabel,
+  resourceListInput,
+  resourceUpdateInput,
+  type NewResourceLink,
+  type NewResourceNote,
+  type ParsedResourceUrl,
+  type Resource,
+  type ResourceKind,
+  type ResourceListQuery,
+  type ResourceProvider,
+  type ResourceUpdate,
+  type ResourceWithBody,
+} from './resources'
