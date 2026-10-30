@@ -1,4 +1,18 @@
-import { defaultLectureTitle, type BoardScope, type Lecture } from '@pls/substrate'
+import {
+  DEFAULT_REVIEW_TIME_ZONE,
+  captureClassRange,
+  classForCapture,
+  classLectureTitle,
+  defaultLectureTitle,
+  expandPlanItems,
+  isClassBlock,
+  occurrenceDate,
+  occurrenceOn,
+  withDefaults,
+  type BoardScope,
+  type Lecture,
+  type PlanItem,
+} from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredLecture } from '../in-memory-db'
 import { recordingProcessing } from './course-scope'
@@ -71,7 +85,64 @@ export function writeBoardScope(
   return { courseTag, lectureId }
 }
 
-export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
+/** The student's zone (their preference, else the caller's browser zone), as the server's `studentTimeZone`. */
+function studentTimeZone(db: InMemoryDb, browserZone: string | undefined): string {
+  return withDefaults(db.preferences).time_zone ?? browserZone ?? DEFAULT_REVIEW_TIME_ZONE
+}
+
+/** A stored plan item with its course (its first 'plan_item' tag), as the server reads it. */
+function planItemWithCourse(db: InMemoryDb, id: string): PlanItem | null {
+  const row = db.planItems.find((p) => p.id === id)
+  if (!row) return null
+  const tag = db.tags
+    .filter((t) => t.target_type === 'plan_item' && t.target_id === id)
+    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]
+  return { ...row, course: tag?.label ?? null }
+}
+
+/** Twin of the server's `findOrCreateClassLecture`. */
+function findOrCreateClassLecture(db: InMemoryDb, planItemId: string, date: string, timeZone: string): { lecture: StoredLecture; created: boolean } {
+  const item = planItemWithCourse(db, planItemId)
+  if (!item) throw new SimulatorError('NOT_FOUND', 'Class not found')
+  if (!isClassBlock(item)) throw new SimulatorError('BAD_REQUEST', 'Not a class')
+  const occurrence = occurrenceOn(item, date, timeZone)
+  if (!occurrence) throw new SimulatorError('BAD_REQUEST', 'The class is not on that date')
+  const existing = db.lectures.find((l) => l.class_item_id === planItemId && l.class_date === date)
+  if (existing) return { lecture: existing, created: false }
+  const now = new Date().toISOString()
+  const lecture: StoredLecture = {
+    id: `lec-${crypto.randomUUID().slice(0, 8)}`,
+    title: classLectureTitle(item.title, date),
+    course: item.course,
+    starts_at: occurrence.starts_at!,
+    class_item_id: planItemId,
+    class_date: date,
+    created_at: now,
+    updated_at: now,
+  }
+  db.lectures.push(lecture)
+  return { lecture, created: true }
+}
+
+/** Twin of the server's `classLectureForCapture`. */
+function classLectureForCapture(db: InMemoryDb, course: string | null, at: number, timeZone: string): StoredLecture | null {
+  const items = db.planItems
+    .map((p) => planItemWithCourse(db, p.id)!)
+    .filter((p) => p.kind === 'commitment' && p.status === 'open' && (!course || p.course === course))
+  const occurrence = classForCapture(expandPlanItems(items, captureClassRange(at)), { course, at })
+  if (!occurrence) return null
+  return findOrCreateClassLecture(db, occurrence.id, occurrenceDate(occurrence, timeZone)!, timeZone).lecture
+}
+
+/** Twin of the server's `boardStillShows` (undefined: always; null: no lecture). */
+function boardStillShows(db: InMemoryDb, workspaceId: string, expected: string | null | undefined): boolean {
+  if (expected === undefined) return true
+  const { lectureId: current } = readBoardScope(db, workspaceId)
+  if (current === null || current === expected) return true
+  return !db.lectures.some((l) => l.id === current)
+}
+
+export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb, clock: () => number = Date.now): void {
   router.register('lectures.list', (input) => {
     const { courseTag } = (input ?? {}) as { courseTag?: string }
     return db.lectures
@@ -86,26 +157,48 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
   })
 
   router.register('lectures.create', (input) => {
-    const { course, title, startsAt, timeZone, workspaceId } = input as {
-      course: string | null; title?: string; startsAt?: string; timeZone?: string; workspaceId?: string
+    const { course, title, startsAt, timeZone, workspaceId, matchClass, selectIfBoardShows } = input as {
+      course: string | null; title?: string; startsAt?: string; timeZone?: string; workspaceId?: string; matchClass?: boolean
+      selectIfBoardShows?: string | null
     }
     requireCourse(course)
     if (workspaceId) requireBoard(db, workspaceId)
     const now = new Date().toISOString()
-    const starts = startsAt ? new Date(startsAt) : new Date()
-    const lecture: StoredLecture = {
-      id: `lec-${crypto.randomUUID().slice(0, 8)}`,
-      title: title?.trim() || defaultLectureTitle(course, starts, timeZone ?? 'Europe/London'),
-      course,
-      starts_at: starts.toISOString(),
-      class_item_id: null,
-      class_date: null,
-      created_at: now,
-      updated_at: now,
+    const starts = startsAt ? new Date(startsAt) : new Date(clock())
+    const zone = studentTimeZone(db, timeZone)
+    let lecture = matchClass ? classLectureForCapture(db, course, starts.getTime(), zone) : null
+    if (!lecture) {
+      lecture = {
+        id: `lec-${crypto.randomUUID().slice(0, 8)}`,
+        title: title?.trim() || defaultLectureTitle(course, starts, zone),
+        course,
+        starts_at: starts.toISOString(),
+        class_item_id: null,
+        class_date: null,
+        created_at: now,
+        updated_at: now,
+      }
+      db.lectures.push(lecture)
     }
-    db.lectures.push(lecture)
-    if (workspaceId) writeBoardScope(db, workspaceId, { lectureId: lecture.id })
+    // As the server: select only if the board still shows what it did when
+    // the caller started (that lecture, none, or one that is gone).
+    if (workspaceId && boardStillShows(db, workspaceId, selectIfBoardShows)) writeBoardScope(db, workspaceId, { lectureId: lecture.id })
     return lectureRow(db, lecture)
+  })
+
+  router.register('lectures.forClassOccurrence', (input) => {
+    const { planItemId, date, workspaceId, timeZone } = input as {
+      planItemId: string; date: string; workspaceId?: string; timeZone?: string
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new SimulatorError('BAD_REQUEST', 'Expected YYYY-MM-DD')
+    if (workspaceId) requireBoard(db, workspaceId)
+    const { lecture, created } = findOrCreateClassLecture(db, planItemId, date, studentTimeZone(db, timeZone))
+    let board: { before: BoardScope; after: BoardScope } | null = null
+    if (workspaceId) {
+      const before = readBoardScope(db, workspaceId)
+      board = { before, after: writeBoardScope(db, workspaceId, { lectureId: lecture.id }) }
+    }
+    return { lecture: lectureRow(db, lecture), created, board }
   })
 
   router.register('lectures.update', (input) => {

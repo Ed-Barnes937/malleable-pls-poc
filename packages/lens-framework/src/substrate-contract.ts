@@ -34,6 +34,9 @@ import type {
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
+/** Where a capture into a lecture is: recording, or its audio on its way to the server. */
+export type LiveCapturePhase = 'recording' | 'saving'
+
 /**
  * Query input for substrate hooks. Lenses pass `LensProps.scope` straight
  * through (it holds only their `filter` / `target` dimensions), plus a
@@ -98,6 +101,12 @@ export interface SubstrateReader {
   useLecture: (id: string | undefined) => QueryResult<Lecture>
   /** The student's lectures, latest first, optionally only one course's. */
   useLectures: (filter?: { courseTag?: string }) => QueryResult<Lecture[]>
+  /**
+   * A capture into this lecture in progress (`'recording'`, then `'saving'`
+   * while its upload lands), or null. On this device only for now: a
+   * widget that captures reports it with `useSetLiveCapture`.
+   */
+  useLiveCapture: (lectureId: string | undefined) => LiveCapturePhase | null
   useTranscript: (recordingId: string) => QueryResult<TranscriptSegment[]>
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
@@ -183,6 +192,19 @@ export interface SubstrateWriter extends SubstrateReader {
    * into now has another part.
    */
   useRecordingAdded: () => () => void
+  /**
+   * A new lecture for a capture starting now, in `course` (null = none),
+   * selected on the calling panel's board by the server in the same write
+   * (its course comes with it). When a class of that course is on, it is
+   * that class occurrence's lecture instead (found or made, the same one a
+   * calendar click on that class finds). `boardLecture` is the lecture the
+   * board showed when the capture started: the server selects the new one
+   * only if the board still shows it (or one that is gone), so a slow call
+   * can't undo a selection made meanwhile.
+   */
+  useStartLecture: () => MutationHandle<{ course: string | null; boardLecture: string | null }, Lecture>
+  /** Reports a capture into a lecture (see `useLiveCapture`); null when it is over. */
+  useSetLiveCapture: () => (lectureId: string, phase: LiveCapturePhase | null) => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only

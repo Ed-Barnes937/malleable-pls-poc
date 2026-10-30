@@ -33,7 +33,7 @@ export class BackendSimulator {
   private registerAllHandlers(): void {
     registerWorkspacesHandlers(this.router, this.db)
     registerRecordingsHandlers(this.router, this.db)
-    registerLecturesHandlers(this.router, this.db)
+    registerLecturesHandlers(this.router, this.db, () => this.frozenNow ?? Date.now())
     registerTranscriptsHandlers(this.router, this.db)
     registerTagsHandlers(this.router, this.db)
     registerJobsHandlers(this.router, this.db)

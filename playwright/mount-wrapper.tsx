@@ -30,7 +30,8 @@ const manifests: PanelManifest[] = [
   comingUp,
 ]
 
-export function TestProviders({ children }: { children: React.ReactNode }) {
+/** `boardId`: the board the mounted widgets sit on (none by default, as outside a board). */
+export function TestProviders({ children, boardId }: { children: React.ReactNode; boardId?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -46,7 +47,7 @@ export function TestProviders({ children }: { children: React.ReactNode }) {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ManifestRegistryProvider manifests={manifests}>
-          <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc}>
+          <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc} boardId={boardId}>
             {children}
           </SubstrateProvider>
         </ManifestRegistryProvider>

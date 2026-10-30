@@ -72,6 +72,9 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
 
       await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
       await insertSeedResources(tx)
+      // Links lectures to their class occurrences where unambiguous, as the
+      // migration did for real data (data only).
+      await tx.unsafe(readFileSync(resolve(__dirname, '../packages/db/src/migrations/020_link_lectures_to_classes.sql'), 'utf-8'))
     })
   } finally {
     await sql.end()

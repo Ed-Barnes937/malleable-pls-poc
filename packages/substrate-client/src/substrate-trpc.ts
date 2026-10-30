@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { applyPreferencesUpdate, type PlanItemQuery, type ResourceListQuery, type ResourceWithBody, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
+import { setLiveCapture, useLiveCaptureOf } from './live-capture'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adapt<T>(query: { data: any; isLoading: boolean; error: any }): QueryResult<T> {
@@ -33,6 +34,15 @@ function useOnBoard<TInput, TOutput>(
   }
 }
 
+/**
+ * A plan item write from a board, with the browser's zone: a new item keeps
+ * the student's zone (their preference, else this one) so its class
+ * occurrence is dated the same whoever asks later (`PlanItem.time_zone`).
+ */
+function withBrowserZone(input: unknown, workspaceId: string | null) {
+  return { ...(input as object), workspaceId, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+}
+
 /** The scope part of a filter, as the list endpoints accept it. */
 function boardScope(filter: QueryFilter) {
   return { courseTag: filter.courseTag, lectureId: filter.lectureId, recordingId: filter.recordingId }
@@ -58,6 +68,10 @@ export const substrateTrpc: SubstrateWriter = {
 
   useLectures(filter?: { courseTag?: string }) {
     return adapt(trpc.lectures.list.useQuery(filter?.courseTag ? { courseTag: filter.courseTag } : undefined))
+  },
+
+  useLiveCapture(lectureId: string | undefined) {
+    return useLiveCaptureOf(lectureId)
   },
 
   useRecording(id: string) {
@@ -162,7 +176,36 @@ export const substrateTrpc: SubstrateWriter = {
     return useCallback(() => {
       utils.recordings.invalidate()
       utils.lectures.invalidate()
+      // An upload that made a lecture may have selected it on the board.
+      utils.workspaces.scopes.invalidate()
     }, [utils])
+  },
+
+  useStartLecture() {
+    const utils = trpc.useUtils()
+    const boardId = useBoardId()
+    const mutation = trpc.lectures.create.useMutation({
+      onSuccess: () => {
+        utils.lectures.invalidate()
+        if (boardId) utils.workspaces.scopes.invalidate(boardId)
+      },
+    })
+    const toInput = ({ course, boardLecture }: { course: string | null; boardLecture: string | null }) => ({
+      course,
+      selectIfBoardShows: boardLecture,
+      matchClass: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...(boardId ? { workspaceId: boardId } : {}),
+    })
+    return {
+      mutate: (input: { course: string | null; boardLecture: string | null }) => mutation.mutate(toInput(input)),
+      mutateAsync: (input: { course: string | null; boardLecture: string | null }) => mutation.mutateAsync(toInput(input)),
+      isPending: mutation.isPending,
+    }
+  },
+
+  useSetLiveCapture() {
+    return setLiveCapture
   },
 
   useRecordConfidence() {
@@ -176,11 +219,11 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.create))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.create), withBrowserZone)
   },
 
   useUpdatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.update))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.update), withBrowserZone)
   },
 
   useCompletePlanItem() {
