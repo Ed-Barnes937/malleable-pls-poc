@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
 import { useQueryClient } from '@tanstack/react-query'
-import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
+import { applyPreferencesUpdate, type PlanItemQuery, type ResourceListQuery, type ResourceWithBody, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
 
@@ -229,6 +229,42 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useResources(filter?: ResourceListQuery) {
+    return adapt(trpc.resources.list.useQuery(
+      filter?.courseTag || filter?.lectureId ? { courseTag: filter.courseTag, lectureId: filter.lectureId } : undefined,
+    ))
+  },
+
+  useResource(id: string | undefined) {
+    const query = trpc.resources.get.useQuery(id ?? '', { enabled: !!id })
+    return {
+      ...adapt<ResourceWithBody>(query),
+      refetch: async () => ((await query.refetch()).data as ResourceWithBody | null | undefined) ?? null,
+    }
+  },
+
+  useCreateResourceLink() {
+    return useOnBoard(useResourceMutation(trpc.resources.createLink))
+  },
+
+  useCreateResourceNote() {
+    return useOnBoard(useResourceMutation(trpc.resources.createNote))
+  },
+
+  useUpdateResource() {
+    return adaptMutation(useResourceMutation(trpc.resources.update))
+  },
+
+  useDeleteResource() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.delete.useMutation({
+      onSuccess: ({ id }) => {
+        utils.resources.get.setData(id, null)
+        return utils.resources.list.invalidate()
+      },
+    }))
+  },
+
   useAcceptRefit() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.planItems.refit.useMutation({
@@ -238,6 +274,24 @@ export const substrateTrpc: SubstrateWriter = {
       },
     }))
   },
+}
+
+/**
+ * A resource write puts the saved resource straight into its `get` cache
+ * (so an open note never refetches under the editor) and refreshes the
+ * lists, resolving once they have.
+ */
+function useResourceMutation(procedure: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useMutation: (opts: { onSuccess: (saved: ResourceWithBody) => Promise<unknown> }) => any
+}) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: (saved) => {
+      utils.resources.get.setData(saved.id, saved)
+      return utils.resources.list.invalidate()
+    },
+  })
 }
 
 /**

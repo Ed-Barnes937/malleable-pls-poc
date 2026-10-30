@@ -24,8 +24,11 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
   if (!open) return null
 
   return createPortal(
+    // Above everything else in the page, the top bar (z 9999) and the
+    // activity drawer (10003) included: a dialog is modal, and a full-screen
+    // one (a note on a phone) would otherwise have its header covered.
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
+      className="fixed inset-0 z-[10010] flex items-center justify-center"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <div
