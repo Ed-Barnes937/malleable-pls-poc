@@ -14,8 +14,8 @@ Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` s
 |-----------|-------------|
 | `WorkspaceShell` | Root layout: top bar + board menu + canvas; adds widgets (palette click places in the first free area, drag drops at the cursor) |
 | `TopBar` | Board menu button, board tabs, scope pills (`BoardScope`), today line, activity, theme, appearance, tidy up. On a phone the pills and the short today line share a second row, the today line wrapping under the pills when they leave it less than 40% |
-| `BoardScope` | "Showing [Biology] > [Mitochondrial DNA]": a course pill and (when a widget targets or highlights the lecture) a lecture pill, only for dimensions some widget uses. One `setBoardScope` per choice, shown at once. The lecture pill also renames the lecture inline ("Rename this lecture...", `lectures.update`) |
-| `ScopePill` | A content-sized dropdown pill: a transparent native `<select>` over a styled label (dot, ellipsis, chevron), so keyboard and the phone's picker are native |
+| `BoardScope` | "Showing [Biology] > [Mitochondrial DNA]": a course pill and (when a widget targets or highlights the lecture) a lecture pill, only for dimensions some widget uses. One `setBoardScope` per choice, shown at once (writes go one at a time, in order). A pencil beside the lecture pill renames the lecture inline (`lectures.update`) |
+| `ScopePill` | A content-sized dropdown pill: a transparent native `<select>` over a styled label (dot, ellipsis, chevron), so keyboard and the phone's picker are native. A change made by a key (a closed select on Windows and Linux changes per arrow press) is a draft until Enter or leaving the pill; Escape drops it |
 | `DrawerSidebar` | Board menu: widget palette, board automations (and on a phone, Activity, theme and appearance); opens at the top |
 | `PanelContainer` | Wrapper connecting a panel slot to its lens |
 | `ThemeToggle` | Light / dark mode switch |

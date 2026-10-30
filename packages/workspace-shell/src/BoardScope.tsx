@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Pencil } from 'lucide-react'
 import {
   decodeScope,
   useLecture,
@@ -12,11 +12,8 @@ import {
 import type { Lecture } from '@pls/substrate'
 import { COURSES, cn, courseTone } from '@pls/shared-ui'
 import { useBoardScopeDims } from './useBoardScopeDims'
-import { ScopePill } from './ScopePill'
+import { ScopePill, type ScopePillFace } from './ScopePill'
 import { useToastStore } from './toast'
-
-/** The lecture picker's option that starts an inline rename instead of choosing a lecture. */
-const RENAME = '__rename__'
 
 export interface BoardScopeProps {
   workspaceId: string
@@ -61,7 +58,9 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
       role="group"
       aria-label="What this board shows"
       data-testid="board-scope"
-      className={cn('flex min-w-0 items-center gap-1.5', compact ? 'max-w-full' : 'shrink')}
+      // Never narrower than its pills can go (the course whole, a few words
+      // of the lecture): the tabs and the today line give way first.
+      className={cn('flex items-center gap-1.5', compact ? 'max-w-full' : 'shrink')}
     >
       {/* Only where the bar has room for it; the pills say enough without. */}
       {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary lg:inline">Showing</span>}
@@ -80,18 +79,20 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
   )
 }
 
+function courseLabel(courseTag: string): string {
+  return courseTag ? (COURSES.find((c) => c.value === courseTag)?.label ?? courseTag) : 'All courses'
+}
+
 function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; onChange: (value: string) => void }) {
-  const label = courseTag ? (COURSES.find((c) => c.value === courseTag)?.label ?? courseTag) : 'All courses'
   return (
     <ScopePill
       label="Course"
       data-testid="scope-course"
       value={courseTag ?? ''}
       onChange={onChange}
-      text={label}
-      dotClassName={courseTone(courseTag).stripe}
-      // Never narrower than its dot and a short course name.
-      className="shrink-0"
+      describe={(value) => ({ text: courseLabel(value), dotClassName: courseTone(value || null).stripe })}
+      // Never narrower than its dot and its course name.
+      className="min-w-max shrink-0"
     >
       <option value="">All courses</option>
       {COURSES.map((c) => (
@@ -116,51 +117,68 @@ function LecturePill({ courseTag, lectureId, onChange }: {
     ? [current, ...(courseLectures ?? [])]
     : (courseLectures ?? [])
   const dateOf = useLectureDate()
-  const selectRef = useRef<HTMLSelectElement>(null)
-  const [renaming, setRenaming] = useState(false)
+  const renameRef = useRef<HTMLButtonElement>(null)
+  // The lecture being renamed. The field goes if the board moves to another
+  // lecture meanwhile (from elsewhere: a moment opened, another tab), rather
+  // than rename the wrong one.
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  if (renamingId !== null && renamingId !== lectureId) setRenamingId(null)
 
   // Selected but not loaded yet: say so rather than flash "No lecture".
   const loading = !!lectureId && selected === undefined
-  const text = current ? current.title : loading ? 'Loading...' : 'No lecture'
+  const describe = (value: string): ScopePillFace => {
+    if (!value) return { text: 'No lecture', muted: true }
+    const lecture = value === current?.id ? current : lectures.find((l) => l.id === value)
+    return lecture ? { text: lecture.title } : { text: 'Loading...', muted: true }
+  }
 
-  if (renaming && current) {
+  if (renamingId !== null && current) {
     return (
       <RenameInput
+        key={current.id}
         lecture={current}
         onDone={() => {
-          setRenaming(false)
-          // Back on the picker it came from, for the keyboard.
-          requestAnimationFrame(() => selectRef.current?.focus())
+          setRenamingId(null)
+          // Back on the button it came from, for the keyboard.
+          requestAnimationFrame(() => renameRef.current?.focus())
         }}
       />
     )
   }
 
   return (
-    <ScopePill
-      ref={selectRef}
-      label="Lecture"
-      data-testid="scope-lecture"
-      value={current || loading ? lectureId! : ''}
-      onChange={(value) => (value === RENAME ? setRenaming(true) : onChange(value))}
-      text={text}
-      muted={!current}
-      // A title is cut short before anything else in the bar, but always
-      // keeps a few words; "No lecture" is short and never cut.
-      className={current ? 'max-w-[32ch] min-w-24 shrink sm:min-w-36' : 'shrink-0'}
-    >
-      <option value="">No lecture</option>
-      {loading && <option value={lectureId}>Loading...</option>}
-      {lectures.map((l) => (
-        <option key={l.id} value={l.id}>{lectureOptionLabel(l, dateOf(l))}</option>
-      ))}
+    <>
+      <ScopePill
+        label="Lecture"
+        data-testid="scope-lecture"
+        value={current || loading ? lectureId! : ''}
+        onChange={onChange}
+        describe={describe}
+        // A title is cut short before anything else in the bar, but always
+        // keeps a few words; "No lecture" is short and never cut.
+        className={current ? 'max-w-[32ch] min-w-24 shrink sm:min-w-36' : 'shrink-0'}
+      >
+        <option value="">No lecture</option>
+        {loading && <option value={lectureId}>Loading...</option>}
+        {lectures.map((l) => (
+          <option key={l.id} value={l.id}>{lectureOptionLabel(l, dateOf(l))}</option>
+        ))}
+      </ScopePill>
+      {/* A button, not an option in the list, so no arrow key or type-ahead lands on it. */}
       {current && (
-        <>
-          <hr />
-          <option value={RENAME}>Rename this lecture...</option>
-        </>
+        <button
+          ref={renameRef}
+          type="button"
+          data-testid="lecture-rename-button"
+          aria-label="Rename lecture"
+          title="Rename this lecture"
+          onClick={() => setRenamingId(current.id)}
+          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:h-9 sm:w-7"
+        >
+          <Pencil aria-hidden className="h-3.5 w-3.5" />
+        </button>
       )}
-    </ScopePill>
+    </>
   )
 }
 

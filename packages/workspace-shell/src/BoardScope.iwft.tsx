@@ -28,6 +28,7 @@ const coursePill = (page: Page) => page.getByTestId('scope-course').getByTestId(
 const lecturePill = (page: Page) => page.getByTestId('scope-lecture').getByTestId('scope-pill-text')
 const courseSelect = (page: Page) => group(page).getByRole('combobox', { name: 'Course' })
 const lectureSelect = (page: Page) => group(page).getByRole('combobox', { name: 'Lecture' })
+const renameButton = (page: Page) => group(page).getByRole('button', { name: 'Rename lecture' })
 
 /** Clears a board's course and lecture in the simulator. */
 function clearScope(simulator: BackendSimulator, workspaceId: string) {
@@ -135,7 +136,6 @@ test('the lecture list is the course\'s, with a lecture that has no audio yet sa
     'Biology Lecture: Mitochondria & Energy · 11 Apr',
     'Biology Lecture: Cell Division · 4 Apr',
     'Biology Lecture: Cell Structure · 28 Mar',
-    'Rename this lecture...',
   ])
 })
 
@@ -165,7 +165,7 @@ test.describe('renaming the lecture inline', () => {
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
     const writes = await watch(page, 'lectures.update', { hold: true })
 
-    await lectureSelect(page).selectOption({ label: 'Rename this lecture...' })
+    await renameButton(page).click()
     const input = page.getByRole('textbox', { name: 'Lecture name' })
     await expect(input).toBeFocused()
     await expect(input).toHaveValue('Biology Lecture: Mitochondrial DNA')
@@ -175,7 +175,7 @@ test.describe('renaming the lecture inline', () => {
     await page.keyboard.press('Enter')
 
     await expect(lecturePill(page)).toHaveText('mtDNA inheritance')
-    await expect(lectureSelect(page)).toBeFocused()
+    await expect(renameButton(page)).toBeFocused()
     expect(writes.inputs).toEqual([{ id: 'lec-rec-bio-4', title: 'mtDNA inheritance' }])
     // No scope write, and the board keeps its lecture.
     await expect(lectureSelect(page)).toHaveValue('lec-rec-bio-4')
@@ -187,7 +187,7 @@ test.describe('renaming the lecture inline', () => {
 
   test('leaving the field saves too', async ({ mount, page, simulator }) => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
-    await lectureSelect(page).selectOption({ label: 'Rename this lecture...' })
+    await renameButton(page).click()
     await page.getByRole('textbox', { name: 'Lecture name' }).fill('Inheritance')
     await page.getByRole('textbox', { name: 'Lecture name' }).blur()
     await expect(lecturePill(page)).toHaveText('Inheritance')
@@ -199,14 +199,14 @@ test.describe('renaming the lecture inline', () => {
     const writes = await watch(page, 'lectures.update')
     const input = page.getByRole('textbox', { name: 'Lecture name' })
 
-    await lectureSelect(page).selectOption({ label: 'Rename this lecture...' })
+    await renameButton(page).click()
     await input.fill('Something else')
     await page.keyboard.press('Escape')
     await expect(input).toHaveCount(0)
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
-    await expect(lectureSelect(page)).toBeFocused()
+    await expect(renameButton(page)).toBeFocused()
 
-    await lectureSelect(page).selectOption({ label: 'Rename this lecture...' })
+    await renameButton(page).click()
     await input.fill('   ')
     await page.keyboard.press('Enter')
     await expect(input).toHaveCount(0)
@@ -219,7 +219,7 @@ test.describe('renaming the lecture inline', () => {
   test('a failed rename brings the old name back and says so', async ({ mount, page, simulator: _boards }) => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
-    await lectureSelect(page).selectOption({ label: 'Rename this lecture...' })
+    await renameButton(page).click()
     await page.getByRole('textbox', { name: 'Lecture name' }).fill('Never saved')
     await page.keyboard.press('Enter')
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
@@ -230,8 +230,179 @@ test.describe('renaming the lecture inline', () => {
     clearScope(simulator, 'ws-in-lecture')
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await expect(lecturePill(page)).toHaveText('No lecture')
-    await expect(lectureSelect(page).locator('option', { hasText: 'Rename this lecture...' })).toHaveCount(0)
+    await expect(renameButton(page)).toHaveCount(0)
+    // Not an option in the list, where an arrow key could land on it.
+    await expect(lectureSelect(page).locator('option', { hasText: /Rename/ })).toHaveCount(0)
   })
+
+  test('the field goes, renaming nothing, when the board moves to another lecture from elsewhere', async ({ mount, page, simulator }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" elsewhereLectureId="lec-rec-bio-3" />)
+    const writes = await watch(page, 'lectures.update')
+    await renameButton(page).click()
+    const input = page.getByRole('textbox', { name: 'Lecture name' })
+    await input.fill('Half typed')
+
+    // A moment opened elsewhere (no focus moves: the field stays focused until it goes).
+    await page.getByTestId('select-elsewhere').evaluate((el: HTMLButtonElement) => el.click())
+    await expect(input).toHaveCount(0)
+    await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondria & Energy')
+    await expect(renameButton(page)).toBeVisible()
+
+    // Renaming again starts from the new lecture's own title.
+    await renameButton(page).click()
+    await expect(input).toHaveValue('Biology Lecture: Mitochondria & Energy')
+    await page.keyboard.press('Escape')
+
+    expect(writes.inputs).toEqual([])
+    expect(simulator.db.lectures.find((l) => l.id === 'lec-rec-bio-3')?.title).toBe('Biology Lecture: Mitochondria & Energy')
+    expect(simulator.db.lectures.find((l) => l.id === 'lec-rec-bio-4')?.title).toBe('Biology Lecture: Mitochondrial DNA')
+  })
+})
+
+/**
+ * Holds every call to `procedure` separately: `inputs` in arrival order,
+ * `answer(i)` lets call i through to the simulator, `fail(i)` answers it 500.
+ */
+async function holdEach(page: Page, procedure: string) {
+  const inputs: unknown[] = []
+  const gates: { answer: () => void; fail: () => void }[] = []
+  await page.route((url) => url.pathname.split(/[/,]/).includes(procedure), async (route) => {
+    const body = JSON.parse(route.request().postData() ?? '{}') as Record<string, { json: unknown }>
+    inputs.push(...Object.values(body).map((b) => b.json))
+    const outcome = await new Promise<'answer' | 'fail'>((resolve) => {
+      gates.push({ answer: () => resolve('answer'), fail: () => resolve('fail') })
+    })
+    if (outcome === 'fail') await route.fulfill({ status: 500, body: '{}' })
+    else await route.fallback()
+  })
+  return {
+    inputs,
+    answer: async (i: number) => { await expect.poll(() => gates.length).toBeGreaterThan(i); gates[i].answer() },
+    fail: async (i: number) => { await expect.poll(() => gates.length).toBeGreaterThan(i); gates[i].fail() },
+  }
+}
+
+/**
+ * Every (course, lecture) the pills read, sampled each animation frame, so a
+ * state shown for a moment and gone again is caught.
+ */
+async function recordPills(page: Page) {
+  await page.evaluate(() => {
+    const seen: string[] = []
+    ;(window as unknown as { pillStates: string[] }).pillStates = seen
+    const read = () => {
+      const text = (id: string) => document.querySelector(`[data-testid="${id}"] [data-testid="scope-pill-text"]`)?.textContent ?? '-'
+      const state = `${text('scope-course')} > ${text('scope-lecture')}`
+      if (seen[seen.length - 1] !== state) seen.push(state)
+      requestAnimationFrame(read)
+    }
+    read()
+  })
+  return () => page.evaluate(() => (window as unknown as { pillStates: string[] }).pillStates)
+}
+
+/**
+ * The pills went from `from` to `to` without flicker: `from` never comes
+ * back, and once `to` shows nothing else does. (Both changes may land in one
+ * frame, so the state between them need not be seen.)
+ */
+function expectSettledOnce(states: string[], from: string, to: string) {
+  expect(states[0]).toBe(from)
+  expect(states.slice(1)).not.toContain(from)
+  expect(states.indexOf(to)).toBe(states.length - 1)
+}
+
+test.describe('two quick changes', () => {
+  const DNA = 'Biology Lecture: Mitochondrial DNA'
+  const ORGANIC = 'Chemistry Lecture: Organic Reactions'
+
+  test('reach the server one at a time, in order, and the pills never show the first alone once the second is made', async ({ mount, page, simulator }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await expect(lecturePill(page)).toHaveText(DNA)
+    const writes = await holdEach(page, 'workspaces.setBoardScope')
+    const states = await recordPills(page)
+
+    await courseSelect(page).selectOption({ label: 'Chemistry' })
+    await lectureSelect(page).selectOption({ label: `${ORGANIC} · 9 Apr` })
+    await expect(coursePill(page)).toHaveText('Chemistry')
+    await expect(lecturePill(page)).toHaveText(ORGANIC)
+    // The second waits for the first.
+    await expect.poll(() => writes.inputs).toEqual([{ workspaceId: 'ws-in-lecture', courseTag: 'chemistry' }])
+
+    await writes.answer(0)
+    await expect.poll(() => writes.inputs).toHaveLength(2)
+    expect(writes.inputs[1]).toEqual({ workspaceId: 'ws-in-lecture', lectureId: 'lec-rec-chem-1' })
+    // The first answer (Chemistry, no lecture) is not shown over the second change.
+    await page.waitForTimeout(200)
+    await writes.answer(1)
+    await expect.poll(() => simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value).sort())
+      .toEqual(['chemistry', 'lec-rec-chem-1'])
+    await page.waitForTimeout(200)
+    await expect(lecturePill(page)).toHaveText(ORGANIC)
+
+    expectSettledOnce(await states(), `Biology > ${DNA}`, `Chemistry > ${ORGANIC}`)
+  })
+
+  test('the first failing takes back only the first: the second still shows, and is what the server is asked', async ({ mount, page, simulator }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-exam-prep" />)
+    await expect(coursePill(page)).toHaveText('All courses')
+    const writes = await holdEach(page, 'workspaces.setBoardScope')
+    const states = await recordPills(page)
+
+    await courseSelect(page).selectOption({ label: 'Chemistry' })
+    await courseSelect(page).selectOption({ label: 'Biology' })
+    await expect(coursePill(page)).toHaveText('Biology')
+
+    await writes.fail(0)
+    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't change what this board shows - try again")
+    await expect.poll(() => writes.inputs).toHaveLength(2)
+    // Not put back to "All courses" over the newer change.
+    await expect(coursePill(page)).toHaveText('Biology')
+    await writes.answer(1)
+    await expect.poll(() => simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-exam-prep').map((s) => s.scope_value))
+      .toEqual(['biology'])
+    await page.waitForTimeout(200)
+    expectSettledOnce(await states(), 'All courses > -', 'Biology > -')
+  })
+
+  test('the second failing goes back to what the first left, not to before both', async ({ mount, page, simulator }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-exam-prep" />)
+    await expect(coursePill(page)).toHaveText('All courses')
+    const writes = await holdEach(page, 'workspaces.setBoardScope')
+
+    await courseSelect(page).selectOption({ label: 'Chemistry' })
+    await courseSelect(page).selectOption({ label: 'Biology' })
+    await writes.answer(0)
+    await writes.fail(1)
+    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't change what this board shows - try again")
+    await expect(coursePill(page)).toHaveText('Chemistry')
+    await expect(courseSelect(page)).toHaveValue('chemistry')
+    expect(simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-exam-prep').map((s) => s.scope_value)).toEqual(['chemistry'])
+  })
+})
+
+test('arrowing through courses by key (Windows, Linux) writes once, on Enter, and keeps the lecture until then', async ({ mount, page, simulator: _boards }) => {
+  await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+  await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
+  const writes = await watch(page, 'workspaces.setBoardScope')
+  const select = courseSelect(page)
+  await select.focus()
+  // Each press as those platforms fire it: the key, then the new value's `change`.
+  for (const value of ['chemistry', 'biology', 'chemistry']) {
+    await select.evaluate((el: HTMLSelectElement, v) => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      el.value = v
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    }, value)
+  }
+  await expect(coursePill(page)).toHaveText('Chemistry')
+  // Nothing written yet: the Biology lecture is still the board's.
+  await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
+  expect(writes.inputs).toEqual([])
+
+  await page.keyboard.press('Enter')
+  await expect(lecturePill(page)).toHaveText('No lecture')
+  await expect.poll(() => writes.inputs).toEqual([{ workspaceId: 'ws-in-lecture', courseTag: 'chemistry' }])
 })
 
 test('on a phone: no "Showing" word, same pills', async ({ mount, page, simulator: _boards }) => {

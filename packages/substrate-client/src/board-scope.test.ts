@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { predictBoardScope, withBoardScope } from './board-scope'
+import { QueryClient } from '@tanstack/react-query'
+import { applyBoardScopePatches, predictBoardScope, withBoardScope } from './board-scope'
+import { cachedLectureCourse } from './shell-hooks'
 
 const COURSES: Record<string, string | null> = { 'bio-1': 'biology', 'bio-2': 'biology', 'chem-1': 'chemistry', 'unfiled-1': null }
 const courseOf = (id: string) => COURSES[id]
@@ -61,5 +63,43 @@ describe('withBoardScope', () => {
   it('keeps rows of other types', () => {
     const other = { id: 'r-x', workspace_id: 'ws', scope_type: 'x', scope_value: 'y' }
     expect(withBoardScope([other, ...rows], 'ws', { courseTag: null, lectureId: null })).toEqual([other])
+  })
+})
+
+describe('applyBoardScopePatches', () => {
+  it('applies unanswered writes in order over the confirmed scope', () => {
+    const base = { courseTag: 'biology', lectureId: 'bio-1' }
+    expect(applyBoardScopePatches(base, [], courseOf)).toEqual(base)
+    // Chemistry clears the lecture, then a Chemistry lecture is chosen.
+    expect(applyBoardScopePatches(base, [{ courseTag: 'chemistry' }, { lectureId: 'chem-1' }], courseOf))
+      .toEqual({ courseTag: 'chemistry', lectureId: 'chem-1' })
+    // The other way round: the lecture brings Chemistry, then Biology clears it.
+    expect(applyBoardScopePatches(base, [{ lectureId: 'chem-1' }, { courseTag: 'biology' }], courseOf))
+      .toEqual({ courseTag: 'biology', lectureId: null })
+  })
+})
+
+describe('cachedLectureCourse', () => {
+  // tRPC query keys: [path, { input, type }].
+  const key = (path: string[], input: unknown) => [path, { input, type: 'query' }]
+
+  it('reads a cached lecture, from a list or by id', () => {
+    const client = new QueryClient()
+    client.setQueryData(key(['lectures', 'list'], undefined), [{ id: 'chem-1', course: 'chemistry' }])
+    client.setQueryData(key(['lectures', 'byId'], 'unfiled-1'), { id: 'unfiled-1', course: null })
+    expect(cachedLectureCourse(client, 'chem-1')).toBe('chemistry')
+    expect(cachedLectureCourse(client, 'unfiled-1')).toBeNull()
+    expect(cachedLectureCourse(client, 'other')).toBeUndefined()
+  })
+
+  it("else a cached recording of it (opening a moment fetches the moment's recording first)", () => {
+    const client = new QueryClient()
+    client.setQueryData(key(['recordings', 'byId'], 'rec-chem-1'), { id: 'rec-chem-1', lecture_id: 'chem-1', course: 'chemistry' })
+    client.setQueryData(key(['recordings', 'byId'], 'rec-unfiled'), { id: 'rec-unfiled', lecture_id: 'unfiled-1', course: null })
+    // A list row has no lecture course: never read.
+    client.setQueryData(key(['recordings', 'list'], undefined), [{ id: 'rec-bio-1', lecture_id: 'bio-1', course: 'wrong' }])
+    expect(cachedLectureCourse(client, 'chem-1')).toBe('chemistry')
+    expect(cachedLectureCourse(client, 'unfiled-1')).toBeNull()
+    expect(cachedLectureCourse(client, 'bio-1')).toBeUndefined()
   })
 })

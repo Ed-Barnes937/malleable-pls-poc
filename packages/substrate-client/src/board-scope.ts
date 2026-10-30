@@ -34,6 +34,18 @@ export function predictBoardScope(
   return { courseTag, lectureId }
 }
 
+/**
+ * `patches` (writes not yet answered, oldest first) applied in order over
+ * `base`, the scope the server last confirmed: what the board shows meanwhile.
+ */
+export function applyBoardScopePatches(
+  base: BoardScope,
+  patches: BoardScopePatch[],
+  courseOf: (lectureId: string) => string | null | undefined,
+): BoardScope {
+  return patches.reduce<BoardScope>((scope, patch) => predictBoardScope(scope, patch, courseOf), base)
+}
+
 /** A `workspaces.scopes` row (its id, board and user ride along). */
 export type ScopeRow = { scope_type: string; scope_value: string; [column: string]: unknown }
 

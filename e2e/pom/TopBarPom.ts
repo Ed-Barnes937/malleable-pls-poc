@@ -18,6 +18,8 @@ export class TopBarPom {
   /** What the course and lecture pills read. */
   readonly coursePill: Locator
   readonly lecturePill: Locator
+  /** The pencil beside the lecture pill (only with a lecture selected). */
+  readonly renameLectureButton: Locator
   /** "Tuesday · Chemistry 14:00 · ...": today at a glance, on wide screens and (short) on a phone. */
   readonly todayLine: Locator
 
@@ -31,27 +33,58 @@ export class TopBarPom {
     this.lectureSelect = this.scopeGroup.getByRole('combobox', { name: 'Lecture' })
     this.coursePill = this.scopeGroup.getByTestId('scope-course').getByTestId('scope-pill-text')
     this.lecturePill = this.scopeGroup.getByTestId('scope-lecture').getByTestId('scope-pill-text')
+    this.renameLectureButton = this.scopeGroup.getByRole('button', { name: 'Rename lecture' })
     this.todayLine = this.root.getByTestId('today-line')
   }
 
-  /** Chooses a course by its label ("Biology", "All courses"). */
+  /**
+   * Chooses a course by its label ("Biology", "All courses"), and waits for
+   * the server to have it (the pills show it before then), so a reload after
+   * this reads it back.
+   */
   async selectCourse(label: string) {
-    await this.courseSelect.selectOption({ label })
+    await this.saving(this.courseSelect, () => this.courseSelect.selectOption({ label }))
   }
 
   /**
    * Chooses a lecture by its title (its option also has its date), or
-   * "No lecture". Waits for it to be in the list.
+   * "No lecture". Waits for it to be in the list, and for the server to have
+   * the choice.
    */
   async selectLecture(title: string) {
     if (title === 'No lecture') {
-      await this.lectureSelect.selectOption('')
+      await this.saving(this.lectureSelect, () => this.lectureSelect.selectOption(''))
       return
     }
     const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     const option = this.lectureSelect.locator('option').filter({ hasText: new RegExp(`^${escaped}( · |$)`) })
     await expect(option).toHaveCount(1)
-    await this.lectureSelect.selectOption((await option.getAttribute('value'))!)
+    const value = (await option.getAttribute('value'))!
+    await this.saving(this.lectureSelect, () => this.lectureSelect.selectOption(value))
+  }
+
+  /** Renames the board's lecture inline (the pencil beside the lecture pill), and waits for the server to have it. */
+  async renameLecture(title: string) {
+    await this.renameLectureButton.click()
+    const field = this.scopeGroup.getByRole('textbox', { name: 'Lecture name' })
+    await expect(field).toBeFocused()
+    await field.fill(title)
+    const saved = this.page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
+    await field.press('Enter')
+    expect((await saved).ok()).toBe(true)
+  }
+
+  /**
+   * Runs `choose` on `select` and, when it changed the choice, waits for the
+   * `setBoardScope` it makes to be answered (an unchanged choice writes nothing).
+   */
+  private async saving(select: Locator, choose: () => Promise<unknown>) {
+    const before = await select.inputValue()
+    const saved = this.page.waitForResponse((r) => r.url().includes('workspaces.setBoardScope') && r.request().method() === 'POST')
+    saved.catch(() => {})
+    await choose()
+    if ((await select.inputValue()) === before) return
+    expect((await saved).ok()).toBe(true)
   }
 
   /**

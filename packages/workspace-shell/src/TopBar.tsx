@@ -82,7 +82,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       {menuButton}
 
       {/* Board tabs */}
-      <div className="min-w-0">{tabs}</div>
+      <div data-testid="board-tabs" className="min-w-0">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}

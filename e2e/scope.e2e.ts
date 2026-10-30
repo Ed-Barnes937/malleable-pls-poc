@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
@@ -101,7 +101,7 @@ test.describe('Header scope pickers', () => {
     await topBar.selectLecture(ORGANIC)
     await topBar.expectScope('Chemistry', ORGANIC)
     // Only Chemistry's lectures are offered now.
-    await expect(topBar.lectureSelect.locator('option')).toHaveText(['No lecture', `${ORGANIC} · 9 Apr`, 'Rename this lecture...'])
+    await expect(topBar.lectureSelect.locator('option')).toHaveText(['No lecture', `${ORGANIC} · 9 Apr`])
 
     // And back to a Biology one from "All courses".
     await topBar.selectCourse('All courses')
@@ -117,12 +117,12 @@ test.describe('Header scope pickers', () => {
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
 
-    await topBar.lectureSelect.selectOption({ label: 'Rename this lecture...' })
+    await topBar.renameLectureButton.click()
     const name = topBar.scopeGroup.getByRole('textbox', { name: 'Lecture name' })
     await expect(name).toBeFocused()
     await expect(name).toHaveValue(DNA)
-    await name.fill('mtDNA and inheritance')
-    await name.press('Enter')
+    await name.press('Escape')
+    await topBar.renameLecture('mtDNA and inheritance')
 
     await topBar.expectScope('Biology', 'mtDNA and inheritance')
     await expect(transcript.getByTestId('lecture-title')).toHaveText('mtDNA and inheritance')
@@ -131,18 +131,44 @@ test.describe('Header scope pickers', () => {
     await expect(transcript.getByTestId('lecture-title')).toHaveText('mtDNA and inheritance')
   })
 
-  test('at 768px the header fits: tabs, both pills and the right-hand buttons', async ({ page }) => {
-    await page.setViewportSize({ width: 768, height: 900 })
-    const topBar = await openBoard(page, 'In Lecture')
-    await topBar.expectScope('Biology', DNA, { timeout: 10000 })
-    expect(await topBar.root.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    for (const pill of [topBar.coursePill, topBar.lecturePill, page.getByTestId('settings-button')]) {
-      await expect(pill).toBeInViewport({ ratio: 1 })
-    }
-    // The lecture pill is cut short rather than pushing anything out, and still readable.
-    expect((await topBar.lecturePill.boundingBox())!.width).toBeGreaterThan(60)
-  })
+  // From the phone layout's edge (640px) to a small laptop: the pills keep
+  // their minimum and the tabs give way, so nothing sits on top of anything
+  // (a tap on Activity must not open the Lecture picker).
+  for (const width of [640, 768, 1024]) {
+    test(`at ${width}px the header fits and nothing overlaps: tabs, both pills, the right-hand buttons`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      const topBar = await openBoard(page, 'In Lecture')
+      await topBar.expectScope('Biology', DNA, { timeout: 10000 })
+      const box = async (locator: Locator) => (await locator.boundingBox())!
+      const right = (b: { x: number; width: number }) => b.x + b.width
+
+      const header = await box(topBar.root)
+      const tabs = await box(topBar.root.getByTestId('board-tabs'))
+      const course = await box(topBar.scopeGroup.getByTestId('scope-course'))
+      const lecture = await box(topBar.scopeGroup.getByTestId('scope-lecture'))
+      const rename = await box(topBar.renameLectureButton)
+      const activity = await box(page.getByTestId('activity-button'))
+      const lastButton = await box(page.getByTestId('organize-button'))
+
+      // Left to right, each clear of the next.
+      expect(right(tabs)).toBeLessThanOrEqual(course.x)
+      expect(right(course)).toBeLessThanOrEqual(lecture.x)
+      expect(right(lecture)).toBeLessThanOrEqual(rename.x)
+      expect(right(lecture)).toBeLessThanOrEqual(activity.x)
+      expect(right(rename)).toBeLessThanOrEqual(activity.x)
+      expect(right(lastButton)).toBeLessThanOrEqual(right(header))
+      // A tap on Activity reaches Activity.
+      const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('[data-testid]')?.getAttribute('data-testid'),
+        [activity.x + activity.width / 2, activity.y + activity.height / 2])
+      expect(hit).toBe('activity-button')
+
+      // The lecture title is cut short rather than pushing anything out, and still readable.
+      expect(lecture.width).toBeGreaterThanOrEqual(96)
+      // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
+      expect(right(lastButton)).toBeLessThanOrEqual(width)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    })
+  }
 })
 
 test.describe('Header scope pickers on a phone', () => {

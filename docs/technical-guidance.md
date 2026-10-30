@@ -131,7 +131,8 @@ commitments. Ignored dimensions reach neither. The top bar offers a picker
 widget on the board uses (targets, filters or highlights), and nothing when
 no widget uses scope. Each choice is one `setBoardScope` write, applied to
 the cache at once (`useSetBoardScope` predicts both dimensions by the
-server's rules and rolls back on error). Writer access is granted to
+server's rules; writes go one at a time in the order made, and a failed one
+is taken back without undoing a later one). Writer access is granted to
 lenses that declare `writes`, not by category.
 
 **Palette groups.** The widget palette groups widgets by what a student wants
