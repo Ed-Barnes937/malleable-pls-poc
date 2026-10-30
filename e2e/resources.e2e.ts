@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
+import { watchConsole } from '../playwright/console-guard'
 
 /**
  * The Resources widget against the real server: links and markdown notes
@@ -35,6 +36,23 @@ async function open(page: Page) {
   await expect(panel).toBeVisible()
   return panel
 }
+
+/** Holds every save of a resource back for `ms` before it goes to the server. */
+async function slowSaves(page: Page, ms: number) {
+  await page.route('**/*resources.update*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+    await route.continue()
+  })
+}
+
+// Any React error (a render loop, a bad hook) fails the test.
+let consoleErrors: ReturnType<typeof watchConsole>
+test.beforeEach(({ page }) => {
+  consoleErrors = watchConsole(page)
+})
+test.afterEach(() => {
+  expect(consoleErrors.unexpected()).toEqual([])
+})
 
 /** Where each of dev-user-1's notes stands on the server. */
 async function noteNamed(request: APIRequestContext, title: string) {
@@ -145,6 +163,28 @@ test.describe('Resources', () => {
     await expect(panel.getByRole('status')).toHaveText('Saved')
     await expect.poll(async () => (await noteNamed(request, 'Mitochondrial DNA - key points'))?.body_md).toBe('Now **bold** here\n')
   })
+
+  test('a note reopened before its last save is answered keeps both edits, with no conflict', async ({ page, request }) => {
+    await resourcesBoard(request, { lectureId: LECTURE_ID })
+    await trpcMutation(request, 'resources.createNote', { lectureId: LECTURE_ID, title: 'Slow note' })
+    await slowSaves(page, 1500)
+    const panel = await open(page)
+    await panel.getByRole('button', { name: 'Slow note', exact: true }).click()
+    await panel.getByRole('textbox', { name: 'Slow note' }).click()
+    await page.keyboard.type('FIRST')
+    await panel.getByRole('button', { name: 'Back to resources' }).click()
+
+    await panel.getByRole('button', { name: 'Slow note', exact: true }).click()
+    const editor = panel.getByRole('textbox', { name: 'Slow note' })
+    await expect(editor).toHaveText('FIRST')
+    await editor.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' SECOND')
+    await expect(panel.getByRole('status')).toHaveText('Saved', { timeout: 10_000 })
+    await expect(panel.getByRole('alert')).toHaveCount(0)
+    await panel.getByRole('button', { name: 'Back to resources' }).click()
+    await expect.poll(async () => (await noteNamed(request, 'Slow note'))?.body_md, { timeout: 10_000 }).toBe('FIRST SECOND\n')
+  })
 })
 
 test.describe('Resources on a phone', () => {
@@ -178,5 +218,29 @@ test.describe('Resources on a phone', () => {
     await expect.poll(async () => (await noteNamed(request, 'Mitochondrial DNA - key points'))?.body_md).toContain('Typed on my phone')
     await panel.getByRole('button', { name: 'Mitochondrial DNA - key points', exact: true }).click()
     await expect(page.getByRole('dialog', { name: 'Note' }).getByText('Typed on my phone')).toBeVisible()
+  })
+
+  test('closing and reopening the note before its save is answered keeps both edits, with no conflict', async ({ page, request }) => {
+    await resourcesBoard(request, { lectureId: LECTURE_ID })
+    await trpcMutation(request, 'resources.createNote', { lectureId: LECTURE_ID, title: 'Slow note' })
+    await slowSaves(page, 1500)
+    const panel = await open(page)
+    const dialog = page.getByRole('dialog', { name: 'Note' })
+    await panel.getByRole('button', { name: 'Slow note', exact: true }).click()
+    await dialog.getByRole('textbox', { name: 'Slow note' }).click()
+    await page.keyboard.type('FIRST')
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect(dialog).toHaveCount(0)
+
+    await panel.getByRole('button', { name: 'Slow note', exact: true }).click()
+    const editor = dialog.getByRole('textbox', { name: 'Slow note' })
+    await expect(editor).toHaveText('FIRST')
+    await editor.click()
+    await page.keyboard.press('End')
+    await page.keyboard.type(' SECOND')
+    await expect(dialog.getByRole('status')).toHaveText('Saved', { timeout: 10_000 })
+    await expect(dialog.getByRole('alert')).toHaveCount(0)
+    await dialog.getByRole('button', { name: 'Close' }).click()
+    await expect.poll(async () => (await noteNamed(request, 'Slow note'))?.body_md, { timeout: 10_000 }).toBe('FIRST SECOND\n')
   })
 })

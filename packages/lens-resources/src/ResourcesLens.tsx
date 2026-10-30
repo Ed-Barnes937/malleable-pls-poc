@@ -6,6 +6,7 @@ import { ChevronDown, ChevronRight, Library, NotebookPen, Plus, X } from 'lucide
 import { AddPanel, type AttachTo } from './AddPanel'
 import { groupResources, type LectureGroup } from './grouping'
 import { MoveDialog, type Destination } from './MoveDialog'
+import { pendingNoteSaver } from './noteSavers'
 import { NoteView } from './NoteView'
 import { ResourceRow } from './ResourceRow'
 
@@ -82,7 +83,9 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   const [adding, setAdding] = useState(false)
   const [openNote, setOpenNote] = useState<string | null>(null)
   const [moving, setMoving] = useState<Resource | null>(null)
-  const [noteError, setNoteError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  // Asking whether to leave a note whose changes won't save without the student.
+  const [leaving, setLeaving] = useState(false)
 
   const courseLabel = COURSES.find((c) => c.value === course)?.label ?? course
   const now = Date.now()
@@ -97,24 +100,47 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   }
 
   const writeNote = async (attachTo: AttachTo) => {
-    setNoteError(false)
+    setError(null)
     try {
       const note = await createNote.mutateAsync(target(lectureId ? attachTo : 'course'))
       setAdding(false)
       setOpenNote(note.id)
     } catch {
-      setNoteError(true)
+      setError("Couldn't start a note. Try again.")
     }
   }
 
   const move = (resource: Resource, to: Destination) => {
     const patch = to === 'unfiled' ? { lectureId: null, courseTag: null } : 'lectureId' in to ? { lectureId: to.lectureId } : { courseTag: to.courseTag }
-    update.mutate({ id: resource.id, patch })
+    setError(null)
+    update.mutateAsync({ id: resource.id, patch }).catch(() => setError(`Couldn't move ${resource.title}. Try again.`))
   }
+
+  const rename = (resource: Resource, title: string) => {
+    setError(null)
+    update.mutateAsync({ id: resource.id, patch: { title } }).catch(() => setError(`Couldn't rename ${resource.title}. Try again.`))
+  }
+
+  /**
+   * Back to the list. Changes still to save carry on saving; changes that
+   * won't (a conflict, a failed save) are kept, but the student is asked first.
+   */
+  const closeNote = (anyway = false) => {
+    if (!openNote) return
+    const saver = pendingNoteSaver(openNote)
+    if (saver?.stuck && !anyway) {
+      setLeaving(true)
+      return
+    }
+    saver?.flush()
+    setLeaving(false)
+    setOpenNote(null)
+  }
+  const leavingPrompt = leaving ? { onStay: () => setLeaving(false), onLeave: () => closeNote(true) } : undefined
 
   // A note open in the widget swaps the list for the editor; on a phone it is full screen.
   if (openNote && !narrow) {
-    return <NoteView noteId={openNote} onBack={() => setOpenNote(null)} />
+    return <NoteView noteId={openNote} onBack={() => closeNote()} leaving={leavingPrompt} />
   }
 
   // Rows waiting to be deleted stay in place, as "Deleted · Undo".
@@ -136,7 +162,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
       now={now}
       showCourse={!course}
       onOpenNote={setOpenNote}
-      onRename={(title) => update.mutate({ id: resource.id, patch: { title } })}
+      onRename={(title) => rename(resource, title)}
       onMove={() => setMoving(resource)}
       onDelete={() => deletes.start(resource.id)}
       deleted={deletes.pending.has(resource.id) ? { onUndo: () => deletes.undo(resource.id) } : undefined}
@@ -173,7 +199,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
           busy={createLink.isPending || createNote.isPending}
         />
       )}
-      {noteError && <p role="alert" className="text-meta text-attn">Couldn't start a note. Try again.</p>}
+      {error && <p role="alert" className="text-meta text-attn">{error}</p>}
 
       {isLoading ? (
         <div className="flex flex-1 items-center justify-center"><Spinner /></div>
@@ -239,12 +265,12 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
       {openNote && narrow && (
         <Dialog
           open
-          onClose={() => setOpenNote(null)}
+          onClose={() => closeNote()}
           title="Note"
           className="fixed inset-0 flex h-dvh w-screen max-w-none flex-col rounded-none border-0 p-4"
         >
           <div className="min-h-0 flex-1">
-            <NoteView noteId={openNote} />
+            <NoteView noteId={openNote} leaving={leavingPrompt} />
           </div>
         </Dialog>
       )}

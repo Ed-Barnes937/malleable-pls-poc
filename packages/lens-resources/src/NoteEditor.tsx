@@ -10,11 +10,12 @@
  * new tab. "Markdown" switches to the source in a plain textarea.
  */
 import { useEffect, useRef, useState, type ComponentType, type FormEvent } from 'react'
-import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, remarkStringifyOptionsCtx, rootCtx, serializerCtx } from '@milkdown/kit/core'
-import type { Ctx } from '@milkdown/kit/ctx'
+import { Editor, defaultValueCtx, editorViewCtx, editorViewOptionsCtx, remarkStringifyOptionsCtx, rootCtx, serializerCtx } from '@milkdown/core'
+import type { Ctx } from '@milkdown/ctx'
 import {
   commonmark,
   headingSchema,
+  liftListItemCommand,
   listItemSchema,
   toggleEmphasisCommand,
   toggleLinkCommand,
@@ -22,16 +23,15 @@ import {
   wrapInBulletListCommand,
   wrapInHeadingCommand,
   turnIntoTextCommand,
-} from '@milkdown/kit/preset/commonmark'
-import { gfm } from '@milkdown/kit/preset/gfm'
-import { history } from '@milkdown/kit/plugin/history'
-import { Plugin } from '@milkdown/kit/prose/state'
-import type { EditorState } from '@milkdown/kit/prose/state'
-import type { Mark, MarkType, Node as ProseNode, NodeType, Slice } from '@milkdown/kit/prose/model'
-import { Fragment, Slice as ProseSlice } from '@milkdown/kit/prose/model'
-import { $prose, callCommand, getMarkdown, replaceAll } from '@milkdown/kit/utils'
-import { Milkdown, MilkdownProvider, useEditor } from '@milkdown/react'
-import { cn } from '@pls/shared-ui'
+} from '@milkdown/preset-commonmark'
+import { gfm } from '@milkdown/preset-gfm'
+import { history } from '@milkdown/plugin-history'
+import { Plugin } from '@milkdown/prose/state'
+import type { EditorState } from '@milkdown/prose/state'
+import type { Mark, MarkType, Node as ProseNode, NodeType, Slice } from '@milkdown/prose/model'
+import { Fragment, Slice as ProseSlice } from '@milkdown/prose/model'
+import { $prose, callCommand, getMarkdown, replaceAll } from '@milkdown/utils'
+import { cn, IconButton } from '@pls/shared-ui'
 import { Bold, Code2, Heading2, Italic, Link2, List, ListChecks } from 'lucide-react'
 
 export interface NoteEditorProps {
@@ -113,16 +113,46 @@ function imageView(node: ProseNode) {
   return { dom }
 }
 
-/** Typing or pasting a top-level heading makes it a section heading (h2). */
+/** Set while the editor takes the Markdown source back: its headings stay as written. */
+let takingSource = false
+
+/**
+ * Typing or pasting a top-level heading makes it a section heading (h2).
+ * Only headings the change made: an h1 already in the note stays, even
+ * while it is edited.
+ */
 const sectionHeadings = $prose((ctx) => {
   const heading = headingSchema.type(ctx)
   return new Plugin({
     appendTransaction(transactions, _old, state) {
-      if (!transactions.some((tr) => tr.docChanged)) return null
+      if (takingSource || !transactions.some((tr) => tr.docChanged)) return null
+      // What the student's changes touched, as ranges of the new document.
+      // Not what plugins add or dispatch outside the history (Milkdown syncs
+      // every heading's id after a change, touching headings nobody typed in).
+      const ranges: [number, number][] = []
+      for (const t of transactions) {
+        const own = !t.getMeta('appendedTransaction') && t.getMeta('addToHistory') !== false
+        for (const map of t.mapping.maps) {
+          for (const r of ranges) {
+            r[0] = map.map(r[0], -1)
+            r[1] = map.map(r[1], 1)
+          }
+          if (own) {
+            map.forEach((_oldStart, _oldEnd, from, to) => {
+              ranges.push([from, to])
+            })
+          }
+        }
+      }
       const tr = state.tr
-      state.doc.descendants((node, pos) => {
-        if (node.type === heading && node.attrs.level === 1) tr.setNodeMarkup(pos, undefined, { ...node.attrs, level: 2 })
-      })
+      const size = state.doc.content.size
+      for (const [from, to] of ranges) {
+        if (to <= from) continue
+        state.doc.nodesBetween(from, Math.min(to, size), (node, pos) => {
+          // Started inside the change: made (or retyped) by it.
+          if (pos >= from && node.type === heading && node.attrs.level === 1) tr.setNodeMarkup(pos, undefined, { ...node.attrs, level: 2 })
+        })
+      }
       return tr.docChanged ? tr : null
     },
   })
@@ -153,9 +183,10 @@ const REPORT_DELAY_MS = 200
 
 /**
  * Reports the markdown after changes, once typing pauses, and at once when
- * the editor is destroyed (leaving the note), so the last keystrokes are
- * never dropped. (Milkdown's listener plugin cancels its pending report on
- * destroy.)
+ * the editor is destroyed (leaving the note) or the page is going away, so
+ * the last keystrokes are never dropped. (Milkdown's listener plugin cancels
+ * its pending report on destroy.) The page listeners capture, so the report
+ * is in before the saver's own (bubbling) listeners save or ask to stay.
  */
 function markdownChanges(onChange: () => (markdown: string) => void) {
   return $prose(
@@ -175,13 +206,24 @@ function markdownChanges(onChange: () => (markdown: string) => void) {
             reported = doc
             onChange()(serialize(doc))
           }
+          const reportIfHidden = () => {
+            if (document.visibilityState === 'hidden') report()
+          }
+          window.addEventListener('pagehide', report, true)
+          window.addEventListener('beforeunload', report, true)
+          document.addEventListener('visibilitychange', reportIfHidden, true)
           return {
             update: (_view, prev) => {
               if (view.state.doc.eq(prev.doc)) return
               if (timer) clearTimeout(timer)
               timer = setTimeout(report, REPORT_DELAY_MS)
             },
-            destroy: report,
+            destroy: () => {
+              window.removeEventListener('pagehide', report, true)
+              window.removeEventListener('beforeunload', report, true)
+              document.removeEventListener('visibilitychange', reportIfHidden, true)
+              report()
+            },
           }
         },
       }),
@@ -198,6 +240,10 @@ interface Active {
 }
 
 const NOTHING_ACTIVE: Active = { bold: false, italic: false, heading: false, bulletList: false, taskList: false, link: false }
+
+function sameActive(a: Active, b: Active): boolean {
+  return (Object.keys(a) as (keyof Active)[]).every((k) => a[k] === b[k])
+}
 
 function markActive(state: EditorState, type: MarkType | undefined): boolean {
   if (!type) return false
@@ -237,28 +283,38 @@ function toggleTask(ctx: Ctx) {
   view.dispatch(view.state.tr.setNodeMarkup($from.before(depth), undefined, { ...item.attrs, checked: item.attrs.checked == null ? false : null }))
 }
 
+/**
+ * Milkdown's editor in a div: made on mount, destroyed on unmount (which
+ * reports the last keystrokes), and told when it may be edited. `value` is
+ * read once.
+ */
 function MilkdownEditor({ value, onChange, readOnly, label, onActive, onReady }: NoteEditorProps & {
   onActive: (active: Active) => void
-  onReady: (editor: Editor) => void
+  onReady: (editor: Editor | null) => void
 }) {
-  const onChangeRef = useRef(onChange)
-  onChangeRef.current = onChange
-  const readOnlyRef = useRef(readOnly)
-  readOnlyRef.current = readOnly
-  const onActiveRef = useRef(onActive)
-  onActiveRef.current = onActive
+  const host = useRef<HTMLDivElement>(null)
+  const editorRef = useRef<Editor | null>(null)
+  // Read by the editor (made once) when it needs them.
+  const latest = useRef({ value, onChange, readOnly, label, onActive, onReady })
+  latest.current = { value, onChange, readOnly, label, onActive, onReady }
 
-  const { get } = useEditor((root) => {
+  useEffect(() => {
+    // Its own element each time, so a remount (StrictMode) never shares one
+    // with an editor still being destroyed.
+    const root = document.createElement('div')
+    host.current!.appendChild(root)
+    const { value: initial, label: name } = latest.current
+    let live = true
     const editor = Editor.make()
       .config((ctx) => {
         ctx.set(rootCtx, root)
-        ctx.set(defaultValueCtx, value)
+        ctx.set(defaultValueCtx, initial)
         // "- item", as most notes (and our seeds) write lists.
         ctx.update(remarkStringifyOptionsCtx, (prev) => ({ ...prev, bullet: '-' as const }))
         ctx.update(editorViewOptionsCtx, (prev) => ({
           ...prev,
-          editable: () => !readOnlyRef.current,
-          attributes: { 'aria-label': label ?? 'Note', 'aria-multiline': 'true', role: 'textbox', spellcheck: 'true' },
+          editable: () => !latest.current.readOnly,
+          attributes: { 'aria-label': name ?? 'Note', 'aria-multiline': 'true', role: 'textbox', spellcheck: 'true' },
           markViews: { link: linkView },
           nodeViews: { image: imageView },
         }))
@@ -266,45 +322,43 @@ function MilkdownEditor({ value, onChange, readOnly, label, onActive, onReady }:
       .use(commonmark)
       .use(gfm)
       .use(history)
-      .use(markdownChanges(() => onChangeRef.current))
+      .use(markdownChanges(() => latest.current.onChange))
       .use(sectionHeadings)
       .use(safePastedLinks)
       // Tells the toolbar what the selection is in, after every change.
       .use($prose(() => new Plugin({
-        view: () => ({ update: (view) => onActiveRef.current(activeIn(view.state)) }),
+        view: (view) => {
+          latest.current.onActive(activeIn(view.state))
+          return { update: (v) => latest.current.onActive(activeIn(v.state)) }
+        },
       })))
-    return editor
+    editor
+      .create()
+      .then(() => {
+        if (!live) return
+        editorRef.current = editor
+        latest.current.onReady(editor)
+      })
+      .catch((err: unknown) => console.error('Note editor failed to start', err))
+    return () => {
+      live = false
+      editorRef.current = null
+      latest.current.onReady(null)
+      root.remove()
+      // Waits for a create still under way; reports the last keystrokes.
+      void editor.destroy()
+    }
   }, [])
 
-  const onReadyRef = useRef(onReady)
-  onReadyRef.current = onReady
+  // The editor reads `editable` when its props change; nudge it when that changes.
   useEffect(() => {
-    // The editor is created asynchronously after mount.
-    let cancelled = false
-    const check = () => {
-      if (cancelled) return
-      const editor = get()
-      if (editor) onReadyRef.current(editor)
-      else requestAnimationFrame(check)
-    }
-    check()
-    return () => {
-      cancelled = true
-    }
-  }, [get])
+    editorRef.current?.action((ctx) => ctx.get(editorViewCtx).setProps({ editable: () => !readOnly }))
+  }, [readOnly])
 
-  // The editor reads `editable` when its props change; nudge it.
-  useEffect(() => {
-    get()?.action((ctx) => {
-      const view = ctx.get(editorViewCtx)
-      view.setProps({ editable: () => !readOnly })
-    })
-  }, [readOnly, get])
-
-  return <Milkdown />
+  return <div ref={host} data-milkdown-root />
 }
 
-function ToolbarButton({ icon: Icon, label, pressed, onClick, disabled }: {
+function ToolbarButton({ icon, label, pressed, onClick, disabled }: {
   icon: ComponentType<{ className?: string }>
   label: string
   pressed: boolean
@@ -312,22 +366,17 @@ function ToolbarButton({ icon: Icon, label, pressed, onClick, disabled }: {
   disabled?: boolean
 }) {
   return (
-    <button
-      type="button"
-      aria-label={label}
+    <IconButton
+      icon={icon}
+      label={label}
       title={label}
       aria-pressed={pressed}
       disabled={disabled}
       // Keep the editor's selection: the command acts on it.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
-      className={cn(
-        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item transition-colors disabled:cursor-not-allowed disabled:opacity-40',
-        pressed ? 'bg-accent-soft text-accent' : 'text-text-muted hover:bg-surface-overlay hover:text-text-primary',
-      )}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
+      className={cn('shrink-0', pressed && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent')}
+    />
   )
 }
 
@@ -338,12 +387,19 @@ export default function NoteEditor({ value, onChange, readOnly = false, label }:
   // Raw markdown mode: the textarea holds the source; the editor gets it back on return.
   const [source, setSource] = useState<string | null>(null)
   const [linkDraft, setLinkDraft] = useState<string | null>(null)
-  // The text the editor would restart from if remounted: what it last reported.
+  // The markdown last reported, from the editor or the source.
   const latest = useRef(value)
+  // While the source shows, the editor's reports (a pending one, or its last
+  // words on unmount) are of text the textarea has since replaced.
+  const rawRef = useRef(false)
 
   const change = (markdown: string) => {
+    if (markdown === latest.current) return
     latest.current = markdown
     onChange(markdown)
+  }
+  const fromEditor = (markdown: string) => {
+    if (!rawRef.current) change(markdown)
   }
 
   const run = (fn: (ctx: Ctx) => void) => {
@@ -355,15 +411,25 @@ export default function NoteEditor({ value, onChange, readOnly = false, label }:
 
   const showSource = () => {
     const editor = editorRef.current
-    setSource(editor ? editor.action(getMarkdown()) : latest.current)
+    const text = editor ? editor.action(getMarkdown()) : latest.current
+    // Report what the editor holds now, in place of a report still pending.
+    change(text)
+    rawRef.current = true
+    setSource(text)
     setLinkDraft(null)
   }
 
   const showRendered = () => {
     const text = source ?? ''
     setSource(null)
+    rawRef.current = false
     // The editor stays mounted (hidden) while the source shows; give it the edited text.
-    editorRef.current?.action(replaceAll(text))
+    takingSource = true
+    try {
+      editorRef.current?.action(replaceAll(text))
+    } finally {
+      takingSource = false
+    }
   }
 
   const applyLink = (e: FormEvent) => {
@@ -402,7 +468,12 @@ export default function NoteEditor({ value, onChange, readOnly = false, label }:
             label="Bulleted list"
             pressed={!raw && active.bulletList && !active.taskList}
             disabled={raw || !ready}
-            onClick={() => run((ctx) => callCommand(wrapInBulletListCommand.key)(ctx))}
+            onClick={() => {
+              // A task becomes a plain item; a plain item leaves the list.
+              if (active.taskList) run(toggleTask)
+              else if (active.bulletList) run((ctx) => callCommand(liftListItemCommand.key)(ctx))
+              else run((ctx) => callCommand(wrapInBulletListCommand.key)(ctx))
+            }}
           />
           <ToolbarButton icon={ListChecks} label="Task list" pressed={!raw && active.taskList} disabled={raw || !ready} onClick={() => run(toggleTask)} />
           <ToolbarButton
@@ -456,28 +527,29 @@ export default function NoteEditor({ value, onChange, readOnly = false, label }:
         <textarea
           aria-label="Markdown source"
           value={source ?? ''}
+          // Like the editor: no changes while the note is read-only (a conflict).
+          readOnly={readOnly}
           onChange={(e) => {
+            if (readOnly) return
             setSource(e.target.value)
             change(e.target.value)
           }}
           spellCheck
-          className="min-h-0 flex-1 resize-none rounded-control border border-border bg-surface-raised p-3 font-mono text-body text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line"
+          className="min-h-0 flex-1 resize-none rounded-control border border-border bg-surface-raised p-3 font-mono text-body text-text-primary read-only:bg-surface-inset read-only:text-text-secondary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line"
         />
       )}
       <div className={cn('min-h-0 flex-1 overflow-y-auto', CONTENT, raw && 'hidden')}>
-        <MilkdownProvider>
-          <MilkdownEditor
-            value={value}
-            onChange={change}
-            readOnly={readOnly}
-            label={label}
-            onActive={setActive}
-            onReady={(editor) => {
-              editorRef.current = editor
-              setReady(true)
-            }}
-          />
-        </MilkdownProvider>
+        <MilkdownEditor
+          value={value}
+          onChange={fromEditor}
+          readOnly={readOnly}
+          label={label}
+          onActive={(next) => setActive((prev) => (sameActive(prev, next) ? prev : next))}
+          onReady={(editor) => {
+            editorRef.current = editor
+            setReady(!!editor)
+          }}
+        />
       </div>
     </div>
   )

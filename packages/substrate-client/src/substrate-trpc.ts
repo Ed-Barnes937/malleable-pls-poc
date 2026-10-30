@@ -252,7 +252,18 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useUpdateResource() {
-    return adaptMutation(useResourceMutation(trpc.resources.update))
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.update.useMutation({
+      onSuccess: (saved, { patch }) => {
+        utils.resources.get.setData(saved.id, saved)
+        // A move changes which lists hold it: they read again.
+        if ('lectureId' in patch || 'courseTag' in patch) return utils.resources.list.invalidate()
+        // A rename or an edit (autosave) changes the row in place, without
+        // reading the lists again or waiting for anything.
+        const { body_md: _body, ...row } = saved
+        utils.resources.list.setQueriesData(undefined, {}, (rows) => rows?.map((r) => (r.id === saved.id ? { ...r, ...row } : r)))
+      },
+    }))
   },
 
   useDeleteResource() {
@@ -277,9 +288,8 @@ export const substrateTrpc: SubstrateWriter = {
 }
 
 /**
- * A resource write puts the saved resource straight into its `get` cache
- * (so an open note never refetches under the editor) and refreshes the
- * lists, resolving once they have.
+ * A new resource goes straight into its `get` cache (so a new note opens
+ * without a fetch) and the lists refresh, resolving once they have.
  */
 function useResourceMutation(procedure: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

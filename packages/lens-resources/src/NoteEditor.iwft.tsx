@@ -1,7 +1,18 @@
+import { StrictMode } from 'react'
 import { test, expect } from '../../../playwright/fixtures'
+import { watchConsole } from '../../../playwright/console-guard'
 import NoteEditor from './NoteEditor'
 
 const noop = () => {}
+
+// Any React error (a render loop, a bad hook) fails the test.
+let consoleErrors: ReturnType<typeof watchConsole>
+test.beforeEach(({ page }) => {
+  consoleErrors = watchConsole(page)
+})
+test.afterEach(() => {
+  expect(consoleErrors.unexpected()).toEqual([])
+})
 
 /** The note's markdown as the editor would save it now, via the Markdown toggle (and back). */
 async function sourceOf(page: import('@playwright/test').Page): Promise<string> {
@@ -130,6 +141,64 @@ test('a top-level heading typed becomes a section heading', async ({ mount, page
   await page.keyboard.type('# Title')
   await expect(doc.locator('h2')).toHaveText('Title')
   await expect(doc.locator('h1')).toHaveCount(0)
+})
+
+test('a top-level heading already in the note stays one, edited or not', async ({ mount, page }) => {
+  const changes: string[] = []
+  await mount(<NoteEditor value={'# Kept\n\nBody'} onChange={(md) => changes.push(md)} />)
+  const doc = page.getByRole('textbox', { name: 'Note' })
+  await doc.getByText('Body').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' more')
+  await doc.locator('h1').click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' too')
+  await expect(doc.locator('h1')).toHaveText('Kept too')
+  await expect.poll(() => changes.at(-1)).toBe('# Kept too\n\nBody more\n')
+})
+
+test('Bulleted list turns a line into a list item, and back', async ({ mount, page }) => {
+  await mount(<NoteEditor value="" onChange={noop} />)
+  const doc = page.getByRole('textbox', { name: 'Note' })
+  const bullets = page.getByRole('button', { name: 'Bulleted list' })
+  await doc.click()
+  await page.keyboard.type('Item')
+  await bullets.click()
+  await expect(doc.locator('ul li')).toHaveText('Item')
+  await expect(bullets).toHaveAttribute('aria-pressed', 'true')
+  await bullets.click()
+  await expect(doc.locator('ul')).toHaveCount(0)
+  await expect(doc.locator('p')).toHaveText('Item')
+  await expect(bullets).toHaveAttribute('aria-pressed', 'false')
+})
+
+test("switching to the source just after typing: the editor's pending report never replaces the source edits", async ({ mount, page }) => {
+  const changes: string[] = []
+  await mount(<NoteEditor value="" onChange={(md) => changes.push(md)} />)
+  await page.getByRole('textbox', { name: 'Note' }).click()
+  await page.keyboard.type('typed')
+  // Within the editor's 200 ms pause.
+  await page.getByRole('button', { name: 'Markdown' }).click()
+  const source = page.getByRole('textbox', { name: 'Markdown source' })
+  await expect(source).toHaveValue('typed\n')
+  await source.fill('from the source')
+  await page.waitForTimeout(500)
+  expect(changes.at(-1)).toBe('from the source')
+})
+
+test('an open note does no work while nothing happens (StrictMode)', async ({ mount, page }) => {
+  await mount(<StrictMode><NoteEditor value={'**idle**'} onChange={noop} /></StrictMode>)
+  await expect(page.getByRole('textbox', { name: 'Note' }).locator('strong')).toHaveText('idle')
+  await expect(page.getByRole('button', { name: 'Bold' })).toBeEnabled()
+  // A render loop keeps the page's script busy; an idle editor runs nothing.
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Performance.enable')
+  const scriptSeconds = async () => (await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'ScriptDuration')?.value ?? 0
+  const before = await scriptSeconds()
+  await page.waitForTimeout(1500)
+  expect(await scriptSeconds() - before).toBeLessThan(0.1)
+  // Only one editor, though StrictMode mounts twice.
+  await expect(page.locator('.ProseMirror')).toHaveCount(1)
 })
 
 test('Markdown toggle: edit the source, switch back, see it formatted', async ({ mount, page }) => {

@@ -1,11 +1,48 @@
+import { StrictMode } from 'react'
+import type { Page, Route } from '@playwright/test'
 import type { Scope } from '@pls/lens-framework'
 import { test, expect } from '../../../playwright/fixtures'
+import { watchConsole } from '../../../playwright/console-guard'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredResource } from '../../../playwright/backend-simulator/in-memory-db'
 import ResourcesLens from './ResourcesLens'
 
 const defaultProps = { panelId: 'test-panel', scope: {}, config: {} }
+
+// Any React error (a render loop, a bad hook) fails the test.
+let consoleErrors: ReturnType<typeof watchConsole>
+test.beforeEach(({ page }) => {
+  consoleErrors = watchConsole(page)
+})
+test.afterEach(() => {
+  expect(consoleErrors.unexpected()).toEqual([])
+})
+
+/** Holds every `resources.update` request back for `ms` before the simulator answers it. */
+async function slowSaves(page: Page, ms: number) {
+  await page.route('**/*resources.update*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, ms))
+    await route.fallback()
+  })
+}
+
+/** Every `resources.update` fails as if offline, until the returned function is called. */
+async function offlineSaves(page: Page) {
+  consoleErrors.allow(/Failed to load resource/)
+  const handler = (route: Route) => route.abort('internetdisconnected')
+  await page.route('**/*resources.update*', handler)
+  return () => page.unroute('**/*resources.update*', handler)
+}
+
+/** Counts the requests to a procedure from now on. */
+function countRequests(page: Page, procedure: string) {
+  const seen = { count: 0 }
+  page.on('request', (request) => {
+    if (request.url().includes(procedure)) seen.count++
+  })
+  return seen
+}
 const BIO_LECTURE = 'lec-rec-bio-4'
 const BIO_LECTURE_TITLE = 'Biology Lecture: Mitochondrial DNA'
 
@@ -26,7 +63,7 @@ function seedResource(simulator: BackendSimulator, fields: Partial<StoredResourc
   })
 }
 
-test('with no course: the empty state invites adding links and notes', async ({ mount, page }) => {
+test('with no course: the empty state invites adding links and notes', async ({ mount, page, simulator: _simulator }) => {
   await mount(<TestProviders><ResourcesLens {...defaultProps} /></TestProviders>)
   await expect(page.getByText('Keep links and notes for your courses here')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add link' })).toBeVisible()
@@ -128,10 +165,13 @@ test('the editor is not downloaded until a note opens; a new note opens in it an
   await expect(editor).toBeVisible()
   expect(editorRequests.length).toBeGreaterThan(0)
 
+  const listReads = countRequests(page, 'resources.list')
   await page.getByRole('textbox', { name: 'Note title' }).fill('Enzymes')
   await editor.click()
   await page.keyboard.type('Lock and key')
   await expect(page.getByRole('status')).toHaveText('Saved')
+  // Autosave updates the list in place; it never reads the lists again.
+  expect(listReads.count).toBe(0)
   await expect.poll(() => simulator.db.resources.find((r) => r.kind === 'note')).toMatchObject({ title: 'Enzymes', body_md: 'Lock and key\n', course: 'biology' })
 
   await page.getByRole('button', { name: 'Back to resources' }).click()
@@ -175,6 +215,7 @@ test('rename, move and delete with undo', async ({ mount, page, simulator }) => 
   seedResource(simulator, { id: 'r-note', title: 'Draft', course: 'biology' })
   await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
 
+  const updates = countRequests(page, 'resources.update')
   await page.getByRole('button', { name: 'More for Draft' }).click()
   await page.getByRole('button', { name: 'Rename' }).click()
   const name = page.getByRole('textbox', { name: 'New name for Draft' })
@@ -182,6 +223,8 @@ test('rename, move and delete with undo', async ({ mount, page, simulator }) => 
   await name.press('Enter')
   await expect(page.getByRole('button', { name: 'Cell notes', exact: true })).toBeVisible()
   await expect.poll(() => simulator.db.resources[0].title).toBe('Cell notes')
+  // Enter, then the input's blur as it goes: one rename.
+  expect(updates.count).toBe(1)
 
   await page.getByRole('button', { name: 'More for Cell notes' }).click()
   await page.getByRole('button', { name: 'Move' }).click()
@@ -213,4 +256,136 @@ test('leaving a note at once still saves the last keystrokes', async ({ mount, p
   await page.keyboard.type('Last words')
   await page.getByRole('button', { name: 'Back to resources' }).click()
   await expect.poll(() => simulator.db.resources[0].body_md).toBe('Last words\n')
+})
+
+test('a note reopened while its last save is still on its way keeps both edits, with no conflict', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Slow', body_md: '', course: 'biology' })
+  await slowSaves(page, 1500)
+  await mount(<StrictMode><TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders></StrictMode>)
+  await page.getByRole('button', { name: 'Slow', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Slow' }).click()
+  await page.keyboard.type('FIRST')
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+
+  // Back in before that save is answered: the note has what was typed.
+  await page.getByRole('button', { name: 'Slow', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'Slow' })
+  await expect(editor).toHaveText('FIRST')
+  expect(simulator.db.resources[0].body_md).toBe('')
+  await editor.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' SECOND')
+  await expect(page.getByRole('status')).toHaveText('Saved', { timeout: 10_000 })
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  expect(simulator.db.resources[0].body_md).toBe('FIRST SECOND\n')
+})
+
+test('a conflict in the Markdown source: the source is read-only until the student picks', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Shared note', body_md: 'original', course: 'biology' })
+  await mount(<StrictMode><TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders></StrictMode>)
+  await page.getByRole('button', { name: 'Shared note', exact: true }).click()
+  await page.getByRole('button', { name: 'Markdown' }).click()
+  const source = page.getByRole('textbox', { name: 'Markdown source' })
+  await expect(source).toHaveValue('original\n')
+
+  Object.assign(simulator.db.resources[0], { body_md: 'from the laptop', updated_at: '2026-10-30T11:00:00.000Z' })
+  await source.fill('mine')
+  await expect(page.getByRole('alert')).toContainText('Changed on another device')
+  await expect(source).toHaveAttribute('readonly', '')
+  await source.press('End')
+  await page.keyboard.type(' more')
+  await expect(source).toHaveValue('mine')
+
+  await page.getByRole('alert').getByRole('button', { name: 'Keep mine' }).click()
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  expect(simulator.db.resources[0].body_md).toBe('mine')
+  await expect(source).not.toHaveAttribute('readonly')
+})
+
+test('leaving a note in conflict asks first; its text is kept as "Not saved" and is there on return', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Shared note', body_md: 'original', course: 'biology' })
+  await mount(<StrictMode><TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders></StrictMode>)
+  await page.getByRole('button', { name: 'Shared note', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'Shared note' })
+  await expect(editor).toHaveText('original')
+  Object.assign(simulator.db.resources[0], { body_md: 'from the laptop', updated_at: '2026-10-30T11:00:00.000Z' })
+  await editor.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type(' from the phone')
+  await expect(page.getByRole('alert')).toContainText('Changed on another device')
+
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+  const ask = page.getByRole('alert').filter({ hasText: "Your latest changes aren't saved" })
+  await ask.getByRole('button', { name: 'Stay' }).click()
+  await expect(ask).toHaveCount(0)
+  await expect(editor).toBeVisible()
+
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+  await ask.getByRole('button', { name: 'Leave' }).click()
+  const row = page.getByTestId('resource-row').filter({ hasText: 'Shared note' })
+  await expect(row.getByText('Not saved')).toBeVisible()
+  // Closing the page now would lose it: the browser asks.
+  expect(await page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))).toBe(true)
+
+  await page.getByRole('button', { name: 'Shared note', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Shared note' })).toHaveText('original from the phone')
+  await page.getByRole('alert').getByRole('button', { name: 'Keep mine' }).click()
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  expect(simulator.db.resources[0].body_md).toBe('original from the phone\n')
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+  await expect(row.getByText(/^Note · edited/)).toBeVisible()
+})
+
+test('the last save failing offline after leaving: the row says "Not saved", and the note has the text to save again', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Offline', body_md: '', course: 'biology' })
+  const online = await offlineSaves(page)
+  await mount(<StrictMode><TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders></StrictMode>)
+  await page.getByRole('button', { name: 'Offline', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Offline' }).click()
+  await page.keyboard.type('Typed on the train')
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+  const row = page.getByTestId('resource-row').filter({ hasText: 'Offline' })
+  await expect(row.getByText('Not saved')).toBeVisible()
+
+  await online()
+  await page.getByRole('button', { name: 'Offline', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: 'Offline' })).toHaveText('Typed on the train')
+  await expect(page.getByRole('status')).toContainText("Couldn't save")
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByRole('status')).toHaveText('Saved')
+  expect(simulator.db.resources[0].body_md).toBe('Typed on the train\n')
+})
+
+test('the page being hidden saves at once, without waiting for typing to pause', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Quick', body_md: '', course: 'biology' })
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await page.getByRole('button', { name: 'Quick', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Quick' }).click()
+  await page.keyboard.type('Switching apps')
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+  })
+  // The pause alone would take a second (the editor's 200 ms, then 800 ms).
+  await expect.poll(() => simulator.db.resources[0].body_md, { timeout: 600 }).toBe('Switching apps\n')
+})
+
+test('a rename or move that fails says so', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Draft', course: 'biology' })
+  await offlineSaves(page)
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await page.getByRole('button', { name: 'More for Draft' }).click()
+  await page.getByRole('button', { name: 'Rename' }).click()
+  const name = page.getByRole('textbox', { name: 'New name for Draft' })
+  await name.fill('Cell notes')
+  await name.press('Enter')
+  await expect(page.getByRole('alert')).toHaveText("Couldn't rename Draft. Try again.")
+
+  await page.getByRole('button', { name: 'More for Draft' }).click()
+  await page.getByRole('button', { name: 'Move' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Move Draft' })
+  await dialog.getByRole('combobox', { name: 'Move to' }).selectOption({ label: BIO_LECTURE_TITLE })
+  await dialog.getByRole('button', { name: 'Move' }).click()
+  await expect(page.getByRole('alert')).toHaveText("Couldn't move Draft. Try again.")
+  expect(simulator.db.resources[0]).toMatchObject({ title: 'Draft', course: 'biology', lecture_id: null })
 })

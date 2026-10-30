@@ -202,15 +202,26 @@ The Resources widget (`packages/lens-resources`) keeps links and markdown
 notes for a course or a lecture (`resources` router, `resources.ts` in
 `@pls/substrate` for the URL recognition, excerpt and input schemas shared by
 the server and the CT simulator). Notes are edited with Milkdown's headless
-core (`@milkdown/kit` subpaths and `@milkdown/react`, never the Crepe preset
-or a theme), styled with our tokens. `NoteEditor.tsx` is the only file that
-imports Milkdown, so the editor can be swapped without touching stored notes
-(`body_md` is plain markdown), and it is lazy loaded on the first note
+core (`@milkdown/core`, the CommonMark and GFM presets and history, made and
+destroyed by our own small React wrapper; never `@milkdown/react`, the Crepe
+preset or a theme), styled with our tokens. `NoteEditor.tsx` is the only file
+that imports Milkdown, so the editor can be swapped without touching stored
+notes (`body_md` is plain markdown), and it is lazy loaded on the first note
 opened. Raw HTML in a note shows as escaped text, images as a link to them,
-and links open only for http, https and mailto. Saves are debounced and
-serialised, and each names the `updated_at` it last read
-(`expectedUpdatedAt`): a save on top of a change made elsewhere fails with a
-CONFLICT and the note offers "Reload" or "Keep mine".
+and links open only for http, https and mailto.
+
+Autosave lives in `noteSavers.ts`: one saver per note for the whole page, not
+per view. Saves are debounced and serialised, and each names the
+`updated_at` it last read (`expectedUpdatedAt`): a save on top of a change
+made elsewhere fails with a CONFLICT and the note offers "Reload" or "Keep
+mine". Leaving a note saves what is left, and a note reopened while a save is
+still on its way (or after one failed) starts from the saver's text, never
+from the cached copy. Text that will not save without the student (a
+conflict, a failed save) is kept and its row says "Not saved"; leaving such a
+note asks first, and so does the page (`beforeunload`). The page being hidden
+(`visibilitychange`, `pagehide`) saves at once; coming back `online` retries.
+A save updates the lists' rows in place (`setQueriesData`); only a move
+reads the lists again.
 
 ### Showing a Moment ("click a study block, land on the lecture moment")
 

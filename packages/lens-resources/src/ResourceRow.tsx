@@ -1,4 +1,4 @@
-import { useState, type ComponentType, type FormEvent } from 'react'
+import { useRef, useState, type ComponentType, type FormEvent } from 'react'
 import { cn, courseTone, IconButton } from '@pls/shared-ui'
 import { MAX_RESOURCE_TITLE_LENGTH, parseResourceUrl, resourceCourse, type Resource } from '@pls/substrate'
 import {
@@ -13,6 +13,7 @@ import {
   Undo2,
 } from 'lucide-react'
 import { editedAgo } from './grouping'
+import { useNoteStuck } from './noteSavers'
 
 /** Icon and its tint (tokens) for a resource's kind. */
 function iconFor(resource: Resource): { icon: ComponentType<{ className?: string }>; tint: string } {
@@ -55,6 +56,9 @@ export interface ResourceRowProps {
 export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, onMove, onDelete, deleted }: ResourceRowProps) {
   const [actions, setActions] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
+  // Enter submits, and the input then goes, which blurs it: one rename only.
+  const renameDone = useRef(false)
+  const notSaved = useNoteStuck(resource.id)
   const { icon: Icon, tint } = iconFor(resource)
   const course = resourceCourse(resource)
 
@@ -75,8 +79,18 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
     )
   }
 
+  const startRename = () => {
+    renameDone.current = false
+    setRenaming(resource.title)
+  }
+  const cancelRename = () => {
+    renameDone.current = true
+    setRenaming(null)
+  }
   const submitRename = (e: FormEvent) => {
     e.preventDefault()
+    if (renameDone.current) return
+    renameDone.current = true
     const title = (renaming ?? '').trim()
     if (title && title !== resource.title) onRename(title)
     setRenaming(null)
@@ -98,7 +112,7 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
                 maxLength={MAX_RESOURCE_TITLE_LENGTH}
                 onChange={(e) => setRenaming(e.target.value)}
                 onBlur={submitRename}
-                onKeyDown={(e) => e.key === 'Escape' && setRenaming(null)}
+                onKeyDown={(e) => e.key === 'Escape' && cancelRename()}
                 className="h-8 w-full rounded-control border border-border bg-surface-raised px-2 text-body text-text-primary focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line"
               />
             </form>
@@ -121,7 +135,12 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
             </button>
           )}
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-text-muted">
-            <span>{resourceMeta(resource, now)}</span>
+            {notSaved ? (
+              // A note whose last changes didn't save (offline, or changed elsewhere): open it to save them.
+              <span className="font-semibold text-attn">Not saved</span>
+            ) : (
+              <span>{resourceMeta(resource, now)}</span>
+            )}
             {showCourse && course && (
               <span className={cn('inline-flex h-[22px] items-center rounded-full px-2 font-semibold capitalize', courseTone(course).tint, courseTone(course).ink)}>
                 {course}
@@ -143,7 +162,7 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
       {actions && (
         <div className="ml-11 mt-1 flex flex-wrap gap-1" role="group" aria-label={`Actions for ${resource.title}`}>
           {[
-            { label: 'Rename', run: () => setRenaming(resource.title) },
+            { label: 'Rename', run: startRename },
             { label: 'Move', run: onMove },
             { label: 'Delete', run: onDelete },
           ].map((action) => (
