@@ -5,7 +5,13 @@ import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { BoardScope, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
-import { replaceScopeRow, writeBoardScope } from './_board-scope'
+import { replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
+
+/** A board scope as `setBoardScope` returns it (null = unset). */
+const boardScope = z.object({
+  courseTag: z.string().max(100).nullable(),
+  lectureId: z.string().max(255).nullable(),
+})
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -240,6 +246,25 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {
       return withUser(ctx.userId, async (tx) => {
         return writeBoardScope(tx, ctx.userId, workspaceId, patch)
+      })
+    }),
+
+  /**
+   * Undo for a board scope change: puts back `to` only if the board still
+   * shows `ifBoardShows` (what that change left), so a change made since,
+   * anywhere, is kept (`restored: false`, nothing written). A lecture in
+   * `to` comes back with the course it has now; one that is gone leaves
+   * just `to`'s course. Returns the board's scope after.
+   */
+  restoreBoardScope: publicProcedure
+    .input(z.object({
+      workspaceId: z.string().max(255),
+      to: boardScope,
+      ifBoardShows: boardScope,
+    }))
+    .mutation(async ({ ctx, input }): Promise<{ restored: boolean; scope: BoardScope }> => {
+      return withUser(ctx.userId, async (tx) => {
+        return restoreBoardScope(tx, ctx.userId, input.workspaceId, input.to, input.ifBoardShows)
       })
     }),
 })

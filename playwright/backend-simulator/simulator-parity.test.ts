@@ -605,6 +605,24 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     await expect(call('lectures.forClassOccurrence', { planItemId: shift.id, date: '2026-10-19' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 
+  it('restoreBoardScope puts back what a class focus replaced, only while the board shows what it left', async () => {
+    const { id } = await bioClass()
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'chemistry' })
+    const { board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    // Changed since: kept, and nothing written.
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
+      .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
+    // Unchanged since: put back.
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: again.board.after }))
+      .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: null } })
+    // A lecture that is gone: just its course comes back.
+    expect(await call('workspaces.restoreBoardScope', {
+      workspaceId: 'ws-in-lecture', to: { courseTag: 'physics', lectureId: 'lec-gone' }, ifBoardShows: { courseTag: 'chemistry', lectureId: null },
+    })).toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: null } })
+  })
+
   it('lectures.create with matchClass joins the class on now, and the calendar click finds the same lecture', async () => {
     const { id } = await bioClass()
     const during = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T09:46:00.000Z', workspaceId: 'ws-in-lecture' })

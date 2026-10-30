@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useManifests, useSubstrate, type FocusedClassLecture, type LectureBoardRef } from '@pls/lens-framework'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useManifests, useSubstrate, type FocusClassResult, type FocusedClassLecture, type LectureBoardRef, type UndoFocusClassResult } from '@pls/lens-framework'
 import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { cn } from '@pls/shared-ui'
 import { AudioLines, Loader2 } from 'lucide-react'
@@ -16,9 +16,9 @@ export type ClassLectureState =
   | {
       state: 'focused'
       request: number
-      lecture: FocusedClassLecture
-      changed: boolean
-      undo?: () => Promise<boolean>
+      lecture: Extract<FocusClassResult, { status: 'focused' }>['lecture']
+      /** Present when the open changed the board: puts back what it showed. */
+      undo?: () => Promise<UndoFocusClassResult>
     }
   | { state: 'failed'; request: number }
 
@@ -27,18 +27,29 @@ export const FINDING_DELAY_MS = 300
 /** "Also open in" shows this many boards, then "More boards...". */
 export const BOARDS_SHOWN = 3
 
+/** A lecture's audio: how many recordings, and how long they are together. */
+export interface LectureAudio {
+  recordingCount: number
+  durationMs: number
+}
+
+/** `LectureAudio` of a lecture's recordings. */
+export function lectureAudio(recordings: ReadonlyArray<{ duration: number | null }>): LectureAudio {
+  return { recordingCount: recordings.length, durationMs: recordings.reduce((sum, r) => sum + (r.duration ?? 0), 0) }
+}
+
 /**
  * What the class occurrence's lecture has: "Recorded · 52 min" once it has
  * audio, else where the class is in time: "On now" (from 15 minutes before
  * it starts, as Record joins it), "Upcoming", or "No recording yet".
  */
 export function lectureStatus(
-  recordings: ReadonlyArray<{ duration: number }> | undefined,
+  audio: LectureAudio | undefined,
   occurrence: { starts_at: string | null; ends_at: string | null },
   now: number,
 ): string {
-  if (recordings && recordings.length > 0) {
-    const minutes = Math.round(recordings.reduce((sum, r) => sum + (r.duration ?? 0), 0) / 60_000)
+  if (audio && audio.recordingCount > 0) {
+    const minutes = Math.round(audio.durationMs / 60_000)
     return minutes > 0 ? `Recorded · ${formatDuration(minutes)}` : 'Recorded'
   }
   const start = occurrence.starts_at ? Date.parse(occurrence.starts_at) : NaN
@@ -61,8 +72,8 @@ export interface ClassLectureSectionProps {
   /** The occurrence opened, for its status before it has audio. */
   occurrence: { starts_at: string | null; ends_at: string | null }
   now: Date
-  /** Other boards that can show a lecture (`LensProps.lectureBoards`). */
-  lectureBoards: LectureBoardRef[]
+  /** Other boards that can show a lecture (`LensProps.lectureBoards`); undefined until they are known. */
+  lectureBoards: LectureBoardRef[] | undefined
   /** Whether this board has a widget that shows a lecture. */
   boardShowsLectures: boolean
   /** A phone: rows go full width and at least 44px tall. */
@@ -78,9 +89,10 @@ export interface ClassLectureSectionProps {
  * The Lecture row of a class block's popover: the lecture the open focused
  * on the board (with Undo when that changed the board), "Also open in" for
  * the student's other boards that can show it, and, when no board can, a
- * quiet way to add a widget that does. It keeps one height from pending to
- * answered, so a press aimed at the popover's buttons (a phone's second
- * tap) isn't moved by the answer arriving.
+ * quiet way to add a widget that does. Nothing in it changes height once
+ * shown (pending to answered or failed, Undo and its outcome, a board that
+ * couldn't open), so a press aimed at the popover's buttons (a phone's
+ * second tap) is never moved by an answer arriving.
  */
 export function ClassLectureSection({
   lecture, occurrence, now, lectureBoards, boardShowsLectures, narrow, onRetry, onOpenOn, onAddWidget,
@@ -91,10 +103,18 @@ export function ClassLectureSection({
   // Live, so audio arriving (a recording in another tab) updates the status.
   const { data: stored } = substrate.useLecture(focused?.lecture.id)
   const [showFinding, setShowFinding] = useState(false)
-  const [undo, setUndo] = useState<'idle' | 'undoing' | 'undone' | 'failed'>('idle')
+  const [undo, setUndo] = useState<'idle' | 'undoing' | UndoFocusClassResult>('idle')
   const [opening, setOpening] = useState<string | null>(null)
   const [openError, setOpenError] = useState<string | null>(null)
   const [allBoards, setAllBoards] = useState(false)
+  const boardRefs = useRef<Array<HTMLButtonElement | null>>([])
+  /** "More boards..." was pressed: focus goes to the first board it shows. */
+  const revealing = useRef(false)
+  useEffect(() => {
+    if (!allBoards || !revealing.current) return
+    revealing.current = false
+    boardRefs.current[BOARDS_SHOWN]?.focus()
+  }, [allBoards])
 
   useEffect(() => {
     setUndo('idle')
@@ -107,13 +127,14 @@ export function ClassLectureSection({
     () => listNames(manifests.filter((m) => m.scope?.lectureId === 'target').map((m) => m.label)),
     [manifests],
   )
-  const status = focused
-    ? lectureStatus(stored?.id === focused.lecture.id ? stored.recordings : undefined, occurrence, now.getTime())
-    : null
+  // The lecture as loaded (live), else as the focus answer found it.
+  const audio = focused && (stored?.id === focused.lecture.id ? lectureAudio(stored.recordings) : focused.lecture)
+  const status = focused ? lectureStatus(audio || undefined, occurrence, now.getTime()) : null
   const title = stored?.id === focused?.lecture.id ? stored?.title ?? focused?.lecture.title : focused?.lecture.title
 
-  const boards = allBoards ? lectureBoards : lectureBoards.slice(0, BOARDS_SHOWN)
-  const hidden = lectureBoards.length - boards.length
+  const otherBoards = lectureBoards ?? []
+  const boards = allBoards ? otherBoards : otherBoards.slice(0, BOARDS_SHOWN)
+  const hidden = otherBoards.length - boards.length
 
   const openOn = async (boardId: string) => {
     if (!focused || !onOpenOn || opening) return
@@ -128,10 +149,14 @@ export function ClassLectureSection({
 
   const link = 'shrink-0 rounded-item px-2 text-meta font-semibold text-accent transition-colors hover:bg-surface-overlay disabled:opacity-50'
   const row = narrow ? 'min-h-11 w-full' : 'min-h-8'
+  const button = narrow ? 'min-h-11' : 'h-8'
+  // What Undo did, in place of the status line, so nothing below moves.
+  const undoNote = undo === 'failed' ? "Couldn't undo. Try again?" : undo === 'changed' ? 'The board has changed since.' : null
 
   return (
     <section data-testid="class-lecture" aria-label="Lecture" className="flex flex-col gap-2 border-t border-border-subtle pt-3">
-      <div className="flex min-h-10 items-start gap-2">
+      {/* Tall enough for its tallest content at this width (two lines, or a phone's 44px button), from pending on. */}
+      <div data-testid="class-lecture-row" className={cn('flex items-start gap-2', narrow ? 'min-h-11' : 'min-h-10')}>
         <AudioLines aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-text-muted" />
         <div role="status" data-testid="class-lecture-status" data-state={lecture.state} className="min-w-0 flex-1">
           {lecture.state === 'pending' && (
@@ -143,39 +168,44 @@ export function ClassLectureSection({
                 <span className="sr-only">Showing </span>
                 {title}
               </p>
-              <p className="text-meta text-text-secondary">{status}</p>
+              {undoNote
+                ? <p className="truncate text-meta text-confused">{undoNote}</p>
+                : <p className="truncate text-meta text-text-secondary">{status}</p>}
             </>
           )}
           {lecture.state === 'failed' && <p className="text-body text-confused">Couldn't show this lecture.</p>}
         </div>
-        {focused?.changed && focused.undo && (undo === 'undone' ? (
-          <span className="shrink-0 px-2 py-1 text-meta text-text-muted">Undone</span>
+        {focused?.undo && undo !== 'changed' && (undo === 'undone' ? (
+          <span className={cn('inline-flex shrink-0 items-center px-2 text-meta text-text-muted', button)}>Undone</span>
         ) : (
           <button
             type="button"
             disabled={undo === 'undoing'}
             onClick={async () => {
               setUndo('undoing')
-              setUndo((await focused.undo!()) ? 'undone' : 'failed')
+              setUndo(await focused.undo!())
             }}
-            className={cn(link, narrow ? 'min-h-11' : 'h-8')}
+            className={cn(link, button)}
           >
             Undo
           </button>
         ))}
         {lecture.state === 'failed' && (
-          <button type="button" onClick={onRetry} className={cn(link, narrow ? 'min-h-11' : 'h-8')}>Try again</button>
+          <button type="button" onClick={onRetry} className={cn(link, button)}>Try again</button>
         )}
       </div>
-      {undo === 'failed' && <p role="alert" className="text-meta text-confused">Couldn't undo. Try again?</p>}
 
-      {lectureBoards.length > 0 && onOpenOn && (
-        <div role="group" aria-labelledby="class-lecture-also" className="flex flex-col gap-1">
-          <p id="class-lecture-also" className="text-meta font-semibold text-text-muted">Also open in</p>
+      {otherBoards.length > 0 && onOpenOn && (
+        <div role="group" aria-label="Also open in" className="flex flex-col gap-1">
+          {/* A board that couldn't open says so in place of the label, so nothing moves. */}
+          {openError
+            ? <p role="alert" className="text-meta font-semibold text-confused">{openError}</p>
+            : <p aria-hidden className="text-meta font-semibold text-text-muted">Also open in</p>}
           <div className={cn('flex gap-1.5', narrow ? 'flex-col' : 'flex-wrap')}>
-            {boards.map((b) => (
+            {boards.map((b, i) => (
               <button
                 key={b.id}
+                ref={(el) => { boardRefs.current[i] = el }}
                 type="button"
                 // Usable once the lecture is known; it never moves meanwhile.
                 aria-disabled={!focused || (opening !== null && opening !== b.id) || undefined}
@@ -191,16 +221,22 @@ export function ClassLectureSection({
               </button>
             ))}
             {hidden > 0 && (
-              <button type="button" onClick={() => setAllBoards(true)} className={cn(link, row, 'text-left')}>
+              <button
+                type="button"
+                onClick={() => {
+                  revealing.current = true
+                  setAllBoards(true)
+                }}
+                className={cn(link, row, 'text-left')}
+              >
                 More boards...
               </button>
             )}
           </div>
         </div>
       )}
-      {openError && <p role="alert" className="text-meta text-confused">{openError}</p>}
 
-      {lectureBoards.length === 0 && !boardShowsLectures && onAddWidget && lectureWidgets && (
+      {lectureBoards && lectureBoards.length === 0 && !boardShowsLectures && onAddWidget && lectureWidgets && (
         <p data-testid="class-lecture-hint" className="text-meta text-text-muted">
           {lectureWidgets} show a lecture.{' '}
           <button type="button" onClick={onAddWidget} className={cn('font-semibold text-accent underline-offset-2 hover:underline', narrow && 'min-h-11')}>

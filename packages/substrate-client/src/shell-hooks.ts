@@ -1,6 +1,6 @@
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
-import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 import type { PlanItemQuery } from '@pls/substrate'
 
@@ -165,6 +165,7 @@ export function useUpdateWorkspaceBackground() {
 export function useSetBoardScope() {
   const utils = trpc.useUtils()
   return trpc.workspaces.setBoardScope.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
     onError: (error) => refetchBoardsIfGone(utils, error),
     onSuccess: (_data, input) => {
       utils.workspaces.scopes.invalidate(input.workspaceId)
@@ -175,29 +176,69 @@ export function useSetBoardScope() {
 }
 
 /**
- * The TanStack mutation scope for writes that move a board's lecture from
- * one gesture after another (calendar class clicks): they run one at a time,
- * in order, so the last one asked for is the one the board ends on.
+ * Mutation scope for board scope writes: they reach the server one at a
+ * time, in the order made, whatever made them (the header's pickers, a
+ * calendar class opening its lecture, Undo), so two quick changes land the
+ * way round the student made them.
  */
-export function boardScopeMutationId(workspaceId: string | null): string {
-  return `board-scope-${workspaceId ?? 'none'}`
+export const BOARD_SCOPE_WRITES = 'board-scope'
+
+/**
+ * Whether board scope writes to `workspaceId` other than `self` (the one
+ * finishing) are still to be answered: re-reading the board meanwhile would
+ * show it without them (the last one re-reads it).
+ */
+function otherBoardScopeWrites(queryClient: QueryClient, workspaceId: string, self: unknown): boolean {
+  return queryClient.getMutationCache().findAll({
+    status: 'pending',
+    predicate: (m) =>
+      m.options.scope?.id === BOARD_SCOPE_WRITES
+      && m.state.variables !== self
+      && (m.state.variables as { workspaceId?: string } | undefined)?.workspaceId === workspaceId,
+  }).length > 0
 }
 
 /**
  * A calendar class occurrence's lecture (`lectures.forClassOccurrence`):
  * found or made (exactly one per occurrence), and with `workspaceId` selected
- * on that board in the same transaction. The answer's `board.before` is what
- * Undo puts back with `setBoardScope`. Refreshes the lectures (one may be
- * new) and the board's scope; a board that is gone refreshes the board list.
+ * on that board in the same transaction. The answer's `board` (before and
+ * after) is what Undo works from (`useRestoreBoardScope`). The lecture goes
+ * straight into the cache (its recordings say whether it is recorded), the
+ * lectures are refreshed (one may be new) and so is the board's scope; a
+ * board that is gone refreshes the board list. One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`).
  */
-export function useClassOccurrenceLecture(workspaceId: string | null) {
+export function useClassOccurrenceLecture() {
   const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
   return trpc.lectures.forClassOccurrence.useMutation({
-    scope: { id: boardScopeMutationId(workspaceId) },
+    scope: { id: BOARD_SCOPE_WRITES },
     onError: (error) => refetchBoardsIfGone(utils, error),
-    onSuccess: (_data, input) => {
+    onSuccess: ({ lecture }, input) => {
+      utils.lectures.byId.setData(lecture.id, lecture)
       void utils.lectures.invalidate()
-      if (input.workspaceId) void utils.workspaces.scopes.invalidate(input.workspaceId)
+      if (input.workspaceId && !otherBoardScopeWrites(queryClient, input.workspaceId, input)) {
+        void utils.workspaces.scopes.invalidate(input.workspaceId)
+      }
+    },
+  })
+}
+
+/**
+ * Undo for a board scope change (`workspaces.restoreBoardScope`): puts back
+ * `to` only while the board still shows `ifBoardShows`, so a change made
+ * since, anywhere, is kept (`restored: false`). One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`), in order with the rest.
+ */
+export function useRestoreBoardScope() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.workspaces.restoreBoardScope.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onError: (error) => refetchBoardsIfGone(utils, error),
+    onSettled: (_data, _error, input) => {
+      if (otherBoardScopeWrites(queryClient, input.workspaceId, input)) return
+      return utils.workspaces.scopes.invalidate(input.workspaceId)
     },
   })
 }

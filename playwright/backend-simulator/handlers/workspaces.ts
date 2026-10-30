@@ -1,6 +1,7 @@
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { writeBoardScope } from './lectures'
+import type { BoardScope } from '@pls/substrate'
+import { readBoardScope, writeBoardScope } from './lectures'
 
 /** Mirrors `COURSE_LABELS` on the server. */
 const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
@@ -130,6 +131,19 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, ...patch } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
     if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
     return writeBoardScope(db, workspaceId, patch)
+  })
+
+  /** Twin of the server's `restoreBoardScope`: Undo, only while the board shows what the change left. */
+  router.register('workspaces.restoreBoardScope', (input) => {
+    const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
+    requireBoard(db, workspaceId)
+    const current = readBoardScope(db, workspaceId)
+    if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
+      return { restored: false, scope: current }
+    }
+    const lectureThere = !!to.lectureId && db.lectures.some((l) => l.id === to.lectureId)
+    const patch = lectureThere ? { lectureId: to.lectureId } : { courseTag: to.courseTag, lectureId: null }
+    return { restored: true, scope: writeBoardScope(db, workspaceId, patch) }
   })
 }
 

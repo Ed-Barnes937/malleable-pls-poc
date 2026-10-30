@@ -299,6 +299,51 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
   })
 
+  describe('workspaces.restoreBoardScope (Undo after a class focus)', () => {
+    it('puts back what the board showed while it still shows what the focus left', async () => {
+      const ws = await board('chemistry')
+      const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(1), workspaceId: ws })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: null } })
+      expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
+    })
+
+    it('keeps a change made since, elsewhere, and writes nothing', async () => {
+      const ws = await board('chemistry')
+      const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(1), workspaceId: ws })
+      await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
+      expect(await storedScope(ws)).toEqual([])
+    })
+
+    it('brings back a lecture refiled under another course since, with its course now', async () => {
+      const ws = await board()
+      const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
+      const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(2), workspaceId: ws })
+      expect(change!.before).toEqual({ courseTag: 'physics', lectureId: earlier.id })
+      await api().lectures.update({ id: earlier.id, course: 'chemistry' })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: earlier.id } })
+    })
+
+    it('puts back just the course when the lecture it showed is gone', async () => {
+      const ws = await board()
+      const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
+      const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(3), workspaceId: ws })
+      await db.sql`DELETE FROM lectures WHERE id = ${earlier.id}`
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: null } })
+      expect(await storedScope(ws)).toEqual([['tag', 'physics']])
+    })
+
+    it("is NOT_FOUND on a board that isn't the student's", async () => {
+      const ws = await board()
+      const none = { courseTag: null, lectureId: null }
+      await expect(caller(bob).workspaces.restoreBoardScope({ workspaceId: ws, to: none, ifBoardShows: none })).rejects.toEqual(notFound)
+    })
+  })
+
   describe('/upload selecting the lecture it makes', () => {
     it('selects it on the board when the board has no lecture', async () => {
       const ws = await board('physics')

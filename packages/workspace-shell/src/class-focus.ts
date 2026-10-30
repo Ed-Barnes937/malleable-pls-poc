@@ -1,7 +1,9 @@
 import { useCallback, useMemo } from 'react'
 import { AudioLines, ChevronLeft } from 'lucide-react'
-import type { ClassRef, FocusClassResult, FocusedClassLecture, LectureBoardRef, PanelManifest } from '@pls/lens-framework'
-import { useClassOccurrenceLecture, useSetBoardScope, useWorkspaceSummary } from '@pls/substrate-client'
+import type {
+  ClassFocusBoard, ClassRef, FocusClassResult, FocusedClassLecture, LectureBoardRef, PanelManifest, UndoFocusClassResult,
+} from '@pls/lens-framework'
+import { useClassOccurrenceLecture, useRestoreBoardScope, useSetBoardScope, useWorkspaceSummary } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { useToastStore } from './toast'
 
@@ -46,17 +48,20 @@ const browserZone = () => Intl.DateTimeFormat().resolvedOptions().timeZone
  * The board facts a calendar class popover offers (`LensProps.lectureBoards`
  * and `boardShowsLectures`), from the cached board summary: board and panel
  * changes refresh it, so the list stays current while a popover is open.
+ * `lectureBoards` is undefined until the summary has loaded, so the popover
+ * offers neither boards nor "Add a widget" before it knows which.
  */
 export function useLectureBoards(activeWorkspaceId: string | null, activeLensTypes: string[], manifests: ReadonlyArray<ScopeFlags>) {
-  const { data: summary } = useWorkspaceSummary()
+  const { data } = useWorkspaceSummary()
+  const summary = useMemo(() => (data ?? []) as BoardContents[], [data])
   const boards = useMemo(
-    () => lectureBoards((summary ?? []) as BoardContents[], manifests, activeWorkspaceId),
-    [summary, manifests, activeWorkspaceId],
+    () => (data ? lectureBoards(summary, manifests, activeWorkspaceId) : undefined),
+    [data, summary, manifests, activeWorkspaceId],
   )
   return {
     lectureBoards: boards,
     boardShowsLectures: isLectureBoard(activeLensTypes, manifests),
-    summary: (summary ?? []) as BoardContents[],
+    summary,
   }
 }
 
@@ -64,41 +69,64 @@ export function useLectureBoards(activeWorkspaceId: string | null, activeLensTyp
  * The shell side of `LensProps.onFocusClass`: find or make the class
  * occurrence's lecture and select it on the open board, in one server call
  * (`lectures.forClassOccurrence`, so the board course becomes the lecture's).
- * Undo puts back what the board showed with one `setBoardScope`.
+ * Reports the board before and after, for Undo (`useUndoFocusClass`).
  */
 export function useFocusClass(activeWorkspaceId: string | null): (cls: ClassRef) => Promise<FocusClassResult> {
-  const { mutateAsync: forClassOccurrence } = useClassOccurrenceLecture(activeWorkspaceId)
-  const { mutateAsync: setBoardScope } = useSetBoardScope()
+  const { mutateAsync: forClassOccurrence } = useClassOccurrenceLecture()
   return useCallback(
     async (cls: ClassRef): Promise<FocusClassResult> => {
       if (!activeWorkspaceId) return { status: 'failed' }
-      const workspaceId = activeWorkspaceId
       try {
-        const { lecture, board } = await forClassOccurrence({ ...cls, workspaceId, timeZone: browserZone() })
-        const before = board?.before
-        const changed = !!board && (board.before.courseTag !== board.after.courseTag || board.before.lectureId !== board.after.lectureId)
+        const { lecture, board } = await forClassOccurrence({ ...cls, workspaceId: activeWorkspaceId, timeZone: browserZone() })
+        if (!board) return { status: 'failed' }
         return {
           status: 'focused',
-          lecture: { id: lecture.id as string, title: lecture.title as string },
-          changed,
-          undo: changed && before
-            ? () => setBoardScope({ workspaceId, courseTag: before.courseTag, lectureId: before.lectureId }).then(() => true, () => false)
-            : undefined,
+          lecture: {
+            id: lecture.id,
+            title: lecture.title,
+            recordingCount: lecture.recordings.length,
+            durationMs: lecture.recordings.reduce((sum, r) => sum + (r.duration ?? 0), 0),
+          },
+          board,
         }
       } catch {
         return { status: 'failed' }
       }
     },
-    [activeWorkspaceId, forClassOccurrence, setBoardScope],
+    [activeWorkspaceId, forClassOccurrence],
   )
 }
 
-/** Puts keyboard focus on the open board's tab once it shows `name` (after a switch). */
-function focusBoardTab(name: string) {
+/**
+ * The shell side of `LensProps.onUndoFocusClass`: puts back what the open
+ * board showed before a class focus, only while it still shows what that
+ * left (`workspaces.restoreBoardScope`), in order with every other board
+ * scope write.
+ */
+export function useUndoFocusClass(activeWorkspaceId: string | null): (board: ClassFocusBoard) => Promise<UndoFocusClassResult> {
+  const { mutateAsync: restoreBoardScope } = useRestoreBoardScope()
+  return useCallback(
+    async (board: ClassFocusBoard): Promise<UndoFocusClassResult> => {
+      if (!activeWorkspaceId) return 'failed'
+      try {
+        const { restored } = await restoreBoardScope({ workspaceId: activeWorkspaceId, to: board.before, ifBoardShows: board.after })
+        return restored ? 'undone' : 'changed'
+      } catch {
+        return 'failed'
+      }
+    },
+    [activeWorkspaceId, restoreBoardScope],
+  )
+}
+
+/** Puts keyboard focus on board `boardId`'s tab once it is the open one (after a switch). */
+function focusBoardTab(boardId: string) {
   let frames = 0
   const tryFocus = () => {
-    const tab = document.querySelector<HTMLElement>('[data-testid="top-bar"] button[aria-current="page"]')
-    if (tab && tab.textContent?.trim() === name) return tab.focus()
+    const tab = document.querySelector<HTMLElement>(
+      `[data-testid="top-bar"] button[data-board-id="${CSS.escape(boardId)}"][aria-current="page"]`,
+    )
+    if (tab) return tab.focus()
     if (++frames < 60) requestAnimationFrame(tryFocus)
   }
   requestAnimationFrame(tryFocus)
@@ -150,7 +178,7 @@ export function useOpenLectureOn(
             }
           : {}),
       })
-      if (to) focusBoardTab(to.name)
+      focusBoardTab(boardId)
       return 'opened'
     },
     [activeWorkspaceId, boards, setBoardScope, setActiveWorkspaceId, pushToast],

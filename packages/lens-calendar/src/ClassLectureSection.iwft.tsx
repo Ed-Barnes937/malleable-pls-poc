@@ -253,6 +253,184 @@ test('with no board that shows a lecture, a quiet "Add a widget" names the widge
   await expect(page.getByTestId('calendar-popover')).toHaveCount(0)
 })
 
+/** A Chemistry seminar on Sunday 10:00-11:00, clear of Monday's popover: a second class block to open. */
+function seedSeminar(simulator: BackendSimulator) {
+  seedPlanItem(simulator, {
+    id: 'chem-seminar', kind: 'commitment', subtype: 'class', title: 'Chemistry seminar', course: 'chemistry',
+    starts_at: iso(6, 10), ends_at: iso(6, 11),
+  })
+}
+const setStoredScope = (simulator: BackendSimulator, scope: { tag?: string; lecture?: string }) => {
+  simulator.db.workspaceScopes = simulator.db.workspaceScopes.filter((s) => s.workspace_id !== BOARD)
+  if (scope.tag) simulator.db.workspaceScopes.push({ id: 'scope-tag', workspace_id: BOARD, scope_type: 'tag', scope_value: scope.tag })
+  if (scope.lecture) simulator.db.workspaceScopes.push({ id: 'scope-lecture', workspace_id: BOARD, scope_type: 'lecture', scope_value: scope.lecture })
+}
+
+test('Undo keeps a change made elsewhere while the popover was open, and says the board has changed', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  await mount(<ClassFocusHarness />)
+  await block(page, 'Biology lecture').click()
+  const undo = section(page).getByRole('button', { name: 'Undo' })
+  await expect(undo).toBeVisible()
+
+  // Another tab (or the header) moves the board on meanwhile.
+  setStoredScope(simulator, { tag: 'physics' })
+  await undo.click()
+  await expect(section(page).getByRole('status')).toHaveText(`Showing ${BIO_TITLE}The board has changed since.`)
+  await expect(undo).toHaveCount(0)
+  await expect(section(page).getByText('Undone')).toHaveCount(0)
+  // Nothing was written: the board shows the change made elsewhere.
+  await expect(page.getByTestId('board-scope')).toHaveText('physics / no lecture')
+})
+
+test('Undo puts back the course when the lecture the board showed is gone', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  setStoredScope(simulator, { tag: 'chemistry', lecture: 'lec-rec-chem-1' })
+  await mount(<ClassFocusHarness />)
+  await expect(page.getByTestId('board-scope')).toHaveText('chemistry / lec-rec-chem-1')
+
+  await block(page, 'Biology lecture').click()
+  await expect(section(page).getByRole('button', { name: 'Undo' })).toBeVisible()
+  simulator.db.lectures = simulator.db.lectures.filter((l) => l.id !== 'lec-rec-chem-1')
+  await section(page).getByRole('button', { name: 'Undo' }).click()
+  await expect(section(page).getByText('Undone')).toBeVisible()
+  await expect(page.getByTestId('board-scope')).toHaveText('chemistry / no lecture')
+})
+
+test('Undo brings back a lecture refiled under another course since, with its course now', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  setStoredScope(simulator, { tag: 'biology', lecture: 'lec-rec-bio-1' })
+  await mount(<ClassFocusHarness />)
+  await expect(page.getByTestId('board-scope')).toHaveText('biology / lec-rec-bio-1')
+  await block(page, 'Biology lecture').click()
+  await expect(section(page).getByRole('button', { name: 'Undo' })).toBeVisible()
+  simulator.db.lectures.find((l) => l.id === 'lec-rec-bio-1')!.course = 'physics'
+  await section(page).getByRole('button', { name: 'Undo' }).click()
+  await expect(section(page).getByText('Undone')).toBeVisible()
+  await expect(page.getByTestId('board-scope')).toHaveText('physics / lec-rec-bio-1')
+})
+
+test('two quick opens: Undo puts back the board from before the first, not the class passed through', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  seedSeminar(simulator)
+  let first = true
+  await page.route('**/lectures.forClassOccurrence**', async (route) => {
+    // The first answer is slow: the second open is made before it lands.
+    if (first) {
+      first = false
+      await new Promise((resolve) => setTimeout(resolve, 600))
+    }
+    await route.fallback()
+  })
+  await mount(<ClassFocusHarness />)
+  await block(page, 'Biology lecture').click()
+  await block(page, 'Chemistry seminar').click()
+  await expect(section(page).getByRole('status')).toContainText('Chemistry seminar')
+  await expect(page.getByTestId('board-scope')).toHaveText(/^chemistry \/ lec-/)
+  await section(page).getByRole('button', { name: 'Undo' }).click()
+  await expect(section(page).getByText('Undone')).toBeVisible()
+  await expect(page.getByTestId('board-scope')).toHaveText('chemistry / no lecture')
+})
+
+test('going straight from one class popover to the next keeps one Undo session; closing the popover ends it', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  seedSeminar(simulator)
+  await mount(<ClassFocusHarness />)
+
+  // Biology, then (its popover still open) the seminar: Undo goes back to Chemistry with no lecture.
+  await block(page, 'Biology lecture').click()
+  await expect(page.getByTestId('board-scope')).toHaveText(/^biology \/ lec-/)
+  await block(page, 'Chemistry seminar').click()
+  await expect(page.getByTestId('board-scope')).toHaveText(/^chemistry \/ lec-/)
+  await section(page).getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByTestId('board-scope')).toHaveText('chemistry / no lecture')
+  await page.keyboard.press('Escape')
+
+  // Biology, closed, then the seminar: Undo goes back to Biology, which the student kept.
+  await block(page, 'Biology lecture').click()
+  await expect(page.getByTestId('board-scope')).toHaveText(/^biology \/ lec-/)
+  const biology = await page.getByTestId('board-scope').textContent()
+  await page.keyboard.press('Escape')
+  await block(page, 'Chemistry seminar').click()
+  await expect(page.getByTestId('board-scope')).toHaveText(/^chemistry \/ lec-/)
+  await section(page).getByRole('button', { name: 'Undo' }).click()
+  await expect(page.getByTestId('board-scope')).toHaveText(biology!)
+})
+
+test('a recorded class says so as soon as it is focused, before the lecture itself has loaded', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  // This Monday's lecture already has a 47-minute recording.
+  simulator.db.lectures.push({
+    id: 'lec-bio-26', title: BIO_TITLE, course: 'biology', starts_at: iso(0, 10), class_item_id: 'bio-class', class_date: '2026-10-26',
+    created_at: iso(0, 10), updated_at: iso(0, 10),
+  })
+  simulator.db.recordings.find((r) => r.id === 'rec-bio-1')!.lecture_id = 'lec-bio-26'
+  // The lecture's own read never answers.
+  await page.route('**/lectures.byId**', () => new Promise(() => {}))
+  await mount(<ClassFocusHarness />)
+  const seen: string[] = []
+  await page.exposeFunction('sawStatus', (text: string) => { seen.push(text) })
+  await page.evaluate(() => {
+    new MutationObserver(() => {
+      const status = document.querySelector('[data-testid="class-lecture-status"]')
+      if (status?.textContent) (window as unknown as { sawStatus: (t: string) => void }).sawStatus(status.textContent)
+    }).observe(document.body, { subtree: true, childList: true, characterData: true })
+  })
+  await block(page, 'Biology lecture').click()
+  await expect(section(page).getByRole('status')).toHaveText(`Showing ${BIO_TITLE}Recorded · 47 min`)
+  expect(seen.filter((t) => t.includes('No recording yet'))).toEqual([])
+})
+
+test('"More boards..." moves focus to the first board it shows', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  const boards = ['In Lecture', 'Evening Review', 'Bio review', 'Notes', 'Revision'].map((name, i) => ({ id: `ws-${i}`, name }))
+  await mount(<ClassFocusHarness boardShowsLectures lectureBoards={boards} />)
+  await block(page, 'Biology lecture').click()
+  const also = section(page).getByRole('group', { name: 'Also open in' })
+  await also.getByRole('button', { name: 'More boards...' }).focus()
+  await page.keyboard.press('Enter')
+  await expect(also.getByRole('button', { name: 'Notes' })).toBeFocused()
+})
+
+test('neither "Also open in" nor "Add a widget" shows until the boards are known', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  const component = await mount(<ClassFocusHarness lectureBoards={null} />)
+  await block(page, 'Biology lecture').click()
+  await expect(section(page).getByRole('status')).toContainText(BIO_TITLE)
+  await expect(section(page).getByTestId('class-lecture-hint')).toHaveCount(0)
+  await expect(section(page).getByRole('group', { name: 'Also open in' })).toHaveCount(0)
+  await component.update(<ClassFocusHarness lectureBoards={[]} />)
+  await expect(section(page).getByTestId('class-lecture-hint')).toBeVisible()
+})
+
+test("a class's date is read in the student's zone: the focus waits for their preferences", async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  // Their zone is Auckland, where this one-off class (Monday 23:30 in London) is on Tuesday.
+  simulator.db.preferences = { time_zone: 'Pacific/Auckland', study_hours: null, study_min_per_day: 120 }
+  seedPlanItem(simulator, {
+    id: 'late-class', kind: 'commitment', subtype: 'class', title: 'Late seminar', course: 'physics',
+    starts_at: iso(0, 23, 30), ends_at: iso(0, 23, 55), time_zone: null,
+  })
+  const component = await mount(<ClassFocusHarness preferencesLoading />)
+  await block(page, 'Late seminar').click()
+  await expect(section(page).getByRole('status')).toHaveAttribute('data-state', 'pending')
+  await page.waitForTimeout(300)
+  await expect(calls(page)).toHaveCount(0)
+
+  await component.update(<ClassFocusHarness />)
+  await expect(calls(page)).toHaveText(['focus late-class@2026-10-27'])
+  await expect(section(page).getByRole('status')).toContainText('Late seminar')
+})
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 400, height: 860 } })
 
@@ -272,5 +450,51 @@ test.describe('on a phone', () => {
     const row = (await section(page).getByRole('button', { name: 'In Lecture' }).boundingBox())!
     // Full width: the popover's width less its padding.
     expect(row.width).toBeGreaterThan(popover.width - 40)
+  })
+
+  /** Where the popover's buttons are: the first board and the footer's Save. */
+  const buttonBoxes = async (page: Page) => ({
+    board: await section(page).getByRole('button', { name: 'In Lecture' }).boundingBox(),
+    save: await page.getByTestId('calendar-popover').getByRole('button', { name: 'Save' }).boundingBox(),
+  })
+
+  for (const outcome of ['answered', 'failed'] as const) {
+    test(`pending -> ${outcome}: no button in the popover moves`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, at(0, 8))
+      seedWeek(simulator)
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => { release = resolve })
+      await page.route('**/lectures.forClassOccurrence**', async (route) => {
+        await held
+        await (outcome === 'answered' ? route.fallback() : route.abort())
+      })
+      await mount(<ClassFocusHarness width="100%" height={760} lectureBoards={[{ id: 'ws-in-lecture', name: 'In Lecture' }]} />)
+      await block(page, 'Biology lecture').click()
+      // Past "Finding this lecture..." showing.
+      await expect(section(page).getByText('Finding this lecture...')).toBeVisible()
+      const before = await buttonBoxes(page)
+
+      release()
+      await expect(section(page).getByRole('button', { name: outcome === 'answered' ? 'Undo' : 'Try again' })).toBeVisible()
+      expect(await buttonBoxes(page)).toEqual(before)
+    })
+  }
+
+  test("Undo's outcome and a board that couldn't open are said in place: nothing moves", async ({ mount, page, simulator }) => {
+    await freezeAt(page, simulator, at(0, 8))
+    seedWeek(simulator)
+    await page.route('**/workspaces.restoreBoardScope**', (route) => route.abort())
+    await mount(<ClassFocusHarness width="100%" height={760} openResult="failed" lectureBoards={[{ id: 'ws-in-lecture', name: 'In Lecture' }]} />)
+    await block(page, 'Biology lecture').click()
+    await expect(section(page).getByRole('button', { name: 'Undo' })).toBeVisible()
+    const before = await buttonBoxes(page)
+
+    await section(page).getByRole('button', { name: 'Undo' }).click()
+    await expect(section(page).getByRole('status')).toHaveText(`Showing ${BIO_TITLE}Couldn't undo. Try again?`)
+    expect(await buttonBoxes(page)).toEqual(before)
+
+    await section(page).getByRole('button', { name: 'In Lecture' }).click()
+    await expect(section(page).getByRole('alert')).toHaveText("Couldn't open it there. Try again?")
+    expect(await buttonBoxes(page)).toEqual(before)
   })
 })

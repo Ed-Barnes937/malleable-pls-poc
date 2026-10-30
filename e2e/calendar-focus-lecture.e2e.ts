@@ -47,6 +47,16 @@ async function geneticsClass(request: APIRequestContext, weeks = 0) {
   return { id: item.id, date, title: classLectureTitle('Genetics lecture', date) }
 }
 
+/** A one-off Organic chemistry class (Chemistry), 09:00-10:00 London today. */
+async function organicClass(request: APIRequestContext) {
+  const start = startOfLocalDay(Date.now(), SEED_TIME_ZONE) + 9 * 60 * 60_000
+  await trpcMutation(request, 'planItems.create', {
+    kind: 'commitment', title: 'Organic chemistry', subtype: 'class', course: 'chemistry',
+    starts_at: new Date(start).toISOString(), ends_at: new Date(start + 60 * 60_000).toISOString(),
+    timeZone: SEED_TIME_ZONE,
+  })
+}
+
 async function boardScope(request: APIRequestContext, workspaceId: string) {
   const rows = await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', workspaceId)
   return {
@@ -214,12 +224,61 @@ test.describe('A calendar class focuses its lecture', () => {
     expect(upload.ok(), await upload.text()).toBe(true)
     await openBoard(page, 'Plan')
     const calendar = new CalendarPom(page)
+    // The lecture's own read is slow: the focus answer already says it is recorded.
+    await page.route('**/lectures.byId**', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      await route.fallback()
+    })
 
     await calendar.block('Genetics lecture').click()
-    await expect(calendar.popover.getByTestId('class-lecture').getByRole('status')).toContainText(`${cls.title}Recorded · 52 min`)
+    const status = calendar.popover.getByTestId('class-lecture').getByRole('status')
+    await expect(status).toContainText(cls.title)
+    await expect(status).toContainText(`${cls.title}Recorded · 52 min`, { timeout: 1000 })
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
     await expect(transcript).toContainText(cls.title)
     await expect(transcript).toContainText(/\d+ segments/, { timeout: 15000 })
+  })
+
+  test('Undo keeps a change made elsewhere while the popover was open, and says the board has changed', async ({ page, request }) => {
+    const plan = await board(request, 'Plan', ['calendar', 'todo'], 'chemistry')
+    await geneticsClass(request)
+    await openBoard(page, 'Plan')
+    const calendar = new CalendarPom(page)
+    await calendar.block('Genetics lecture').click()
+    const section = calendar.popover.getByTestId('class-lecture')
+    const undo = section.getByRole('button', { name: 'Undo' })
+    await expect(undo).toBeVisible()
+
+    // Another tab moves the board to all courses meanwhile.
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: plan, courseTag: null })
+    await undo.click()
+    await expect(section.getByRole('status')).toContainText('The board has changed since.')
+    await expect(undo).toHaveCount(0)
+    expect(await boardScope(request, plan)).toEqual({ course: null, lecture: null })
+  })
+
+  test('two quick opens: Undo puts back the board from before the first, not the class passed through', async ({ page, request }) => {
+    const plan = await board(request, 'Plan', ['calendar'], 'chemistry')
+    await geneticsClass(request)
+    await organicClass(request)
+    let first = true
+    await page.route('**/lectures.forClassOccurrence**', async (route) => {
+      if (first) {
+        first = false
+        await new Promise((resolve) => setTimeout(resolve, 800))
+      }
+      await route.fallback()
+    })
+    await openBoard(page, 'Plan')
+    const calendar = new CalendarPom(page)
+    await calendar.block('Genetics lecture').click()
+    await calendar.block('Organic chemistry').click()
+    const section = calendar.popover.getByTestId('class-lecture')
+    await expect(section.getByRole('status')).toContainText('Organic chemistry')
+    await expect.poll(async () => (await boardScope(request, plan)).lecture).not.toBeNull()
+    await section.getByRole('button', { name: 'Undo' }).click()
+    await expect(section.getByText('Undone')).toBeVisible()
+    expect(await boardScope(request, plan)).toEqual({ course: 'chemistry', lecture: null })
   })
 
   test("next week's class: its lecture is made now, upcoming, and Record names its date", async ({ page, request }) => {
@@ -305,4 +364,34 @@ test.describe('A calendar class on a phone', () => {
     const [lecture] = await lecturesOf(request, cls.id)
     expect(await boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
   })
+  for (const outcome of ['answered', 'failed'] as const) {
+    test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request }) => {
+      await board(request, 'Plan', ['calendar'], 'chemistry')
+      await geneticsClass(request)
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => { release = resolve })
+      await page.route('**/lectures.forClassOccurrence**', async (route) => {
+        await held
+        await (outcome === 'answered' ? route.fallback() : route.abort())
+      })
+      await page.goto('/')
+      await new TopBarPom(page).switchToWorkspace('Plan')
+      const calendar = new CalendarPom(page)
+      const block = calendar.block('Genetics lecture')
+      await block.scrollIntoViewIfNeeded()
+      const box = (await block.boundingBox())!
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+      const section = calendar.popover.getByTestId('class-lecture')
+      await expect(section.getByText('Finding this lecture...')).toBeVisible()
+      const boxes = async () => ({
+        board: await section.getByRole('button', { name: 'In Lecture' }).boundingBox(),
+        save: await calendar.popover.getByRole('button', { name: 'Save' }).boundingBox(),
+      })
+      const before = await boxes()
+
+      release()
+      await expect(section.getByRole('button', { name: outcome === 'answered' ? 'Undo' : 'Try again' })).toBeVisible()
+      expect(await boxes()).toEqual(before)
+    })
+  }
 })

@@ -14,6 +14,8 @@ export type {
   ShowMomentResult,
   ClassRef,
   FocusClassResult,
+  ClassFocusBoard,
+  UndoFocusClassResult,
   FocusedClassLecture,
   LectureBoardRef,
 } from './types'

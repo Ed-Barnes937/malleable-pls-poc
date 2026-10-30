@@ -282,20 +282,37 @@ student to. Like a Notion or Obsidian link, it names content (the lecture),
 not a view; boards are the student's views.
 
 1. The Calendar calls `LensProps.onFocusClass({ planItemId, date })`, with
-   `date` from `occurrenceDate(row, studentZone)`.
+   `date` from `occurrenceDate(row, studentZone)`. It waits for the
+   student's preferences first, so the date is read in the zone the server
+   reads it in (their stored zone, else the browser's).
 2. The shell (`useFocusClass` in `packages/workspace-shell/src/class-focus.ts`)
    calls `lectures.forClassOccurrence` with the board
    (`useClassOccurrenceLecture` in `@pls/substrate-client`): one call finds or
-   makes the lecture and selects it in the same transaction. It refreshes
-   `lectures` and the board's `workspaces.scopes`, and runs in the board's
-   mutation scope (`boardScopeMutationId`), so quick opens land in order.
-3. The popover's Lecture row (`ClassLectureSection`) names the lecture and
+   makes the lecture and selects it in the same transaction, and answers
+   with the lecture (its recordings go straight into the `lectures.byId`
+   cache, so a recorded class never first reads "No recording yet") and the
+   board's scope before and after.
+3. Every board scope write, whatever makes it (the header, a class open,
+   Undo, "Also open in"), runs in one TanStack mutation scope
+   (`BOARD_SCOPE_WRITES`), so writes reach the server one at a time in the
+   order the student made them. A write doesn't re-read the board while a
+   later one is still to be answered.
+4. The popover's Lecture row (`ClassLectureSection`) names the lecture and
    its status ("Recorded · 52 min", "On now", "Upcoming", "No recording
-   yet"). Undo (only when the board changed) puts back the board's previous
-   scope with one `setBoardScope`. A failure leaves the board alone and
-   offers Try again. The row keeps one height from pending to answered, so
-   the popover never moves under a phone's second tap.
-4. **Also open in** lists the student's other boards that can show a lecture
+   yet"). Undo shows only when the board changed. It calls
+   `LensProps.onUndoFocusClass({ before, after })`, which puts `before` back
+   with `workspaces.restoreBoardScope` only while the board still shows
+   `after`: a change made since, anywhere, is kept, and the row says "The
+   board has changed since." and drops Undo. A `before` lecture that has
+   since been deleted comes back as just its course; one refiled under
+   another course comes back with its new course. Quick opens (one made from
+   the last one's popover, or before it answered) are one Undo session:
+   Undo puts back the board from before the first, not a class passed
+   through. A failure leaves the board alone and offers Try again. Nothing
+   in the row changes height once shown (pending, answered, failed, Undo's
+   outcome, a board that couldn't open), so the popover's buttons never move
+   under a phone's second tap.
+5. **Also open in** lists the student's other boards that can show a lecture
    (`lectureBoards`: a widget declaring `lectureId: 'target'`), by their own
    names in tab order, from `workspaces.summary` (one query: each board's
    widget types). It is re-derived on every open and refreshed by board and
@@ -303,8 +320,9 @@ not a view; boards are the student's views.
    stores a board id or a board purpose. Picking one selects the lecture
    there, switches to it, focuses its tab, and raises the moments-style toast
    ("Opened Biology lecture · Tue 28 Oct in In Lecture", "Back to Plan").
-   Hidden when there are none.
-5. With no lecture widget on this board and no other board to offer, the row
+   Hidden when there are none, and not shown at all until the board summary
+   has loaded.
+6. With no lecture widget on this board and no other board to offer, the row
    adds "Audio Capture, Transcript, Connections and Resources show a lecture. Add a
    widget" (named from the manifests, in registration order), which opens the board menu's palette.
 

@@ -171,6 +171,7 @@ export function WorkspaceSwitcher() {
               <button
                 ref={(el) => { tabRefs.current[idx] = el }}
                 aria-current={isActive ? 'page' : undefined}
+                data-board-id={ws.id}
                 onPointerDown={(e) => onPointerDown(e, idx)}
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}

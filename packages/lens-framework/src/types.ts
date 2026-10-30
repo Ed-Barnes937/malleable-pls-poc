@@ -1,3 +1,5 @@
+import type { BoardScope } from '@pls/substrate'
+
 /**
  * Workspace-level ("board") scope shared by every widget on a board. Each
  * widget declares per dimension how it responds (see `ScopeDeclaration`); the
@@ -143,15 +145,38 @@ export interface FocusedClassLecture {
 }
 
 /**
+ * A board's course and lecture before and after a class focus wrote them.
+ * Undo (`onUndoFocusClass`) puts `before` back while the board still shows
+ * `after`.
+ */
+export interface ClassFocusBoard {
+  before: BoardScope
+  after: BoardScope
+}
+
+/**
  * - `focused`: the occurrence's lecture (found or made) is now the board's
- *   lecture, with its course. `changed` is false when the board already
- *   showed it; otherwise `undo` puts back what the board showed before and
- *   resolves to whether that was written.
+ *   lecture, with its course; `board` is what the board showed before and
+ *   shows now (the same when it already showed it). `recordingCount` and
+ *   `durationMs` are its audio as the answer found it, so its status is
+ *   right before the lecture itself has loaded.
  * - `failed`: nothing changed on the board (e.g. offline); asking again is safe.
  */
 export type FocusClassResult =
-  | { status: 'focused'; lecture: FocusedClassLecture; changed: boolean; undo?: () => Promise<boolean> }
+  | {
+      status: 'focused'
+      lecture: FocusedClassLecture & { recordingCount: number; durationMs: number }
+      board: ClassFocusBoard
+    }
   | { status: 'failed' }
+
+/**
+ * What Undo after a class focus did: `undone`; `changed` when the board
+ * shows something else now (changed elsewhere since), so nothing was
+ * written; `failed` when nothing was written for another reason (asking
+ * again is safe).
+ */
+export type UndoFocusClassResult = 'undone' | 'changed' | 'failed'
 
 /** Another of the student's boards, named as the student named it. */
 export interface LectureBoardRef {
@@ -233,9 +258,15 @@ export interface LensProps {
    */
   onFocusClass?: (cls: ClassRef) => Promise<FocusClassResult>
   /**
+   * Undo for `onFocusClass`: puts `board.before` back on this board, only
+   * while it still shows `board.after`, so a change made since (the header,
+   * another tab) is kept. Never rejects.
+   */
+  onUndoFocusClass?: (board: ClassFocusBoard) => Promise<UndoFocusClassResult>
+  /**
    * The student's other boards that can show a lecture (a widget declaring
    * `lectureId: 'target'`), in tab order: found by what they contain, never
-   * by name. Empty when there are none.
+   * by name. Empty when there are none; undefined until the boards are known.
    */
   lectureBoards?: LectureBoardRef[]
   /** Whether this board has a widget that shows a lecture (`lectureId: 'target'`). */
