@@ -305,8 +305,8 @@ not a view; boards are the student's views.
    ("Opened Biology lecture · Tue 28 Oct in In Lecture", "Back to Plan").
    Hidden when there are none.
 5. With no lecture widget on this board and no other board to offer, the row
-   adds "Audio Capture, Transcript and Connections show a lecture. Add a
-   widget" (names from the manifests), which opens the board menu's palette.
+   adds "Audio Capture, Transcript, Connections and Resources show a lecture. Add a
+   widget" (named from the manifests, in registration order), which opens the board menu's palette.
 
 On a board without lecture widgets the focus still shows: the Calendar rings
 the occurrence, To-do and Coming up narrow to the course, and the header

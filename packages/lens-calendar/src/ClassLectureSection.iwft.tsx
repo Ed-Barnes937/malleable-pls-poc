@@ -246,7 +246,7 @@ test('with no board that shows a lecture, a quiet "Add a widget" names the widge
   await block(page, 'Biology lecture').click()
   const hint = section(page).getByTestId('class-lecture-hint')
   // From the registered widgets' manifests (lectureId: 'target').
-  await expect(hint).toHaveText('Audio Capture, Transcript and Connections show a lecture. Add a widget')
+  await expect(hint).toHaveText('Audio Capture, Resources, Transcript and Connections show a lecture. Add a widget')
   await expect(section(page)).not.toContainText(/board/i)
   await hint.getByRole('button', { name: 'Add a widget' }).click()
   await expect(calls(page)).toHaveText(['focus bio-class@2026-10-26', 'add a widget'])
