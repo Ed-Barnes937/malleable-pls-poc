@@ -59,7 +59,7 @@ test.describe('Record makes its lecture as it starts', () => {
     const audio = grid.panelByLabel('Audio Capture')
     const transcript = grid.panelByLabel('Transcript')
     const classBlock = new CalendarPom(page).block('Physics lecture')
-    await expect(topBar.scopeChip).toHaveText('Showing: Physics', { timeout: 10000 })
+    await topBar.expectScope('Physics', null, { timeout: 10000 })
     await expect(classBlock).toBeVisible()
     await expect(classBlock).not.toHaveAttribute('data-linked')
 
@@ -78,7 +78,7 @@ test.describe('Record makes its lecture as it starts', () => {
     expect(lecture).toMatchObject({ class_item_id: physicsClass.id, course: 'physics', recordings: [] })
     expect(lecture.title).toMatch(/^Physics lecture · \w{3} \d{1,2} \w{3}$/)
 
-    await expect(topBar.scopeChip).toHaveText(`Showing: Physics · ${lecture.title}`, { timeout: 10000 })
+    await topBar.expectScope('Physics', lecture.title, { timeout: 10000 })
     await expect(audio.getByTestId('recording-into')).toHaveText(lecture.title)
     await expect(transcript.getByTestId('lecture-title')).toHaveText(lecture.title)
     await expect(transcript.getByTestId('recording-live')).toHaveText('Recording...')
@@ -93,13 +93,13 @@ test.describe('Record makes its lecture as it starts', () => {
     const after = await trpcQuery<Lecture>(request, 'lectures.byId', lectureId)
     expect(after.recordings).toHaveLength(1)
     expect((await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'physics' })).filter((l) => l.class_item_id === physicsClass.id)).toHaveLength(1)
-    await expect(topBar.scopeChip).toHaveText(`Showing: Physics · ${lecture.title}`)
+    await topBar.expectScope('Physics', lecture.title)
     expect(scopeWrites).toEqual([])
 
     // And it survives a reload.
     await page.reload()
     await topBar.switchToWorkspace('Physics class')
-    await expect(topBar.scopeChip).toHaveText(`Showing: Physics · ${lecture.title}`, { timeout: 10000 })
+    await topBar.expectScope('Physics', lecture.title, { timeout: 10000 })
     await expect(transcript.getByTestId('lecture-title')).toHaveText(lecture.title)
   })
 
@@ -114,7 +114,7 @@ test.describe('Record makes its lecture as it starts', () => {
     await topBar.switchToWorkspace('Lecture hall')
     const audio = grid.panelByLabel('Audio Capture')
     const transcript = grid.panelByLabel('Transcript')
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry', { timeout: 10000 })
+    await topBar.expectScope('Chemistry', null, { timeout: 10000 })
 
     await audio.getByRole('button', { name: 'Start recording' }).click()
     await expect(transcript.getByTestId('recording-live')).toHaveText('Recording...', { timeout: 10000 })
@@ -122,7 +122,7 @@ test.describe('Record makes its lecture as it starts', () => {
     const lecture = await trpcQuery<Lecture>(request, 'lectures.byId', scopes.find((s) => s.scope_type === 'lecture')!.scope_value)
     expect(lecture).toMatchObject({ course: 'chemistry', class_item_id: null })
     expect(lecture.title).toMatch(/^Chemistry lecture \d{1,2} \w{3}, \d\d:\d\d$/)
-    await expect(topBar.scopeChip).toHaveText(`Showing: Chemistry · ${lecture.title}`)
+    await topBar.expectScope('Chemistry', lecture.title)
 
     await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
     await audio.getByRole('button', { name: 'Stop recording' }).click()
