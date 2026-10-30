@@ -1,7 +1,8 @@
 import { Library } from 'lucide-react'
 import type { PanelManifest } from '@pls/lens-framework'
 
-export { default } from './ResourcesLens'
+// No static re-export of the widget: `load` is its only way in, so the
+// widget (and, from it, the note editor) stays out of the main bundle.
 
 export const manifest: PanelManifest = {
   id: 'resources',

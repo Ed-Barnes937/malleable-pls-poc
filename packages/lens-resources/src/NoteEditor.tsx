@@ -1,7 +1,7 @@
 /**
  * The note editor, and the only file that imports Milkdown: swapping editors
  * later (Tiptap, a plain textarea) replaces this file, and notes stay
- * markdown (`body_md`). Loaded lazily (ResourcesLens imports it with
+ * markdown (`body_md`). Loaded lazily (NoteView imports it with
  * `lazy`), so the list never pays for the editor.
  *
  * Milkdown's headless core with the CommonMark and GFM presets, styled with
