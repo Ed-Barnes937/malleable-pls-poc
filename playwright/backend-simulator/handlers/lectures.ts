@@ -134,6 +134,14 @@ function classLectureForCapture(db: InMemoryDb, course: string | null, at: numbe
   return findOrCreateClassLecture(db, occurrence.id, occurrenceDate(occurrence, timeZone)!, timeZone).lecture
 }
 
+/** Twin of the server's `boardStillShows` (undefined: always; null: no lecture). */
+function boardStillShows(db: InMemoryDb, workspaceId: string, expected: string | null | undefined): boolean {
+  if (expected === undefined) return true
+  const { lectureId: current } = readBoardScope(db, workspaceId)
+  if (current === null || current === expected) return true
+  return !db.lectures.some((l) => l.id === current)
+}
+
 export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb, clock: () => number = Date.now): void {
   router.register('lectures.list', (input) => {
     const { courseTag } = (input ?? {}) as { courseTag?: string }
@@ -149,8 +157,9 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
   })
 
   router.register('lectures.create', (input) => {
-    const { course, title, startsAt, timeZone, workspaceId, matchClass } = input as {
+    const { course, title, startsAt, timeZone, workspaceId, matchClass, selectIfBoardShows } = input as {
       course: string | null; title?: string; startsAt?: string; timeZone?: string; workspaceId?: string; matchClass?: boolean
+      selectIfBoardShows?: string | null
     }
     requireCourse(course)
     if (workspaceId) requireBoard(db, workspaceId)
@@ -171,7 +180,9 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
       }
       db.lectures.push(lecture)
     }
-    if (workspaceId) writeBoardScope(db, workspaceId, { lectureId: lecture.id })
+    // As the server: select only if the board still shows what it did when
+    // the caller started (that lecture, none, or one that is gone).
+    if (workspaceId && boardStillShows(db, workspaceId, selectIfBoardShows)) writeBoardScope(db, workspaceId, { lectureId: lecture.id })
     return lectureRow(db, lecture)
   })
 

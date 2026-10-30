@@ -561,6 +561,21 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(otherCourse.class_item_id).toBeNull()
   })
 
+  it('lectures.create selectIfBoardShows: selects when the board is unchanged, leaves a board that moved on, replaces a gone lecture', async () => {
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    const first = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.id], ['tag', 'physics']])
+    const next = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: first.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // A create that started when the board showed nothing lands late: the board keeps what it shows.
+    const late = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(late.id).not.toBe(next.id)
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // Left out: always selects.
+    const forced = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', forced.id], ['tag', 'physics']])
+  })
+
   it('a one-off class keeps the zone it was made in, and is dated in it whatever zone asks later', async () => {
     // Tue 3 Nov, 22:00 in New York: Wed 4 Nov in London.
     const made = await call('planItems.create', {
