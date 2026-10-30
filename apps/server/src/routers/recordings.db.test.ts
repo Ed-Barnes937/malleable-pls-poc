@@ -134,5 +134,16 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
       const rows = await db.withUser(user, (tx) => tx`SELECT 1 FROM transcript_segments WHERE recording_id = ${lecture}`)
       expect(rows).toHaveLength(1)
     })
+
+    it('the job also skips a lecture already transcribed with nothing said', async () => {
+      await db.withUser(user, (tx) => tx`UPDATE recordings SET status = 'ready' WHERE id = ${lecture}`)
+      const { createAiDeps } = await import('../ai/deps')
+      const { createServerExecutors } = await import('../workflows/executors')
+      const executors = createServerExecutors(createAiDeps())
+      const jobRun = { id: randomUUID(), workflow_id: 'wf', workflow_job_id: 'wfj' } as never
+      const result = await executors.execute('ai:transcribe', { recording_id: lecture, _userId: user }, { scopeId: null, depth: 0, jobRun })
+      expect(result.output).toMatchObject({ skipped: 'already transcribed' })
+      expect(result.events ?? []).toEqual([])
+    })
   })
 })
