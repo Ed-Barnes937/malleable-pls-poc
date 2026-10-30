@@ -44,17 +44,17 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
 
-  // A lecture the student let go of here (New lecture, or it is gone) while
-  // the board's write is on its way: the widget acts as if it were cleared
-  // already, so the next capture can't land in it. Dropped once the board
-  // shows something else.
+  // A lecture the student let go of here (New lecture) while the board's
+  // write is on its way: the widget acts as if it were cleared already, so
+  // the next capture can't land in it. Dropped once the board shows
+  // something else.
   const [letGo, setLetGo] = useState<string | null>(null)
   const [scopeError, setScopeError] = useState<string | null>(null)
   if (letGo && scope.lectureId !== letGo) setLetGo(null)
 
   // The board's lecture: captures and uploads go into it, and its latest
-  // recording plays. Without one, each capture is a new lecture in the board
-  // course.
+  // recording plays. Without one, a capture makes a new lecture in the board
+  // course as it starts, and the server selects it on the board.
   const lectureId = scope.lectureId === letGo ? undefined : scope.lectureId
   const { data: lecture } = substrate.useLecture(lectureId)
   const shown = lectureId && lecture?.id === lectureId ? lecture : undefined
@@ -75,20 +75,14 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
     })
   }
 
-  // The lecture recorded into becomes the board's lecture (when it isn't
-  // already), so every widget (e.g. Transcript) follows it and the picker
-  // lists it. Not when the board moved on meanwhile: the student chose that.
+  // The server selects any lecture a capture or upload makes (at capture
+  // start, or with the upload), so the widget only refreshes what shows
+  // recordings, lectures and the board's scope.
   const recorder = useAudioRecorder(hasAudio, {
     course: scope.courseTag,
     lectureId: lectureId ?? null,
     lectureTitle: shown?.title ?? null,
-    onRecordingCreated: (created, { boardMoved }) => {
-      recordingAdded()
-      if (!boardMoved && created.lectureId !== lectureId) onScopeChange?.({ lectureId: created.lectureId })
-    },
-    onLectureGone: (gone) => {
-      if (scope.lectureId === gone) letGoOf(gone)
-    },
+    onRecordingCreated: () => recordingAdded(),
   })
   const { state, elapsed, error } = recorder
   // The board's lecture is still loading: neither "Ready to record" nor its
@@ -164,14 +158,17 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
       />
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
         {state === 'recording' && (
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
+          <div className="flex max-w-full items-center gap-1.5">
+            <span className="relative flex h-2 w-2 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-confused opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-confused" />
             </span>
             <span className="text-meta font-semibold text-confused">
               REC
             </span>
+            {recorder.captureTitle && (
+              <span data-testid="recording-into" className="min-w-0 truncate text-meta text-text-secondary">{recorder.captureTitle}</span>
+            )}
           </div>
         )}
 
@@ -207,21 +204,24 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         )}
 
         {recorder.hasUnsaved && (
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void recorder.saveAsNewLecture()}
-              className="rounded-full bg-accent px-3 py-1 text-meta font-semibold text-accent-foreground transition-all hover:opacity-90 active:scale-95"
-            >
-              Save as a new lecture
-            </button>
-            <button
-              type="button"
-              onClick={recorder.discardUnsaved}
-              className="rounded-full border border-border px-3 py-1 text-meta text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95"
-            >
-              Discard
-            </button>
+          <div className="flex flex-col items-center gap-1.5">
+            <p data-testid="not-saved" className="text-center text-meta font-semibold text-text-primary">Not saved yet</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void recorder.retryUnsaved()}
+                className="rounded-full bg-accent px-3 py-1 text-meta font-semibold text-accent-foreground transition-all hover:opacity-90 active:scale-95"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={recorder.discardUnsaved}
+                className="rounded-full border border-border px-3 py-1 text-meta text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95"
+              >
+                Discard
+              </button>
+            </div>
           </div>
         )}
 

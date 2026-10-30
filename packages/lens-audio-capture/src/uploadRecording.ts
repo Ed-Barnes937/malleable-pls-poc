@@ -65,6 +65,11 @@ export interface UploadRecordingArgs {
   lectureId?: string | null
   /** The board the upload is made from, so that board's automations run. */
   boardId?: string | null
+  /**
+   * With no `lectureId`: the server selects the new lecture on `boardId`
+   * in the same transaction, if that board still shows no lecture.
+   */
+  selectOnBoard?: boolean
 }
 
 /**
@@ -78,10 +83,11 @@ export class LectureGoneError extends Error {
   }
 }
 
-/** What /upload made: the recording, and the lecture it is in. */
+/** What /upload made: the recording, the lecture it is in, and whether the server selected that lecture on the board. */
 export interface UploadedRecording {
   id: string
   lectureId: string
+  selected: boolean
 }
 
 /**
@@ -103,6 +109,7 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<Upload
         : args.course ? { 'x-recording-course': encodeURIComponent(args.course) } : {}),
       'x-recording-duration': String(Math.round(args.durationMs)),
       ...(args.boardId ? { 'x-workspace-id': args.boardId } : {}),
+      ...(args.boardId && args.selectOnBoard && !args.lectureId ? { 'x-select-on-board': '1' } : {}),
       ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
     },
     body: args.audio,
@@ -115,6 +122,6 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<Upload
     throw new Error('Upload failed - please try again')
   }
 
-  const data = (await res.json()) as { id: string; lectureId: string }
-  return { id: data.id, lectureId: data.lectureId }
+  const data = (await res.json()) as { id: string; lectureId: string; selected?: boolean }
+  return { id: data.id, lectureId: data.lectureId, selected: data.selected === true }
 }

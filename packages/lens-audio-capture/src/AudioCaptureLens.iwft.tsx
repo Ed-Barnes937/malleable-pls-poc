@@ -86,13 +86,18 @@ test.describe('AudioCaptureLens', () => {
       uploadHeaders = route.request().headers()
       await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-fresh', lectureId: 'lec-fresh' }) })
     })
+    const lecturesBefore = simulator.db.lectures.length
     await page.getByRole('button', { name: 'Start recording' }).click()
     await expect(page.getByText('REC')).toBeVisible()
+    // A new Biology lecture, made as the capture starts.
+    await expect.poll(() => simulator.db.lectures.length).toBe(lecturesBefore + 1)
+    const fresh = simulator.db.lectures.at(-1)!
+    expect(fresh.course).toBe('biology')
     await page.getByRole('button', { name: 'Stop recording' }).click()
     await expect.poll(() => uploadHeaders).toBeDefined()
-    expect(uploadHeaders!['x-lecture-id']).toBeUndefined()
-    expect(uploadHeaders!['x-recording-course']).toBe('biology')
-    await expect.poll(() => patches).toEqual([{ lectureId: undefined }, { lectureId: 'lec-fresh' }])
+    expect(uploadHeaders!['x-lecture-id']).toBe(fresh.id)
+    // The server selects the new lecture; the widget wrote only New lecture's clear.
+    expect(patches).toEqual([{ lectureId: undefined }])
   })
 
   test('New lecture says so when the board could not be changed, and keeps the lecture', async ({ mount, page, simulator }) => {
@@ -190,12 +195,12 @@ test.describe('AudioCaptureLens', () => {
     expect(patches).toEqual([])
   })
 
-  test('a capture with no lecture is filed under the course it started in, even if the board moves on', async ({ mount, page, simulator }) => {
+  test('a capture with no lecture makes one in the course it started in, and keeps it there if the board moves on', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     let uploadHeaders: Record<string, string> | undefined
     await page.route('**/upload', async (route) => {
       uploadHeaders = route.request().headers()
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-new', lectureId: 'lec-new' }) })
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-new', lectureId: uploadHeaders['x-lecture-id'], selected: false }) })
     })
     const patches: object[] = []
     const lens = (scope: { lectureId?: string; courseTag?: string }) => (
@@ -204,20 +209,26 @@ test.describe('AudioCaptureLens', () => {
       </AudioCaptureHarness>
     )
     const component = await mount(lens({ courseTag: 'biology' }))
+    const lecturesBefore = simulator.db.lectures.length
 
     await page.getByRole('button', { name: 'Start recording' }).click()
     await expect(page.getByText('REC')).toBeVisible()
+    // The lecture is made as capture starts, in the board course.
+    await expect.poll(() => simulator.db.lectures.length).toBe(lecturesBefore + 1)
+    const made = simulator.db.lectures.at(-1)!
+    expect(made.course).toBe('biology')
+    await expect(page.getByTestId('recording-into')).toHaveText(made.title)
     await component.update(lens({ courseTag: 'chemistry', lectureId: 'lec-rec-chem-1' }))
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
     await expect.poll(() => uploadHeaders).toBeDefined()
-    expect(uploadHeaders!['x-lecture-id']).toBeUndefined()
-    expect(uploadHeaders!['x-recording-course']).toBe('biology')
-    await expect(page.getByRole('status')).toContainText('Saved to Lecture ')
+    expect(uploadHeaders!['x-lecture-id']).toBe(made.id)
+    expect(uploadHeaders!['x-recording-course']).toBeUndefined()
+    await expect(page.getByRole('status')).toHaveText(`Saved to ${made.title}`)
     expect(patches).toEqual([])
   })
 
-  test('when the lecture is gone, the audio is kept and can be saved as a new lecture', async ({ mount, page, simulator }) => {
+  test('when the lecture is gone, the audio is saved straight away as a new lecture in its course', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     const uploads: Record<string, string>[] = []
     await page.route('**/upload', async (route) => {
@@ -226,12 +237,12 @@ test.describe('AudioCaptureLens', () => {
       if (headers['x-lecture-id']) {
         await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Lecture not found' }) })
       } else {
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-saved', lectureId: 'lec-saved' }) })
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-saved', lectureId: 'lec-saved', selected: true }) })
       }
     })
     const patches: object[] = []
     await mount(
-      <AudioCaptureHarness>
+      <AudioCaptureHarness boardId="ws-in-lecture">
         <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={(p) => { patches.push(p) }} />
       </AudioCaptureHarness>,
     )
@@ -240,18 +251,18 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('REC')).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
-    await expect(page.getByRole('alert')).toHaveText("That lecture is gone, so this recording isn't saved yet")
-    // The board lets go of the gone lecture.
-    await expect.poll(() => patches).toEqual([{ lectureId: undefined }])
-    await page.getByRole('button', { name: 'Save as a new lecture' }).click()
-
     await expect.poll(() => uploads.length).toBe(2)
+    expect(uploads[0]['x-lecture-id']).toBe('lec-rec-bio-4')
+    // Same audio, same title, as a new Biology lecture the server selects on the board.
     expect(uploads[1]['x-lecture-id']).toBeUndefined()
     expect(uploads[1]['x-recording-course']).toBe('biology')
-    // Same audio, same title.
+    expect(uploads[1]['x-select-on-board']).toBe('1')
     expect(uploads[1]['x-recording-title']).toBe(uploads[0]['x-recording-title'])
-    await expect.poll(() => patches).toEqual([{ lectureId: undefined }, { lectureId: 'lec-saved' }])
+    await expect(page.getByRole('status')).toHaveText('That lecture was gone, so this was saved as a new lecture')
     await expect(page.getByRole('alert')).toHaveCount(0)
+    await expect(page.getByTestId('not-saved')).toHaveCount(0)
+    // The server selected it; the widget writes no scope.
+    expect(patches).toEqual([])
   })
 
   test('clicking record starts recording state', async ({ mount, page, simulator }) => {
@@ -303,10 +314,17 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Microphone access denied')).toBeVisible()
   })
 
-  test('shows error when upload fails', async ({ mount, page, simulator }) => {
+  test('a failed upload says it is not saved yet, and can be tried again or discarded', async ({ mount, page, simulator }) => {
     await injectMocks(page)
+    let attempts = 0
     await page.route('**/upload', async (route) => {
-      await route.fulfill({ status: 500, body: 'Internal Server Error' })
+      attempts++
+      if (attempts === 1) {
+        await route.fulfill({ status: 500, body: 'Internal Server Error' })
+      } else {
+        const lectureId = route.request().headers()['x-lecture-id']
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-retried', lectureId, selected: false }) })
+      }
     })
 
     await mount(
@@ -319,9 +337,16 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('REC')).toBeVisible()
     await page.locator('button').filter({ has: page.locator('.lucide-square') }).click()
     await expect(page.getByText('Upload failed')).toBeVisible({ timeout: 5000 })
+    await expect(page.getByTestId('not-saved')).toHaveText('Not saved yet')
+    await expect(page.getByRole('button', { name: 'Discard' })).toBeVisible()
+
+    await page.getByRole('button', { name: 'Try again' }).click()
+    await expect(page.getByText('Recording complete')).toBeVisible()
+    await expect(page.getByTestId('not-saved')).toHaveCount(0)
+    expect(attempts).toBe(2)
   })
 
-  test('uploading a file with no lecture selected asks for a title and course, then selects its new lecture', async ({ mount, page, simulator }) => {
+  test('uploading a file with no lecture selected asks for a title and course, and the server selects its new lecture', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     let uploadHeaders: Record<string, string> = {}
     await page.route('**/upload', async (route) => {
@@ -329,13 +354,13 @@ test.describe('AudioCaptureLens', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ id: 'rec-uploaded-1', lectureId: 'lec-uploaded-1' }),
+        body: JSON.stringify({ id: 'rec-uploaded-1', lectureId: 'lec-uploaded-1', selected: true }),
       })
     })
     const focused: Array<string | undefined> = []
 
     await mount(
-      <AudioCaptureHarness>
+      <AudioCaptureHarness boardId="ws-in-lecture">
         <AudioCaptureLens
           panelId="test"
           scope={{ courseTag: 'biology' }}
@@ -359,8 +384,11 @@ test.describe('AudioCaptureLens', () => {
     await form.getByRole('textbox', { name: 'Recording title' }).fill('Enzymes – week 3')
     await form.getByRole('button', { name: 'Upload' }).click()
 
-    await expect.poll(() => focused).toEqual(['lec-uploaded-1'])
-    expect(uploadHeaders['content-type']).toBe('audio/mpeg')
+    await expect.poll(() => uploadHeaders['content-type']).toBe('audio/mpeg')
+    // The upload makes the lecture and the server selects it on the board: the widget writes no scope.
+    expect(uploadHeaders['x-workspace-id']).toBe('ws-in-lecture')
+    expect(uploadHeaders['x-select-on-board']).toBe('1')
+    expect(focused).toEqual([])
     expect(decodeURIComponent(uploadHeaders['x-recording-title'])).toBe('Enzymes – week 3')
     expect(uploadHeaders['x-recording-course']).toBe('biology')
     expect(uploadHeaders['x-lecture-id']).toBeUndefined()

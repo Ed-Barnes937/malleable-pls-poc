@@ -498,3 +498,73 @@ describe('simulator parity - which automation made a plan item', () => {
     expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
   })
 })
+
+describe('simulator parity - class lectures (Record during a class, calendar class clicks)', () => {
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    router = makeRouter()
+  })
+
+  async function call(path: string, input: unknown) {
+    const result = await router.resolve(path, input)
+    if (result.error) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+    return result.data as Record<string, any>
+  }
+
+  const scope = async (workspaceId: string) =>
+    ((await router.resolve('workspaces.scopes', workspaceId)).data as { scope_type: string; scope_value: string }[])
+      .map((s) => [s.scope_type, s.scope_value]).sort()
+
+  /** Mondays 10:00-12:00 London from Mon 19 Oct 2026, as the server's db test. */
+  const bioClass = () => call('planItems.create', {
+    kind: 'commitment', title: 'Biology lecture', subtype: 'class', course: 'biology',
+    starts_at: '2026-10-19T09:00:00.000Z', ends_at: '2026-10-19T11:00:00.000Z',
+    recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+  })
+
+  it('forClassOccurrence finds or makes one lecture per occurrence and selects it on the board', async () => {
+    const { id } = await bioClass()
+    const first = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(first.created).toBe(true)
+    expect(first.lecture).toMatchObject({
+      title: 'Biology lecture · Mon 26 Oct', course: 'biology', class_item_id: id, class_date: '2026-10-26',
+      starts_at: '2026-10-26T10:00:00.000Z',
+    })
+    expect(first.board.after).toEqual({ courseTag: 'biology', lectureId: first.lecture.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.lecture.id], ['tag', 'biology']])
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    expect(again).toMatchObject({ created: false, lecture: { id: first.lecture.id }, board: null })
+  })
+
+  it('forClassOccurrence refuses a missing class, a date it is not on, and a shift', async () => {
+    const { id } = await bioClass()
+    const shift = await call('planItems.create', {
+      kind: 'commitment', title: 'Cafe shift', subtype: 'shift',
+      starts_at: '2026-10-19T17:00:00.000Z', ends_at: '2026-10-19T21:00:00.000Z',
+    })
+    await expect(call('lectures.forClassOccurrence', { planItemId: 'missing', date: '2026-10-26' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-27' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: shift.id, date: '2026-10-19' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('lectures.create with matchClass joins the class on now, and the calendar click finds the same lecture', async () => {
+    const { id } = await bioClass()
+    const during = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T09:46:00.000Z', workspaceId: 'ws-in-lecture' })
+    expect(during).toMatchObject({ class_item_id: id, class_date: '2026-11-16', title: 'Biology lecture · Mon 16 Nov' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', during.id], ['tag', 'biology']])
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-11-16' })
+    expect(clicked.lecture.id).toBe(during.id)
+    const after = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T12:01:00.000Z' })
+    expect(after.class_item_id).toBeNull()
+    const otherCourse = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-16T10:30:00.000Z' })
+    expect(otherCourse.class_item_id).toBeNull()
+  })
+
+  it('deleting a class keeps its lectures, on their day', async () => {
+    const { id } = await bioClass()
+    const { lecture } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    await call('planItems.delete', id)
+    expect(await call('lectures.byId', lecture.id)).toMatchObject({ class_item_id: null, class_date: '2026-10-26' })
+  })
+})

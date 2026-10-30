@@ -1,11 +1,6 @@
 import { useCallback, useMemo } from 'react'
-import type { Lecture, PlanItemOccurrence } from '@pls/substrate'
+import { occurrenceDate, type Lecture, type PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from './substrate-context'
-
-/** The local date (YYYY-MM-DD) of an instant in `timeZone`. */
-function localDate(instant: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant))
-}
 
 /**
  * Whether a plan item belongs to a lecture: made from a moment of one of its
@@ -21,8 +16,8 @@ export function isLinkedToLecture(
 ): boolean {
   if (!lecture) return false
   if (item.source_type === 'recording' && lecture.recordings.some((r) => r.id === item.source_id)) return true
-  if (!lecture.class_item_id || item.id !== lecture.class_item_id || !item.starts_at) return false
-  return localDate(item.starts_at, item.recurrence?.timeZone ?? timeZone) === lecture.class_date
+  if (!lecture.class_item_id || item.id !== lecture.class_item_id) return false
+  return occurrenceDate(item, timeZone) === lecture.class_date
 }
 
 /**

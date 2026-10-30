@@ -2,10 +2,11 @@ import type { IncomingMessage, ServerResponse } from 'http'
 import { writeFile, mkdir, rm } from 'fs/promises'
 import { TRPCError } from '@trpc/server'
 import path from 'path'
-import { sql, withUser } from '@pls/db'
+import { withUser, type TxSql } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
 import { isCourse, requireOwnLecture } from './routers/_shared'
 import { ensureDefaultAutomations } from './workflows/defaults'
+import { readBoardScope, writeBoardScope } from './routers/_board-scope'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -98,6 +99,25 @@ async function ownsLecture(userId: string, lectureId: string): Promise<boolean> 
   return !!row
 }
 
+/**
+ * Selects `lectureId`, a lecture this upload just made, on the board the
+ * upload came from, when that board still shows no lecture (or one that is
+ * gone): the board the student uploaded from, unless they have moved it on
+ * to another lecture meanwhile. Returns whether it did. A board that isn't
+ * the student's (or is gone) is left alone.
+ */
+async function selectNewLectureOnBoard(tx: TxSql, userId: string, workspaceId: string, lectureId: string): Promise<boolean> {
+  const [board] = await tx`SELECT id FROM workspaces WHERE id = ${workspaceId} AND user_id = ${userId} FOR NO KEY UPDATE`
+  if (!board) return false
+  const current = await readBoardScope(tx, userId, workspaceId)
+  if (current.lectureId) {
+    const [stillThere] = await tx`SELECT 1 FROM lectures WHERE id = ${current.lectureId} AND user_id = ${userId}`
+    if (stillThere) return false
+  }
+  await writeBoardScope(tx, userId, workspaceId, { lectureId })
+  return true
+}
+
 async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })
 }
@@ -151,6 +171,9 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
       res.end(JSON.stringify({ error: 'Bad lecture id' }))
       return
     }
+    // "1": select the new lecture this upload makes (no x-lecture-id) on the
+    // x-workspace-id board, if that board still shows no lecture.
+    const selectOnBoard = req.headers['x-select-on-board'] === '1' && lectureId === null && workspaceId !== null
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
@@ -207,7 +230,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
 
     const audioUrl = `/uploads/${filename}`
 
-    let recordedInto: string
+    let recordedInto: { lectureId: string; selected: boolean }
     try {
       recordedInto = await withUser(userId, async (tx) => {
         // An account's first upload may come before anything else it has sent.
@@ -225,10 +248,13 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
           INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
           VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
         `
+        // The server, not the widget, selects a lecture an upload makes, in
+        // this transaction.
+        const selected = selectOnBoard && (await selectNewLectureOnBoard(tx, userId, workspaceId!, intoLecture))
         await dispatchWorkflows(tx, userId, 'recording:completed', {
           recording_id: recordingId,
         }, workspaceId)
-        return intoLecture
+        return { lectureId: intoLecture, selected }
       })
     } catch (err) {
       // Nothing was recorded, so the file goes too.
@@ -244,7 +270,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ id: recordingId, lectureId: recordedInto, audioUrl }))
+    res.end(JSON.stringify({ id: recordingId, lectureId: recordedInto.lectureId, selected: recordedInto.selected, audioUrl }))
   } catch (err) {
     console.error('upload error:', err)
     res.writeHead(500, { 'Content-Type': 'application/json' })

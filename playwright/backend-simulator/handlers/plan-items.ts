@@ -126,6 +126,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const id = parse(planItemIdInput, input)
     if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
+    // As the server's ON DELETE SET NULL: its lectures keep their date.
+    for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
   })
 
   /** The student's study hours and budget, and their zone if set (else the caller's), as the server reads them. */

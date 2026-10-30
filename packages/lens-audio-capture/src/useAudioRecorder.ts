@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useBoardId } from '@pls/lens-framework'
+import { useBoardId, useSubstrateMutations, type LiveCapturePhase } from '@pls/lens-framework'
 import { dayMonthAndTime } from '@pls/shared-ui'
 import { LectureGoneError, readAudioDuration, uploadRecording, type UploadRecordingArgs, type UploadedRecording } from './uploadRecording'
 
@@ -17,17 +17,13 @@ export interface AudioRecorderOptions {
   /** `lectureId`'s title, to say where a recording went once the board has moved on. */
   lectureTitle?: string | null
   /**
-   * Called once a recording is uploaded, with it and its lecture, e.g. to
-   * select the lecture. `boardMoved`: the board's lecture changed while it
-   * was recording or uploading, so it went where it was aimed, not into the
+   * Called once a recording is uploaded, with it and its lecture (the
+   * server has already selected a lecture it made, where the board still
+   * allowed it). `boardMoved`: the board's lecture changed while it was
+   * recording or uploading, so it went where it was aimed, not into the
    * lecture the board shows now.
    */
   onRecordingCreated?: (recording: UploadedRecording, info: { boardMoved: boolean }) => void
-  /**
-   * The lecture an upload was aimed at is gone. Nothing was recorded and the
-   * audio is kept (`hasUnsaved`), to save as a new lecture with `saveAsNewLecture`.
-   */
-  onLectureGone?: (lectureId: string) => void
 }
 
 /** Where a capture or upload goes, fixed when it starts. */
@@ -36,9 +32,11 @@ interface Target {
   /** The lecture's title (null for a new lecture, which takes the recording's). */
   title: string | null
   course: string | null
+  /** The board's lecture when it started (for a capture that made its lecture: none). */
+  boardLecture: string | null
 }
 
-type UploadArgs = Omit<UploadRecordingArgs, 'lectureId' | 'boardId'>
+type UploadArgs = Omit<UploadRecordingArgs, 'lectureId' | 'boardId' | 'selectOnBoard'>
 
 /** What `uploadFile` takes: the duration is read here, once the target is fixed. */
 export type UploadFileArgs = Omit<UploadArgs, 'durationMs'>
@@ -50,22 +48,32 @@ export type UploadFileArgs = Omit<UploadArgs, 'durationMs'>
  * loading, which changes nothing) drives idle/complete whenever no capture
  * is in flight.
  *
- * A capture goes into the lecture the board showed when it started, and a
- * file into the one it showed when the file was submitted, even if the board
- * moves on before the upload lands.
+ * A capture goes into the lecture the board showed when it started. With
+ * none, the lecture is made the moment capture starts (`useStartLecture`:
+ * the server selects it on the board, and joins a class that is on), so
+ * every widget knows it while the class is still going; the capture is
+ * reported as live (`useSetLiveCapture`) for e.g. the Transcript's
+ * "Recording...". A file goes into the board's lecture when it was
+ * submitted, else a new lecture the server makes and selects with the
+ * upload. Either way the board can move on meanwhile; nothing snaps it back.
  */
 export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRecorderOptions = {}) {
-  const { course, lectureId, lectureTitle, onRecordingCreated, onLectureGone } = options
+  const { course, lectureId, lectureTitle, onRecordingCreated } = options
   const boardId = useBoardId()
   const boardIdRef = useRef(boardId)
   boardIdRef.current = boardId
+  const writer = useSubstrateMutations()
+  const startLecture = writer.useStartLecture()
+  const setLiveCapture = writer.useSetLiveCapture()
   const [state, setState] = useState<CaptureState>(hasAudio ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [recordingId, setRecordingId] = useState<string | null>(null)
-  // Audio whose lecture went before it landed: kept to save as a new lecture.
-  const [unsaved, setUnsaved] = useState<UploadArgs | null>(null)
+  // The lecture the capture in progress goes into, once known (to show it).
+  const [captureTitle, setCaptureTitle] = useState<string | null>(null)
+  // Audio whose upload failed: kept (in this page only) to try again.
+  const [unsaved, setUnsaved] = useState<{ args: UploadArgs; target: Target } | null>(null)
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -73,11 +81,13 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
   const chunksRef = useRef<Blob[]>([])
   // Where the capture in progress goes, fixed by `start`.
   const captureTargetRef = useRef<Target | null>(null)
+  // The capture's lecture being made (`useStartLecture`), until it settles.
+  const startingRef = useRef<Promise<void> | null>(null)
+  // The live capture reported (lecture and phase), so it can be moved on or cleared.
+  const liveRef = useRef<{ lectureId: string; phase: LiveCapturePhase } | null>(null)
   // Latest values without re-creating the upload callbacks on every render.
   const onRecordingCreatedRef = useRef(onRecordingCreated)
   onRecordingCreatedRef.current = onRecordingCreated
-  const onLectureGoneRef = useRef(onLectureGone)
-  onLectureGoneRef.current = onLectureGone
   const hasAudioRef = useRef(hasAudio)
   hasAudioRef.current = hasAudio
   const lectureIdRef = useRef(lectureId ?? null)
@@ -86,6 +96,17 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
   lectureTitleRef.current = lectureTitle ?? null
   const courseRef = useRef(course ?? null)
   courseRef.current = course ?? null
+  const startLectureRef = useRef(startLecture)
+  startLectureRef.current = startLecture
+
+  /** Reports the capture into `target`'s lecture as `phase` (null: over). */
+  const reportLive = useCallback((target: Target | null, phase: LiveCapturePhase | null) => {
+    const previous = liveRef.current
+    const next = target?.lectureId && phase ? { lectureId: target.lectureId, phase } : null
+    if (previous && previous.lectureId !== next?.lectureId) setLiveCapture(previous.lectureId, null)
+    if (next) setLiveCapture(next.lectureId, next.phase)
+    liveRef.current = next
+  }, [setLiveCapture])
 
   // Reflect the board's lecture in the state machine unless a capture is in
   // flight. The functional update reads the current state without needing it
@@ -108,15 +129,29 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     () => () => {
       stopTimer()
       streamRef.current?.getTracks().forEach((t) => t.stop())
+      captureTargetRef.current = null
+      if (liveRef.current) setLiveCapture(liveRef.current.lectureId, null)
+      liveRef.current = null
     },
-    [stopTimer],
+    [stopTimer, setLiveCapture],
   )
+
+  // Audio only this page holds (a capture, or a failed upload) is lost on a
+  // reload: the browser asks first.
+  const holdingAudio = state === 'recording' || state === 'uploading' || unsaved !== null
+  useEffect(() => {
+    if (!holdingAudio) return
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault()
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [holdingAudio])
 
   /** Where something started now goes: the board's lecture, else a new one in the board's course. */
   const currentTarget = useCallback((): Target => ({
     lectureId: lectureIdRef.current,
     title: lectureTitleRef.current,
     course: courseRef.current,
+    boardLecture: lectureIdRef.current,
   }), [])
 
   const start = useCallback(async () => {
@@ -124,7 +159,30 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     setError(null)
     setNotice(null)
     chunksRef.current = []
-    captureTargetRef.current = currentTarget()
+    const target = currentTarget()
+    captureTargetRef.current = target
+    setCaptureTitle(target.title)
+    startingRef.current = null
+    if (target.lectureId) {
+      reportLive(target, 'recording')
+    } else {
+      // The lecture exists from now: the server makes it (or finds the
+      // class that is on) and selects it on the board. If that fails, the
+      // capture goes on regardless and its upload makes the lecture.
+      startingRef.current = startLectureRef.current.mutateAsync({ course: target.course }).then(
+        (lecture) => {
+          target.lectureId = lecture.id
+          target.title = lecture.title
+          target.course = lecture.course
+          // Only while this capture is still recording: the mic may have
+          // been refused, or it stopped (its upload reports it as saving).
+          if (captureTargetRef.current !== target) return
+          setCaptureTitle(lecture.title)
+          reportLive(target, 'recording')
+        },
+        (err) => console.error('start lecture error:', err),
+      )
+    }
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -150,56 +208,84 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
         setElapsed((e) => e + 1000)
       }, 1000)
     } catch (err) {
+      // The lecture (made above, if it was) stays: an empty lecture is a
+      // valid one ("I was there, no audio").
       captureTargetRef.current = null
+      setCaptureTitle(null)
+      reportLive(null, null)
       setError('Microphone access denied')
       console.error('mic error:', err)
     }
-  }, [stopTimer, currentTarget])
+  }, [stopTimer, currentTarget, reportLive])
 
   // Shared by mic captures and picked files, into `target`. On failure, fall
   // back to whatever the board's lecture says (the effect above only re-runs
   // when it changes).
   const upload = useCallback(async (args: UploadArgs, target: Target) => {
     setState('uploading')
-    try {
-      const created = await uploadRecording({ ...args, lectureId: target.lectureId, boardId: boardIdRef.current })
-      const boardMoved = lectureIdRef.current !== target.lectureId
+    reportLive(target, 'saving')
+    const send = (into: string | null) => uploadRecording({
+      ...args,
+      lectureId: into,
+      boardId: boardIdRef.current,
+      selectOnBoard: into === null,
+    })
+    const settle = (created: UploadedRecording, boardMoved: boolean, savedTo: string) => {
       if (boardMoved) {
         // The widget now shows another lecture: say where this one went.
-        setNotice(`Saved to ${target.title ?? args.title}`)
+        setNotice(`Saved to ${savedTo}`)
         setState(hasAudioRef.current ? 'complete' : 'idle')
       } else {
         setRecordingId(created.id)
         setState('complete')
       }
       onRecordingCreatedRef.current?.(created, { boardMoved })
-    } catch (err) {
-      if (err instanceof LectureGoneError && target.lectureId) {
-        // Keep the audio; the board lets go of the lecture, and the student
-        // can save the audio as a new one.
-        setUnsaved(args)
-        setError("That lecture is gone, so this recording isn't saved yet")
-        setState('idle')
-        onLectureGoneRef.current?.(target.lectureId)
-      } else {
-        setError(err instanceof Error && err.message.startsWith('Upload failed') ? err.message : 'Upload failed')
-        setState(hasAudioRef.current ? 'complete' : 'idle')
-      }
-      console.error('upload error:', err)
     }
-  }, [])
+    try {
+      try {
+        const created = await send(target.lectureId)
+        const boardMoved = target.lectureId === null
+          ? !created.selected
+          : lectureIdRef.current !== target.lectureId && lectureIdRef.current !== target.boardLecture
+        settle(created, boardMoved, target.title ?? args.title)
+      } catch (err) {
+        if (!(err instanceof LectureGoneError)) throw err
+        // The lecture went while this was recording (deleted elsewhere): the
+        // audio is saved straight away as a new lecture in the same course,
+        // which the server selects on the board unless the board shows
+        // another (existing) lecture by now. Nothing waits on a choice.
+        const created = await send(null)
+        settle(created, !created.selected, args.title)
+        setNotice(created.selected
+          ? 'That lecture was gone, so this was saved as a new lecture'
+          : `That lecture was gone, so this was saved as a new lecture: ${args.title}`)
+      }
+      setUnsaved(null)
+    } catch (err) {
+      // Kept, so it can be tried again; the widget says it isn't saved.
+      setUnsaved({ args, target })
+      setError(err instanceof Error && err.message.startsWith('Upload failed') ? err.message : 'Upload failed')
+      setState(hasAudioRef.current ? 'complete' : 'idle')
+      console.error('upload error:', err)
+    } finally {
+      if (liveRef.current?.lectureId === target.lectureId) reportLive(null, null)
+    }
+  }, [reportLive])
 
   const stop = useCallback(async () => {
     stopTimer()
     const recorder = mediaRecorderRef.current
     const target = captureTargetRef.current ?? currentTarget()
     captureTargetRef.current = null
+    setCaptureTitle(null)
     if (!recorder || recorder.state === 'inactive') {
+      reportLive(null, null)
       setState('idle')
       return
     }
 
     setState('uploading')
+    reportLive(target, 'saving')
 
     await new Promise<void>((resolve) => {
       recorder.onstop = () => resolve()
@@ -214,10 +300,15 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     chunksRef.current = []
 
     if (blob.size === 0) {
+      reportLive(null, null)
       setError('No audio captured')
-      setState('idle')
+      setState(hasAudioRef.current ? 'complete' : 'idle')
       return
     }
+
+    // The lecture made at start, if that is still on its way.
+    await startingRef.current
+    startingRef.current = null
 
     await upload({
       audio: blob,
@@ -226,7 +317,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       durationMs: elapsed,
       course: target.course,
     }, target)
-  }, [stopTimer, upload, elapsed, currentTarget])
+  }, [stopTimer, upload, elapsed, currentTarget, reportLive])
 
   /**
    * Upload a picked audio file as a recording: into the board's lecture as
@@ -238,6 +329,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       stopTimer()
       setError(null)
       setNotice(null)
+      setUnsaved(null)
       setState('uploading')
       const durationMs = await readAudioDuration(args.audio)
       await upload({ ...args, durationMs }, target)
@@ -245,12 +337,12 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     [stopTimer, upload, currentTarget],
   )
 
-  /** Save the kept audio (`hasUnsaved`) as a new lecture in the board's course. */
-  const saveAsNewLecture = useCallback(async () => {
+  /** Try the failed upload (`hasUnsaved`) again, to where it was aimed. */
+  const retryUnsaved = useCallback(async () => {
     if (!unsaved) return
-    setUnsaved(null)
     setError(null)
-    await upload({ ...unsaved, course: courseRef.current }, { lectureId: null, title: null, course: courseRef.current })
+    setNotice(null)
+    await upload(unsaved.args, unsaved.target)
   }, [unsaved, upload])
 
   const discardUnsaved = useCallback(() => {
@@ -267,7 +359,9 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
 
   return {
     state, elapsed, error, notice, start, stop, uploadFile, reset, recordingId,
-    hasUnsaved: unsaved !== null, saveAsNewLecture, discardUnsaved,
+    /** The lecture the capture in progress goes into, once known. */
+    captureTitle,
+    hasUnsaved: unsaved !== null, retryUnsaved, discardUnsaved,
   }
 }
 

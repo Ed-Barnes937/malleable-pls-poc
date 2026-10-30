@@ -32,6 +32,7 @@ export type {
   SubstrateWriter,
   PanelManifest,
   WidgetGroup,
+  LiveCapturePhase,
 } from './substrate-contract'
 export { isConflictError } from './substrate-contract'
 export {

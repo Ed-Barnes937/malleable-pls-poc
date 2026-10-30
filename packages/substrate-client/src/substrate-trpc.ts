@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
+import { setLiveCapture, useLiveCaptureOf } from './live-capture'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adapt<T>(query: { data: any; isLoading: boolean; error: any }): QueryResult<T> {
@@ -58,6 +59,10 @@ export const substrateTrpc: SubstrateWriter = {
 
   useLectures(filter?: { courseTag?: string }) {
     return adapt(trpc.lectures.list.useQuery(filter?.courseTag ? { courseTag: filter.courseTag } : undefined))
+  },
+
+  useLiveCapture(lectureId: string | undefined) {
+    return useLiveCaptureOf(lectureId)
   },
 
   useRecording(id: string) {
@@ -162,7 +167,35 @@ export const substrateTrpc: SubstrateWriter = {
     return useCallback(() => {
       utils.recordings.invalidate()
       utils.lectures.invalidate()
+      // An upload that made a lecture may have selected it on the board.
+      utils.workspaces.scopes.invalidate()
     }, [utils])
+  },
+
+  useStartLecture() {
+    const utils = trpc.useUtils()
+    const boardId = useBoardId()
+    const mutation = trpc.lectures.create.useMutation({
+      onSuccess: () => {
+        utils.lectures.invalidate()
+        if (boardId) utils.workspaces.scopes.invalidate(boardId)
+      },
+    })
+    const toInput = ({ course }: { course: string | null }) => ({
+      course,
+      matchClass: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...(boardId ? { workspaceId: boardId } : {}),
+    })
+    return {
+      mutate: (input: { course: string | null }) => mutation.mutate(toInput(input)),
+      mutateAsync: (input: { course: string | null }) => mutation.mutateAsync(toInput(input)),
+      isPending: mutation.isPending,
+    }
+  },
+
+  useSetLiveCapture() {
+    return setLiveCapture
   },
 
   useRecordConfidence() {
