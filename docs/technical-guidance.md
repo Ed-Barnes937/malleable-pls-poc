@@ -126,10 +126,12 @@ The shell enforces the declarations with `splitScope`. A widget receives
 to pass straight to readers, and `LensProps.highlight` with its `highlight`
 dimensions, which is for styling only and never reaches readers. So a calendar
 written the obvious way (`usePlanItems(scope)`) cannot hide another course's
-commitments. Ignored dimensions reach neither. The drawer offers a picker for
-each dimension some widget on the board uses, and the TopBar "Showing: ..."
-chip summarises only those dimensions ("All courses" when the course is used
-but unset; hidden when no widget uses scope). Writer access is granted to
+commitments. Ignored dimensions reach neither. The top bar offers a picker
+(`BoardScope`: a course pill, then a lecture pill) for each dimension some
+widget on the board uses (targets, filters or highlights), and nothing when
+no widget uses scope. Each choice is one `setBoardScope` write, applied to
+the cache at once (`useSetBoardScope` predicts both dimensions by the
+server's rules and rolls back on error). Writer access is granted to
 lenses that declare `writes`, not by category.
 
 **Palette groups.** The widget palette groups widgets by what a student wants

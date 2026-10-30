@@ -124,7 +124,7 @@ test.describe('Weak topics', () => {
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
     await expect(moment).toBeInViewport()
-    await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
+    await expect(topBar.lecturePill).toHaveText('Biology Lecture: Mitochondrial DNA')
   })
 
   test("a topic from another lecture switches this board's lecture, says so and offers the way back", async ({ page, request }) => {
@@ -135,18 +135,17 @@ test.describe('Weak topics', () => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Revision')
-    await expect(topBar.scopeChip).toContainText(before, { timeout: 10000 })
+    await expect(topBar.lecturePill).toHaveText(before, { timeout: 10000 })
 
     const grid = new PanelGridPom(page)
     await grid.panelByLabel('Weakest Topics').getByRole('button', { name: /^Maternal inheritance: go to this moment/ }).click()
     const moment = grid.panelByLabel('Transcript').locator('[data-moment]')
     await expect(moment).toContainText('inherited exclusively from the maternal line', { timeout: 10000 })
-    await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
+    await expect(topBar.lecturePill).toHaveText('Biology Lecture: Mitochondrial DNA')
     const toast = page.getByTestId('toast-host')
     await expect(toast).toContainText('Opened 9:00 in Biology Lecture: Mitochondrial DNA')
     await toast.getByRole('button', { name: `Back to ${before}` }).click()
-    await expect(topBar.scopeChip).toContainText(before)
-    await expect(topBar.scopeChip).not.toContainText('Mitochondrial DNA')
+    await expect(topBar.lecturePill).toHaveText(before)
   })
 
   test('from a board without a Transcript, it opens the moment on one that has it, with a way back', async ({ page }) => {

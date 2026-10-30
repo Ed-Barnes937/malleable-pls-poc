@@ -1,7 +1,7 @@
 import path from 'path'
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
-import { AudioCapturePom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { AudioCapturePom, PanelGridPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
 
@@ -26,9 +26,9 @@ test.describe('Journey: Upload a lecture recording', () => {
     await topBar.switchToWorkspace('In Lecture')
     await topBar.expectActiveWorkspace('In Lecture')
     const audio = new AudioCapturePom(grid.panelByLabel('Audio Capture'))
-    await expect(topBar.scopeChip).toHaveText(`Showing: Biology · ${SEEDED.title}`, { timeout: 10000 })
+    await topBar.expectScope('Biology', SEEDED.title, { timeout: 10000 })
     await audio.root.getByRole('button', { name: 'New lecture' }).click()
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     await expect(audio.root.getByTestId('ready-to-record')).toHaveText('Ready to record')
     return { topBar, audio, transcript: grid.panelByLabel('Transcript') }
   }
@@ -45,7 +45,7 @@ test.describe('Journey: Upload a lecture recording', () => {
 
     // The new lecture becomes the board's lecture, so the Transcript lens
     // follows it and fills in once the (mock) transcription job completes.
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Uploaded: Enzyme Kinetics', { timeout: 10000 })
+    await topBar.expectScope('Biology', 'Uploaded: Enzyme Kinetics', { timeout: 10000 })
     await expect(transcript.getByTestId('lecture-title')).toHaveText('Uploaded: Enzyme Kinetics')
     // The segment, not the summary: the (mock) summary quotes the same line once its job finishes.
     await expect(transcript.getByRole('button', { name: /Today we're looking at mitochondrial DNA/ })).toBeVisible({ timeout: 20000 })
@@ -57,9 +57,7 @@ test.describe('Journey: Upload a lecture recording', () => {
     expect(made[0].recordings).toHaveLength(1)
     expect((await trpcQuery<Lecture>(request, 'lectures.byId', SEEDED.id)).recordings).toHaveLength(1)
 
-    await topBar.openDrawer()
-    const sidebar = new SidebarPom(page)
-    await expect(sidebar.lectureSelect).toHaveValue(made[0].id)
+    await expect(topBar.lectureSelect).toHaveValue(made[0].id)
   })
 
   test('the prepared demo lecture transcribes to its real script in mock mode', async ({ page, request }) => {
@@ -71,7 +69,7 @@ test.describe('Journey: Upload a lecture recording', () => {
     await audio.submitUpload({ title: 'Uploaded: Demo lecture', course: 'Biology' })
 
     // Matched by file hash (apps/server/src/ai/demo-lecture.ts): one moment per script paragraph.
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Uploaded: Demo lecture', { timeout: 10000 })
+    await topBar.expectScope('Biology', 'Uploaded: Demo lecture', { timeout: 10000 })
     await expect(transcript.getByTestId('lecture-title')).toHaveText('Uploaded: Demo lecture')
     await expect(transcript.getByText(/let me try to explain maternal inheritance/)).toBeVisible({ timeout: 20000 })
     await expect(transcript.getByText('17 segments')).toBeVisible()

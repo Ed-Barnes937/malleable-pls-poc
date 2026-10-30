@@ -140,10 +140,8 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await expect(calendar.block(accepted.title)).toHaveAttribute('aria-label', / 15:00 - /)
 
     // 3. Scope: the board shows Biology; nothing is hidden silently.
-    await topBar.openDrawer()
-    await new SidebarPom(page).selectCourse('Biology')
-    await page.keyboard.press('Escape')
-    await expect(topBar.scopeChip).toContainText('Biology')
+    await topBar.selectCourse('Biology')
+    await expect(topBar.coursePill).toHaveText('Biology')
     await expect(calendar.root.getByText('Biology highlighted')).toBeVisible()
     await expect(comingUp.getByText('+1 in other courses')).toBeVisible()
     await expect(comingUp.getByText('Chemistry lab report')).toHaveCount(0)

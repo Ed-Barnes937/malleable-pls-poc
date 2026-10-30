@@ -1,8 +1,9 @@
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
-import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
-import type { PlanItemQuery } from '@pls/substrate'
+import type { BoardScope, Lecture, PlanItemQuery } from '@pls/substrate'
+import { predictBoardScope, withBoardScope } from './board-scope'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
@@ -143,12 +144,86 @@ export function useUpdateWorkspaceBackground() {
  */
 export function useSetBoardScope() {
   const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
   return trpc.workspaces.setBoardScope.useMutation({
-    onError: (error) => refetchBoardsIfGone(utils, error),
-    onSuccess: (_data, input) => {
-      utils.workspaces.scopes.invalidate(input.workspaceId)
+    // Optimistic: the board shows the scope the server will leave (both
+    // dimensions, by its rules) at once, so a picker never snaps back.
+    onMutate: async ({ workspaceId, ...patch }) => {
+      await utils.workspaces.scopes.cancel(workspaceId)
+      const prev = utils.workspaces.scopes.getData(workspaceId)
+      if (prev) {
+        const current = toBoardScope(decodeScope(prev as unknown as ScopeRow[]))
+        const next = predictBoardScope(current, patch, (id) => cachedLectureCourse(queryClient, id))
+        utils.workspaces.scopes.setData(workspaceId, (rows) => rows && replaceBoardScope(rows, workspaceId, next))
+      }
+      return { prev }
+    },
+    onError: (error, input, ctx) => {
+      if (ctx?.prev) utils.workspaces.scopes.setData(input.workspaceId, ctx.prev)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSuccess: (scope, input) => {
+      // The server's answer, until the refetch confirms it.
+      utils.workspaces.scopes.setData(input.workspaceId, (rows) => rows && replaceBoardScope(rows, input.workspaceId, scope))
       // A lecture made a moment ago (an upload) may not be in the picker's list yet.
       if (input.lectureId) utils.lectures.invalidate()
+    },
+    onSettled: (_data, _error, input) => utils.workspaces.scopes.invalidate(input.workspaceId),
+  })
+}
+
+/** `withBoardScope` on the cached `workspaces.scopes` rows, keeping their type. */
+function replaceBoardScope<Rows>(rows: Rows, workspaceId: string, scope: BoardScope): Rows {
+  return withBoardScope(rows as unknown as ScopeRow[], workspaceId, scope) as unknown as Rows
+}
+
+function toBoardScope(scope: Scope): BoardScope {
+  return { courseTag: scope.courseTag ?? null, lectureId: scope.lectureId ?? null }
+}
+
+/**
+ * A lecture's course as the client has it cached (any `lectures.byId` or
+ * `lectures.list`), null when filed under no course; undefined when no
+ * cached query has it.
+ */
+function cachedLectureCourse(queryClient: QueryClient, lectureId: string): string | null | undefined {
+  for (const [, data] of queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })) {
+    const lecture = (Array.isArray(data) ? data : [data]).find((l) => l?.id === lectureId)
+    if (lecture) return lecture.course
+  }
+  return undefined
+}
+
+/** Every `lectures.*` query (tRPC keys start with the procedure path). */
+const LECTURE_QUERIES = [['lectures']]
+
+/**
+ * Renames a lecture (`title`) and/or refiles it under another course
+ * (`course`, null = none). A new title shows at once wherever the lecture is
+ * cached (the header's lecture pill, Transcript), and comes back if the
+ * write fails.
+ */
+export function useUpdateLecture() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.lectures.update.useMutation({
+    onMutate: async ({ id, title }) => {
+      if (title === undefined) return { prev: [] }
+      await queryClient.cancelQueries({ queryKey: LECTURE_QUERIES })
+      const prev = queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })
+      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, title } : l)
+      queryClient.setQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES }, (data) =>
+        Array.isArray(data) ? data.map((l) => rename(l)!) : rename(data),
+      )
+      return { prev }
+    },
+    onError: (_error, _input, ctx) => {
+      for (const [key, data] of ctx?.prev ?? []) queryClient.setQueryData(key, data)
+    },
+    onSettled: (_data, _error, input) => {
+      void utils.lectures.invalidate()
+      // A course change re-scopes the boards that have the lecture selected.
+      if (input.course !== undefined) void utils.workspaces.scopes.invalidate()
     },
   })
 }

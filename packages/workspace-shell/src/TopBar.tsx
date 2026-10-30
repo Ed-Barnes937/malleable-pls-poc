@@ -1,14 +1,14 @@
 import { Menu, LayoutGrid, Settings } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceScopes, useLecture, useRunningJobCount, decodeScope } from '@pls/substrate-client'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRunningJobCount } from '@pls/substrate-client'
 import { useActiveWorkspaceId } from './activeBoard'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
-import { useBoardScopeDims } from './useBoardScopeDims'
+import { BoardScope } from './BoardScope'
 import { TodayLine } from './TodayLine'
 import { BoardAppearance } from './BoardAppearance'
-import { COURSES, cn, useNarrowScreen } from '@pls/shared-ui'
+import { cn, useNarrowScreen } from '@pls/shared-ui'
 
 export interface TopBarProps {
   onMenuClick: () => void
@@ -21,47 +21,13 @@ const ICON_BUTTON =
   'flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
 
 /**
- * Summarises the board scope as "Showing: ..." chip text, limited to the
- * dimensions some widget on the board actually uses, so the chip never
- * claims a filter nothing applies. A board whose widgets use the course but
- * has none set (and no selected lecture) says "All courses" rather than hiding the chip, so the
- * student can always see (and change) what the board shows. Returns null
- * when no widget uses any scope.
- */
-export function useScopeSummary(workspaceId: string | null): string | null {
-  const dims = useBoardScopeDims(workspaceId)
-  const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const s = useMemo(
-    () => decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[]),
-    [scopes],
-  )
-  const { data: selected } = useLecture(s.lectureId)
-
-  return useMemo(() => {
-    const lecture = s.lectureId && dims.has('lectureId') && selected?.id === s.lectureId
-      ? selected.title
-      : undefined
-    const parts: string[] = []
-    if (dims.has('courseTag')) {
-      if (s.courseTag) parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
-      // A selected lecture filed under no course: "All courses" next to it
-      // reads as a contradiction; the lecture says enough.
-      else if (!lecture) parts.push('All courses')
-    }
-    if (lecture) parts.push(lecture)
-    return parts.length > 0 ? parts.join(' · ') : null
-  }, [s, dims, selected])
-}
-
-/**
  * The board tabs between a menu button and the widgets button. On a phone
  * (below 640px) that is all the first row holds: Activity, theme and board
- * appearance move into the board menu, and a second row has the "Showing"
- * chip and the short today line.
+ * appearance move into the board menu, and a second row has the scope
+ * pills and the short today line.
  */
 export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
-  const scopeSummary = useScopeSummary(activeWorkspaceId)
   const narrow = useNarrowScreen()
 
   const menuButton = <MenuButton onClick={onMenuClick} open={menuOpen} showRunning={narrow} />
@@ -78,21 +44,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       <LayoutGrid size={18} />
     </button>
   )
-  const scopeChip = (className: string) => scopeSummary && (
-    <button
-      type="button"
-      data-testid="scope-chip"
-      onClick={onMenuClick}
-      title={`Showing: ${scopeSummary}. Click to change.`}
-      className={cn(
-        'min-w-0 truncate rounded-full bg-surface-overlay text-left font-semibold text-text-primary transition-colors hover:bg-border-subtle',
-        className,
-      )}
-    >
-      <span className="font-normal text-text-secondary">Showing: </span>
-      {scopeSummary}
-    </button>
-  )
+  const scope = activeWorkspaceId && <BoardScope workspaceId={activeWorkspaceId} compact={narrow} />
 
   if (narrow) {
     return (
@@ -106,9 +58,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
           <div className="min-w-0 flex-1">{tabs}</div>
           {organizeButton}
         </div>
-        {/* Nothing in it (no scope, nothing today) and it takes no room. */}
-        <div className="flex items-center gap-2 empty:hidden">
-          {scopeChip('max-w-full shrink px-3 py-1 text-meta')}
+        {/* Nothing in it (no scope, nothing today) and it takes no room. The
+            today line wraps under the pills rather than cut them short. */}
+        <div data-testid="top-bar-row-2" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 empty:hidden">
+          {scope}
           <TodayLine short />
         </div>
       </header>
@@ -131,8 +84,8 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       {/* Board tabs */}
       <div className="min-w-0">{tabs}</div>
 
-      {/* Scope chip - opens the board menu, where the scope is changed */}
-      {scopeChip('max-w-[40ch] px-3 py-1.5 text-body')}
+      {/* What the board shows: the course and lecture pickers */}
+      {scope}
 
       {/* Today at a glance (wide screens only) */}
       <TodayLine />
@@ -170,7 +123,7 @@ function MenuButton({ onClick, open, showRunning }: { onClick: () => void; open:
       aria-label={running ? `Board menu, ${count} running` : 'Board menu'}
       aria-haspopup="dialog"
       aria-expanded={open}
-      title={running ? `Board menu: ${count} running` : "Board menu: add widgets, choose what's shown"}
+      title={running ? `Board menu: ${count} running` : "Board menu: add widgets and automations"}
       className={cn(ICON_BUTTON, 'relative')}
     >
       <Menu size={20} />

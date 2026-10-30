@@ -2,7 +2,7 @@
 
 ## Running
 
-`pnpm test:e2e` boots Postgres (if needed), migrates, starts the API (`e2e:server`, always `AI_MODE=mock`) and the web app, reseeds `dev-user-1` (`global-setup.ts`), then runs the `*.e2e.ts` journeys.
+`pnpm test:e2e` boots Postgres (if needed), migrates, starts the API (`e2e:server`, always `AI_MODE=mock`) and the web app, reseeds `dev-user-1` (`global-setup.ts`), then runs the `*.e2e.ts` journeys in Chromium. `scope.e2e.ts` (the header's scope pills) also runs in WebKit: install it once with `pnpm exec playwright install webkit`, and run only Chromium with `--project chromium`.
 
 ## Seed data
 

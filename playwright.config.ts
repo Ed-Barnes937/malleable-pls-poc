@@ -29,6 +29,14 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
+    // The header's scope pills are transparent native selects over a styled
+    // label: check Safari hits and drives them too. Only this spec, to keep
+    // the run short (`pnpm exec playwright install webkit` once).
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], timezoneId: 'Europe/London' },
+      testMatch: 'scope.e2e.ts',
+    },
   ],
   webServer: [
     {
