@@ -98,6 +98,16 @@ export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
 export { defaultLectureTitle } from './lectures'
 export {
+  CLASS_CAPTURE_LEAD_MIN,
+  captureClassRange,
+  classForCapture,
+  classLectureTitle,
+  isClassBlock,
+  localDate,
+  occurrenceDate,
+  occurrenceOn,
+} from './class-occurrences'
+export {
   busyTime,
   isMissedBlock,
   REFIT_LOOKAHEAD_DAYS,

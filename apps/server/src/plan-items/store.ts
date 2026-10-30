@@ -2,6 +2,7 @@ import type { JSONValue, TransactionSql } from 'postgres'
 import { TRPCError } from '@trpc/server'
 import { expandPlanItems, validatePlanItem } from '@pls/substrate'
 import { andInCourse } from '../routers/_shared'
+import { studentTimeZone } from '../preferences/store'
 import type { PlanItem, PlanItemOccurrence, PlanItemQuery, NewPlanItem } from '@pls/substrate'
 
 // Plan item reads and writes shared by the planItems router and server-side
@@ -59,6 +60,7 @@ export function toPlanItem(row: Row): PlanItem {
     source_offset_ms: (row.source_offset_ms as number | null) ?? null,
     created_by_workflow_id: (row.created_by_workflow_id as string | null) ?? null,
     course: (row.course as string | null) ?? null,
+    time_zone: (row.time_zone as string | null) ?? null,
     created_at: iso(row.created_at)!,
     updated_at: iso(row.updated_at)!,
   }
@@ -141,11 +143,21 @@ export async function listPlanItems(tx: TransactionSql, userId: string, query: P
   return expandPlanItems(rows.map(toPlanItem), query)
 }
 
-/** Inserts a plan item with its course and returns it as stored. Validates first. */
-export async function insertPlanItem(tx: TransactionSql, userId: string, input: NewPlanItem): Promise<PlanItem> {
+/**
+ * Inserts a plan item with its course and returns it as stored. Validates
+ * first. The item keeps the student's zone as it is now (`time_zone`, see
+ * PlanItem): their preference, else `browserZone`, else the demo's.
+ */
+export async function insertPlanItem(
+  tx: TransactionSql,
+  userId: string,
+  input: NewPlanItem,
+  browserZone?: string | null,
+): Promise<PlanItem> {
   assertValid(input)
+  const timeZone = await studentTimeZone(tx, userId, browserZone)
   const [{ id: newId }] = await tx`
-    INSERT INTO plan_items ${tx({ user_id: userId, ...columns(tx, input) })}
+    INSERT INTO plan_items ${tx({ user_id: userId, ...columns(tx, input), time_zone: timeZone })}
     RETURNING id
   `
   await setCourse(tx, userId, newId, input.course ?? null)

@@ -84,6 +84,22 @@ AI_MODE=live pnpm demo:live-smoke
 
 It refuses to run unless `AI_MODE=live` is set on the command line (it checks before loading `apps/server/.env`, which is where it reads `OPENROUTER_API_KEY` and `OPENROUTER_LLM_MODEL` from). Agents and CI must never run it.
 
+## Lectures (`lectures.*`, `/upload`)
+
+`lectures.list` / `byId` / `create` / `update` and `forClassOccurrence` (the
+lecture of one class occurrence, found or made exactly once, optionally
+selected on a board; see "Lectures and class occurrences" in
+`docs/technical-guidance.md`). `create` with `matchClass` is what Record calls
+when capture starts: during a class of the course it returns that
+occurrence's lecture. Every board scope write goes through `writeBoardScope`
+(`src/routers/_board-scope.ts`) under the board's scope lock, which callers
+take before touching lecture rows. `/upload` records into `x-lecture-id`, or
+makes a lecture and, with `x-select-on-board: 1`, selects it on
+`x-workspace-id` if that board shows no lecture. `x-upload-id` (one per
+capture or file, the same on every try) makes a retry return the recording
+an earlier try saved instead of a second copy. DB-backed tests:
+`TEST_DATABASE_URL=... pnpm test class-lectures.db`.
+
 ## Preferences (`preferences.get`, `preferences.update`)
 
 The student's study rhythm, one row per user in `user_preferences` (migration 016, RLS like every table): `study_hours` (`{ mon..sun: { start, end } | null }`, local `HH:MM`, `24:00` allowed as an end, `null` = no study that day), `study_min_per_day` and `time_zone`. A NULL column means the default (09:00-22:00 every day, 2h a day, no zone: callers use their own). `get` returns it with the defaults filled in; `update` takes any subset (`preferencesUpdateInput` in `@pls/substrate`), `null` resetting a field. Every automatic placement reads it server-side (`src/preferences/store.ts`): Auto-fill, re-fit and the confusion automation. Manual create and drag ignore it. DB-backed tests: `TEST_DATABASE_URL=... pnpm test preferences.db`.

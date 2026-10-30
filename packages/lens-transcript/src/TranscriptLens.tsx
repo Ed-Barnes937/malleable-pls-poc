@@ -329,6 +329,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // latest.
   const lectureId = scope.lectureId
   const { data: lectureData } = substrate.useLecture(lectureId)
+  // A capture into this lecture in progress (the Record widget), if any.
+  const liveCapture = substrate.useLiveCapture(lectureId)
   const lecture = lectureId && lectureData?.id === lectureId ? lectureData : undefined
   const [pickedPart, setPickedPart] = useState<string | null>(null)
   useEffect(() => setPickedPart(null), [lectureId])
@@ -505,7 +507,11 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
       <div className="flex h-full min-h-0 flex-col gap-2">
         <span data-testid="lecture-title" className="truncate text-title font-semibold text-text-primary">{lecture.title}</span>
         <div className="flex flex-1 items-center justify-center">
-          <EmptyState icon={AudioLines} message="No recording yet" />
+          {liveCapture === 'recording'
+            ? <InProgress icon={AudioLines} message="Recording..." testId="recording-live" />
+            : liveCapture === 'saving'
+              ? <InProgress icon={AudioLines} message="Saving the recording..." testId="recording-saving" />
+              : <EmptyState icon={AudioLines} message="No recording yet" />}
         </div>
       </div>
     )
@@ -528,6 +534,16 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
           </span>
         )}
       </div>
+
+      {lecture && liveCapture && (
+        <InProgress
+          icon={AudioLines}
+          message={liveCapture === 'recording'
+            ? `Recording part ${lecture.recordings.length + 1}...`
+            : `Saving part ${lecture.recordings.length + 1}...`}
+          testId={liveCapture === 'recording' ? 'recording-live' : 'recording-saving'}
+        />
+      )}
 
       {lecture && lecture.recordings.length > 1 && (
         <PartPicker lecture={lecture} partId={recordingId} onPick={setPickedPart} />

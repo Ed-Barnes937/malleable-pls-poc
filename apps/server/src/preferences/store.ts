@@ -1,5 +1,5 @@
 import type { JSONValue, TransactionSql } from 'postgres'
-import { withDefaults, type PreferencesUpdate, type StudyHours, type UserPreferences } from '@pls/substrate'
+import { DEFAULT_REVIEW_TIME_ZONE, withDefaults, type PreferencesUpdate, type StudyHours, type UserPreferences } from '@pls/substrate'
 
 // The student's study rhythm (`user_preferences`): read by the preferences
 // router and by every server-side placement (Auto-fill, re-fit, the
@@ -59,4 +59,12 @@ export async function updatePreferences(
 /** The zone automatic placement reads study hours in: the preference, else the caller's own. */
 export function placementTimeZone(prefs: UserPreferences, fallback: string): string {
   return prefs.time_zone ?? fallback
+}
+
+/**
+ * The zone a student's dates and default titles are read in: their
+ * preference, else the browser's (`browserZone`), else the demo's zone.
+ */
+export async function studentTimeZone(tx: TransactionSql, userId: string, browserZone: string | null | undefined): Promise<string> {
+  return placementTimeZone(await getPreferences(tx, userId), browserZone ?? DEFAULT_REVIEW_TIME_ZONE)
 }
