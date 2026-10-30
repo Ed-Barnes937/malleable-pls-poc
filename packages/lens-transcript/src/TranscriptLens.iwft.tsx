@@ -169,10 +169,11 @@ test('says the lecture is being transcribed instead of showing an empty transcri
   await expect(page.getByTestId('transcribing')).toHaveText('Transcribing your lecture...')
   await expect(page.getByText(/segments/)).toHaveCount(0)
 
-  // Once the job is done, the next refresh drops the note.
+  // Once the job is done, the next refresh drops the note. This run wrote no
+  // transcript, so the lecture says it still has none instead of "0 segments".
   simulator.db.jobRuns.find((j) => j.id === 'jr-t')!.status = 'completed'
   await expect(page.getByTestId('transcribing')).toHaveCount(0, { timeout: 10000 })
-  await expect(page.getByText('0 segments')).toBeVisible()
+  await expect(page.getByTestId('untranscribed')).toBeVisible()
 })
 
 test('says the summary is being written above the transcript', async ({ mount, page, simulator }) => {
@@ -468,4 +469,22 @@ test('a lecture with no course of its own falls back to the board course', async
   )
   await expect(page.getByText('Untitled lecture')).toBeVisible()
   await expect(page.getByText('Chemistry', { exact: true })).toBeVisible()
+})
+
+test('a lecture nothing transcribed says so and offers to transcribe it', async ({ mount, page, simulator }) => {
+  simulator.db.recordings.push({
+    id: 'rec-raw', title: 'Raw lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: '/uploads/raw.wav', status: 'uploaded',
+  })
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-raw' }} config={{ mode: 'review' }} />
+    </TestProviders>,
+  )
+  await expect(page.getByText("This lecture isn't transcribed yet.")).toBeVisible()
+  await expect(page.getByText('0 segments')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Transcribe it' }).click()
+  // Queued, so the transcript now says it is on its way instead of offering again.
+  await expect(page.getByTestId('transcribing')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transcribe it' })).toHaveCount(0)
 })
