@@ -18,7 +18,7 @@ const TABLES = [
   'job_runs', 'workflow_jobs', 'workflows',
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',
-  'transcript_segments', 'recordings',
+  'transcript_segments', 'recordings', 'lectures',
 ]
 
 /** Where reseed writes, as "host:port/database" (never the credentials). */
@@ -43,25 +43,34 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
   const sql = pg.default(DATABASE_URL, { max: 1 })
 
   try {
-    for (const table of TABLES) {
-      await sql.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
-    }
+    // One transaction: the server never sees a half-seeded student, nor
+    // recordings without a lecture (see 017 below).
+    await sql.begin(async (tx: Sql) => {
+      for (const table of TABLES) {
+        await tx.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
+      }
+      // 002 inserts recordings the pre-017 way (no lecture, course as a
+      // tag); 017 gives each its lecture and restores NOT NULL before the
+      // transaction ends.
+      await tx.unsafe('ALTER TABLE recordings ALTER COLUMN lecture_id DROP NOT NULL')
 
-    // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
-    // columns), since 006 replaced the grid columns 002 originally used;
-    // 010 moves the seeded recording focus from panel config to the
-    // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
-    // 013 swaps the stub automations for the lecture AI ones; 014 resizes
-    // the seeded panels for the redesigned widget chrome.
-    for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql']) {
-      const seedSql = readFileSync(
-        resolve(__dirname, `../packages/db/src/migrations/${file}`),
-        'utf-8',
-      )
-      await sql.unsafe(seedSql)
-    }
+      // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
+      // columns), since 006 replaced the grid columns 002 originally used;
+      // 010 moves the seeded recording focus from panel config to the
+      // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
+      // 013 swaps the stub automations for the lecture AI ones; 014 resizes
+      // the seeded panels for the redesigned widget chrome; 017 files each
+      // seeded recording under its own lecture ('lec-' || recording id).
+      for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql', '017_lectures.sql']) {
+        const seedSql = readFileSync(
+          resolve(__dirname, `../packages/db/src/migrations/${file}`),
+          'utf-8',
+        )
+        await tx.unsafe(seedSql)
+      }
 
-    await insertPlanItems(sql, [...priyaWeek(now), ...seededReviews()])
+      await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
+    })
   } finally {
     await sql.end()
   }

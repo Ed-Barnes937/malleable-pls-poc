@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto'
 import { startOfLocalDay, wallClock, zonedTimeToUtc } from '@pls/scheduler'
 import type { ExecutorRegistry, JobRun } from '@pls/workflows'
 import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB, WEEKDAYS, type StudyHours } from '@pls/substrate'
+import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -52,8 +53,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
     await db.withUser(alice, async (tx) => {
-      await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${rec}, ${alice}, 'Mitochondrial DNA', 'ready')`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${alice}, 'recording', ${rec}, 'biology')`
+      await insertRecording(tx, { id: rec, userId: alice, title: 'Mitochondrial DNA', course: 'biology' })
       const texts = [
         'Mitochondria have their own DNA, separate from the nuclear DNA.',
         'Here is the critical point: mitochondrial DNA is inherited exclusively from the maternal line.',
@@ -82,7 +82,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'workspaces', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings']) {
+    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'workspaces', 'tags', 'annotations', 'plan_items', 'transcript_segments', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [alice])
     }
     await db.sql`DELETE FROM user_preferences WHERE user_id = ANY(${[alice, dave]})`
@@ -378,9 +378,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       // Filter by user explicitly: tests may connect as a role that bypasses RLS.
       await db.withUser(alice, (tx) => tx`DELETE FROM job_runs WHERE user_id = ${alice} AND status = 'pending'`)
       const recordingId = `rec-${randomUUID().slice(0, 8)}`
-      await db.withUser(alice, (tx) => tx`
-        INSERT INTO recordings (id, user_id, title, audio_url, status) VALUES (${recordingId}, ${alice}, 'Upload', '/uploads/x.wav', 'uploaded')
-      `)
+      await db.withUser(alice, (tx) =>
+        insertRecording(tx, { id: recordingId, userId: alice, title: 'Upload', audioUrl: '/uploads/x.wav', status: 'uploaded' }))
       // As /upload does from a board.
       await api.workflows.dispatch({ eventType: 'recording:completed', payload: { recording_id: recordingId }, workspaceId: board })
       const [transcribeRun] = await db.withUser(alice, (tx) => tx`
@@ -411,9 +410,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
 
   it('cascades from transcription to the summary via recording:transcribed', async () => {
     const other = `rec-${randomUUID().slice(0, 8)}`
-    await db.withUser(alice, (tx) => tx`
-      INSERT INTO recordings (id, user_id, title, audio_url, status) VALUES (${other}, ${alice}, 'Upload', '/uploads/x.wav', 'uploaded')
-    `)
+    await db.withUser(alice, (tx) =>
+      insertRecording(tx, { id: other, userId: alice, title: 'Upload', audioUrl: '/uploads/x.wav', status: 'uploaded' }))
     const jobRun = { id: randomUUID(), workflow_id: 'wf', workflow_job_id: 'wfj' } as JobRun
     const result = await executors.execute('ai:transcribe', { recording_id: other, _userId: alice }, { scopeId: null, depth: 1, jobRun })
     expect(result.events).toEqual([{ type: 'recording:transcribed', payload: { recording_id: other } }])

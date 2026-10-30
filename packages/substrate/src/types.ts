@@ -5,13 +5,53 @@ export interface Recording {
   duration: number
   audio_url: string | null
   status: string
+  /** The lecture it was recorded in (every recording has one). */
+  lecture_id: string
   /**
-   * Course tag label (e.g. 'biology'), stored as a 'recording' tag. Null for a
-   * lecture filed under no course.
+   * Course key (e.g. 'biology'), derived from the recording's lecture
+   * (`lectures.course`). Null for a lecture filed under no course.
    */
   course: string | null
   /** By-id reads only: what the lecture's AI jobs are still doing, if anything. */
   processing?: LectureProcessing | null
+}
+
+/** A recording as listed under its lecture. */
+export interface LectureRecording {
+  id: string
+  title: string
+  status: string
+  duration: number
+  created_at: string
+}
+
+/**
+ * A session of a course at a time (`lectures`). It can exist before or
+ * without audio; recordings (0..n, oldest first) belong to it, and their
+ * course is its course.
+ */
+export interface Lecture {
+  id: string
+  title: string
+  /** Course key, or null when filed under no course. */
+  course: string | null
+  starts_at: string
+  /** The class occurrence it is (a 'class' commitment and its local date), if any. */
+  class_item_id: string | null
+  class_date: string | null
+  created_at: string
+  updated_at: string
+  recordings: LectureRecording[]
+}
+
+/**
+ * A board's scope as `workspaces.setBoardScope` returns it: null is unset
+ * ("All courses", no lecture). Invariant: when `lectureId` is set,
+ * `courseTag` is that lecture's course.
+ */
+export interface BoardScope {
+  courseTag: string | null
+  lectureId: string | null
 }
 
 /** A lecture's AI work in progress: its transcript, then its summary. */

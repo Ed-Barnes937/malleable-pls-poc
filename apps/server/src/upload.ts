@@ -3,6 +3,7 @@ import { writeFile, mkdir } from 'fs/promises'
 import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
+import { isCourse } from './routers/_shared'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -137,6 +138,12 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
+    if (course && !isCourse(course)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Unknown course' }))
+      return
+    }
+
     // Validate Content-Type header against audio allowlist
     const extension = audioExtension(req.headers['content-type'])
     if (!extension) {
@@ -176,17 +183,17 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const audioUrl = `/uploads/${filename}`
 
     await withUser(userId, async (tx) => {
-      await tx`
-        INSERT INTO recordings (id, user_id, title, duration, audio_url, status)
-        VALUES (${recordingId}, ${userId}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
+      // Each upload is its own new lecture, filed under the course (the
+      // lecture holds the course; the recording derives it).
+      const [lecture] = await tx`
+        INSERT INTO lectures (user_id, title, course)
+        VALUES (${userId}, ${title}, ${course ?? null})
+        RETURNING id
       `
-      // Courses are modelled as a 'recording' tag (see recordings.list courseTag filter).
-      if (course) {
-        await tx`
-          INSERT INTO tags (user_id, target_type, target_id, label)
-          VALUES (${userId}, 'recording', ${recordingId}, ${course})
-        `
-      }
+      await tx`
+        INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
+        VALUES (${recordingId}, ${userId}, ${lecture.id}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
+      `
       await dispatchWorkflows(tx, userId, 'recording:completed', {
         recording_id: recordingId,
       }, workspaceId)

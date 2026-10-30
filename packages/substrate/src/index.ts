@@ -96,6 +96,7 @@ export {
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
+export { defaultLectureTitle } from './lectures'
 export {
   busyTime,
   isMissedBlock,
@@ -124,6 +125,9 @@ export {
 
 export type {
   Recording,
+  Lecture,
+  LectureRecording,
+  BoardScope,
   LectureProcessing,
   TranscriptSegment,
   Annotation,
