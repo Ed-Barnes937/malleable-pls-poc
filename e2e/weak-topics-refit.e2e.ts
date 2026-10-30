@@ -130,7 +130,7 @@ test.describe('Weak topics', () => {
   test("a topic from another lecture switches this board's lecture, says so and offers the way back", async ({ page, request }) => {
     const ws = await board(request, 'Revision', ['weakest-topics', 'transcript'])
     // The board shows another Biology lecture to start with.
-    await trpcMutation(request, 'workspaces.setScope', { workspaceId: ws, scopeType: 'recording', scopeValue: 'rec-bio-1' })
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-1' })
     const before = (await trpcQuery<{ title: string }>(request, 'recordings.byId', 'rec-bio-1')).title
     await page.goto('/')
     const topBar = new TopBarPom(page)

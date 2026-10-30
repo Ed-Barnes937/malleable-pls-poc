@@ -6,7 +6,7 @@ const FIXTURE = path.join(__dirname, 'fixtures', 'lecture-tone.wav')
 const DEMO_LECTURE = path.join(__dirname, '..', 'demo', 'lecture-mitochondrial-dna.wav')
 
 test.describe('Journey: Upload a lecture recording', () => {
-  test('uploaded recording becomes the focus and its transcript appears', async ({ page }) => {
+  test('an upload after New lecture is a new lecture: it becomes the board lecture and its transcript appears', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -16,12 +16,16 @@ test.describe('Journey: Upload a lecture recording', () => {
     const audio = new AudioCapturePom(grid.panelByLabel('Audio Capture'))
     const transcript = grid.panelByLabel('Transcript')
 
+    // In Lecture opens on the seeded lecture, so an upload would add to it:
+    // New lecture clears it first.
+    await audio.root.getByRole('button', { name: 'New lecture' }).click()
+    await expect(audio.root.getByText('Ready to record')).toBeVisible({ timeout: 10000 })
     // Title defaults from the filename; the student renames it and files it under a course.
     await audio.pickFile(FIXTURE)
     await expect(audio.titleInput).toHaveValue('lecture-tone')
     await audio.submitUpload({ title: 'Uploaded: Enzyme Kinetics', course: 'Biology' })
 
-    // The new recording becomes the workspace focus, so the Transcript lens
+    // The new lecture becomes the board's lecture, so the Transcript lens
     // follows it and fills in once the (mock) transcription job completes.
     await expect(transcript.getByText('Uploaded: Enzyme Kinetics')).toBeVisible({ timeout: 10000 })
     // The segment, not the summary: the (mock) summary quotes the same line once its job finishes.
@@ -30,11 +34,11 @@ test.describe('Journey: Upload a lecture recording', () => {
 
     await topBar.openDrawer()
     const sidebar = new SidebarPom(page)
-    await expect(sidebar.recordingSelect.locator('option:checked')).toHaveText('Uploaded: Enzyme Kinetics')
+    await expect(sidebar.lectureSelect.locator('option:checked')).toHaveText('Uploaded: Enzyme Kinetics')
 
     // Restore the seeded focus so later tests see clean state.
-    await sidebar.selectRecording('Biology Lecture: Mitochondrial DNA')
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await sidebar.selectLecture('Biology Lecture: Mitochondrial DNA')
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
   })
 
   test('the prepared demo lecture transcribes to its real script in mock mode', async ({ page }) => {
@@ -46,6 +50,7 @@ test.describe('Journey: Upload a lecture recording', () => {
     const audio = new AudioCapturePom(grid.panelByLabel('Audio Capture'))
     const transcript = grid.panelByLabel('Transcript')
 
+    await audio.root.getByRole('button', { name: 'New lecture' }).click()
     await audio.pickFile(DEMO_LECTURE)
     await audio.submitUpload({ title: 'Uploaded: Demo lecture', course: 'Biology' })
 
@@ -64,7 +69,7 @@ test.describe('Journey: Upload a lecture recording', () => {
 
     const sidebar = new SidebarPom(page)
     await topBar.openDrawer()
-    await sidebar.selectRecording('Biology Lecture: Mitochondrial DNA')
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await sidebar.selectLecture('Biology Lecture: Mitochondrial DNA')
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
   })
 })

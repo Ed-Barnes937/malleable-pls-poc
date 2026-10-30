@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useBoardId } from '@pls/lens-framework'
 import { dayMonthAndTime } from '@pls/shared-ui'
-import { uploadRecording, type UploadRecordingArgs } from './uploadRecording'
+import { uploadRecording, type UploadRecordingArgs, type UploadedRecording } from './uploadRecording'
 
 export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 
@@ -10,24 +10,27 @@ export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 const RECORDING_BITS_PER_SECOND = 48_000
 
 export interface AudioRecorderOptions {
-  /** Course tag applied to new recordings (mic captures and file uploads). */
+  /** Course of the new lecture a capture makes when there is no `lectureId`. */
   course?: string | null
-  /** Called with the new recording's id once it is uploaded, e.g. to focus it. */
-  onRecordingCreated?: (recordingId: string) => void
+  /** The lecture captures and uploads go into; none = each makes a new lecture. */
+  lectureId?: string | null
+  /** Called once a recording is uploaded, with it and its lecture, e.g. to select the lecture. */
+  onRecordingCreated?: (recording: UploadedRecording) => void
 }
 
 /**
  * MediaRecorder capture + file upload. State machine: idle → recording →
- * uploading → complete (a file upload skips `recording`). `focusedRecordingId`
- * (the workspace recording focus) drives idle/complete whenever no capture is
- * in flight.
+ * uploading → complete (a file upload skips `recording`). `hasAudio` (the
+ * board's lecture has a recording to play; undefined while that is still
+ * loading, which changes nothing) drives idle/complete whenever no capture
+ * is in flight.
  */
-export function useAudioRecorder(focusedRecordingId: string, options: AudioRecorderOptions = {}) {
-  const { course, onRecordingCreated } = options
+export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRecorderOptions = {}) {
+  const { course, lectureId, onRecordingCreated } = options
   const boardId = useBoardId()
   const boardIdRef = useRef(boardId)
   boardIdRef.current = boardId
-  const [state, setState] = useState<CaptureState>(focusedRecordingId ? 'complete' : 'idle')
+  const [state, setState] = useState<CaptureState>(hasAudio ? 'complete' : 'idle')
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [recordingId, setRecordingId] = useState<string | null>(null)
@@ -39,16 +42,20 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
   // Latest values without re-creating the upload callbacks on every render.
   const onRecordingCreatedRef = useRef(onRecordingCreated)
   onRecordingCreatedRef.current = onRecordingCreated
-  const focusedRecordingIdRef = useRef(focusedRecordingId)
-  focusedRecordingIdRef.current = focusedRecordingId
+  const hasAudioRef = useRef(hasAudio)
+  hasAudioRef.current = hasAudio
+  const lectureIdRef = useRef(lectureId)
+  lectureIdRef.current = lectureId
 
-  // Reflect focus changes in the state machine unless a capture is in flight.
-  // The functional update reads the current state without needing it in deps.
+  // Reflect the board's lecture in the state machine unless a capture is in
+  // flight. The functional update reads the current state without needing it
+  // in deps.
   useEffect(() => {
+    if (hasAudio === undefined) return
     setState((s) =>
-      s === 'recording' || s === 'uploading' ? s : focusedRecordingId ? 'complete' : 'idle',
+      s === 'recording' || s === 'uploading' ? s : hasAudio ? 'complete' : 'idle',
     )
-  }, [focusedRecordingId])
+  }, [hasAudio, lectureId])
 
   const stopTimer = useCallback(() => {
     if (intervalRef.current) {
@@ -99,18 +106,19 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
     }
   }, [stopTimer])
 
-  // Shared by mic captures and picked files. On failure, fall back to whatever
-  // the workspace focus says (the effect above only re-runs on focus change).
+  // Shared by mic captures and picked files, into the board's lecture (read
+  // when the upload starts) or a new one. On failure, fall back to whatever
+  // the board's lecture says (the effect above only re-runs when it changes).
   const upload = useCallback(async (args: UploadRecordingArgs) => {
     setState('uploading')
     try {
-      const id = await uploadRecording({ ...args, boardId: boardIdRef.current })
-      setRecordingId(id)
+      const created = await uploadRecording({ ...args, lectureId: lectureIdRef.current ?? null, boardId: boardIdRef.current })
+      setRecordingId(created.id)
       setState('complete')
-      onRecordingCreatedRef.current?.(id)
+      onRecordingCreatedRef.current?.(created)
     } catch (err) {
       setError(err instanceof Error && err.message.startsWith('Upload failed') ? err.message : 'Upload failed')
-      setState(focusedRecordingIdRef.current ? 'complete' : 'idle')
+      setState(hasAudioRef.current ? 'complete' : 'idle')
       console.error('upload error:', err)
     }
   }, [])
@@ -152,7 +160,7 @@ export function useAudioRecorder(focusedRecordingId: string, options: AudioRecor
     })
   }, [stopTimer, upload, elapsed, course])
 
-  /** Upload a picked audio file as a new recording. */
+  /** Upload a picked audio file as a recording (into the board's lecture, if any). */
   const uploadFile = useCallback(
     async (args: UploadRecordingArgs) => {
       stopTimer()

@@ -10,14 +10,14 @@ export class SidebarPom {
   readonly root: Locator
   readonly scopeSection: Locator
   readonly courseSelect: Locator
-  readonly recordingSelect: Locator
+  readonly lectureSelect: Locator
   readonly lensItems: Locator
 
   constructor(private page: Page) {
     this.root = page.locator('aside')
     this.scopeSection = this.root.getByTestId('scope-section')
     this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course' })
-    this.recordingSelect = this.scopeSection.getByRole('combobox', { name: 'Lecture' })
+    this.lectureSelect = this.scopeSection.getByRole('combobox', { name: 'Lecture' })
     this.lensItems = this.root.locator('[draggable="true"]')
   }
 
@@ -25,8 +25,8 @@ export class SidebarPom {
     await this.courseSelect.selectOption({ label })
   }
 
-  async selectRecording(label: string) {
-    await this.recordingSelect.selectOption({ label })
+  async selectLecture(label: string) {
+    await this.lectureSelect.selectOption({ label })
   }
 
   /** Adds a widget by clicking its palette tile; the drawer stays open. */

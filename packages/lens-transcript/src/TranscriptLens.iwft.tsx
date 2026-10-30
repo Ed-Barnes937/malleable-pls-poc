@@ -4,7 +4,7 @@ import TranscriptLens from './TranscriptLens'
 
 const defaultProps = {
   panelId: 'test-panel',
-  scope: { recordingId: 'rec-bio-4' },
+  scope: { lectureId: 'lec-rec-bio-4' },
   config: { mode: 'review' },
 }
 
@@ -157,11 +157,11 @@ const newLecture = {
 }
 
 test('says the lecture is being transcribed instead of showing an empty transcript', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push(newLecture)
+  simulator.db.addRecording(newLecture)
   simulator.db.jobRuns.push(jobRun('jr-t', 'ai:transcribe', 'running', 'rec-new'))
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-new' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
 
@@ -180,7 +180,7 @@ test('says the lecture is being transcribed instead of showing an empty transcri
 })
 
 test('says the summary is being written above the transcript', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push(newLecture)
+  simulator.db.addRecording(newLecture)
   simulator.db.transcriptSegments.push({
     id: 'seg-new-1', recording_id: 'rec-new', start_ms: 0, end_ms: 5000, text: 'Today: mitochondria.', speaker: null,
   })
@@ -188,7 +188,7 @@ test('says the summary is being written above the transcript', async ({ mount, p
   simulator.db.jobRuns.push(jobRun('jr-s', 'ai:summarize-lecture', 'pending', 'rec-new'))
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-new' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
 
@@ -199,7 +199,7 @@ test('says the summary is being written above the transcript', async ({ mount, p
   await expect(page.getByTestId('transcribing')).toHaveCount(0)
 })
 
-test('shows empty state when no recording selected', async ({ mount, page, simulator }) => {
+test('shows empty state when no lecture is selected', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
       <TranscriptLens panelId="test" scope={{}} config={{}} />
@@ -207,6 +207,77 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
   )
 
   await expect(page.getByText('Pick a lecture to see its transcript')).toBeVisible()
+})
+
+test("with no lecture, offers the course's latest lectures as one-click choices", async ({ mount, page, simulator }) => {
+  const picked: (string | undefined)[] = []
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ courseTag: 'biology' }} config={{}} onScopeChange={(patch) => picked.push(patch.lectureId)} />
+    </TestProviders>,
+  )
+
+  const recent = page.getByRole('list', { name: 'Recent lectures' }).getByRole('button')
+  // Biology only, latest first.
+  await expect(recent).toHaveText([
+    'Biology Lecture: Mitochondrial DNA',
+    'Biology Lecture: Mitochondria & Energy',
+    'Biology Lecture: Cell Division',
+    'Biology Lecture: Cell Structure',
+  ])
+  await recent.first().click()
+  expect(picked).toEqual(['lec-rec-bio-4'])
+})
+
+test('a lecture with no recording yet says so', async ({ mount, page, simulator }) => {
+  simulator.db.lectures.push({
+    id: 'lec-empty', title: 'Biology lecture 30 Oct, 10:04', course: 'biology', starts_at: '2026-10-30T10:04:00Z',
+    class_item_id: null, class_date: null, created_at: '2026-10-30T10:04:00Z', updated_at: '2026-10-30T10:04:00Z',
+  })
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-empty', courseTag: 'biology' }} config={{}} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Biology lecture 30 Oct, 10:04')).toBeVisible()
+  await expect(page.getByText('No recording yet')).toBeVisible()
+  await expect(page.getByText('Pick a lecture to see its transcript')).toHaveCount(0)
+})
+
+test('a lecture recorded in two parts shows the latest, and a moment opens the part it is in', async ({ mount, page, simulator }) => {
+  simulator.db.addRecording(
+    { id: 'rec-bio-4b', title: 'Part two', created_at: '2026-04-16T11:00:00Z', duration: 60000, audio_url: null, status: 'ready' },
+    { lectureId: 'lec-rec-bio-4' },
+  )
+  simulator.db.transcriptSegments.push({
+    id: 'seg-bio4b-1', recording_id: 'rec-bio-4b', start_ms: 0, end_ms: 5000, text: 'After the break: chloroplasts.', speaker: null,
+  })
+  const component = await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  const parts = page.getByRole('group', { name: 'Lecture parts' }).getByRole('button')
+  await expect(parts).toHaveText(['Part 1', 'Part 2'])
+  await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('After the break: chloroplasts.')).toBeVisible()
+  await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
+
+  await parts.first().click()
+  await expect(page.getByText(/Today we're continuing our discussion of mitochondria/)).toBeVisible()
+  await expect(page.getByText('After the break: chloroplasts.')).toHaveCount(0)
+
+  // A moment in part 2 switches to it.
+  await parts.first().click()
+  await component.update(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4b', offsetMs: 1000, id: 9 }} />
+    </TestProviders>,
+  )
+  await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('[data-moment]')).toContainText('After the break: chloroplasts.')
 })
 
 test('scrolls to and highlights a moment another widget asked to show', async ({ mount, page, simulator }) => {
@@ -231,7 +302,7 @@ test('scrolls to and highlights a moment another widget asked to show', async ({
 })
 
 test('a moment taller than the transcript shows from its first line', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-long', title: 'Long moment', created_at: '2026-04-16T10:00:00Z',
     duration: 600000, audio_url: null, status: 'ready',
   })
@@ -247,7 +318,7 @@ test('a moment taller than the transcript shows from its first line', async ({ m
   await mount(
     <TestProviders>
       <div style={{ height: 300, width: 400, display: 'flex', flexDirection: 'column' }}>
-        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-long' }} config={{ mode: 'review' }} focusedMoment={{ recordingId: 'rec-long', offsetMs: 6 * 30000, id: 3 }} />
+        <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-long' }} config={{ mode: 'review' }} focusedMoment={{ recordingId: 'rec-long', offsetMs: 6 * 30000, id: 3 }} />
       </div>
     </TestProviders>,
   )
@@ -277,11 +348,11 @@ test('ignores a moment from another lecture', async ({ mount, page, simulator })
   await expect(page.locator('[data-moment]')).toHaveCount(0)
 })
 
-test('a lecture focused outside the board course keeps its tags, and new tags appear', async ({ mount, page, simulator }) => {
-  // Biology board, Chemistry lecture focused: the targeted lecture wins.
+test("a lecture's own tags and notes show under its course, and new tags appear", async ({ mount, page, simulator }) => {
+  // A Chemistry lecture selected brings its course (the board rule).
   await mount(
     <TestProviders>
-      <TranscriptLens {...defaultProps} scope={{ recordingId: 'rec-chem-1', courseTag: 'biology' }} />
+      <TranscriptLens {...defaultProps} scope={{ lectureId: 'lec-rec-chem-1', courseTag: 'chemistry' }} />
     </TestProviders>,
   )
 
@@ -295,7 +366,6 @@ test('a lecture focused outside the board course keeps its tags, and new tags ap
   const before = await page.locator('text=confused').count()
   await confusedButton.click()
   await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-chem1-01' && t.label === 'confused').length).toBe(1)
-  // The new pill appears even though the lecture is outside the course.
   await expect(page.locator('text=confused')).toHaveCount(before + 1)
 })
 
@@ -425,7 +495,7 @@ test('gutter marks and a scroll rail show every tagged moment', async ({ mount, 
 
 test('a rail with many tagged moments keeps every 24px target apart and reachable by keyboard', async ({ mount, page, simulator }) => {
   const total = 20
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-many', title: 'Long lecture', created_at: '2026-04-16T10:00:00Z', duration: total * 60000, audio_url: null, status: 'ready',
   })
   for (let i = 0; i < total; i++) {
@@ -436,7 +506,7 @@ test('a rail with many tagged moments keeps every 24px target apart and reachabl
   await mount(
     <TestProviders>
       <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
-        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-many' }} config={{ mode: 'review' }} />
+        <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-many' }} config={{ mode: 'review' }} />
       </div>
     </TestProviders>,
   )
@@ -461,13 +531,13 @@ test('a rail with many tagged moments keeps every 24px target apart and reachabl
 })
 
 test('a lecture with no course of its own falls back to the board course', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-plain', title: 'Untitled lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: null, status: 'ready',
   })
   simulator.db.transcriptSegments.push({ id: 'seg-plain-1', recording_id: 'rec-plain', start_ms: 0, end_ms: 5000, text: 'Hello.', speaker: null })
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-plain', courseTag: 'chemistry' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-plain', courseTag: 'chemistry' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
   await expect(page.getByText('Untitled lecture')).toBeVisible()
@@ -477,12 +547,12 @@ test('a lecture with no course of its own falls back to the board course', async
 test('a lecture nothing transcribed says so and offers to transcribe it', async ({ mount, page, simulator }) => {
   // A run that failed leaves the lecture untranscribed too.
   simulator.db.jobRuns.push(jobRun('jr-failed', 'ai:transcribe', 'failed', 'rec-raw'))
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-raw', title: 'Raw lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: '/uploads/raw.wav', status: 'uploaded',
   })
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-raw' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-raw' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
   await expect(page.getByText("This lecture isn't transcribed yet.")).toBeVisible()

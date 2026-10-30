@@ -5,7 +5,7 @@ import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { BoardScope } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
-import { lockBoardScope, replaceScopeRow, writeBoardScope } from './_board-scope'
+import { replaceScopeRow, writeBoardScope } from './_board-scope'
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -180,29 +180,18 @@ export const workspacesRouter = router({
     }),
 
   /**
-   * The board's scope rows: 'tag' (course) and 'lecture'. Compatibility
-   * shim until the client reads lectures: a 'lecture' row also comes back
-   * as a 'recording' row naming the lecture's latest recording (none while
-   * it has no audio), which is what `decodeScope` reads as `recordingId`.
+   * The board's scope rows: 'tag' (course) and 'lecture' (selected lecture),
+   * at most one of each. Read with `decodeScope`; written only through
+   * `setBoardScope`.
    */
   scopes: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`
-          SELECT ws.id, ws.user_id, ws.workspace_id, ws.scope_type, ws.scope_value
-          FROM workspace_scopes ws
-          WHERE ws.workspace_id = ${input} AND ws.user_id = ${ctx.userId}
-          UNION ALL
-          SELECT ws.id || ':recording', ws.user_id, ws.workspace_id, 'recording', latest.id
-          FROM workspace_scopes ws
-          CROSS JOIN LATERAL (
-            SELECT r.id FROM recordings r
-            WHERE r.lecture_id = ws.scope_value AND r.user_id = ws.user_id
-            ORDER BY r.created_at DESC, r.id DESC
-            LIMIT 1
-          ) latest
-          WHERE ws.workspace_id = ${input} AND ws.user_id = ${ctx.userId} AND ws.scope_type = 'lecture'
+          SELECT id, user_id, workspace_id, scope_type, scope_value FROM workspace_scopes
+          WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
+          ORDER BY scope_type
         `
       })
     }),
@@ -222,44 +211,6 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {
       return withUser(ctx.userId, async (tx) => {
         return writeBoardScope(tx, ctx.userId, workspaceId, patch)
-      })
-    }),
-
-  /**
-   * Deprecated: the per-dimension scope write the current client still
-   * uses, keeping its old behaviour for one PR, over lecture rows: focusing
-   * a recording selects its lecture without changing the course ("a
-   * targeted lecture wins"), a course change clears a lecture outside it,
-   * and "All courses" keeps it. New code uses `setBoardScope`.
-   */
-  setScope: publicProcedure
-    .input(z.object({
-      workspaceId: z.string().max(255),
-      // Only live board dimensions ('tag' = course, 'recording' = focus);
-      // the removed 'timeframe' is rejected so stale clients can't write it.
-      scopeType: z.enum(['tag', 'recording']),
-      scopeValue: z.string().max(1000).nullable(),
-    }))
-    .mutation(async ({ ctx, input }) => {
-      return withUser(ctx.userId, async (tx) => {
-        await lockBoardScope(tx, ctx.userId, input.workspaceId)
-        if (input.scopeType === 'tag') {
-          if (input.scopeValue === null) {
-            await replaceScopeRow(tx, ctx.userId, input.workspaceId, 'tag', null)
-          } else {
-            await writeBoardScope(tx, ctx.userId, input.workspaceId, { courseTag: input.scopeValue })
-          }
-          return
-        }
-        if (input.scopeValue === null) {
-          await replaceScopeRow(tx, ctx.userId, input.workspaceId, 'lecture', null)
-          return
-        }
-        const [recording] = await tx`
-          SELECT lecture_id FROM recordings WHERE id = ${input.scopeValue} AND user_id = ${ctx.userId}
-        `
-        if (!recording) throw new TRPCError({ code: 'NOT_FOUND', message: 'Recording not found' })
-        await replaceScopeRow(tx, ctx.userId, input.workspaceId, 'lecture', recording.lecture_id as string)
       })
     }),
 })

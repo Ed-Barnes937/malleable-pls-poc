@@ -99,10 +99,11 @@ workspace_scopes
   id, workspace_id, scope_type, scope_value
   -- scope_type: "tag" (course) | "lecture" (selected lecture)
   -- scope_value: "biology" | "lec_123"
-  -- Written through workspaces.setBoardScope: a selected lecture brings its
-  -- course, and a course change clears a lecture outside it. (Until the
-  -- client moves to lectures, the deprecated setScope keeps the old
-  -- recording-focus behaviour over 'lecture' rows.)
+  -- Written only through workspaces.setBoardScope (one call per user
+  -- action, course and lecture in one transaction): a selected lecture
+  -- brings its course, and a course change (including "All courses")
+  -- clears a lecture outside it. Read with decodeScope (substrate-client)
+  -- as Scope { courseTag, lectureId }.
   -- At most one row per (workspace_id, scope_type), enforced by a unique
   -- index; writers upsert under the board's scope lock (lockBoardScope).
   -- Scope is the user's primary dial. Changing scope is frequent and low-friction.
@@ -118,7 +119,7 @@ tool/view category, each lens manifest declares per dimension how it responds
 | Dimension | Modes |
 |---|---|
 | `courseTag` | `filter` (readers narrow to the course, the widget says "+N in other courses"; new items inherit the course), `highlight` (everything, course emphasised, rest dimmed never hidden), `ignore` |
-| `recordingId` | `target` (works on the focused lecture, prompts when none), `highlight` (everything, items linked to the lecture emphasised), `ignore` |
+| `lectureId` | `target` (works on the selected lecture, prompts when none), `highlight` (everything, items linked to the lecture emphasised), `ignore` |
 
 The shell enforces the declarations with `splitScope`. A widget receives
 `LensProps.scope` with only its `filter` / `target` dimensions, which is safe
@@ -140,18 +141,27 @@ widget slots in by declaring its group and being registered in
 `apps/web/src/App.tsx`; no shell change is needed (see
 `packages/workspace-shell/src/widget-groups.ts`).
 
-**A targeted lecture wins over the course.** When a reader gets a
-`recordingId` (tags, annotations, confidence, links of the focused lecture), it
-returns that lecture's data and does not apply `courseTag`. Focus and course
-may disagree (e.g. a Chemistry lecture uploaded on a Biology board); the
-student's own tags and notes on it never silently disappear, and the picker and
-chip still show the focused lecture's title.
+**A selected lecture is always in the board course.** The server enforces
+it on every scope write (`writeBoardScope` in
+`apps/server/src/routers/_board-scope.ts`): selecting a lecture sets the board
+course to its course (a lecture filed under none means "All courses"), and
+changing the course clears a lecture outside it. So a Chemistry lecture picked
+on a Biology board (from the picker, a moment, a To-do source link) makes it a
+Chemistry board. Clients write scope only through `workspaces.setBoardScope`
+(`useSetBoardScope`; the shell's `onScopeChange` sends one call per patch),
+never two mutations for one action.
 
-Course filtering happens server-side through one helper, `andInCourse` /
-`inCourse` in `apps/server/src/routers/_shared.ts`: a lecture's course is
+Readers apply every dimension they are given: course through `andInCourse` /
+`inCourse`, lecture through `andInLecture` (rows whose recording belongs to
+the lecture), and an optional `recordingId` (not a board dimension: one
+recording of a lecture, e.g. the one a study block came from), all combined
+by `andInScope` in `apps/server/src/routers/_shared.ts`. A lecture's course is
 `lectures.course` and a recording's is its lecture's; a plan item's is a `tags`
 row (`target_type = 'plan_item'`, used by `planItems.list`); segments, tags,
-confidence and links inherit the course of their recording.
+confidence and links inherit the course of their recording. Highlighting
+widgets ring what belongs to the lecture with `useLinkedToLecture`
+(`packages/lens-framework/src/lecture.ts`): items made from a moment of any of
+its recordings, and its class occurrence.
 
 Time windows are not a board dimension. Widgets that show time own their
 navigation and look-ahead (a calendar shows the week being viewed, Coming up
@@ -159,18 +169,18 @@ looks 14 days ahead) and pass a `DateRange` to readers in `QueryFilter`. The
 earlier `timeframe` board scope was never applied by any reader and was removed
 (migration 012).
 
-| Widget | Course | Focused recording | Unset scope |
+| Widget | Course | Lecture | Unset scope |
 |---|---|---|---|
-| Audio capture | `filter` (tags new lecture) | `target` | ready to record |
-| Transcript | `filter` (narrows picker) | `target` | "pick a lecture" |
-| Connections | `filter` | `target` | prompt to focus a lecture |
+| Audio capture | `filter` (a new lecture is filed under it) | `target`: "Ready to record *<lecture>*" and captures and uploads go into it (`x-lecture-id`); with audio it plays the latest part, offers **Record more** (another part) and **New lecture** (clears the board lecture) | "Ready to record"; a capture or upload is a new lecture in the board course, which becomes the board lecture |
+| Transcript | `filter` | `target`: the lecture's recordings, one part at a time ("Part 1", "Part 2"; a moment opens its part); "No recording yet" when it has none | "Pick a lecture", with the course's latest lectures as one-click choices |
+| Connections | `filter` | `target`: links out of all its recordings | prompt to focus a lecture |
 | Test me | `filter` | `ignore` | all material |
 | Your progress (weekly-overview) | `filter` | `ignore` | all courses |
 | All courses (gap analysis) | `highlight` | `ignore` | all courses |
 | Weakest topics | `filter` | `ignore` | all |
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
 | To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
-| Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings items from the focused lecture) | current week, everything |
+| Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings blocks from the lecture's moments and its class occurrence) | current week, everything |
 
 ### Showing a Moment ("click a study block, land on the lecture moment")
 
@@ -179,31 +189,36 @@ Some items point at a moment in a recording (a plan item's `source_type =
 gesture, not lens-to-lens messaging, and it works like scope:
 
 1. A widget calls `LensProps.onShowMoment({ recordingId, offsetMs })`.
-2. The shell (`packages/workspace-shell/src/moments.ts`) focuses the recording
-   on the board (the `recordingId` scope row, as `onScopeChange` would) and
-   publishes the moment as ephemeral, app-wide shell state
+2. The shell (`packages/workspace-shell/src/moments.ts`) selects the
+   recording's lecture on the board in one `setBoardScope` (so the board
+   course becomes the lecture's course) and publishes the moment as
+   ephemeral, app-wide shell state
    (`useWorkspaceStore().focusedMoment`, never persisted, a fresh `id` per
    request).
 3. Widgets whose manifest declares `showsMoments: true` (the Transcript)
-   receive it as `LensProps.focusedMoment`. The Transcript waits until the
-   focused lecture's segments have loaded, then scrolls its list to the
+   receive it as `LensProps.focusedMoment`. The Transcript opens the part
+   (recording) of the lecture the moment is in, waits until its segments have
+   loaded, then scrolls its list to the
    segment containing the offset and highlights it (`aria-current="location"`),
    then reports `onMomentShown(id)` and the shell drops the moment, so
    revisiting a board later doesn't jump there again.
 
-On a board already focused on another lecture, that focus changes under the
-student (e.g. a Weakest Topics row from an older lecture), so the shell says
-so with a toast ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") whose
-action ("Back to Mitochondrial DNA - today") puts the board's lecture back.
+On a board showing another lecture, its lecture changes under the student
+(e.g. a Weakest Topics row from an older lecture), and with it maybe the
+course (a Chemistry moment on a Biology board makes it a Chemistry board), so
+the shell says so with a toast ("Opened 27:00 in Biology Lecture:
+Mitochondrial DNA") whose action puts back what the board showed: "Back to
+Mitochondrial DNA - today" (the lecture, and its course with it), or, when
+the board had no lecture but another course, "Back to Biology".
 
 When the board has no moment viewer, the shell switches to a board that has
 one: a viewer set up for reviewing (not a Transcript in capture mode) first,
-then one already focused on that recording, then tab order. It shows the
+then one already showing that lecture, then tab order. It shows the
 moment there, moves keyboard focus to it, and raises a toast ("Opened 1:18 in
 Evening Review") whose action goes back to the board the student came from;
 the toast stays until dismissed or the student leaves that board.
 `onShowMoment` resolves `no-viewer` only when no board has a moment viewer (the
-recording is still focused on this board). The Calendar, To-do and Weakest
+lecture is still selected on this board). The Calendar, To-do and Weakest
 Topics all ask this way; the Calendar's study block popover leads with the
 moment the block came from and asks only when the student presses "Go to
 moment".

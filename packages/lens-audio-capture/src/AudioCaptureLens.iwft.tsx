@@ -64,15 +64,49 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('0:00')).toBeVisible()
   })
 
-  test('shows complete state when recording is in scope', async ({ mount, page, simulator }) => {
+  test('a selected lecture with a recording plays its latest, and New lecture clears the board lecture', async ({ mount, page, simulator }) => {
     await injectMocks(page)
+    const patches: object[] = []
     await mount(
       <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{ recordingId: 'rec-bio-4' }} config={{}} />
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={(p) => patches.push(p)} />
       </AudioCaptureHarness>,
     )
 
     await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Record more' })).toBeVisible()
+    await page.getByRole('button', { name: 'New lecture' }).click()
+    // One patch, clearing the lecture (the course stays).
+    expect(patches).toEqual([{ lectureId: undefined }])
+    await expect(page.getByText('Ready to record')).toBeVisible()
+  })
+
+  test('a selected lecture with no recording is ready to record into it, by name', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    simulator.db.lectures.push({
+      id: 'lec-empty', title: 'Biology lecture 30 Oct, 10:04', course: 'biology', starts_at: '2026-10-30T10:04:00Z',
+      class_item_id: null, class_date: null, created_at: '2026-10-30T10:04:00Z', updated_at: '2026-10-30T10:04:00Z',
+    })
+    let uploadHeaders: Record<string, string> = {}
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-into', lectureId: 'lec-empty' }) })
+    })
+    const selected: (string | undefined)[] = []
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-empty', courseTag: 'biology' }} config={{}} onScopeChange={(p) => selected.push(p.lectureId)} />
+      </AudioCaptureHarness>,
+    )
+
+    await expect(page.getByTestId('ready-to-record')).toHaveText('Ready to record Biology lecture 30 Oct, 10:04')
+    await page.getByRole('button', { name: 'Start recording' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+    // Into the selected lecture: no new lecture, so no course header.
+    await expect.poll(() => uploadHeaders['x-lecture-id']).toBe('lec-empty')
+    expect(uploadHeaders['x-recording-course']).toBeUndefined()
+    await expect.poll(() => selected).toEqual(['lec-empty'])
   })
 
   test('clicking record starts recording state', async ({ mount, page, simulator }) => {
@@ -96,7 +130,7 @@ test.describe('AudioCaptureLens', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ id: 'rec-new-1', title: 'New Recording' }),
+        body: JSON.stringify({ id: 'rec-new-1', lectureId: 'lec-new-1' }),
       })
     })
 
@@ -142,7 +176,7 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Upload failed')).toBeVisible({ timeout: 5000 })
   })
 
-  test('uploading a file asks for a title and course, then focuses the new recording', async ({ mount, page, simulator }) => {
+  test('uploading a file with no lecture selected asks for a title and course, then selects its new lecture', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     let uploadHeaders: Record<string, string> = {}
     await page.route('**/upload', async (route) => {
@@ -150,7 +184,7 @@ test.describe('AudioCaptureLens', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ id: 'rec-uploaded-1' }),
+        body: JSON.stringify({ id: 'rec-uploaded-1', lectureId: 'lec-uploaded-1' }),
       })
     })
     const focused: Array<string | undefined> = []
@@ -161,7 +195,7 @@ test.describe('AudioCaptureLens', () => {
           panelId="test"
           scope={{ courseTag: 'biology' }}
           config={{}}
-          onScopeChange={(patch) => focused.push(patch.recordingId)}
+          onScopeChange={(patch) => focused.push(patch.lectureId)}
         />
       </AudioCaptureHarness>,
     )
@@ -180,10 +214,36 @@ test.describe('AudioCaptureLens', () => {
     await form.getByRole('textbox', { name: 'Recording title' }).fill('Enzymes – week 3')
     await form.getByRole('button', { name: 'Upload' }).click()
 
-    await expect.poll(() => focused).toEqual(['rec-uploaded-1'])
+    await expect.poll(() => focused).toEqual(['lec-uploaded-1'])
     expect(uploadHeaders['content-type']).toBe('audio/mpeg')
     expect(decodeURIComponent(uploadHeaders['x-recording-title'])).toBe('Enzymes – week 3')
     expect(uploadHeaders['x-recording-course']).toBe('biology')
+    expect(uploadHeaders['x-lecture-id']).toBeUndefined()
+  })
+
+  test('uploading a file onto a selected lecture adds it there and asks for no course', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    let uploadHeaders: Record<string, string> = {}
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-part-2', lectureId: 'lec-rec-bio-4' }) })
+    })
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} />
+      </AudioCaptureHarness>,
+    )
+
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByRole('button', { name: 'Upload a recording' }).click()
+    await (await chooser).setFiles({ name: 'part-2.mp3', mimeType: 'audio/mpeg', buffer: Buffer.from('ID3-fake-mp3-bytes') })
+
+    const form = page.getByRole('form', { name: 'Upload a recording' })
+    await expect(form.getByTestId('upload-into-lecture')).toHaveText('Adds to Biology Lecture: Mitochondrial DNA')
+    await expect(form.getByRole('combobox', { name: 'Recording course' })).toHaveCount(0)
+    await form.getByRole('button', { name: 'Upload' }).click()
+    await expect.poll(() => uploadHeaders['x-lecture-id']).toBe('lec-rec-bio-4')
+    expect(uploadHeaders['x-recording-course']).toBeUndefined()
   })
 
   test('rejects files that are not supported audio', async ({ mount, page, simulator }) => {

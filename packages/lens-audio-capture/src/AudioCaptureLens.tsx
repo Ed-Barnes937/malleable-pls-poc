@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import { cn, formatTime } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
+import { Mic, Square, Play, Pause, FilePlus2, Loader2, Upload } from 'lucide-react'
 import { API_URL } from './env'
 import { useAudioRecorder } from './useAudioRecorder'
 import { useAudioPlayback } from './useAudioPlayback'
@@ -44,14 +44,23 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
 
-  const recordingId = scope.recordingId ?? ''
-  const { data: recording } = substrate.useRecording(recordingId)
+  // The board's lecture: captures and uploads go into it, and its latest
+  // recording plays. Without one, each capture is a new lecture in the board
+  // course.
+  const lectureId = scope.lectureId
+  const { data: lecture } = substrate.useLecture(lectureId)
+  const shown = lectureId && lecture?.id === lectureId ? lecture : undefined
+  const latest = shown?.recordings.at(-1)
+  const { data: recording } = substrate.useRecording(latest?.id ?? '')
+  // Unknown while the lecture loads, so the widget doesn't flash "Ready".
+  const hasAudio = !lectureId ? false : shown ? shown.recordings.length > 0 : undefined
 
-  // New recordings become the workspace focus so every lens (e.g. Transcript)
-  // follows the lecture that was just captured or uploaded.
-  const recorder = useAudioRecorder(recordingId, {
+  // The lecture recorded into becomes (or stays) the board's lecture, so
+  // every widget (e.g. Transcript) follows it and the picker lists it.
+  const recorder = useAudioRecorder(hasAudio, {
     course: scope.courseTag,
-    onRecordingCreated: (id) => onScopeChange?.({ recordingId: id }),
+    lectureId: lectureId ?? null,
+    onRecordingCreated: (created) => onScopeChange?.({ lectureId: created.lectureId }),
   })
   const { state, elapsed, error } = recorder
 
@@ -87,7 +96,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   }
 
   const duration = recording?.duration ?? elapsed
-  const activeRecordingId = recorder.recordingId ?? recordingId
+  const activeRecordingId = recorder.recordingId ?? latest?.id
 
   const playbackUrl =
     state === 'complete' && activeRecordingId && recording?.audio_url
@@ -105,6 +114,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         <UploadRecordingForm
           file={pendingFile}
           defaultCourse={scope.courseTag}
+          intoLecture={shown?.title}
           onSubmit={handleUpload}
           onCancel={() => setPendingFile(null)}
         />
@@ -144,13 +154,18 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
 
         {state === 'complete' && (
           <div className="hidden text-center @tall:block">
-            <p className="truncate text-body font-semibold text-text-primary">{recording?.title ?? 'Recording complete'}</p>
-            <p className="mt-0.5 text-meta text-text-muted">{formatTime(duration)} total</p>
+            <p className="truncate text-body font-semibold text-text-primary">{shown?.title ?? recording?.title ?? 'Recording complete'}</p>
+            <p className="mt-0.5 text-meta text-text-muted">
+              {shown && shown.recordings.length > 1 ? `Part ${shown.recordings.length} · ` : ''}
+              {formatTime(duration)} total
+            </p>
           </div>
         )}
 
         {state === 'idle' && (
-          <p className="text-meta text-text-muted @tall:text-body">Ready to record</p>
+          <p data-testid="ready-to-record" className="max-w-full truncate text-meta text-text-muted @tall:text-body">
+            {shown ? <>Ready to record <span className="font-semibold text-text-primary">{shown.title}</span></> : 'Ready to record'}
+          </p>
         )}
 
         {(fileError ?? error) && (
@@ -188,8 +203,8 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               <button
                 type="button"
                 onClick={recorder.start}
-                aria-label="Start recording"
-                title="Start recording"
+                aria-label={state === 'complete' ? 'Record more' : 'Start recording'}
+                title={state === 'complete' ? 'Record more of this lecture' : 'Start recording'}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
               >
                 <Mic className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
@@ -205,12 +220,14 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               {state === 'complete' && (
                 <button
                   type="button"
-                  onClick={() => { recorder.reset(); playback.stop() }}
-                  aria-label="Record another lecture"
-                  title="Record another lecture"
+                  // Clears the board's lecture, so the next capture is a new one
+                  // and every widget on the board moves on with it.
+                  onClick={() => { recorder.reset(); playback.stop(); onScopeChange?.({ lectureId: undefined }) }}
+                  aria-label="New lecture"
+                  title="New lecture"
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
                 >
-                  <RotateCcw className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
+                  <FilePlus2 className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
                 </button>
               )}
             </>

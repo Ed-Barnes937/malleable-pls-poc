@@ -48,8 +48,8 @@ async function demoLikeBoard(request: APIRequestContext, { calendar = true } = {
   for (const p of panels.filter((panel) => calendar || panel.lensType !== 'calendar')) {
     await trpcMutation(request, 'workspaces.addPanel', { workspaceId: board.id, slotName: p.lensType, ...p })
   }
-  await trpcMutation(request, 'workspaces.setScope', { workspaceId: board.id, scopeType: 'tag', scopeValue: 'biology' })
-  await trpcMutation(request, 'workspaces.setScope', { workspaceId: board.id, scopeType: 'recording', scopeValue: 'rec-bio-4' })
+  // The lecture brings its course (Biology).
+  await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: board.id, lectureId: 'lec-rec-bio-4' })
 }
 
 const MOMENT = /Mitochondrial mutations accumulate/

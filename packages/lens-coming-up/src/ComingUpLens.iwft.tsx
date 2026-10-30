@@ -116,13 +116,13 @@ test('clicking a deadline focuses the board on its course', async ({ mount, page
   await expect.poll(() => courses).toEqual(['chemistry'])
 })
 
-test('a focused lecture highlights deadlines linked to it', async ({ mount, page, simulator }) => {
+test('a selected lecture highlights deadlines linked to it', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seedPlanItem(simulator, { id: 'linked', kind: 'deadline', title: 'Lecture quiz', course: 'biology', due_at: daysFromNow(2, 9), source_type: 'recording', source_id: 'rec-bio-4' })
 
   await mount(
     <TestProviders>
-      <ComingUpLens {...defaultProps} highlight={{ recordingId: 'rec-bio-4' }} />
+      <ComingUpLens {...defaultProps} highlight={{ lectureId: 'lec-rec-bio-4' }} />
     </TestProviders>,
   )
 

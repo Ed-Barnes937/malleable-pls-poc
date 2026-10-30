@@ -9,8 +9,8 @@ export const manifest: PanelManifest = {
   icon: Mic,
   description: 'Record or upload a lecture',
   group: 'capture',
-  // Course: files a new lecture under it. Recording: works on the focused lecture.
-  scope: { courseTag: 'filter', recordingId: 'target' },
+  // Course: files a new lecture under it. Lecture: records into the selected one.
+  scope: { courseTag: 'filter', lectureId: 'target' },
   reads: ['recordings'],
   writes: ['recordings'],
   // recording:transcribed comes from the transcribe job this widget's upload starts.

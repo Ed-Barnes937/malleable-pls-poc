@@ -4,6 +4,7 @@ import { InMemoryDb, type SeedData } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
 import { registerRecordingsHandlers } from './handlers/recordings'
+import { registerLecturesHandlers } from './handlers/lectures'
 import { registerTranscriptsHandlers } from './handlers/transcripts'
 import { registerTagsHandlers } from './handlers/tags'
 import { registerJobsHandlers } from './handlers/jobs'
@@ -31,6 +32,7 @@ export class BackendSimulator {
   private registerAllHandlers(): void {
     registerWorkspacesHandlers(this.router, this.db)
     registerRecordingsHandlers(this.router, this.db)
+    registerLecturesHandlers(this.router, this.db)
     registerTranscriptsHandlers(this.router, this.db)
     registerTagsHandlers(this.router, this.db)
     registerJobsHandlers(this.router, this.db)

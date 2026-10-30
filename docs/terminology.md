@@ -77,7 +77,8 @@ Four natural scoping boundaries users already understand:
 
 A small, stable set of types that the platform team owns. Lenses read and write these — they are the shared vocabulary.
 
-- **Recording** — audio blob + duration + timestamp
+- **Lecture** - a session of a course at a time (`lectures`); it holds the course (`lectures.course`, none = not filed) and exists before or without audio. A board selects a lecture (scope `lectureId`), never a recording, and a selected lecture is always in the board course
+- **Recording** - audio blob + duration + timestamp; belongs to one lecture (a lecture recorded in several goes has several, shown as parts), and its course is the lecture's
 - **Transcript** — text segments linked to recording timestamps
 - **Annotation** - user-created, anchored to a moment or span. One AI-written kind exists: a lecture's 3-line summary, anchored to the whole recording (`anchor_type = 'recording_summary'`)
 - **Tag** — a label on anything (confused, key concept, exam-relevant)

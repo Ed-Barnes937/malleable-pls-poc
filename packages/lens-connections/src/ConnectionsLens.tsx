@@ -27,17 +27,17 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
 
   const conceptLabel = config.conceptLabel as string | undefined
   const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
-  const recordingId = scope.recordingId
+  const lectureId = scope.lectureId
 
   const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '', scope)
   // Unfiltered concept links, only to say what the course filter leaves out.
   const { data: allConceptConnections } = substrate.useConnections(conceptSegmentId ?? '', {})
-  // The targeted lecture's links are never course-filtered.
-  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)
+  // Links out of the board's lecture (always in the board course).
+  const { data: lectureConnections } = substrate.useLectureConnections(lectureId)
 
   const allConnections = [
     ...(conceptConnections ?? []),
-    ...(recordingConnections ?? []),
+    ...(lectureConnections ?? []),
   ]
 
   const seen = new Set<string>()
@@ -51,8 +51,8 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
   const shownConceptKeys = [...allConceptKeys].filter((key) => seen.has(key)).length
   const hidden = <HiddenElsewhere scopedCount={shownConceptKeys} unscopedCount={allConceptKeys.size} />
 
-  // Nothing to connect from: neither a focused lecture nor a configured concept.
-  if (!recordingId && !conceptSegmentId) {
+  // Nothing to connect from: neither a selected lecture nor a configured concept.
+  if (!lectureId && !conceptSegmentId) {
     return <EmptyState icon={Link2} message="Focus a lecture to see its connections" />
   }
 

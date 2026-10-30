@@ -1,6 +1,7 @@
 import { REVIEW_SUBTYPE, keyPhrase, momentStatus, stillConfused, topicLabel, type CourseProgress, type MomentStatus, type WeakTopic } from '@pls/substrate'
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
+import { recordingCourse } from './course-scope'
 
 const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 
@@ -67,11 +68,11 @@ function desc(a: string | null, b: string | null): number {
 
 function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMoment[] {
   const moments: CourseMoment[] = []
-  for (const tag of db.tags) {
-    if (tag.target_type !== 'recording' || !COURSE_LABELS.includes(tag.label)) continue
-    const rec = db.recordings.find((r) => r.id === tag.target_id)
-    if (!rec) continue
-    if (courseTag && !db.tags.some((t) => t.target_type === 'recording' && t.target_id === rec.id && t.label === courseTag)) continue
+  // Moments of lectures filed under a course: the course is the lecture's.
+  for (const rec of db.recordings) {
+    const course = recordingCourse(db, rec.id)
+    if (!course || !COURSE_LABELS.includes(course)) continue
+    if (courseTag && course !== courseTag) continue
     const segs = db.transcriptSegments
       .filter((s) => s.recording_id === rec.id)
       .sort((a, b) => a.start_ms - b.start_ms)
@@ -96,7 +97,7 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
         text: seg.text,
         before: segs[i - 1]?.text ?? '',
         after: segs[i + 1]?.text ?? '',
-        course: tag.label,
+        course,
         latestScore: signals.latestScore,
         confusedAt,
         confused,

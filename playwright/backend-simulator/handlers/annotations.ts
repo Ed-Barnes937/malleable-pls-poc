@@ -1,23 +1,21 @@
 import { LECTURE_SUMMARY_ANCHOR } from '@pls/substrate'
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { inCourse, segmentRecordingId } from './course-scope'
+import { inScope, isScoped, segmentRecordingId } from './course-scope'
 
 export function registerAnnotationsHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('annotations.list', (input) => {
-    const opts = input as { courseTag?: string; recordingId?: string } | undefined
-    const scoped = Boolean(opts?.recordingId || opts?.courseTag)
+    const opts = input as { courseTag?: string; lectureId?: string; recordingId?: string } | undefined
+    const scoped = isScoped(opts)
 
     return db.annotations
       .filter((a) => {
         if (!scoped) return true
-        // A targeted lecture's summary comes with its notes (as on the server).
-        if (a.anchor_type === LECTURE_SUMMARY_ANCHOR) return a.anchor_id === opts?.recordingId
+        // Notes on in-scope moments and the summaries of in-scope recordings (as on the server).
+        if (a.anchor_type === LECTURE_SUMMARY_ANCHOR) return inScope(db, opts, a.anchor_id)
         if (a.anchor_type !== 'transcript_segment') return false
         const recordingId = segmentRecordingId(db, a.anchor_id)
-        // A targeted lecture wins over the course.
-        if (opts?.recordingId) return recordingId === opts.recordingId
-        return !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingId)
+        return !!recordingId && inScope(db, opts, recordingId)
       })
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
   })

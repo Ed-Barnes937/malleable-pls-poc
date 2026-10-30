@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type PlanItemOccurrence, type Tag } from '@pls/substrate'
+import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
@@ -253,6 +253,63 @@ const TAG_LEGEND = [
   { label: 'question', text: 'Question' },
 ]
 
+/** How many recent lectures "Pick a lecture" offers as one-click choices. */
+const RECENT_LECTURES = 5
+
+/**
+ * No lecture on the board: the course's (or every course's) latest lectures
+ * as one-click choices, so the student never has to find the picker.
+ */
+function PickALecture({ courseTag, onPick }: { courseTag?: string; onPick?: (lectureId: string) => void }) {
+  const { data: lectures } = useSubstrate().useLectures({ courseTag })
+  const recent = (lectures ?? []).slice(0, RECENT_LECTURES)
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3">
+      <EmptyState message="Pick a lecture to see its transcript" />
+      {onPick && recent.length > 0 && (
+        <ul aria-label="Recent lectures" className="flex w-full max-w-xs flex-col gap-1">
+          {recent.map((l) => (
+            <li key={l.id}>
+              <button
+                type="button"
+                onClick={() => onPick(l.id)}
+                className="flex w-full items-center gap-2 rounded-item bg-surface-raised px-3 py-2 text-left text-body text-text-primary ring-1 ring-border-subtle transition-colors hover:bg-surface-inset hover:ring-accent-line"
+              >
+                <AudioLines className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                <span className="min-w-0 flex-1 truncate">{l.title}</span>
+                {l.recordings.length === 0 && <span className="shrink-0 text-meta text-text-muted">No recording yet</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** A lecture recorded in more than one go: which part the transcript shows. */
+function PartPicker({ lecture, partId, onPick }: { lecture: Lecture; partId: string; onPick: (id: string) => void }) {
+  return (
+    <div role="group" aria-label="Lecture parts" className="flex flex-wrap items-center gap-1">
+      {lecture.recordings.map((r, i) => (
+        <button
+          key={r.id}
+          type="button"
+          aria-pressed={r.id === partId}
+          title={r.title}
+          onClick={() => onPick(r.id)}
+          className={cn(
+            'h-7 rounded-full px-2.5 text-meta font-semibold transition-colors',
+            r.id === partId ? 'bg-accent-soft text-accent' : 'text-text-secondary hover:bg-surface-inset',
+          )}
+        >
+          Part {i + 1}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** A calm note that the lecture's AI work is still under way. */
 function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; message: string; testId: string }) {
   return (
@@ -263,11 +320,24 @@ function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; me
   )
 }
 
-export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
-  const recordingId = scope.recordingId ?? ''
+  // The board's lecture, and which of its recordings (parts, oldest first)
+  // is shown: the one a moment asks for, else the student's pick, else the
+  // latest.
+  const lectureId = scope.lectureId
+  const { data: lectureData } = substrate.useLecture(lectureId)
+  const lecture = lectureId && lectureData?.id === lectureId ? lectureData : undefined
+  const [pickedPart, setPickedPart] = useState<string | null>(null)
+  useEffect(() => setPickedPart(null), [lectureId])
+  useEffect(() => {
+    if (focusedMoment && lecture?.recordings.some((r) => r.id === focusedMoment.recordingId)) {
+      setPickedPart(focusedMoment.recordingId)
+    }
+  }, [focusedMoment, lecture])
+  const recordingId = (lecture?.recordings.find((r) => r.id === pickedPart) ?? lecture?.recordings.at(-1))?.id ?? ''
   const mode = (config.mode as string) ?? 'review'
   const isCapture = mode === 'capture'
 
@@ -422,11 +492,20 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     setAnnotationDraft('')
   }
 
-  if (!recordingId) {
+  if (!lectureId) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
+        <PickALecture courseTag={scope.courseTag} onPick={onScopeChange && ((id) => onScopeChange({ lectureId: id }))} />
+      </div>
+    )
+  }
+
+  if (lecture && lecture.recordings.length === 0) {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <span className="truncate text-title font-semibold text-text-primary">{lecture.title}</span>
         <div className="flex flex-1 items-center justify-center">
-          <EmptyState message="Pick a lecture to see its transcript" />
+          <EmptyState icon={AudioLines} message="No recording yet" />
         </div>
       </div>
     )
@@ -436,7 +515,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center gap-2">
         <span className="truncate text-title font-semibold text-text-primary">
-          {recording?.title ?? 'Loading...'}
+          {lecture?.title ?? recording?.title ?? 'Loading...'}
         </span>
         {tone && courseLabel && (
           <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-meta font-semibold', tone.tint, tone.ink)}>
@@ -449,6 +528,10 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
           </span>
         )}
       </div>
+
+      {lecture && lecture.recordings.length > 1 && (
+        <PartPicker lecture={lecture} partId={recordingId} onPick={setPickedPart} />
+      )}
 
       {railMarks.length > 0 && (
         <ul aria-label="Tag colours" data-testid="tag-legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-secondary">

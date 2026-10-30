@@ -155,21 +155,6 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       }
     })
 
-    it('concurrent writes through the old setScope never duplicate a row either', async () => {
-      for (let round = 0; round < 10; round++) {
-        const ws = await board()
-        await Promise.all([
-          api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: bioRec }),
-          api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: chemRec }),
-          api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: 'chemistry' }),
-          api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: 'biology' }),
-          api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled }),
-        ])
-        const types = (await storedScope(ws)).map(([type]) => type)
-        expect(types).toEqual([...new Set(types)])
-      }
-    })
-
     it('the database refuses a second row of one dimension', async () => {
       const ws = await board('biology')
       await expect(db.sql`
@@ -184,41 +169,19 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
     expect(await api().lectures.byId(bio)).toMatchObject({ course: 'biology' })
   })
 
-  describe('the recording focus shim (current client)', () => {
-    it('scopes returns a lecture row and, for the client, its latest recording as a recording row', async () => {
+  describe('workspaces.scopes', () => {
+    it('returns the stored course and lecture rows only (no recording row)', async () => {
       const ws = await board()
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
       const rows = await api().workspaces.scopes(ws)
-      expect(rows.map((r) => [r.scope_type, r.scope_value]).sort()).toEqual([
-        ['lecture', bio], ['recording', bioRec], ['tag', 'biology'],
-      ])
+      expect(rows.map((r) => [r.scope_type, r.scope_value])).toEqual([['lecture', bio], ['tag', 'biology']])
     })
 
-    it('a lecture with no audio yet gives no recording row', async () => {
-      const ws = await board()
-      const empty = await api().lectures.create({ course: null, title: 'Not yet', workspaceId: ws })
-      const rows = await api().workspaces.scopes(ws)
-      expect(rows.map((r) => [r.scope_type, r.scope_value])).toEqual([['lecture', empty.id]])
-    })
-
-    it('setScope recording selects its lecture without changing the course, as before', async () => {
-      const ws = await board('biology')
-      await api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: chemRec })
-      expect(await storedScope(ws)).toEqual([['lecture', chem], ['tag', 'biology']])
-      // "All courses" keeps it; a course outside it clears it.
-      await api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: null })
-      expect(await storedScope(ws)).toEqual([['lecture', chem]])
-      await api().workspaces.setScope({ workspaceId: ws, scopeType: 'tag', scopeValue: 'physics' })
-      expect(await storedScope(ws)).toEqual([['tag', 'physics']])
-      await api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: bioRec })
-      await api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: null })
-      expect(await storedScope(ws)).toEqual([['tag', 'physics']])
-    })
-
-    it("setScope on another student's recording is NOT_FOUND", async () => {
-      const ws = await board()
-      await expect(api().workspaces.setScope({ workspaceId: ws, scopeType: 'recording', scopeValue: bobRec })).rejects.toEqual(notFound)
-      expect(await storedScope(ws)).toEqual([])
+    it('the per-dimension setScope is gone: setBoardScope is the one scope write', async () => {
+      const { appRouter } = await import('../router')
+      const procedures = appRouter._def.procedures as Record<string, unknown>
+      expect(procedures['workspaces.setScope']).toBeUndefined()
+      expect(procedures['workspaces.setBoardScope']).toBeDefined()
     })
   })
 

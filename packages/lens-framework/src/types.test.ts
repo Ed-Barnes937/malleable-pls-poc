@@ -11,7 +11,7 @@ describe('Scope', () => {
   it('can have all fields populated', () => {
     const scope: Scope = {
       courseTag: 'cs101',
-      recordingId: 'rec-1',
+      lectureId: 'lec-1',
     }
     expectTypeOf(scope).toMatchTypeOf<Scope>()
   })
@@ -21,17 +21,17 @@ describe('ScopeDeclaration', () => {
   it('expresses the planning widgets of the scope target table', () => {
     // Calendar, To-do and Coming up do not exist yet; their declarations
     // must already be expressible (plan T2 target table).
-    const calendar: ScopeDeclaration = { courseTag: 'highlight', recordingId: 'highlight' }
-    const todo: ScopeDeclaration = { courseTag: 'filter', recordingId: 'highlight' }
-    const comingUp: ScopeDeclaration = { courseTag: 'filter', recordingId: 'highlight' }
+    const calendar: ScopeDeclaration = { courseTag: 'highlight', lectureId: 'highlight' }
+    const todo: ScopeDeclaration = { courseTag: 'filter', lectureId: 'highlight' }
+    const comingUp: ScopeDeclaration = { courseTag: 'filter', lectureId: 'highlight' }
     expectTypeOf(calendar).toMatchTypeOf<ScopeDeclaration>()
     expectTypeOf(todo).toMatchTypeOf<ScopeDeclaration>()
     expectTypeOf(comingUp).toMatchTypeOf<ScopeDeclaration>()
   })
 
-  it('keeps course and recording modes distinct', () => {
+  it('keeps course and lecture modes distinct', () => {
     expectTypeOf<ScopeDeclaration['courseTag']>().toEqualTypeOf<'filter' | 'highlight' | 'ignore' | undefined>()
-    expectTypeOf<ScopeDeclaration['recordingId']>().toEqualTypeOf<'target' | 'highlight' | 'ignore' | undefined>()
+    expectTypeOf<ScopeDeclaration['lectureId']>().toEqualTypeOf<'target' | 'highlight' | 'ignore' | undefined>()
   })
 })
 

@@ -58,16 +58,28 @@ export interface UploadRecordingArgs {
   title: string
   durationMs: number
   course?: string | null
+  /**
+   * The lecture to record into (e.g. the board's selected one). Without it
+   * the server makes a new lecture for the recording, filed under `course`.
+   */
+  lectureId?: string | null
   /** The board the upload is made from, so that board's automations run. */
   boardId?: string | null
 }
 
+/** What /upload made: the recording, and the lecture it is in. */
+export interface UploadedRecording {
+  id: string
+  lectureId: string
+}
+
 /**
  * POST the audio to the server's /upload route, which creates the recording
- * and fires `recording:completed` (kicking off transcription). Returns the new
- * recording id. Throws an Error whose message is safe to show the student.
+ * (in `lectureId`, or in a new lecture) and fires `recording:completed`
+ * (kicking off transcription). Returns the new recording and its lecture.
+ * Throws an Error whose message is safe to show the student.
  */
-export async function uploadRecording(args: UploadRecordingArgs): Promise<string> {
+export async function uploadRecording(args: UploadRecordingArgs): Promise<UploadedRecording> {
   const res = await fetch(`${API_URL}/upload`, {
     method: 'POST',
     headers: {
@@ -75,7 +87,9 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<string
       'x-user-id': USER_ID,
       // Header values must be ISO-8859-1; the server decodes these.
       'x-recording-title': encodeURIComponent(args.title),
-      ...(args.course ? { 'x-recording-course': encodeURIComponent(args.course) } : {}),
+      ...(args.lectureId
+        ? { 'x-lecture-id': args.lectureId }
+        : args.course ? { 'x-recording-course': encodeURIComponent(args.course) } : {}),
       'x-recording-duration': String(Math.round(args.durationMs)),
       ...(args.boardId ? { 'x-workspace-id': args.boardId } : {}),
       ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
@@ -86,9 +100,10 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<string
   if (!res.ok) {
     if (res.status === 413) throw new Error('Upload failed - that file is too large (50MB max)')
     if (res.status === 415) throw new Error('Upload failed - that file type isn\'t supported')
+    if (res.status === 404) throw new Error('Upload failed - that lecture is gone')
     throw new Error('Upload failed - please try again')
   }
 
-  const data = (await res.json()) as { id: string }
-  return data.id
+  const data = (await res.json()) as { id: string; lectureId: string }
+  return { id: data.id, lectureId: data.lectureId }
 }

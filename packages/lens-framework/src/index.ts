@@ -4,7 +4,7 @@ export type {
   ScopeDim,
   ScopeDeclaration,
   CourseScopeMode,
-  RecordingScopeMode,
+  LectureScopeMode,
   DateRange,
   LensProps,
   Moment,
@@ -60,3 +60,4 @@ export {
   noFitLabel,
   type MissedBlocks,
 } from './missed-blocks'
+export { isLinkedToLecture, useLinkedToLecture } from './lecture'

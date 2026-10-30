@@ -23,7 +23,7 @@ async function call<T>(request: APIRequestContext, procedure: string, input: unk
 async function createBoard(request: APIRequestContext, name: string, course: string | null, lensTypes: string[]) {
   const board = await call<{ id: string }>(request, 'workspaces.create', { name })
   if (course) {
-    await call(request, 'workspaces.setScope', { workspaceId: board.id, scopeType: 'tag', scopeValue: course })
+    await call(request, 'workspaces.setBoardScope', { workspaceId: board.id, courseTag: course })
   }
   for (const [i, lensType] of lensTypes.entries()) {
     await call(request, 'workspaces.addPanel', {
