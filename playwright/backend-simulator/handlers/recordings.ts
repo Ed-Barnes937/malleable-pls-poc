@@ -51,11 +51,12 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
     return { ...withCourse(recording), processing }
   })
 
-  // Mirrors the server: queue the transcription unless there is a transcript or one is on its way.
+  // Mirrors the server: queue the transcription unless it was transcribed or one is on its way.
   router.register('recordings.transcribe', (input) => {
     const { recordingId } = input as { recordingId: string }
     if (!db.recordings.some((r) => r.id === recordingId)) throw new Error('Lecture not found')
-    const hasTranscript = db.transcriptSegments.some((s) => s.recording_id === recordingId)
+    const hasTranscript = db.recordings.some((r) => r.id === recordingId && r.status === 'ready')
+      || db.transcriptSegments.some((s) => s.recording_id === recordingId)
     const onItsWay = db.jobRuns.some((j) => j.job_type === 'ai:transcribe'
       && (j.status === 'pending' || j.status === 'running')
       && (JSON.parse(j.input ?? '{}') as { recording_id?: string }).recording_id === recordingId)

@@ -65,6 +65,20 @@ describe.skipIf(!TEST_DATABASE_URL)('ensureDefaultAutomations (Postgres)', () =>
     expect(await triggers(user)).toEqual(['tag:created'])
   })
 
+  it('provisions an account that predates the marker on its first visit, without duplicating', async () => {
+    const user = users[0]!
+    await db.withUser(user, (tx) => tx`DELETE FROM user_provisioning WHERE user_id = ${user}`)
+    await defaults.provisionAccount(user)
+    expect(await triggers(user)).toEqual(['recording:transcribed', 'tag:created'])
+
+    await db.withUser(user, async (tx) => {
+      await tx`DELETE FROM workflows WHERE user_id = ${user}`
+      await tx`DELETE FROM user_provisioning WHERE user_id = ${user}`
+    })
+    await defaults.provisionAccount(user)
+    expect(await triggers(user)).toHaveLength(3)
+  })
+
   it('adds the defaults once when many first requests arrive together', async () => {
     const user = users[2]!
     await Promise.all(Array.from({ length: 5 }, () => db.withUser(user, (tx) => defaults.ensureDefaultAutomations(tx, user))))

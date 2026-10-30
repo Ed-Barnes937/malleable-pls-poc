@@ -41,9 +41,16 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       const userId = requireUser(input, 'ai:transcribe')
 
       const [recording] = await withUser(userId, (tx) => tx`
-        SELECT audio_url FROM recordings WHERE id = ${recordingId}
+        SELECT audio_url,
+               EXISTS (SELECT 1 FROM transcript_segments WHERE recording_id = ${recordingId}) AS transcribed
+        FROM recordings WHERE id = ${recordingId}
       `)
       if (!recording) throw new Error(`Recording ${recordingId} not found`)
+      // Already has its transcript (e.g. a failed run retried after a manual
+      // "Transcribe it" worked): don't bill the provider or duplicate segments.
+      if (recording.transcribed) {
+        return { output: { recording_id: recordingId, skipped: 'already transcribed' } }
+      }
 
       const audioUrl = (recording.audio_url as string | null) ?? ''
       const segments = await transcriber.transcribe(path.join(UPLOADS_DIR, path.basename(audioUrl)))

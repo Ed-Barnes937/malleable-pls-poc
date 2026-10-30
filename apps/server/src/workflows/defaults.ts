@@ -3,8 +3,9 @@ import { withUser } from '@pls/db'
 import { REVIEW_TASK_JOB } from '@pls/substrate'
 
 /**
- * The automations every account starts with. Migration 017 inlines the same
- * three for accounts that existed before it; keep them in step.
+ * The automations every account starts with. Accounts that existed before
+ * migration 017 have no marker, so they get them (if they have none) on their
+ * first visit, the same way.
  *
  * The review's day boundaries use Europe/London until the student has a time
  * zone preference (see migration 013).
@@ -56,11 +57,7 @@ export async function ensureDefaultAutomations(tx: TransactionSql, userId: strin
   }
 }
 
-const provisioned = new Set<string>()
-
-/** `ensureDefaultAutomations` in its own transaction, skipped once an account is known to be done (per process). */
+/** `ensureDefaultAutomations` in its own transaction: one cheap marker insert per request once an account is done. */
 export async function provisionAccount(userId: string): Promise<void> {
-  if (provisioned.has(userId)) return
   await withUser(userId, (tx) => ensureDefaultAutomations(tx, userId))
-  provisioned.add(userId)
 }

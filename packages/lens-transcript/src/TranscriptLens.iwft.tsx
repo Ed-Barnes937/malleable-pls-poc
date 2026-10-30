@@ -143,7 +143,7 @@ test('a long summary in a short widget leaves the transcript room to take clicks
   await page.getByText(/continuing our discussion of mitochondria/).click({ trial: true, timeout: 3000 })
 })
 
-function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed', recordingId: string) {
+function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed' | 'failed', recordingId: string) {
   return {
     id, workflow_id: 'wf-test', workflow_job_id: 'wfj-test', job_type: jobType, status,
     input: JSON.stringify({ recording_id: recordingId }), output: null, error: null, depth: 0,
@@ -169,11 +169,14 @@ test('says the lecture is being transcribed instead of showing an empty transcri
   await expect(page.getByTestId('transcribing')).toHaveText('Transcribing your lecture...')
   await expect(page.getByText(/segments/)).toHaveCount(0)
 
-  // Once the job is done, the next refresh drops the note. This run wrote no
-  // transcript, so the lecture says it still has none instead of "0 segments".
+  // Once the job is done (the lecture is 'ready', as the real job leaves it),
+  // the next refresh drops the note; it had nothing to say, which is not "never transcribed".
   simulator.db.jobRuns.find((j) => j.id === 'jr-t')!.status = 'completed'
+  simulator.db.recordings.find((r) => r.id === 'rec-new')!.status = 'ready'
   await expect(page.getByTestId('transcribing')).toHaveCount(0, { timeout: 10000 })
-  await expect(page.getByTestId('untranscribed')).toBeVisible()
+  await expect(page.getByText('0 segments')).toBeVisible()
+  await expect(page.getByTestId('untranscribed')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Transcribe it' })).toHaveCount(0)
 })
 
 test('says the summary is being written above the transcript', async ({ mount, page, simulator }) => {
@@ -472,6 +475,8 @@ test('a lecture with no course of its own falls back to the board course', async
 })
 
 test('a lecture nothing transcribed says so and offers to transcribe it', async ({ mount, page, simulator }) => {
+  // A run that failed leaves the lecture untranscribed too.
+  simulator.db.jobRuns.push(jobRun('jr-failed', 'ai:transcribe', 'failed', 'rec-raw'))
   simulator.db.recordings.push({
     id: 'rec-raw', title: 'Raw lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: '/uploads/raw.wav', status: 'uploaded',
   })

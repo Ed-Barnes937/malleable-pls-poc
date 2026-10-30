@@ -19,8 +19,8 @@ export function createContextFactory({ ai, executors }: Pick<Context, 'ai' | 'ex
       ?? info.connectionParams?.['userId']
       ?? 'anonymous'
     const userId = USER_ID_RE.test(raw) ? raw : 'anonymous'
-    // Every account starts with the default automations (a no-op once done).
-    await provisionAccount(userId)
+    // Every account starts with the default automations (skipped for the anonymous fallback; a no-op once done).
+    if (userId !== 'anonymous') await provisionAccount(userId)
 
     return { userId, ai, executors }
   }

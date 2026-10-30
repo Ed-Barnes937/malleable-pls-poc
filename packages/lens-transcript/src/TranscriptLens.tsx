@@ -398,9 +398,11 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // Until the transcript lands there is nothing to show but that it's coming.
   const transcribing = recording?.processing === 'transcribing' && !segments?.length
   const summarising = recording?.processing === 'summarising'
-  // Loaded, empty and nothing on its way: no automation ran for this lecture
-  // (e.g. the student deleted the transcribe one), so say so and offer it.
-  const untranscribed = !!recording && !!segments && segments.length === 0 && !recording.processing && !isCapture
+  // Never transcribed (status stays 'uploaded' until a run finishes, so a
+  // lecture that was transcribed but said nothing is not this) and nothing on
+  // its way: no automation ran (e.g. the student deleted the transcribe one,
+  // or the run failed), so say so and offer it.
+  const untranscribed = !!recording && !!segments && segments.length === 0 && recording.status !== 'ready' && !recording.processing && !isCapture
 
   /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
   const markedAt = useRef<number | null>(null)

@@ -6,6 +6,9 @@ import { boardIdInput, type LectureProcessing } from '@pls/substrate'
 import { createPgAdapter } from '../workflows/pg-adapter'
 import { andInCourse, courseTag, recordingCourse, requireOwnBoard } from './_shared'
 
+/** job_runs requires a workflow and job id; a run started by hand has neither, so it carries this. */
+const MANUAL_RUN = 'manual'
+
 export const recordingsRouter = router({
   list: publicProcedure
     .input(z.object({
@@ -67,7 +70,7 @@ export const recordingsRouter = router({
    * (the student switched transcription off or deleted it). Queues the same
    * job the automation would, and its `recording:transcribed` event carries on
    * as usual (e.g. to the summary). `queued` is false when there is nothing
-   * to do: it already has a transcript or one is already on its way.
+   * to do: it was already transcribed (even if nothing was said) or a transcript is already on its way.
    */
   transcribe: publicProcedure
     .input(z.object({ recordingId: z.string().max(255), workspaceId: boardIdInput }))
@@ -75,7 +78,7 @@ export const recordingsRouter = router({
       return withUser(ctx.userId, async (tx) => {
         if (input.workspaceId) await requireOwnBoard(tx, ctx.userId, input.workspaceId)
         const [recording] = await tx`
-          SELECT id FROM recordings WHERE id = ${input.recordingId} AND user_id = ${ctx.userId} FOR UPDATE
+          SELECT id, status FROM recordings WHERE id = ${input.recordingId} AND user_id = ${ctx.userId} FOR UPDATE
         `
         if (!recording) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lecture not found' })
         const [segment] = await tx`
@@ -87,10 +90,11 @@ export const recordingsRouter = router({
             AND COALESCE(input->>'recording_id', input->>'target_id') = ${input.recordingId}
           LIMIT 1
         `
-        if (segment || busy) return { queued: false }
-        // Not run by an automation, so there is no workflow to name.
+        // 'ready' means transcription ran (a silent lecture ends up with no
+        // segments): never bill the provider for it again.
+        if (recording.status === 'ready' || segment || busy) return { queued: false }
         await createPgAdapter({ tx, userId: ctx.userId }).enqueueJobRun({
-          workflowId: 'manual', workflowJobId: 'manual', jobType: 'ai:transcribe',
+          workflowId: MANUAL_RUN, workflowJobId: MANUAL_RUN, jobType: 'ai:transcribe',
           input: { recording_id: input.recordingId }, depth: 0, scopeId: input.workspaceId ?? null,
         })
         return { queued: true }
