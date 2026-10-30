@@ -2,13 +2,13 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser, type TxSql } from '@pls/db'
 import { REVIEW_SUBTYPE, SOLID_FROM, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
-import { COURSE_LABELS, andInCourse, courseTag } from './_shared'
+import { andInCourse, courseTag } from './_shared'
 
 /**
  * Every lecture moment in a course, with its status: the SQL twin of
  * `momentStatus` (packages/substrate/src/moments.ts), so Your progress, All
- * courses and Weak topics count the same moments. One row per moment and
- * course its lecture is filed under.
+ * courses and Weak topics count the same moments. One row per moment of a
+ * lecture filed under a course.
  */
 function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
   return tx`
@@ -21,7 +21,7 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       LEAD(ts.text) OVER w AS after_text,
       r.title AS recording_title,
       r.created_at AS recording_at,
-      t.label AS course,
+      l.course AS course,
       latest.score AS latest_score,
       marked.confused_at,
       still.confused,
@@ -32,8 +32,7 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       END AS status
     FROM transcript_segments ts
     JOIN recordings r ON r.id = ts.recording_id
-    JOIN tags t ON t.user_id = ${userId} AND t.target_type = 'recording' AND t.target_id = r.id
-      AND t.label IN ${tx(COURSE_LABELS)}
+    JOIN lectures l ON l.id = r.lecture_id AND l.user_id = ${userId} AND l.course IS NOT NULL
     LEFT JOIN LATERAL (
       SELECT cs.score, cs.created_at FROM confidence_signals cs
       WHERE cs.user_id = ${userId} AND cs.target_type = 'transcript_segment' AND cs.target_id = ts.id
@@ -52,7 +51,7 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
     ) still
     WHERE ts.user_id = ${userId}
       ${andInCourse(tx, userId, course, 'recording', tx`r.id`)}
-    WINDOW w AS (PARTITION BY ts.recording_id, t.label ORDER BY ts.start_ms)
+    WINDOW w AS (PARTITION BY ts.recording_id ORDER BY ts.start_ms)
   `
 }
 

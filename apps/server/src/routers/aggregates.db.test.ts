@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -28,8 +29,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
     await db.withUser(user, async (tx) => {
-      await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${rec}, ${user}, 'Genetics', 'ready')`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${user}, 'recording', ${rec}, 'biology')`
+      await insertRecording(tx, { id: rec, userId: user, title: 'Genetics', course: 'biology' })
       const texts = [
         'Welcome to genetics.',
         'Here is the critical point: mitochondrial DNA comes from the maternal line.',
@@ -75,7 +75,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'plan_items', 'recordings']) {
+    for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'plan_items', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [user])
     }
     await db.sql.end()
@@ -124,8 +124,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
     const expected = new Map<string, { status: string; confused: boolean }>()
     try {
       await db.withUser(other, async (tx) => {
-        await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${tableRec}, ${other}, 'Table', 'ready')`
-        await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${other}, 'recording', ${tableRec}, 'chemistry')`
+        await insertRecording(tx, { id: tableRec, userId: other, title: 'Table', course: 'chemistry' })
         for (const [i, events] of cases.entries()) {
           await tx`
             INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text)
@@ -166,7 +165,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
       const topics = await api.aggregates.weakestTopics({ limit: 100 })
       expect(new Map(topics.map((t) => [t.segmentId, t.confused]))).toEqual(new Map(review.map(([id, e]) => [id, e.confused])))
     } finally {
-      for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'recordings']) {
+      for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'recordings', 'lectures']) {
         await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [other])
       }
     }

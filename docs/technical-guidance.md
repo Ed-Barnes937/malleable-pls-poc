@@ -11,8 +11,15 @@ Architectural sketches, schemas, and stack options captured during ideation.
 ### Core Primitives
 
 ```sql
+lectures
+  id, title, course?, starts_at, class_item_id?, class_date?,
+  created_at, updated_at
+  -- a session of a course at a time; exists before or without audio.
+  -- course: a key from COURSE_LABELS, NULL = not filed under a course
+
 recordings
-  id, created_at, duration, audio_url, status (transcribing|ready)
+  id, lecture_id, created_at, duration, audio_url, status (transcribing|ready)
+  -- every recording belongs to a lecture; its course is the lecture's
 
 transcript_segments
   id, recording_id, start_ms, end_ms, text, speaker
@@ -41,7 +48,7 @@ plan_items
   subtype?,                        -- free-text label: class, shift, study...
   source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
   created_at, updated_at
-  -- course: a tag with target_type 'plan_item', like recordings carry theirs
+  -- course: a tag with target_type 'plan_item' (lectures hold theirs as a column)
 ```
 
 Plan item lists take a date range and expand weekly recurrences into one row per occurrence, keeping local wall-clock time across DST (`expandPlanItems` in `packages/substrate/src/plan-items.ts`, shared by the server router and the CT simulator, as are the input schemas). Occurrence rows keep the stored times in `series_starts_at` / `series_ends_at`; mutations always apply to the whole series.
@@ -90,8 +97,14 @@ workspace_panels
 
 workspace_scopes
   id, workspace_id, scope_type, scope_value
-  -- scope_type: "tag" (course) | "recording" (focused lecture)
-  -- scope_value: "biology" | "rec_123"
+  -- scope_type: "tag" (course) | "lecture" (selected lecture)
+  -- scope_value: "biology" | "lec_123"
+  -- Written through workspaces.setBoardScope: a selected lecture brings its
+  -- course, and a course change clears a lecture outside it. (Until the
+  -- client moves to lectures, the deprecated setScope keeps the old
+  -- recording-focus behaviour over 'lecture' rows.)
+  -- At most one row per (workspace_id, scope_type), enforced by a unique
+  -- index; writers upsert under the board's scope lock (lockBoardScope).
   -- Scope is the user's primary dial. Changing scope is frequent and low-friction.
   -- A workspace with no scope rows sees all data (widest aperture).
 ```
@@ -135,10 +148,10 @@ student's own tags and notes on it never silently disappear, and the picker and
 chip still show the focused lecture's title.
 
 Course filtering happens server-side through one helper, `andInCourse` /
-`inCourse` in `apps/server/src/routers/_shared.ts`: a course is a `tags` row on
-a recording or a plan item (`target_type = 'plan_item'`, used by
-`planItems.list`), and segments, tags, confidence and links inherit the course
-of their recording.
+`inCourse` in `apps/server/src/routers/_shared.ts`: a lecture's course is
+`lectures.course` and a recording's is its lecture's; a plan item's is a `tags`
+row (`target_type = 'plan_item'`, used by `planItems.list`); segments, tags,
+confidence and links inherit the course of their recording.
 
 Time windows are not a board dimension. Widgets that show time own their
 navigation and look-ahead (a calendar shows the week being viewed, Coming up

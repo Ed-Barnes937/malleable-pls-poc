@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -31,9 +32,7 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
     const { createServerExecutors } = await import('../workflows/executors')
     const ai = createAiDeps()
     caller = appRouter.createCaller({ userId: user, ai, executors: createServerExecutors(ai) })
-    await db.withUser(user, (tx) => tx`
-      INSERT INTO recordings (id, user_id, title, status) VALUES (${rec}, ${user}, 'Genetics', 'uploaded')
-    `)
+    await db.withUser(user, (tx) => insertRecording(tx, { id: rec, userId: user, title: 'Genetics', status: 'uploaded' }))
   })
 
   beforeEach(async () => {
@@ -42,7 +41,7 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'tags', 'transcript_segments', 'recordings']) {
+    for (const table of ['job_runs', 'tags', 'transcript_segments', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [user])
     }
     await db.sql.end()
@@ -76,14 +75,15 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
     expect(await caller.recordings.byId('rec-missing')).toBeNull()
   })
 
-  it('carries the course from the lecture\'s course tag, or null when it has none', async () => {
+  it("carries the course from the recording's lecture, or null when it has none", async () => {
     const filed = `rec-filed-${user}`
     const unfiled = `rec-unfiled-${user}`
+    const now = Date.now()
     await db.withUser(user, async (tx) => {
-      await tx`INSERT INTO recordings (id, user_id, title, created_at) VALUES (${filed}, ${user}, 'Cells', now() + interval '1 day'), (${unfiled}, ${user}, 'Untitled', now() + interval '1 hour')`
-      // A non-course tag first: only course labels count.
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label, created_at) VALUES (${user}, 'recording', ${filed}, 'favourite', now() - interval '1 minute')`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${user}, 'recording', ${filed}, 'biology')`
+      await insertRecording(tx, { id: filed, userId: user, title: 'Cells', course: 'biology', createdAt: new Date(now + 86_400_000) })
+      await insertRecording(tx, { id: unfiled, userId: user, title: 'Untitled', createdAt: new Date(now + 3_600_000) })
+      // A course-named tag on a recording is just a tag: the lecture holds the course.
+      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${user}, 'recording', ${unfiled}, 'chemistry')`
     })
     expect(await caller.recordings.byId(filed)).toMatchObject({ id: filed, course: 'biology' })
     expect(await caller.recordings.byId(unfiled)).toMatchObject({ id: unfiled, course: null })
@@ -101,8 +101,9 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
     beforeEach(async () => {
       await db.withUser(user, async (tx) => {
         await tx`DELETE FROM transcript_segments WHERE recording_id = ${lecture}`
-        await tx`DELETE FROM recordings WHERE id = ${lecture}`
-        await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${lecture}, ${user}, 'Manual', 'uploaded')`
+        // Its lecture too: recordings cascade with their lecture.
+        await tx`DELETE FROM lectures WHERE id = ${`lec-${lecture}`}`
+        await insertRecording(tx, { id: lecture, userId: user, title: 'Manual', status: 'uploaded' })
       })
     })
 
