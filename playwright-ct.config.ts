@@ -40,6 +40,7 @@ export default defineConfig({
           '@pls/lens-weakest-topics': path.resolve(__dirname, 'packages/lens-weakest-topics/src'),
           '@pls/lens-calendar': path.resolve(__dirname, 'packages/lens-calendar/src'),
           '@pls/lens-todo': path.resolve(__dirname, 'packages/lens-todo/src'),
+          '@pls/lens-resources': path.resolve(__dirname, 'packages/lens-resources/src'),
           '@pls/lens-coming-up': path.resolve(__dirname, 'packages/lens-coming-up/src'),
         },
       },

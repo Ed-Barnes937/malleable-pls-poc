@@ -1,28 +1,24 @@
 import { useCallback, useMemo } from 'react'
-import type { Lecture, PlanItemOccurrence } from '@pls/substrate'
+import { occurrenceDate, type Lecture, type PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from './substrate-context'
-
-/** The local date (YYYY-MM-DD) of an instant in `timeZone`. */
-function localDate(instant: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(instant))
-}
 
 /**
  * Whether a plan item belongs to a lecture: made from a moment of one of its
  * recordings (`source_type = 'recording'`), or the class occurrence the
  * lecture is (its `class_item_id` on its `class_date`). The occurrence's date
- * is read in the series' zone, else in `timeZone`: the student's placement
- * zone (their preference, else the browser's), as the server reads it.
+ * is read as `occurrenceDate` reads it (series zone, else the item's own),
+ * falling back to `timeZone`: the student's placement zone (their
+ * preference, else the browser's), as the server reads it.
  */
 export function isLinkedToLecture(
-  item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence'>,
+  item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence' | 'time_zone'>,
   lecture: Pick<Lecture, 'recordings' | 'class_item_id' | 'class_date'> | null | undefined,
   timeZone: string,
 ): boolean {
   if (!lecture) return false
   if (item.source_type === 'recording' && lecture.recordings.some((r) => r.id === item.source_id)) return true
-  if (!lecture.class_item_id || item.id !== lecture.class_item_id || !item.starts_at) return false
-  return localDate(item.starts_at, item.recurrence?.timeZone ?? timeZone) === lecture.class_date
+  if (!lecture.class_item_id || item.id !== lecture.class_item_id) return false
+  return occurrenceDate(item, timeZone) === lecture.class_date
 }
 
 /**
@@ -32,7 +28,7 @@ export function isLinkedToLecture(
  */
 export function useLinkedToLecture(
   lectureId: string | undefined,
-): (item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence'>) => boolean {
+): (item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence' | 'time_zone'>) => boolean {
   const substrate = useSubstrate()
   const { data: lecture } = substrate.useLecture(lectureId)
   const { data: prefs } = substrate.usePreferences()

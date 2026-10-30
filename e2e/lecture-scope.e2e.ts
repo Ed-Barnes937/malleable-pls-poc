@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
-import { trpcMutation, trpcQuery } from './api'
+import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
 
 /**
@@ -100,6 +100,9 @@ test.describe('A board selects a lecture', () => {
     })
 
     test('with no lecture selected, Record makes a new lecture in the board course and selects it', async ({ page, request }) => {
+      // No Chemistry class on, whatever the time (Record would join it; see
+      // lecture-capture-class.e2e.ts).
+      await deleteClassesOf(request, 'chemistry')
       await board(request, 'Lecture hall', ['audio-capture', 'transcript'], 'chemistry')
       await page.goto('/')
       const topBar = new TopBarPom(page)

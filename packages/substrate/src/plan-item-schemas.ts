@@ -6,6 +6,7 @@
  * row) are stripped.
  */
 import { z } from 'zod'
+import { timeZoneInput } from './workflows/review-automation'
 
 const isoDateTime = z.iso.datetime({ offset: true }).transform((v) => new Date(v).toISOString())
 const kind = z.enum(['commitment', 'deadline', 'task'])
@@ -47,8 +48,14 @@ export const planItemUpdateInput = z.object({
  */
 export const boardIdInput = z.string().max(255).nullable().optional()
 
-export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput })
-export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput })
+/**
+ * The browser's zone, kept on a new item (or one from before items kept a
+ * zone) when the student has set none. See `PlanItem.time_zone`.
+ */
+const browserZoneInput = timeZoneInput.optional()
+
+export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
+export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
 
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z
