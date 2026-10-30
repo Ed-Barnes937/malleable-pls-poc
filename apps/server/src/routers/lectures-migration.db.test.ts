@@ -70,6 +70,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures migration (own Postgres database)'
     await db.unsafe(read(LECTURES))
     // Idempotent: a second run changes nothing.
     await db.unsafe(read(LECTURES))
+    // The rest, so the database is migrated as a fresh one is.
+    for (const file of MIGRATIONS.filter((f) => f > LECTURES)) await db.unsafe(read(file))
   })
 
   afterAll(async () => {
@@ -129,6 +131,40 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures migration (own Postgres database)'
     ])
     const [{ course }] = await db`SELECT course FROM lectures WHERE id = 'lec-rec-bio-4'`
     expect(course).toBe('biology')
+  })
+
+  // Reseeds the demo student (others only read it). Golden comparison, so e2e/reseed.ts
+  // (which writes lectures itself) cannot drift from what the migration
+  // makes of the same seeds.
+  it("reseed writes the demo student's lectures, recordings, board scope and recording tags as the migration does", async () => {
+    const demo = async () => ({
+      lectures: await db`
+        SELECT id, title, course, starts_at, class_item_id, class_date, created_at, updated_at
+        FROM lectures WHERE user_id = 'dev-user-1' ORDER BY id
+      `,
+      recordings: await db`
+        SELECT id, lecture_id, title, created_at, duration, audio_url, status
+        FROM recordings WHERE user_id = 'dev-user-1' ORDER BY id
+      `,
+      // Row ids differ (the migration keeps 010's, reseed writes new ones).
+      scopes: await scopesOf('dev-user-1'),
+      recordingTags: await db`
+        SELECT id, target_id, label, created_at FROM tags
+        WHERE user_id = 'dev-user-1' AND target_type = 'recording' ORDER BY id
+      `,
+    })
+    const migrated = await demo()
+    expect(migrated.lectures).toHaveLength(5)
+
+    const url = new URL(TEST_DATABASE_URL!)
+    url.pathname = `/${dbName}`
+    process.env.DATABASE_URL = url.toString()
+    // By path, so the server's typecheck does not take in the e2e sources.
+    const reseedModule = resolve(__dirname, '../../../../e2e/reseed.ts')
+    const { reseed } = (await import(reseedModule)) as { reseed: () => Promise<void> }
+    await reseed()
+
+    expect(await demo()).toEqual(migrated)
   })
 
   it('refuses a second row of one dimension on a board from then on', async () => {

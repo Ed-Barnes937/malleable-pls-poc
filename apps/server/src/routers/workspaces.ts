@@ -31,7 +31,7 @@ export const workspacesRouter = router({
     .input(z.object({
       name: z.string().max(500).min(1),
       // Optional board course, stored as the board's 'tag' scope.
-      courseTag: z.string().max(1000).min(1).optional(),
+      courseTag: courseKey.optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {

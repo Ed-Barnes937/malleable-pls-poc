@@ -126,6 +126,13 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       await expect(api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'astrology' })).rejects.toEqual(badRequest)
     })
 
+    it('workspaces.create takes only a course key, and creates no board otherwise', async () => {
+      const name = `Astrology ${randomUUID().slice(0, 4)}`
+      await expect(api().workspaces.create({ name, courseTag: 'astrology' })).rejects.toEqual(badRequest)
+      expect((await api().workspaces.list()).map((w) => w.name)).not.toContain(name)
+      expect(await storedScope(await board('physics'))).toEqual([['tag', 'physics']])
+    })
+
     it('concurrent scope writes to one board leave one row per dimension and keep the rule', async () => {
       const physics = await api().lectures.create({ course: 'physics', title: 'Race' })
       for (let round = 0; round < 10; round++) {
