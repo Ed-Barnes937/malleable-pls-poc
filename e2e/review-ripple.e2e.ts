@@ -276,11 +276,18 @@ test.describe('The confused-to-calendar ripple', () => {
     await demoLikeBoard(request)
     const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
     await grid.root.evaluate((board) => {
-      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number | null }
+      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number | null; topAtWheel: number | null }
       w.glide = []
       w.wheelAt = null
+      w.topAtWheel = null
       board.addEventListener('scroll', () => w.glide.push({ at: performance.now(), top: board.scrollTop }))
-      document.addEventListener('wheel', () => { w.wheelAt ??= performance.now() }, { capture: true })
+      // Read the board's position as the wheel arrives: scroll events are batched
+      // to frames, so the last one lags the glide by up to a frame of its travel.
+      document.addEventListener('wheel', () => {
+        if (w.wheelAt !== null) return
+        w.wheelAt = performance.now()
+        w.topAtWheel = board.scrollTop
+      }, { capture: true })
     })
     const markedAt = Date.now()
     await transcript.getByRole('button', { name: 'confused', exact: true }).click()
@@ -291,13 +298,12 @@ test.describe('The confused-to-calendar ripple', () => {
     const final = await settledScrollTop(grid.root)
     const review = await newReview(request, markedAt)
     await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
-    const { glide, wheelAt } = await page.evaluate(() => {
-      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number }
-      return { glide: w.glide, wheelAt: w.wheelAt }
+    const { glide, wheelAt, atWheel } = await page.evaluate(() => {
+      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number; topAtWheel: number }
+      return { glide: w.glide, wheelAt: w.wheelAt, atWheel: w.topAtWheel }
     })
     // The wheel came while the glide was under way...
     expect(wheelAt - glide[0].at).toBeLessThan(150)
-    const atWheel = glide.filter((g) => g.at <= wheelAt).at(-1)!.top
     // ...and moved the board its 300px from where it was then (once, not
     // lost to the glide, which would have stopped about 170px up).
     expect(final).toBeLessThan(atWheel - 250)
