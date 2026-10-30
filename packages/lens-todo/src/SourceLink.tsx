@@ -30,7 +30,7 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
 
   const show = async () => {
     if (!onShowMoment) {
-      onScopeChange?.({ recordingId })
+      if (recording?.lecture_id) onScopeChange?.({ lectureId: recording.lecture_id })
       return
     }
     setState('opening')

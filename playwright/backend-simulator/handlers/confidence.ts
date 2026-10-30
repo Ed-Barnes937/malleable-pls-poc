@@ -1,20 +1,18 @@
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { inCourse, segmentRecordingId } from './course-scope'
+import { inScope, isScoped, segmentRecordingId } from './course-scope'
 
 export function registerConfidenceHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('confidence.list', (input) => {
-    const opts = input as { courseTag?: string; recordingId?: string } | undefined
-    const scoped = Boolean(opts?.recordingId || opts?.courseTag)
+    const opts = input as { courseTag?: string; lectureId?: string; recordingId?: string } | undefined
+    const scoped = isScoped(opts)
 
     return db.confidenceSignals
       .filter((cs) => {
         if (!scoped) return true
         if (cs.target_type !== 'transcript_segment') return false
         const recordingId = segmentRecordingId(db, cs.target_id)
-        // A targeted lecture wins over the course.
-        if (opts?.recordingId) return recordingId === opts.recordingId
-        return !opts?.courseTag || inCourse(db, opts.courseTag, 'recording', recordingId)
+        return !!recordingId && inScope(db, opts, recordingId)
       })
       .sort((a, b) => b.created_at.localeCompare(a.created_at))
   })

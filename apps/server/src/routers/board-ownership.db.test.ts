@@ -59,7 +59,7 @@ describe.skipIf(!TEST_DATABASE_URL)('writes to a board that is not yours (Postgr
 
   it("setting another student's board scope is NOT_FOUND and leaves theirs alone", async () => {
     await expect(
-      caller(bob).workspaces.setScope({ workspaceId: aliceBoard, scopeType: 'recording', scopeValue: 'rec-bob' }),
+      caller(bob).workspaces.setBoardScope({ workspaceId: aliceBoard, courseTag: 'chemistry' }),
     ).rejects.toEqual(notFound)
     expect(await aliceBoardRows('workspace_scopes')).toEqual([
       expect.objectContaining({ user_id: alice, scope_type: 'tag', scope_value: 'biology' }),
@@ -90,7 +90,7 @@ describe.skipIf(!TEST_DATABASE_URL)('writes to a board that is not yours (Postgr
     const gone = (await api.workspaces.create({ name: 'Short-lived' })).id as string
     await api.workspaces.delete(gone)
     await expect(api.workspaces.addPanel({ workspaceId: gone, lensType: 'calendar', slotName: 'slot-gone' })).rejects.toEqual(notFound)
-    await expect(api.workspaces.setScope({ workspaceId: gone, scopeType: 'tag', scopeValue: 'biology' })).rejects.toEqual(notFound)
+    await expect(api.workspaces.setBoardScope({ workspaceId: gone, courseTag: 'biology' })).rejects.toEqual(notFound)
   })
 
   it('the owner still adds panels to their own board', async () => {

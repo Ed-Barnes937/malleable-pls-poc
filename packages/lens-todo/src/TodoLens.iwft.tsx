@@ -285,7 +285,7 @@ test('a to-do from earlier reads calmly, and a placed one shows its time', async
   await expect(page.getByText(/overdue/i)).toHaveCount(0)
 })
 
-test('a to-do from a lecture moment links back to it and focuses the lecture', async ({ mount, page, simulator }) => {
+test('a to-do from a lecture moment links back to it and selects the lecture', async ({ mount, page, simulator }) => {
   seedPlanItem(simulator, {
     id: 'todo-review', kind: 'task', title: 'Review: maternal inheritance', course: 'biology',
     source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
@@ -294,14 +294,14 @@ test('a to-do from a lecture moment links back to it and focuses the lecture', a
 
   await mount(
     <TestProviders>
-      <TodoLens {...defaultProps} onScopeChange={(patch) => focused.push(patch.recordingId)} />
+      <TodoLens {...defaultProps} onScopeChange={(patch) => { focused.push(patch.lectureId) }} />
     </TestProviders>,
   )
 
   const link = page.getByRole('button', { name: 'From Biology Lecture: Mitochondrial DNA · 9:00' })
   await expect(link).toBeVisible()
   await link.click()
-  await expect.poll(() => focused).toEqual(['rec-bio-4'])
+  await expect.poll(() => focused).toEqual(['lec-rec-bio-4'])
 })
 
 test('a to-do from a lecture moment jumps to that moment, or says no board has a Transcript', async ({ mount, page, simulator }) => {
@@ -317,13 +317,13 @@ test('a to-do from a lecture moment jumps to that moment, or says no board has a
   await expect(page.getByTestId('todo-moment')).toHaveText('None of your boards has a Transcript yet.')
 })
 
-test('a focused lecture highlights the to-dos made from it', async ({ mount, page, simulator }) => {
+test('a selected lecture highlights the to-dos made from it', async ({ mount, page, simulator }) => {
   seedPlanItem(simulator, { id: 'todo-review', kind: 'task', title: 'Review: maternal inheritance', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000 })
   seedPlanItem(simulator, { id: 'todo-other', kind: 'task', title: 'Something else' })
 
   await mount(
     <TestProviders>
-      <TodoLens {...defaultProps} highlight={{ recordingId: 'rec-bio-4' }} />
+      <TodoLens {...defaultProps} highlight={{ lectureId: 'lec-rec-bio-4' }} />
     </TestProviders>,
   )
 

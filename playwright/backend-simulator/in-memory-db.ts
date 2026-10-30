@@ -1,4 +1,5 @@
 import type {
+  Lecture,
   Recording,
   TranscriptSegment,
   Tag,
@@ -15,11 +16,11 @@ import type {
 /** A plan item as stored: course is derived from `tags`, as on the server. */
 export type StoredPlanItem = Omit<PlanItem, 'course'>
 
-/**
- * A recording as stored. Course is still derived from 'recording' tags here
- * (the server moved it to `lectures.course`); lecture_id is derived.
- */
-export type StoredRecording = Omit<Recording, 'course' | 'processing' | 'lecture_id'>
+/** A recording as stored: its course is its lecture's, as on the server. */
+export type StoredRecording = Omit<Recording, 'course' | 'processing'>
+
+/** A lecture as stored (`lectures`); its recordings point at it. */
+export type StoredLecture = Omit<Lecture, 'recordings'>
 
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {
@@ -58,6 +59,7 @@ export interface JobRun {
 }
 
 export interface SeedData {
+  lectures: StoredLecture[]
   recordings: StoredRecording[]
   transcriptSegments: TranscriptSegment[]
   tags: Tag[]
@@ -76,6 +78,7 @@ export interface SeedData {
 }
 
 const EMPTY_SEED: SeedData = {
+  lectures: [],
   recordings: [],
   transcriptSegments: [],
   tags: [],
@@ -93,6 +96,7 @@ const EMPTY_SEED: SeedData = {
 }
 
 export class InMemoryDb {
+  lectures: StoredLecture[] = []
   recordings: StoredRecording[] = []
   transcriptSegments: TranscriptSegment[] = []
   tags: Tag[] = []
@@ -114,6 +118,26 @@ export class InMemoryDb {
     }
   }
 
+  /**
+   * Adds a recording under a lecture, for tests: into `lectureId` when given,
+   * else a lecture of its own ('lec-' + its id, like the seed) with its
+   * title, time and `course`. Returns the lecture id.
+   */
+  addRecording(
+    recording: Omit<StoredRecording, 'lecture_id'>,
+    options: { lectureId?: string; course?: string | null } = {},
+  ): string {
+    const lectureId = options.lectureId ?? `lec-${recording.id}`
+    if (!this.lectures.some((l) => l.id === lectureId)) {
+      this.lectures.push({
+        id: lectureId, title: recording.title, course: options.course ?? null, starts_at: recording.created_at,
+        class_item_id: null, class_date: null, created_at: recording.created_at, updated_at: recording.created_at,
+      })
+    }
+    this.recordings.push({ ...recording, lecture_id: lectureId })
+    return lectureId
+  }
+
   findById<T extends { id: string }>(collection: T[], id: string): T | undefined {
     return collection.find((item) => item.id === id)
   }
@@ -131,6 +155,7 @@ export class InMemoryDb {
   }
 
   reset(seed: SeedData): void {
+    this.lectures = seed.lectures.map((l) => ({ ...l }))
     this.recordings = [...seed.recordings]
     this.transcriptSegments = [...seed.transcriptSegments]
     this.tags = [...seed.tags]

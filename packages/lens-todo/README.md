@@ -13,7 +13,7 @@ To-do widget: a view over `task` plan items.
 
 ## Scope
 
-`courseTag: 'filter'` - only the board course, with "+N in other courses". `recordingId: 'highlight'` - to-dos made from the focused lecture are emphasised.
+`courseTag: 'filter'` - only the board course, with "+N in other courses". `lectureId: 'highlight'` - to-dos made from a moment of any of the board lecture's recordings are emphasised; none without a lecture.
 
 ## Internal Dependencies
 

@@ -7,7 +7,7 @@ test('renders connections for a concept', async ({ mount, page, simulator }) => 
     <TestProviders>
       <ConnectionsLens
         panelId="test-panel"
-        scope={{ recordingId: 'rec-bio-4' }}
+        scope={{ lectureId: 'lec-rec-bio-4' }}
         config={{ conceptLabel: 'mitochondrial DNA' }}
       />
     </TestProviders>,
@@ -58,10 +58,10 @@ test('says what a course filter hides from a configured concept', async ({ mount
   await expect(page.getByText(/^\+\d+ in other courses$/)).toBeVisible()
 })
 
-test('the focused lecture keeps its connections whatever the course', async ({ mount, page, simulator }) => {
+test("the selected lecture's connections show without a concept", async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
-      <ConnectionsLens panelId="test-panel" scope={{ recordingId: 'rec-bio-4', courseTag: 'chemistry' }} config={{}} />
+      <ConnectionsLens panelId="test-panel" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} />
     </TestProviders>,
   )
 

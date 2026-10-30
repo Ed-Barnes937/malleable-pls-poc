@@ -235,7 +235,7 @@ test('on a wide screen, picking a view saves it', async ({ mount, page, simulato
 
 test('a course highlight dims other courses but never hides them', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
-  await mount(<CalendarHarness highlight={{ courseTag: 'biology', recordingId: 'rec-bio-4' }} />)
+  await mount(<CalendarHarness highlight={{ courseTag: 'biology', lectureId: 'lec-rec-bio-4' }} />)
 
   await expect(page.getByTestId('calendar-highlight')).toHaveText('Biology highlighted')
   await expect(block(page, 'Chemistry lecture')).toBeVisible()
@@ -243,7 +243,7 @@ test('a course highlight dims other courses but never hides them', async ({ moun
   // No course (a shift) is not "another course": it stays undimmed.
   await expect(block(page, 'Cafe shift')).not.toHaveAttribute('data-dimmed')
   await expect(block(page, 'Biology lecture')).not.toHaveAttribute('data-dimmed')
-  // Linked to the focused lecture.
+  // Linked to the selected lecture (made from a moment of its recording).
   await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('data-linked', 'true')
   await expect(block(page, 'Revise respiration')).not.toHaveAttribute('data-linked')
 })

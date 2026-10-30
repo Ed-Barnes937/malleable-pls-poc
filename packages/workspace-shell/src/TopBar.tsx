@@ -1,6 +1,6 @@
 import { Menu, LayoutGrid, Settings } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceScopes, useFocusedRecording, useRunningJobCount, decodeScope } from '@pls/substrate-client'
+import { useWorkspaceScopes, useLecture, useRunningJobCount, decodeScope } from '@pls/substrate-client'
 import { useActiveWorkspaceId } from './activeBoard'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
@@ -24,7 +24,7 @@ const ICON_BUTTON =
  * Summarises the board scope as "Showing: ..." chip text, limited to the
  * dimensions some widget on the board actually uses, so the chip never
  * claims a filter nothing applies. A board whose widgets use the course but
- * has none set (and no focused lecture) says "All courses" rather than hiding the chip, so the
+ * has none set (and no selected lecture) says "All courses" rather than hiding the chip, so the
  * student can always see (and change) what the board shows. Returns null
  * when no widget uses any scope.
  */
@@ -35,21 +35,22 @@ export function useScopeSummary(workspaceId: string | null): string | null {
     () => decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[]),
     [scopes],
   )
-  const { data: focused } = useFocusedRecording(s.recordingId)
+  const { data: selected } = useLecture(s.lectureId)
 
   return useMemo(() => {
-    const lecture = s.recordingId && dims.has('recordingId') && focused?.id === s.recordingId
-      ? (focused?.title as string | undefined)
+    const lecture = s.lectureId && dims.has('lectureId') && selected?.id === s.lectureId
+      ? selected.title
       : undefined
     const parts: string[] = []
     if (dims.has('courseTag')) {
       if (s.courseTag) parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
-      // "All courses" next to one lecture reads as a contradiction; the lecture says enough.
+      // A selected lecture filed under no course: "All courses" next to it
+      // reads as a contradiction; the lecture says enough.
       else if (!lecture) parts.push('All courses')
     }
     if (lecture) parts.push(lecture)
     return parts.length > 0 ? parts.join(' · ') : null
-  }, [s, dims, focused])
+  }, [s, dims, selected])
 }
 
 /**

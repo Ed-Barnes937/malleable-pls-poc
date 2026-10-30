@@ -3,14 +3,15 @@ import { withUser, type TxSql } from '@pls/db'
 import { DEFAULT_REVIEW_TIME_ZONE, defaultLectureTitle, timeZoneInput, type Lecture } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { getPreferences, placementTimeZone } from '../preferences/store'
-import { andInCourse, courseKey, requireOwnBoard, requireOwnLecture } from './_shared'
+import { andInCourse, courseKey, recordingProcessing, requireOwnBoard, requireOwnLecture } from './_shared'
 import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
 
 const lectureId = z.string().max(255)
 const lectureTitle = z.string().trim().min(1).max(500)
 
 /**
- * Lectures as `Lecture` rows, with their recordings oldest first. `where` is
+ * Lectures as `Lecture` rows, with their recordings oldest first (each with
+ * `processing`, as `recordings.byId`). `where` is
  * the rest of the WHERE clause after the user check, e.g. tx`AND l.id = ...`.
  */
 function selectLectures(tx: TxSql, userId: string, where: ReturnType<TxSql['unsafe']>) {
@@ -21,7 +22,10 @@ function selectLectures(tx: TxSql, userId: string, where: ReturnType<TxSql['unsa
     FROM lectures l
     LEFT JOIN LATERAL (
       SELECT json_agg(
-        json_build_object('id', r.id, 'title', r.title, 'status', r.status, 'duration', r.duration, 'created_at', r.created_at)
+        json_build_object(
+          'id', r.id, 'title', r.title, 'status', r.status, 'duration', r.duration, 'created_at', r.created_at,
+          'processing', ${recordingProcessing(tx, userId, tx`r.id`)}
+        )
         ORDER BY r.created_at, r.id
       ) AS list
       FROM recordings r WHERE r.lecture_id = l.id AND r.user_id = ${userId}

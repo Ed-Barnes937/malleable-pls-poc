@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import type {
+  Lecture,
   Recording,
   TranscriptSegment,
   Tag,
@@ -35,10 +36,12 @@ import type { DateRange, Scope, ScopeDeclaration } from './types'
  * hard filter, so a highlight-only widget (e.g. a calendar) would hide the
  * other courses' commitments.
  *
- * When `recordingId` is set, readers return that lecture's data regardless of
- * `courseTag`: a targeted lecture wins over the course.
+ * Readers apply every dimension given (course, lecture, recording); the
+ * server keeps a board's lecture inside its course, so they never disagree.
+ * `recordingId` is not a board dimension: it narrows to one recording of a
+ * lecture, e.g. the one a study block came from.
  */
-export type QueryFilter = Scope & { dateRange?: DateRange }
+export type QueryFilter = Scope & { recordingId?: string; dateRange?: DateRange }
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -80,13 +83,20 @@ export type TableName =
 export interface SubstrateReader {
   useRecordings: (filter?: QueryFilter) => QueryResult<Recording[]>
   useRecording: (id: string) => QueryResult<Recording>
+  /**
+   * One lecture with its recordings (oldest first, each with `processing`),
+   * or null if it isn't the student's. No request for an empty id.
+   */
+  useLecture: (id: string | undefined) => QueryResult<Lecture>
+  /** The student's lectures, latest first, optionally only one course's. */
+  useLectures: (filter?: { courseTag?: string }) => QueryResult<Lecture[]>
   useTranscript: (recordingId: string) => QueryResult<TranscriptSegment[]>
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
   useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
-  /** Links out of a targeted lecture; never course-filtered (the target wins). */
-  useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
+  /** Links out of the moments of a lecture's recordings. No request without a lecture. */
+  useLectureConnections: (lectureId: string | undefined) => QueryResult<ConnectionResult[]>
   useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseProgress[]>
   useGapAnalysis: () => QueryResult<CourseProgress[]>
   useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
@@ -141,6 +151,12 @@ export interface SubstrateWriter extends SubstrateReader {
    * when it already has a transcript or one is on its way.
    */
   useTranscribeRecording: () => MutationHandle<{ recordingId: string }, { queued: boolean }>
+  /**
+   * After a recording is added outside the substrate (the `/upload` route):
+   * refreshes what lists recordings and lectures, e.g. the lecture it went
+   * into now has another part.
+   */
+  useRecordingAdded: () => () => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only

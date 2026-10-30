@@ -1,11 +1,11 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import { type LensProps, useSubstrate } from '@pls/lens-framework'
+import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, formatTime } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
+import { Mic, Square, Play, Pause, FilePlus2, Loader2, Upload } from 'lucide-react'
 import { API_URL } from './env'
 import { useAudioRecorder } from './useAudioRecorder'
 import { useAudioPlayback } from './useAudioPlayback'
-import { ACCEPTED_AUDIO, audioContentType, readAudioDuration } from './uploadRecording'
+import { ACCEPTED_AUDIO, audioContentType } from './uploadRecording'
 import { UploadRecordingForm, type UploadRecordingDetails } from './UploadRecordingForm'
 
 function Waveform({ active, progress }: { active: boolean; progress: number }) {
@@ -44,16 +44,56 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
 
-  const recordingId = scope.recordingId ?? ''
-  const { data: recording } = substrate.useRecording(recordingId)
+  // A lecture the student let go of here (New lecture, or it is gone) while
+  // the board's write is on its way: the widget acts as if it were cleared
+  // already, so the next capture can't land in it. Dropped once the board
+  // shows something else.
+  const [letGo, setLetGo] = useState<string | null>(null)
+  const [scopeError, setScopeError] = useState<string | null>(null)
+  if (letGo && scope.lectureId !== letGo) setLetGo(null)
 
-  // New recordings become the workspace focus so every lens (e.g. Transcript)
-  // follows the lecture that was just captured or uploaded.
-  const recorder = useAudioRecorder(recordingId, {
+  // The board's lecture: captures and uploads go into it, and its latest
+  // recording plays. Without one, each capture is a new lecture in the board
+  // course.
+  const lectureId = scope.lectureId === letGo ? undefined : scope.lectureId
+  const { data: lecture } = substrate.useLecture(lectureId)
+  const shown = lectureId && lecture?.id === lectureId ? lecture : undefined
+  const latest = shown?.recordings.at(-1)
+  const { data: recording } = substrate.useRecording(latest?.id ?? '')
+  // Unknown while the lecture loads, so the widget doesn't flash "Ready".
+  const hasAudio = !lectureId ? false : shown ? shown.recordings.length > 0 : undefined
+  const recordingAdded = useSubstrateMutations().useRecordingAdded()
+
+  /** Clear the board's lecture, at once here; if the write fails, say so and show it again. */
+  const letGoOf = (id: string) => {
+    setLetGo(id)
+    setScopeError(null)
+    void Promise.resolve(onScopeChange?.({ lectureId: undefined })).then((written) => {
+      if (written !== false) return
+      setLetGo((current) => (current === id ? null : current))
+      setScopeError("Couldn't start a new lecture - try again")
+    })
+  }
+
+  // The lecture recorded into becomes the board's lecture (when it isn't
+  // already), so every widget (e.g. Transcript) follows it and the picker
+  // lists it. Not when the board moved on meanwhile: the student chose that.
+  const recorder = useAudioRecorder(hasAudio, {
     course: scope.courseTag,
-    onRecordingCreated: (id) => onScopeChange?.({ recordingId: id }),
+    lectureId: lectureId ?? null,
+    lectureTitle: shown?.title ?? null,
+    onRecordingCreated: (created, { boardMoved }) => {
+      recordingAdded()
+      if (!boardMoved && created.lectureId !== lectureId) onScopeChange?.({ lectureId: created.lectureId })
+    },
+    onLectureGone: (gone) => {
+      if (scope.lectureId === gone) letGoOf(gone)
+    },
   })
   const { state, elapsed, error } = recorder
+  // The board's lecture is still loading: neither "Ready to record" nor its
+  // buttons yet, which would flip to "Record more" a moment later.
+  const settling = hasAudio === undefined && (state === 'idle' || state === 'complete')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -82,12 +122,11 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
       contentType: audioContentType(file) as string,
       title,
       course,
-      durationMs: await readAudioDuration(file),
     })
   }
 
   const duration = recording?.duration ?? elapsed
-  const activeRecordingId = recorder.recordingId ?? recordingId
+  const activeRecordingId = recorder.recordingId ?? latest?.id
 
   const playbackUrl =
     state === 'complete' && activeRecordingId && recording?.audio_url
@@ -105,6 +144,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         <UploadRecordingForm
           file={pendingFile}
           defaultCourse={scope.courseTag}
+          intoLecture={shown?.title}
           onSubmit={handleUpload}
           onCancel={() => setPendingFile(null)}
         />
@@ -142,24 +182,52 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
           </div>
         )}
 
-        {state === 'complete' && (
+        {state === 'complete' && !settling && (
           <div className="hidden text-center @tall:block">
-            <p className="truncate text-body font-semibold text-text-primary">{recording?.title ?? 'Recording complete'}</p>
-            <p className="mt-0.5 text-meta text-text-muted">{formatTime(duration)} total</p>
+            <p className="truncate text-body font-semibold text-text-primary">{shown?.title ?? recording?.title ?? 'Recording complete'}</p>
+            <p className="mt-0.5 text-meta text-text-muted">
+              {shown && shown.recordings.length > 1 ? `Part ${shown.recordings.length} · ` : ''}
+              {formatTime(duration)} total
+            </p>
           </div>
         )}
 
-        {state === 'idle' && (
-          <p className="text-meta text-text-muted @tall:text-body">Ready to record</p>
+        {state === 'idle' && !settling && (
+          <p data-testid="ready-to-record" className="max-w-full truncate text-meta text-text-muted @tall:text-body">
+            {shown ? <>Ready to record <span className="font-semibold text-text-primary">{shown.title}</span></> : 'Ready to record'}
+          </p>
         )}
 
-        {(fileError ?? error) && (
-          <p role="alert" className="text-center text-meta text-confused">{fileError ?? error}</p>
+        {(fileError ?? scopeError ?? error) && (
+          <p role="alert" className="text-center text-meta text-confused">{fileError ?? scopeError ?? error}</p>
+        )}
+
+        {recorder.notice && (
+          <p role="status" className="max-w-full truncate text-center text-meta text-text-muted">{recorder.notice}</p>
+        )}
+
+        {recorder.hasUnsaved && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void recorder.saveAsNewLecture()}
+              className="rounded-full bg-accent px-3 py-1 text-meta font-semibold text-accent-foreground transition-all hover:opacity-90 active:scale-95"
+            >
+              Save as a new lecture
+            </button>
+            <button
+              type="button"
+              onClick={recorder.discardUnsaved}
+              className="rounded-full border border-border px-3 py-1 text-meta text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95"
+            >
+              Discard
+            </button>
+          </div>
         )}
 
         <Waveform active={state === 'recording'} progress={progress} />
 
-        <span className="text-body font-semibold tabular-nums text-text-primary @tall:text-heading">
+        <span data-testid="capture-timer" className="text-body font-semibold tabular-nums text-text-primary @tall:text-heading">
           {state === 'recording'
             ? formatTime(elapsed)
             : state === 'complete' && playback.playing
@@ -170,7 +238,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         </span>
 
         <div className="flex items-center gap-2 @tall:gap-3">
-          {state === 'idle' || state === 'complete' ? (
+          {settling || recorder.hasUnsaved ? null : state === 'idle' || state === 'complete' ? (
             <>
               {state === 'complete' && (
                 <button
@@ -188,8 +256,8 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               <button
                 type="button"
                 onClick={recorder.start}
-                aria-label="Start recording"
-                title="Start recording"
+                aria-label={state === 'complete' ? 'Record more' : 'Start recording'}
+                title={state === 'complete' ? 'Record more of this lecture' : 'Start recording'}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
               >
                 <Mic className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
@@ -205,12 +273,18 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
               {state === 'complete' && (
                 <button
                   type="button"
-                  onClick={() => { recorder.reset(); playback.stop() }}
-                  aria-label="Record another lecture"
-                  title="Record another lecture"
+                  // Clears the board's lecture, so the next capture is a new one
+                  // and every widget on the board moves on with it.
+                  onClick={() => {
+                    recorder.reset()
+                    playback.stop()
+                    if (scope.lectureId) letGoOf(scope.lectureId)
+                  }}
+                  aria-label="New lecture"
+                  title="New lecture"
                   className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
                 >
-                  <RotateCcw className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
+                  <FilePlus2 className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
                 </button>
               )}
             </>
@@ -228,7 +302,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         </div>
       </div>
 
-      {state === 'complete' && (
+      {state === 'complete' && !settling && (
         <div className="pt-2 @tall:pt-3">
           <div className="relative h-1.5 rounded-full bg-surface-overlay">
             <div

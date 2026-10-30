@@ -63,7 +63,7 @@ The calendar asks about every course's missed blocks (it shows every course; its
 
 ## Scope
 
-`courseTag: 'highlight'` - shows every course and dims items in other courses ("Biology highlighted"); items with no course (a cafe shift) are not dimmed, and nothing is ever hidden. `recordingId: 'highlight'` - rings items linked to the focused lecture. Neither reaches the reader: the calendar lists everything in the visible date range.
+`courseTag: 'highlight'` - shows every course and dims items in other courses ("Biology highlighted"); items with no course (a cafe shift) are not dimmed, and nothing is ever hidden. `lectureId: 'highlight'` - rings items linked to the board's lecture: made from a moment of any of its recordings, or its class occurrence (`isLinkedToLecture`); nothing is ringed without one. Neither reaches the reader: the calendar lists everything in the visible date range.
 
 ## Internal Dependencies
 

@@ -33,14 +33,31 @@ function useOnBoard<TInput, TOutput>(
   }
 }
 
-/** The board-scope part of a filter, as the list endpoints accept it. */
+/** The scope part of a filter, as the list endpoints accept it. */
 function boardScope(filter: QueryFilter) {
-  return { recordingId: filter.recordingId, courseTag: filter.courseTag }
+  return { courseTag: filter.courseTag, lectureId: filter.lectureId, recordingId: filter.recordingId }
+}
+
+/** While a lecture's AI work runs, poll as a backstop to the job events that refresh it. */
+function pollWhileProcessing(data: unknown): number | false {
+  const lecture = data as { recordings?: { processing?: unknown }[] } | null | undefined
+  return lecture?.recordings?.some((r) => r.processing) ? 3000 : false
 }
 
 export const substrateTrpc: SubstrateWriter = {
   useRecordings(filter?: QueryFilter) {
-    return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, recordingId: filter.recordingId } : undefined))
+    return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, lectureId: filter.lectureId } : undefined))
+  },
+
+  useLecture(id: string | undefined) {
+    return adapt(trpc.lectures.byId.useQuery(id ?? '', {
+      enabled: !!id,
+      refetchInterval: (query) => pollWhileProcessing(query.state.data),
+    }))
+  },
+
+  useLectures(filter?: { courseTag?: string }) {
+    return adapt(trpc.lectures.list.useQuery(filter?.courseTag ? { courseTag: filter.courseTag } : undefined))
   },
 
   useRecording(id: string) {
@@ -79,8 +96,8 @@ export const substrateTrpc: SubstrateWriter = {
     ))
   },
 
-  useRecordingConnections(recordingId: string | undefined) {
-    return adapt(trpc.links.byRecording.useQuery({ recordingId: recordingId ?? '' }, { enabled: !!recordingId }))
+  useLectureConnections(lectureId: string | undefined) {
+    return adapt(trpc.links.byLecture.useQuery({ lectureId: lectureId ?? '' }, { enabled: !!lectureId }))
   },
 
   useWeeklyOverview(filter: QueryFilter) {
@@ -134,9 +151,18 @@ export const substrateTrpc: SubstrateWriter = {
     return useOnBoard(trpc.recordings.transcribe.useMutation({
       onSuccess: () => {
         utils.recordings.invalidate()
+        utils.lectures.invalidate()
         utils.jobs.invalidate()
       },
     }))
+  },
+
+  useRecordingAdded() {
+    const utils = trpc.useUtils()
+    return useCallback(() => {
+      utils.recordings.invalidate()
+      utils.lectures.invalidate()
+    }, [utils])
   },
 
   useRecordConfidence() {

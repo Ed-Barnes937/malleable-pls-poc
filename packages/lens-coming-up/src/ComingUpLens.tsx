@@ -1,10 +1,12 @@
-import { type LensProps, useSubstrate } from '@pls/lens-framework'
+import { type LensProps, useLinkedToLecture, useSubstrate } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, HiddenElsewhere, Select, clockTime, cn, courseTone, dayLabel, isAllDay } from '@pls/shared-ui'
-import { comingUpQuery, groupByDay, isFromRecording, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
+import { comingUpQuery, groupByDay, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
 
 export default function ComingUpLens({ scope, highlight, config, onConfigChange, onScopeChange }: LensProps) {
   const reader = useSubstrate()
+  // Rings items made from the board's lecture's moments.
+  const fromLecture = useLinkedToLecture(highlight?.lectureId)
   const days = lookAheadDays(config)
   const now = Date.now()
 
@@ -63,7 +65,7 @@ export default function ComingUpLens({ scope, highlight, config, onConfigChange,
                     key={item.occurrence_key}
                     item={item}
                     showCourse={!scope.courseTag}
-                    highlighted={isFromRecording(item, highlight?.recordingId)}
+                    highlighted={fromLecture(item)}
                     now={now}
                     showDay={group.past}
                     onFocusCourse={

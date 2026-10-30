@@ -24,10 +24,10 @@ export const linksRouter = router({
       })
     }),
 
-  // Links out of the targeted lecture's moments. Not course-filtered: a
-  // targeted lecture wins over the course (see boardScope in ./_shared).
-  byRecording: publicProcedure
-    .input(z.object({ recordingId: z.string().max(255) }))
+  // Links out of the moments of a lecture's recordings (its course is the
+  // board's, so no course filter is needed).
+  byLecture: publicProcedure
+    .input(z.object({ lectureId: z.string().max(255) }))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`
@@ -37,8 +37,9 @@ export const linksRouter = router({
           FROM links l
           JOIN transcript_segments ts ON ts.id = l.source_id
           JOIN recordings r ON r.id = ts.recording_id
-          WHERE ts.recording_id = ${input.recordingId}
+          WHERE r.lecture_id = ${input.lectureId}
             AND l.user_id = ${ctx.userId}
+          ORDER BY r.created_at, ts.start_ms
         `
       })
     }),

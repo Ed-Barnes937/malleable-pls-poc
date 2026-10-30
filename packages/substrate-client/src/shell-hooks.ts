@@ -7,9 +7,9 @@ import type { PlanItemQuery } from '@pls/substrate'
 type ScopeRow = { scope_type: string; scope_value: string }
 
 /** `workspace_scopes.scope_type` for each Scope dimension. */
-export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'recording'> = {
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'lecture'> = {
   courseTag: 'tag',
-  recordingId: 'recording',
+  lectureId: 'lecture',
 }
 
 /** Convert raw DB scope rows into the Scope domain object used by lens components. */
@@ -17,9 +17,21 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
     if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
-    if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
+    if (s.scope_type === SCOPE_TYPE_BY_DIM.lectureId) scope.lectureId = s.scope_value
   }
   return scope
+}
+
+/**
+ * A widget's scope patch (`LensProps.onScopeChange`) as `setBoardScope`
+ * input: a dimension named with `undefined` is cleared (null), one left out
+ * is unchanged.
+ */
+export function boardScopePatch(patch: Partial<Scope>): { courseTag?: string | null; lectureId?: string | null } {
+  const out: { courseTag?: string | null; lectureId?: string | null } = {}
+  if ('courseTag' in patch) out.courseTag = patch.courseTag ?? null
+  if ('lectureId' in patch) out.lectureId = patch.lectureId ?? null
+  return out
 }
 
 export function useWorkspaces() {
@@ -123,30 +135,32 @@ export function useUpdateWorkspaceBackground() {
   })
 }
 
-export function useSetWorkspaceScope() {
+/**
+ * The one write for a board's course and lecture (`workspaces.setBoardScope`):
+ * absent = unchanged, null = clear. The server applies the board rules in
+ * the same transaction (a lecture brings its course; a course change clears
+ * a lecture outside it), so one user action is one call.
+ */
+export function useSetBoardScope() {
   const utils = trpc.useUtils()
-  return trpc.workspaces.setScope.useMutation({
+  return trpc.workspaces.setBoardScope.useMutation({
     onError: (error) => refetchBoardsIfGone(utils, error),
     onSuccess: (_data, input) => {
-      utils.workspaces.scopes.invalidate()
-      // A freshly captured/uploaded recording becomes the focus before any
-      // job event has refreshed the recordings list the focus picker reads.
-      if (input.scopeType === SCOPE_TYPE_BY_DIM.recordingId) utils.recordings.invalidate()
+      utils.workspaces.scopes.invalidate(input.workspaceId)
+      // A lecture made a moment ago (an upload) may not be in the picker's list yet.
+      if (input.lectureId) utils.lectures.invalidate()
     },
   })
 }
 
-export function useRecordings(courseTag?: string) {
-  return trpc.recordings.list.useQuery(courseTag ? { courseTag } : undefined)
+/** The student's lectures, latest first, optionally one course's (the lecture picker). */
+export function useLectures(courseTag?: string) {
+  return trpc.lectures.list.useQuery(courseTag ? { courseTag } : undefined)
 }
 
-/**
- * The board's focused recording, looked up by id rather than through the
- * course-narrowed list: focus and course may disagree, and the picker and
- * chip must still name the focused lecture.
- */
-export function useFocusedRecording(recordingId: string | undefined) {
-  return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
+/** One lecture with its recordings, looked up by id (e.g. the board's selected lecture). */
+export function useLecture(lectureId: string | undefined) {
+  return trpc.lectures.byId.useQuery(lectureId ?? '', { enabled: !!lectureId })
 }
 
 /**
@@ -293,6 +307,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
    */
   const refreshJobData = () => {
     utils.recordings.invalidate()
+    utils.lectures.invalidate()
     utils.transcripts.invalidate()
     utils.tags.invalidate()
     utils.links.invalidate()
@@ -309,6 +324,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
       if (event.type === 'job:started') {
         // A lecture's `processing` follows its jobs (e.g. its summary starting).
         utils.recordings.byId.invalidate()
+        utils.lectures.byId.invalidate()
         handlers?.onJobStarted?.(event)
       } else if (event.type === 'job:completed') {
         refreshJobData()

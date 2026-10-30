@@ -2,12 +2,22 @@ import type { SeedData } from './in-memory-db'
 
 export function createDefaultSeedData(): SeedData {
   return {
+    // One lecture per recording, as the server's lectures migration backfills
+    // them ('lec-' + recording id), each holding the course.
+    lectures: [
+      { id: 'lec-rec-bio-1', title: 'Biology Lecture: Cell Structure', course: 'biology', starts_at: '2026-03-28T10:00:00Z', class_item_id: null, class_date: null, created_at: '2026-03-28T10:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+      { id: 'lec-rec-bio-2', title: 'Biology Lecture: Cell Division', course: 'biology', starts_at: '2026-04-04T10:00:00Z', class_item_id: null, class_date: null, created_at: '2026-04-04T10:00:00Z', updated_at: '2026-04-04T10:00:00Z' },
+      { id: 'lec-rec-bio-3', title: 'Biology Lecture: Mitochondria & Energy', course: 'biology', starts_at: '2026-04-11T10:00:00Z', class_item_id: null, class_date: null, created_at: '2026-04-11T10:00:00Z', updated_at: '2026-04-11T10:00:00Z' },
+      { id: 'lec-rec-bio-4', title: 'Biology Lecture: Mitochondrial DNA', course: 'biology', starts_at: '2026-04-16T10:00:00Z', class_item_id: null, class_date: null, created_at: '2026-04-16T10:00:00Z', updated_at: '2026-04-16T10:00:00Z' },
+      { id: 'lec-rec-chem-1', title: 'Chemistry Lecture: Organic Reactions', course: 'chemistry', starts_at: '2026-04-09T14:00:00Z', class_item_id: null, class_date: null, created_at: '2026-04-09T14:00:00Z', updated_at: '2026-04-09T14:00:00Z' },
+    ],
+
     recordings: [
-      { id: 'rec-bio-1', title: 'Biology Lecture: Cell Structure', created_at: '2026-03-28T10:00:00Z', duration: 2820000, audio_url: null, status: 'ready' },
-      { id: 'rec-bio-2', title: 'Biology Lecture: Cell Division', created_at: '2026-04-04T10:00:00Z', duration: 2700000, audio_url: null, status: 'ready' },
-      { id: 'rec-bio-3', title: 'Biology Lecture: Mitochondria & Energy', created_at: '2026-04-11T10:00:00Z', duration: 3000000, audio_url: null, status: 'ready' },
-      { id: 'rec-bio-4', title: 'Biology Lecture: Mitochondrial DNA', created_at: '2026-04-16T10:00:00Z', duration: 2832000, audio_url: null, status: 'ready' },
-      { id: 'rec-chem-1', title: 'Chemistry Lecture: Organic Reactions', created_at: '2026-04-09T14:00:00Z', duration: 2520000, audio_url: null, status: 'ready' },
+      { id: 'rec-bio-1', title: 'Biology Lecture: Cell Structure', created_at: '2026-03-28T10:00:00Z', duration: 2820000, audio_url: null, status: 'ready', lecture_id: 'lec-rec-bio-1' },
+      { id: 'rec-bio-2', title: 'Biology Lecture: Cell Division', created_at: '2026-04-04T10:00:00Z', duration: 2700000, audio_url: null, status: 'ready', lecture_id: 'lec-rec-bio-2' },
+      { id: 'rec-bio-3', title: 'Biology Lecture: Mitochondria & Energy', created_at: '2026-04-11T10:00:00Z', duration: 3000000, audio_url: null, status: 'ready', lecture_id: 'lec-rec-bio-3' },
+      { id: 'rec-bio-4', title: 'Biology Lecture: Mitochondrial DNA', created_at: '2026-04-16T10:00:00Z', duration: 2832000, audio_url: null, status: 'ready', lecture_id: 'lec-rec-bio-4' },
+      { id: 'rec-chem-1', title: 'Chemistry Lecture: Organic Reactions', created_at: '2026-04-09T14:00:00Z', duration: 2520000, audio_url: null, status: 'ready', lecture_id: 'lec-rec-chem-1' },
     ],
 
     transcriptSegments: [
@@ -91,11 +101,6 @@ export function createDefaultSeedData(): SeedData {
 
     tags: [
       // Course tags on recordings
-      { id: 'tag-course-1', target_type: 'recording', target_id: 'rec-bio-1', label: 'biology', created_at: '2026-03-28T10:00:00Z' },
-      { id: 'tag-course-2', target_type: 'recording', target_id: 'rec-bio-2', label: 'biology', created_at: '2026-04-04T10:00:00Z' },
-      { id: 'tag-course-3', target_type: 'recording', target_id: 'rec-bio-3', label: 'biology', created_at: '2026-04-11T10:00:00Z' },
-      { id: 'tag-course-4', target_type: 'recording', target_id: 'rec-bio-4', label: 'biology', created_at: '2026-04-16T10:00:00Z' },
-      { id: 'tag-course-5', target_type: 'recording', target_id: 'rec-chem-1', label: 'chemistry', created_at: '2026-04-09T14:00:00Z' },
       // Student tags on segments
       { id: 'tag-1', target_type: 'transcript_segment', target_id: 'seg-bio4-04', label: 'confused', created_at: '2026-04-16T10:12:00Z' },
       { id: 'tag-2', target_type: 'transcript_segment', target_id: 'seg-bio4-08', label: 'confused', created_at: '2026-04-16T10:25:00Z' },
@@ -178,9 +183,11 @@ export function createDefaultSeedData(): SeedData {
     ],
 
     workspaceScopes: [
-      { id: 'ws-scope-1', workspace_id: 'ws-in-lecture', scope_type: 'recording', scope_value: 'rec-bio-4' },
+      // As the server after the lectures migration: a selected lecture brings its course.
+      { id: 'ws-scope-1', workspace_id: 'ws-in-lecture', scope_type: 'lecture', scope_value: 'lec-rec-bio-4' },
+      { id: 'ws-scope-1b', workspace_id: 'ws-in-lecture', scope_type: 'tag', scope_value: 'biology' },
       { id: 'ws-scope-2', workspace_id: 'ws-evening-review', scope_type: 'tag', scope_value: 'biology' },
-      { id: 'ws-scope-5', workspace_id: 'ws-evening-review', scope_type: 'recording', scope_value: 'rec-bio-4' },
+      { id: 'ws-scope-5', workspace_id: 'ws-evening-review', scope_type: 'lecture', scope_value: 'lec-rec-bio-4' },
     ],
 
     // Matches 002_seed.sql + 013_lecture_ai_automations.sql.

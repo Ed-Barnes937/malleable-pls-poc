@@ -89,7 +89,9 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
     expect(await caller.recordings.byId(unfiled)).toMatchObject({ id: unfiled, course: null })
     expect(await caller.recordings.byId(rec)).toMatchObject({ id: rec, course: null })
     expect((await caller.recordings.list()).map((r) => [r.id, r.course])).toEqual([[filed, 'biology'], [unfiled, null], [rec, null]])
-    expect(await caller.recordings.list({ recordingId: unfiled })).toEqual([expect.objectContaining({ id: unfiled, course: null })])
+    const unfiledLecture = (await caller.recordings.byId(unfiled))!.lecture_id as string
+    expect(await caller.recordings.list({ lectureId: unfiledLecture })).toEqual([expect.objectContaining({ id: unfiled, course: null })])
+    expect(await caller.recordings.list({ lectureId: unfiledLecture, courseTag: 'biology' })).toEqual([])
     expect(await caller.recordings.list({ courseTag: 'biology' })).toEqual([expect.objectContaining({ id: filed, course: 'biology' })])
   })
 

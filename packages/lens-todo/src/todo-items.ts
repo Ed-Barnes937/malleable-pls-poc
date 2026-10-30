@@ -39,10 +39,6 @@ export function slippedAt(item: PlanItemOccurrence, now: number): string | null 
   return null
 }
 
-/** Made from a moment of the given lecture (provenance `source_type = 'recording'`). */
-export function isFromRecording(item: PlanItemOccurrence, recordingId: string | undefined): boolean {
-  return !!recordingId && item.source_type === 'recording' && item.source_id === recordingId
-}
 
 /** At most this many ticked-off to-dos stay visible under "Done today". */
 export const DONE_TODAY_LIMIT = 5

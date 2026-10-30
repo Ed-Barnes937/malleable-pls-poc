@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: PieChart,
   description: 'How sure you feel across your courses',
   group: 'review',
-  scope: { courseTag: 'highlight', recordingId: 'ignore' },
+  scope: { courseTag: 'highlight', lectureId: 'ignore' },
   reads: ['gap_analysis'],
   load: () => import('./GapAnalysisLens'),
   minWidth: 350,

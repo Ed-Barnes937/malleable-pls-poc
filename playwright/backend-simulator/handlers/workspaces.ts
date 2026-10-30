@@ -1,6 +1,9 @@
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { inCourse } from './course-scope'
+import { writeBoardScope } from './lectures'
+
+/** Mirrors `COURSE_LABELS` on the server. */
+const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
 
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
@@ -14,6 +17,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.create', (input) => {
     const { name, courseTag } = input as { name: string; courseTag?: string }
+    if (courseTag && !COURSE_LABELS.has(courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
     const ws = {
       id: `ws-${crypto.randomUUID().slice(0, 8)}`,
       name,
@@ -100,44 +104,17 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.scopes', (input) => {
     const workspaceId = input as string
-    return db.workspaceScopes.filter((s) => s.workspace_id === workspaceId)
+    // Ordered by type, as on the server.
+    return db.workspaceScopes
+      .filter((s) => s.workspace_id === workspaceId)
+      .sort((a, b) => (a.scope_type < b.scope_type ? -1 : a.scope_type > b.scope_type ? 1 : 0))
   })
 
-  router.register('workspaces.setScope', (input) => {
-    const { workspaceId, scopeType, scopeValue } = input as {
-      workspaceId: string; scopeType: string; scopeValue: string | null
-    }
-    // Mirror the server's z.enum: only live board dimensions.
-    if (scopeType !== 'tag' && scopeType !== 'recording') throw new Error(`Unknown scope type: ${scopeType}`)
-    requireBoard(db, workspaceId)
-    // Mirror server invariant: a new course clears a focused recording that
-    // is not in it; "All courses" (null) keeps the focus.
-    if (scopeType === 'tag' && scopeValue !== null) {
-      db.workspaceScopes = db.workspaceScopes.filter(
-        (s) => !(
-          s.workspace_id === workspaceId &&
-          s.scope_type === 'recording' &&
-          !inCourse(db, scopeValue, 'recording', s.scope_value)
-        ),
-      )
-    }
-    const idx = db.workspaceScopes.findIndex(
-      (s) => s.workspace_id === workspaceId && s.scope_type === scopeType,
-    )
-    if (scopeValue === null) {
-      if (idx >= 0) db.workspaceScopes.splice(idx, 1)
-      return
-    }
-    if (idx >= 0) {
-      db.workspaceScopes[idx].scope_value = scopeValue
-    } else {
-      db.workspaceScopes.push({
-        id: `ws-scope-${crypto.randomUUID().slice(0, 8)}`,
-        workspace_id: workspaceId,
-        scope_type: scopeType,
-        scope_value: scopeValue,
-      })
-    }
+  // The one scope write, as on the server (see `writeBoardScope`).
+  router.register('workspaces.setBoardScope', (input) => {
+    const { workspaceId, ...patch } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    return writeBoardScope(db, workspaceId, patch)
   })
 }
 

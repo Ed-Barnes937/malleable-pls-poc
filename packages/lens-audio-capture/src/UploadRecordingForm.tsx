@@ -12,12 +12,17 @@ interface UploadRecordingFormProps {
   file: File
   /** Pre-selected course, typically the workspace's course filter. */
   defaultCourse?: string
+  /**
+   * The lecture the upload goes into (the board's), by title. Its course is
+   * the lecture's, so the form asks for none.
+   */
+  intoLecture?: string
   onSubmit: (details: UploadRecordingDetails) => void
   onCancel: () => void
 }
 
 /** Title + course details for a picked audio file before it is uploaded. */
-export function UploadRecordingForm({ file, defaultCourse, onSubmit, onCancel }: UploadRecordingFormProps) {
+export function UploadRecordingForm({ file, defaultCourse, intoLecture, onSubmit, onCancel }: UploadRecordingFormProps) {
   const [title, setTitle] = useState(() => titleFromFilename(file.name))
   const [course, setCourse] = useState(defaultCourse ?? '')
 
@@ -44,14 +49,20 @@ export function UploadRecordingForm({ file, defaultCourse, onSubmit, onCancel }:
         maxLength={200}
         autoFocus
       />
-      <Select aria-label="Recording course" value={course} onChange={(e) => setCourse(e.target.value)}>
-        <option value="">No course</option>
-        {COURSES.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </Select>
+      {intoLecture ? (
+        <p data-testid="upload-into-lecture" className="truncate text-meta text-text-secondary">
+          Adds to <span className="font-semibold text-text-primary">{intoLecture}</span>
+        </p>
+      ) : (
+        <Select aria-label="Recording course" value={course} onChange={(e) => setCourse(e.target.value)}>
+          <option value="">No course</option>
+          {COURSES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
+      )}
       <div className="flex justify-end gap-2">
         <button
           type="button"

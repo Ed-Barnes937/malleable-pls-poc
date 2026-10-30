@@ -11,15 +11,16 @@ export const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 export const courseTag = z.string().max(500).optional()
 
 /**
- * Board scope accepted by list endpoints: a focused recording and/or a course.
- * A targeted recording wins over the course: when `recordingId` is set the
- * endpoint returns that lecture's data and does not apply `courseTag`, so a
- * lecture focused outside the board course never silently loses the
- * student's own tags and notes.
+ * Scope accepted by list endpoints: the board's course and selected lecture,
+ * and optionally one recording (not a board dimension: e.g. the recording a
+ * study block came from). Every dimension given is applied. A board's
+ * lecture is always in its course (see `writeBoardScope`), so course and
+ * lecture never disagree; applying both is defence in depth.
  */
 export const boardScope = z.object({
-  recordingId: z.string().max(255).optional(),
   courseTag,
+  lectureId: z.string().max(255).optional(),
+  recordingId: z.string().max(255).optional(),
 })
 
 /**
@@ -135,6 +136,66 @@ export function andInCourse(
   targetId: Fragment,
 ): Fragment {
   return course ? tx`AND ${inCourse(tx, userId, course, target, targetId)}` : tx``
+}
+
+/**
+ * `AND <recording is in the lecture>` when a lecture is set, otherwise an
+ * empty fragment, the lecture counterpart of `andInCourse`. `recordingId` is
+ * the SQL expression for the recording's id, e.g. tx`ts.recording_id`.
+ */
+export function andInLecture(
+  tx: TxSql,
+  userId: string,
+  lectureId: string | undefined,
+  recordingId: Fragment,
+): Fragment {
+  if (!lectureId) return tx``
+  return tx`
+    AND ${recordingId} IN (
+      SELECT scope_recording.id FROM recordings scope_recording
+      WHERE scope_recording.lecture_id = ${lectureId} AND scope_recording.user_id = ${userId}
+    )
+  `
+}
+
+/**
+ * Board course, lecture and recording narrowing in one fragment, for readers
+ * whose rows belong to a recording (`recordingId` is the SQL expression for
+ * it). Empty when the scope sets none of them.
+ */
+export function andInScope(
+  tx: TxSql,
+  userId: string,
+  scope: z.infer<typeof boardScope>,
+  recordingId: Fragment,
+): Fragment {
+  return tx`
+    ${andInCourse(tx, userId, scope.courseTag, 'recording', recordingId)}
+    ${andInLecture(tx, userId, scope.lectureId, recordingId)}
+    ${scope.recordingId ? tx`AND ${recordingId} = ${scope.recordingId}` : tx``}
+  `
+}
+
+/** True when the scope narrows by anything (course, lecture or recording). */
+export function isScoped(scope: z.infer<typeof boardScope>): boolean {
+  return !!(scope.courseTag || scope.lectureId || scope.recordingId)
+}
+
+/**
+ * What a recording's AI jobs are still doing (`... AS processing`):
+ * 'transcribing' first, then 'summarising', NULL when nothing is running.
+ * `recordingId` is the SQL expression for the recording's id.
+ */
+export function recordingProcessing(tx: TxSql, userId: string, recordingId: Fragment): Fragment {
+  return tx`(
+    SELECT CASE WHEN bool_or(busy.job_type = 'ai:transcribe') THEN 'transcribing' ELSE 'summarising' END
+    FROM job_runs busy
+    WHERE busy.user_id = ${userId}
+      AND busy.status IN ('pending', 'running')
+      AND busy.job_type IN ('ai:transcribe', 'ai:summarize-lecture')
+      AND COALESCE(busy.input->>'recording_id', busy.input->>'target_id') = ${recordingId}
+    HAVING count(*) > 0
+  )`
 }
 
 /**
