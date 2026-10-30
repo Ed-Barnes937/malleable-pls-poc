@@ -56,6 +56,18 @@ test('with no board, offers no widgets and says a board comes first', async ({ m
   )
   await expect(page.getByTestId('drawer-no-board')).toHaveText('Make a board first, then you can add widgets to it.')
   await expect(page.getByTestId('widget-palette')).toHaveCount(0)
-  await expect(page.getByTestId('scope-section')).toHaveCount(0)
   await expect(page.getByText('Automations')).toHaveCount(0)
+})
+
+test('has no scope pickers: what the board shows is chosen in the top bar', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <DrawerSidebar open onClose={() => {}} onAddWidget={() => {}} />
+    </ShellProviders>,
+  )
+  // The first board (In Lecture) uses both course and lecture.
+  await expect(page.getByRole('button', { name: 'Add Transcript' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Course' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Lecture' })).toHaveCount(0)
+  await expect(page.getByText('Showing', { exact: true })).toHaveCount(0)
 })

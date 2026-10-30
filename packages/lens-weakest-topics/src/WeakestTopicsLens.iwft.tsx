@@ -9,6 +9,28 @@ const defaultProps = {
   config: {},
 }
 
+test('opening a moment scrolls only its own list, never the board around it', async ({ mount, page, simulator: _seed }) => {
+  // A board view 150px tall, with the widget's lower rows below its fold.
+  await mount(
+    <TestProviders>
+      <div data-testid="board" style={{ height: 150, overflowY: 'auto' }}>
+        <div style={{ height: 260, display: 'flex', flexDirection: 'column' }}>
+          <WeakestTopicsLens {...defaultProps} onShowMoment={() => new Promise(() => {})} />
+        </div>
+        <div style={{ height: 1000 }} />
+      </div>
+    </TestProviders>,
+  )
+  const rows = page.getByTestId('weak-topic')
+  await expect(rows).toHaveCount(6)
+  const board = page.getByTestId('board')
+  await rows.last().getByRole('button').dispatchEvent('click')
+  await expect(page.getByText('Opening the moment...')).toBeAttached()
+  // The list scrolled to show it; the board did not move (it may be gliding elsewhere).
+  await expect.poll(() => page.getByRole('list', { name: 'Weak topics' }).evaluate((el) => el.scrollTop)).toBeGreaterThan(0)
+  expect(await board.evaluate((el) => el.scrollTop)).toBe(0)
+})
+
 test('lists the moments to review, weakest first, with readable labels and where they are', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>

@@ -54,7 +54,7 @@ test.describe('Plan widgets: To-do and Coming up', () => {
 
     // Biology board: Coming up filters to Biology and says what it leaves out.
     await topBar.switchToWorkspace('Biology week')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     const comingUp = grid.panelByLabel('Coming up')
     await expect(comingUp.getByText('Biology quiz')).toBeVisible({ timeout: 10000 })
     await expect(comingUp.getByText('Chemistry lab report')).toHaveCount(0)

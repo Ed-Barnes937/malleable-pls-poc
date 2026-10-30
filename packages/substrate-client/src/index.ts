@@ -15,6 +15,7 @@ export {
   useSetBoardScope,
   useLectures,
   useLecture,
+  useUpdateLecture,
   usePlanItemList,
   usePreferences,
   useRecentJobs,

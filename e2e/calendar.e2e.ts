@@ -406,7 +406,7 @@ test.describe('Calendar', () => {
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('chloroplast DNA', { timeout: 10000 })
     await expect(moment).toBeInViewport()
-    await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
+    await expect(topBar.lecturePill).toHaveText('Biology Lecture: Mitochondrial DNA')
     await expect(calendar.root.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
     // The calendar now highlights the block linked to the focused lecture.
     await expect(calendar.block('Review: chloroplast DNA')).toHaveAttribute('data-linked', 'true')

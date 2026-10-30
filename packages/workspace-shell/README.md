@@ -6,15 +6,17 @@ Main application shell - top bar, board menu (drawer), canvas orchestration and 
 
 Provides the top-level layout that composes the top bar, the board menu, the panel canvas and supporting chrome (theme toggle, activity, board tabs, automations). Manages which widgets (lenses) are loaded, their scope context and panel lifecycle.
 
-Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` section 1: widget (lens), board (workspace), "Showing: ..." (scope), automation (workflow), lecture (recording). Code identifiers keep their names.
+Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` section 1: widget (lens), board (workspace), "Showing" course and lecture pills (scope), automation (workflow), lecture (recording). Code identifiers keep their names.
 
 ## Components
 
 | Component | Description |
 |-----------|-------------|
 | `WorkspaceShell` | Root layout: top bar + board menu + canvas; adds widgets (palette click places in the first free area, drag drops at the cursor) |
-| `TopBar` | Board menu button, board tabs, "Showing: ..." chip, activity, theme, appearance, tidy up |
-| `DrawerSidebar` | Board menu: "Showing" scope pickers first (compact, in view at 900px), widget palette, board automations; opens at the top |
+| `TopBar` | Board menu button, board tabs, scope pills (`BoardScope`), today line, activity, theme, appearance, tidy up. On a phone the pills and the short today line share a second row, the today line wrapping under the pills when they leave it less than 40% |
+| `BoardScope` | "Showing [Biology] > [Mitochondrial DNA]": a course pill and (when a widget targets or highlights the lecture) a lecture pill, only for dimensions some widget uses. One `setBoardScope` per choice, shown at once (writes go one at a time, in order). A pencil beside the lecture pill renames the lecture inline (`lectures.update`) |
+| `ScopePill` | A content-sized dropdown pill: a transparent native `<select>` over a styled label (dot, ellipsis, chevron), so keyboard and the phone's picker are native. A change made by a key (a closed select on Windows and Linux changes per arrow press) is a draft until Enter or leaving the pill; Escape drops it |
+| `DrawerSidebar` | Board menu: widget palette, board automations (and on a phone, Activity, theme and appearance); opens at the top |
 | `PanelContainer` | Wrapper connecting a panel slot to its lens |
 | `ThemeToggle` | Light / dark mode switch |
 | `JobStatusIndicator` | Activity button and panel for background automation runs |

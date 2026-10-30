@@ -70,7 +70,7 @@ test.describe('Building a board', () => {
     await grid.expectHasPanel('Weakest Topics')
     await grid.expectHasPanel('All Courses')
     // The board's course came from the create dialog.
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology')
+    await topBar.expectScope('Biology', null)
 
     // Click-added widgets land in free space, not on top of each other.
     const boxes = await panelBoxes(page)
@@ -220,16 +220,21 @@ test.describe('Building a board', () => {
     await page.keyboard.press('Tab')
     await expect(topBar.root.getByRole('button', { name: 'Exam Prep', exact: true })).toBeFocused()
 
-    // Board menu: Tab reaches its controls, the Showing pickers first, then widget tiles.
+    // After the board tabs (and New board), the scope pickers, then the right-hand buttons.
+    await topBar.newWorkspaceButton.focus()
+    await page.keyboard.press('Tab')
+    await expect(topBar.courseSelect).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.lectureSelect).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.root.getByRole('button', { name: 'Activity' })).toBeFocused()
+
+    // Board menu: Tab goes from Close straight to the widget tiles (no pickers in here).
     await topBar.drawerTrigger.click()
     const drawer = page.getByTestId('drawer-sidebar')
     await expect(drawer).toBeInViewport()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Close board menu' })).toBeFocused()
-    await page.keyboard.press('Tab')
-    await expect(drawer.getByRole('combobox', { name: 'Course' })).toBeFocused()
-    await page.keyboard.press('Tab')
-    await expect(drawer.getByRole('combobox', { name: 'Lecture' })).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Add Audio Capture' })).toBeFocused()
 
@@ -258,10 +263,10 @@ test.describe('Building a board', () => {
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(400)
     }
-    const chip = new TopBarPom(page).scopeChip
-    await expect(chip).toBeInViewport()
-    const chipBox = await chip.boundingBox()
-    expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(400)
+    const scope = new TopBarPom(page).scopeGroup
+    await expect(scope).toBeInViewport()
+    const scopeBox = await scope.boundingBox()
+    expect(scopeBox!.x + scopeBox!.width).toBeLessThanOrEqual(400)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400)
     // The stacked column scrolls with the wheel to reach the last widget.
     const allCourses = grid.panelByLabel('All Courses')

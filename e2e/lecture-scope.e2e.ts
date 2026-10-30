@@ -1,6 +1,6 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
-import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
 
@@ -62,7 +62,7 @@ test.describe('A board selects a lecture', () => {
       const transcript = grid.panelByLabel('Transcript')
 
       // A lecture with no recording yet: both widgets say so, by its name.
-      await expect(topBar.scopeChip).toHaveText('Showing: Biology · Enzymes', { timeout: 10000 })
+      await topBar.expectScope('Biology', 'Enzymes', { timeout: 10000 })
       await expect(audio.getByTestId('ready-to-record')).toHaveText('Ready to record Enzymes')
       await expect(transcript.getByText('No recording yet')).toBeVisible()
 
@@ -74,7 +74,7 @@ test.describe('A board selects a lecture', () => {
       await expect(transcript.getByText('Enzymes')).toBeVisible({ timeout: 10000 })
       await expect(transcript.getByText(/\d+ segments/)).toBeVisible({ timeout: 20000 })
       await expect(transcript.getByText('No recording yet')).toHaveCount(0)
-      await expect(topBar.scopeChip).toHaveText('Showing: Biology · Enzymes')
+      await topBar.expectScope('Biology', 'Enzymes')
       await expect.poll(async () => (await trpcQuery<Lecture>(request, 'lectures.byId', lecture.id)).recordings.length).toBe(1)
 
       // Record more: a second part of the same lecture.
@@ -85,17 +85,17 @@ test.describe('A board selects a lecture', () => {
       const parts = transcript.getByRole('group', { name: 'Lecture parts' }).getByRole('button')
       await expect(parts).toHaveText(['Part 1', 'Part 2'], { timeout: 10000 })
       await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
-      expect((await trpcQuery<Lecture[]>(request, 'lectures.list', {})).filter((l) => l.title === 'Enzymes')).toHaveLength(1)
+      await expect.poll(async () => (await trpcQuery<Lecture[]>(request, 'lectures.list', {})).filter((l) => l.title === 'Enzymes')).toHaveLength(1)
 
       // New lecture: the board has no lecture; the course stays.
       await audio.getByRole('button', { name: 'New lecture' }).click()
-      await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+      await topBar.expectScope('Biology', null, { timeout: 10000 })
       await expect(audio.getByTestId('ready-to-record')).toHaveText('Ready to record')
       // The Transcript offers the course's latest lectures; one click selects one.
       const recent = transcript.getByRole('list', { name: 'Recent lectures' }).getByRole('button')
       await expect(recent.first()).toHaveText('Enzymes')
       await recent.first().click()
-      await expect(topBar.scopeChip).toHaveText('Showing: Biology · Enzymes', { timeout: 10000 })
+      await topBar.expectScope('Biology', 'Enzymes', { timeout: 10000 })
       await expect(parts).toHaveCount(2)
     })
 
@@ -110,7 +110,7 @@ test.describe('A board selects a lecture', () => {
       await topBar.switchToWorkspace('Lecture hall')
       const audio = grid.panelByLabel('Audio Capture')
       const transcript = grid.panelByLabel('Transcript')
-      await expect(topBar.scopeChip).toHaveText('Showing: Chemistry', { timeout: 10000 })
+      await topBar.expectScope('Chemistry', null, { timeout: 10000 })
       await expect(audio.getByTestId('ready-to-record')).toHaveText('Ready to record')
 
       const before = (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).map((l) => l.id)
@@ -119,11 +119,11 @@ test.describe('A board selects a lecture', () => {
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       await expect(transcript.getByText(/\d+ segments/)).toBeVisible({ timeout: 20000 })
 
-      const made = (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).filter((l) => !before.includes(l.id))
-      expect(made).toHaveLength(1)
-      await expect(topBar.scopeChip).toHaveText(`Showing: Chemistry · ${made[0].title}`)
-      await topBar.openDrawer()
-      await expect(new SidebarPom(page).lectureSelect).toHaveValue(made[0].id)
+      const madeNow = async () => (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).filter((l) => !before.includes(l.id))
+      await expect.poll(async () => (await madeNow()).length).toBe(1)
+      const made = await madeNow()
+      await topBar.expectScope('Chemistry', made[0].title)
+      await expect(topBar.lectureSelect).toHaveValue(made[0].id)
     })
   })
 
@@ -150,11 +150,8 @@ test.describe('A board selects a lecture', () => {
     await expect(deadline).not.toHaveAttribute('data-highlighted')
 
     // These widgets highlight the lecture, so the board offers the picker.
-    await topBar.openDrawer()
-    const sidebar = new SidebarPom(page)
-    await sidebar.selectLecture('Biology Lecture: Mitochondrial DNA')
-    await page.keyboard.press('Escape')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await topBar.selectLecture('Biology Lecture: Mitochondrial DNA')
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
     await expect(block).toHaveAttribute('data-linked', 'true')
     await expect(todoRow).toHaveAttribute('data-highlighted', 'true')
     await expect(deadline).toHaveAttribute('data-highlighted', 'true')
@@ -163,7 +160,7 @@ test.describe('A board selects a lecture', () => {
     await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-3' })
     await page.reload()
     await topBar.switchToWorkspace('Plan and review')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Biology Lecture: Mitochondria & Energy', { timeout: 10000 })
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondria & Energy', { timeout: 10000 })
     await expect(block).not.toHaveAttribute('data-linked')
     await expect(todoRow).not.toHaveAttribute('data-highlighted')
     await expect(deadline).not.toHaveAttribute('data-highlighted')
@@ -183,7 +180,7 @@ test.describe('A board selects a lecture', () => {
     await topBar.switchToWorkspace('Biology review')
     const calendar = new CalendarPom(page)
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
     await expect(transcript.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
 
     // The calendar highlights the course, so the Chemistry block is there (dimmed).
@@ -191,10 +188,10 @@ test.describe('A board selects a lecture', () => {
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
 
     // One write: the Chemistry lecture, and with it Chemistry.
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await topBar.expectScope('Chemistry', 'Chemistry Lecture: Organic Reactions', { timeout: 10000 })
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('SN1 is a two-step mechanism', { timeout: 10000 })
-    expect(await trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
       expect.objectContaining({ scope_type: 'lecture', scope_value: 'lec-rec-chem-1' }),
       expect.objectContaining({ scope_type: 'tag', scope_value: 'chemistry' }),
     ])
@@ -203,7 +200,7 @@ test.describe('A board selects a lecture', () => {
     const toast = page.getByTestId('toast-host').getByTestId('toast')
     await expect(toast).toContainText('Opened 9:00 in Chemistry Lecture: Organic Reactions')
     await toast.getByRole('button', { name: 'Back to Biology Lecture: Mitochondrial DNA' }).click()
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
   })
 
   test('"Go to moment" on a board with a course but no lecture offers the way back to the course', async ({ page, request }) => {
@@ -217,14 +214,14 @@ test.describe('A board selects a lecture', () => {
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Biology week')
     const calendar = new CalendarPom(page)
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     await calendar.block('Review: SN1 mechanism').click()
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
 
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await topBar.expectScope('Chemistry', 'Chemistry Lecture: Organic Reactions', { timeout: 10000 })
     const toast = page.getByTestId('toast-host').getByTestId('toast')
     await toast.getByRole('button', { name: 'Back to Biology' }).click()
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
   })
 
   test('"Back to ..." says so when the board could not be changed back', async ({ page, request }) => {
@@ -238,17 +235,17 @@ test.describe('A board selects a lecture', () => {
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Biology week')
     const calendar = new CalendarPom(page)
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     await calendar.block('Review: SN1 mechanism').click()
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await topBar.expectScope('Chemistry', 'Chemistry Lecture: Organic Reactions', { timeout: 10000 })
 
     // The way back fails on the server.
     await page.route('**/workspaces.setBoardScope*', (route) => route.fulfill({ status: 500, body: 'down' }))
     const toast = page.getByTestId('toast-host').getByTestId('toast')
     await toast.getByRole('button', { name: 'Back to Biology' }).click()
     await expect(toast).toHaveText("Couldn't go back - try again")
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions')
+    await topBar.expectScope('Chemistry', 'Chemistry Lecture: Organic Reactions')
   })
 
   test("\"Go to moment\" says it couldn't, when the moment's recording is gone", async ({ page, request }) => {
@@ -262,11 +259,11 @@ test.describe('A board selects a lecture', () => {
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Biology week')
     const calendar = new CalendarPom(page)
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     await calendar.block('Review: a lost moment').click()
     await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
 
     await expect(calendar.popover.getByText("Couldn't open the moment just now.")).toBeVisible()
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology')
+    await topBar.expectScope('Biology', null)
   })
 })

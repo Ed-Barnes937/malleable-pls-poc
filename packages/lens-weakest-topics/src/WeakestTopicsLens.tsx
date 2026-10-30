@@ -70,6 +70,21 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   )
 }
 
+/**
+ * Scrolls `el` into view within the topic list only. Not `scrollIntoView`,
+ * which also scrolls the board: a row remounted while the shell glides the
+ * board to the Transcript (the list refetches when the moment changes the
+ * board's course) would stop that glide.
+ */
+function scrollIntoList(el: HTMLElement) {
+  const list = el.closest('ul')
+  if (!list) return
+  const l = list.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
+  else if (r.top < l.top) list.scrollTop -= l.top - r.top
+}
+
 interface TopicRowProps {
   topic: WeakTopic
   showCourse: boolean
@@ -86,7 +101,7 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
   // Keep where the click went in view, even for a row low in a short panel.
   const messageRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (state && state !== 'shown') messageRef.current?.scrollIntoView({ block: 'nearest' })
+    if (state && state !== 'shown' && messageRef.current) scrollIntoList(messageRef.current)
   }, [state])
 
   const body = (
