@@ -67,7 +67,3 @@ export function groupByDay(items: PlanItemOccurrence[], now: number): DayGroup[]
   return groups
 }
 
-/** Linked to the given lecture (provenance `source_type = 'recording'`). */
-export function isFromRecording(item: PlanItemOccurrence, recordingId: string | undefined): boolean {
-  return !!recordingId && item.source_type === 'recording' && item.source_id === recordingId
-}

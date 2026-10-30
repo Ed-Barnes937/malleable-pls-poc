@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: Brain,
   description: 'Quiz yourself',
   group: 'study',
-  scope: { courseTag: 'filter', recordingId: 'ignore' },
+  scope: { courseTag: 'filter', lectureId: 'ignore' },
   reads: ['tags', 'confidence_signals'],
   writes: ['confidence_signals'],
   emits: ['confidence:recorded'],

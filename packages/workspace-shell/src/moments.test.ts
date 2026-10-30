@@ -28,43 +28,43 @@ describe('hasPlanItemViewer', () => {
 describe('chooseMomentBoard', () => {
   it('prefers a board with a viewer already focused on the recording', () => {
     const boards = [
-      { id: 'plan', lensTypes: ['calendar'], recordingId: 'rec-1' },
-      { id: 'lecture', lensTypes: ['transcript'], recordingId: 'rec-2' },
-      { id: 'review', lensTypes: ['transcript', 'test-me'], recordingId: 'rec-1' },
+      { id: 'plan', lensTypes: ['calendar'], lectureId: 'lec-1' },
+      { id: 'lecture', lensTypes: ['transcript'], lectureId: 'lec-2' },
+      { id: 'review', lensTypes: ['transcript', 'test-me'], lectureId: 'lec-1' },
     ]
-    expect(chooseMomentBoard(boards, manifests, 'rec-1')).toBe('review')
+    expect(chooseMomentBoard(boards, manifests, 'lec-1')).toBe('review')
   })
 
   it('falls back to the first board with a viewer', () => {
     const boards = [
       { id: 'plan', lensTypes: ['calendar'] },
       { id: 'lecture', lensTypes: ['transcript'] },
-      { id: 'review', lensTypes: ['transcript'], recordingId: 'rec-3' },
+      { id: 'review', lensTypes: ['transcript'], lectureId: 'lec-3' },
     ]
-    expect(chooseMomentBoard(boards, manifests, 'rec-1')).toBe('lecture')
+    expect(chooseMomentBoard(boards, manifests, 'lec-1')).toBe('lecture')
   })
 
   it('prefers a board set up for reviewing over one capturing, then tab order', () => {
     // As seeded: In Lecture captures, Evening Review reviews; both focused on the lecture.
     const boards = [
-      { id: 'in-lecture', lensTypes: ['transcript'], recordingId: 'rec-1', reviewViewer: false },
+      { id: 'in-lecture', lensTypes: ['transcript'], lectureId: 'lec-1', reviewViewer: false },
       { id: 'plan', lensTypes: ['calendar'] },
-      { id: 'evening', lensTypes: ['transcript'], recordingId: 'rec-1', reviewViewer: true },
-      { id: 'exam', lensTypes: ['transcript'], recordingId: 'rec-2', reviewViewer: true },
+      { id: 'evening', lensTypes: ['transcript'], lectureId: 'lec-1', reviewViewer: true },
+      { id: 'exam', lensTypes: ['transcript'], lectureId: 'lec-2', reviewViewer: true },
     ]
-    expect(chooseMomentBoard(boards, manifests, 'rec-1')).toBe('evening')
+    expect(chooseMomentBoard(boards, manifests, 'lec-1')).toBe('evening')
     // A reviewing board wins even when it is focused on another lecture.
-    expect(chooseMomentBoard(boards.filter((b) => b.id !== 'evening'), manifests, 'rec-1')).toBe('exam')
+    expect(chooseMomentBoard(boards.filter((b) => b.id !== 'evening'), manifests, 'lec-1')).toBe('exam')
     // Only capturing boards: the first in tab order (focused first).
     const capture = [
       { id: 'a', lensTypes: ['transcript'], reviewViewer: false },
       { id: 'b', lensTypes: ['transcript'], reviewViewer: false },
     ]
-    expect(chooseMomentBoard(capture, manifests, 'rec-1')).toBe('a')
+    expect(chooseMomentBoard(capture, manifests, 'lec-1')).toBe('a')
   })
 
   it('returns undefined when no board can show a moment', () => {
-    expect(chooseMomentBoard([{ id: 'plan', lensTypes: ['calendar'] }], manifests, 'rec-1')).toBeUndefined()
+    expect(chooseMomentBoard([{ id: 'plan', lensTypes: ['calendar'] }], manifests, 'lec-1')).toBeUndefined()
   })
 })
 

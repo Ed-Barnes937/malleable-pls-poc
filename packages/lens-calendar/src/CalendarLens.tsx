@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
-import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
@@ -358,11 +358,8 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     (item: PlanItemOccurrence) => !!highlight?.courseTag && item.course != null && item.course !== highlight.courseTag,
     [highlight?.courseTag],
   )
-  const isLinked = useCallback(
-    (item: PlanItemOccurrence) =>
-      !!highlight?.recordingId && item.source_type === 'recording' && item.source_id === highlight.recordingId,
-    [highlight?.recordingId],
-  )
+  // Rings the board's lecture: its class occurrence and blocks made from its moments.
+  const isLinked = useLinkedToLecture(highlight?.lectureId)
 
   const relative = (anchor: Anchor) => {
     const left = rootRef.current?.getBoundingClientRect().left ?? 0

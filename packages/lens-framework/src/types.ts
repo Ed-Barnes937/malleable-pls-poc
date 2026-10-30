@@ -5,7 +5,12 @@
  */
 export interface Scope {
   courseTag?: string
-  recordingId?: string
+  /**
+   * The selected lecture (`lectures.id`). Invariant, enforced by the server:
+   * when set, `courseTag` is that lecture's course (unset for a lecture filed
+   * under none).
+   */
+  lectureId?: string
 }
 
 export type ScopeDim = keyof Scope
@@ -22,15 +27,16 @@ export type ScopeDim = keyof Scope
 export type CourseScopeMode = 'filter' | 'highlight' | 'ignore'
 
 /**
- * How a widget responds to the board's focused recording ("lecture").
- * - `target`: works on that one recording (and prompts when none is focused).
- *   A targeted lecture wins over the course: its own data is never hidden by
- *   a course filter, even when the two disagree.
- * - `highlight`: shows everything and emphasises items linked to it. The
- *   focus never reaches the widget's readers.
- * - `ignore`: never sees the focus.
+ * How a widget responds to the board's selected lecture.
+ * - `target`: works on that one lecture (its recordings, transcript,
+ *   connections) and prompts when none is selected. The lecture is always in
+ *   the board course, so the two never disagree.
+ * - `highlight`: shows everything and emphasises items linked to it (e.g.
+ *   blocks made from its moments). The lecture never reaches the widget's
+ *   readers.
+ * - `ignore`: never sees the lecture.
  */
-export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
+export type LectureScopeMode = 'target' | 'highlight' | 'ignore'
 
 /**
  * Per-dimension scope behaviour declared on a widget's manifest. Omitted
@@ -40,7 +46,7 @@ export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
  */
 export interface ScopeDeclaration {
   courseTag?: CourseScopeMode
-  recordingId?: RecordingScopeMode
+  lectureId?: LectureScopeMode
 }
 
 /**
@@ -142,15 +148,19 @@ export interface LensProps {
    */
   onConfigChange?: (patch: Record<string, unknown>) => void
   /**
-   * Patch the workspace-level scope shared by every panel, e.g. to focus a
-   * recording the lens just created. `undefined` clears a dimension. Optional
-   * for the same reason as `onConfigChange`.
+   * Patch the workspace-level scope shared by every panel, e.g. to select a
+   * lecture the lens just created. `undefined` clears a dimension. The shell
+   * writes it in one atomic `setBoardScope`, so the server's rules apply: a
+   * lecture brings its course, a course change clears a lecture outside it.
+   * The shell's promise says whether the write went through (it never
+   * rejects), for a widget that must undo what it showed when it didn't.
+   * Optional for the same reason as `onConfigChange`.
    */
-  onScopeChange?: (patch: Partial<Scope>) => void
+  onScopeChange?: (patch: Partial<Scope>) => void | Promise<boolean>
   /**
    * Jump to a recording moment ("click a study block, land on the lecture
-   * moment"): the shell focuses the recording on the board (as
-   * `onScopeChange` would) and hands the moment to every widget whose manifest
+   * moment"): the shell selects the recording's lecture on the board (which
+   * brings its course, as `onScopeChange` would) and hands the moment to every widget whose manifest
    * declares `showsMoments` via `focusedMoment`. When this board has none, the
    * shell opens the moment on a board that does (with a toast offering the way
    * back); `no-viewer` means no board has one. Optional

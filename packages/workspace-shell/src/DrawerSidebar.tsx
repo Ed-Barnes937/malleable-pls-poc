@@ -3,9 +3,9 @@ import { X } from 'lucide-react'
 import {
   useWorkspaces,
   useWorkspaceScopes,
-  useSetWorkspaceScope,
-  useRecordings,
-  useFocusedRecording,
+  useSetBoardScope,
+  useLectures,
+  useLecture,
   decodeScope,
 } from '@pls/substrate-client'
 import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
@@ -31,24 +31,29 @@ const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
  */
 function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeDims: Set<ScopeDim> }) {
   const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const setScope = useSetWorkspaceScope()
+  const setBoardScope = useSetBoardScope()
 
   const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
   const currentCourse = decodedScope.courseTag ?? ''
-  const currentRecordingId = decodedScope.recordingId ?? ''
-  const { data: courseRecordings } = useRecordings(decodedScope.courseTag)
-  // A focused lecture outside the course still appears, so the picker never
-  // pretends nothing is focused.
-  const { data: focused } = useFocusedRecording(decodedScope.recordingId)
-  const recordings = focused && !courseRecordings?.some((r) => r.id === focused.id)
-    ? [focused, ...(courseRecordings ?? [])]
-    : courseRecordings
+  const currentLectureId = decodedScope.lectureId ?? ''
+  // The board course's lectures (every lecture on "All courses"); picking
+  // one from another course switches the board to it.
+  const { data: courseLectures } = useLectures(decodedScope.courseTag)
+  // The selected lecture is always in the course, but the list may not have
+  // caught up with one made a moment ago (an upload): never show it as unset.
+  const { data: selected } = useLecture(decodedScope.lectureId)
+  const lectures = selected && !courseLectures?.some((l) => l.id === selected.id)
+    ? [selected, ...(courseLectures ?? [])]
+    : courseLectures
 
-  const handleChange = useCallback(
-    (scopeType: 'tag' | 'recording', value: string) => {
-      setScope.mutate({ workspaceId, scopeType, scopeValue: value || null })
-    },
-    [workspaceId, setScope],
+  // One write either way; the server clears a lecture outside a new course.
+  const handleCourse = useCallback(
+    (value: string) => setBoardScope.mutate({ workspaceId, courseTag: value || null }),
+    [workspaceId, setBoardScope],
+  )
+  const handleLecture = useCallback(
+    (value: string) => setBoardScope.mutate({ workspaceId, lectureId: value || null }),
+    [workspaceId, setBoardScope],
   )
 
   return (
@@ -61,7 +66,7 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
           <Select
             id="scope-course"
             value={currentCourse}
-            onChange={(e) => handleChange('tag', e.target.value)}
+            onChange={(e) => handleCourse(e.target.value)}
           >
             {COURSE_FILTERS.map((c) => (
               <option key={c.value} value={c.value}>
@@ -72,20 +77,20 @@ function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeD
         </div>
       )}
 
-      {activeDims.has('recordingId') && (
+      {activeDims.has('lectureId') && (
         <div className={pickerRow}>
           <label htmlFor="scope-lecture" className={pickerLabel}>
             Lecture
           </label>
           <Select
             id="scope-lecture"
-            value={currentRecordingId}
-            onChange={(e) => handleChange('recording', e.target.value)}
+            value={currentLectureId}
+            onChange={(e) => handleLecture(e.target.value)}
           >
             <option value="">No lecture selected</option>
-            {recordings?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
+            {lectures?.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.recordings.length === 0 ? `${l.title} (no recording yet)` : l.title}
               </option>
             ))}
           </Select>

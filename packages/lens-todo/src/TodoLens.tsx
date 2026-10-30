@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { Plus } from 'lucide-react'
-import { doneToday, isFromRecording, orderTodos } from './todo-items'
+import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
 import { useJustDone } from './useJustDone'
@@ -12,6 +12,8 @@ import { useStatusWrites } from './useStatusWrites'
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
 
 export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, onShowPlanItem }: LensProps) {
+  // Rings to-dos made from the board's lecture's moments.
+  const fromLecture = useLinkedToLecture(highlight?.lectureId)
   const reader = useSubstrate()
   const writer = useSubstrateMutations()
   const course = scope.courseTag
@@ -115,7 +117,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               item={item}
               now={now}
               showCourse={!course}
-              highlighted={!stage && isFromRecording(item, highlight?.recordingId)}
+              highlighted={!stage && fromLecture(item)}
               fresh={arrived.has(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}

@@ -12,7 +12,7 @@ Defines the contract that every lens must satisfy and provides the registry infr
 |--------|-------------|
 | `LensProps` | Interface every lens component receives (`panelId`, `scope`, `config`) |
 | `PanelManifest` | Per-lens metadata: label, icon, `reads`/`writes` (declaring `writes` grants writer access), `scope` declaration, sizes |
-| `Scope` | Board scope shared by every widget (`courseTag`, `recordingId`) |
+| `Scope` | Board scope shared by every widget (`courseTag`, `lectureId`); the server keeps the lecture inside the course |
 | `ScopeDeclaration` | How a widget responds to each scope dimension (see `docs/technical-guidance.md`, Scope declarations) |
 | `splitScope()` / `activeScopeDims()` / `canWrite()` | Shell helpers applying the declarations (`LensProps.scope` for readers, `LensProps.highlight` for styling only) |
 | `DateRange`, `weekRange()`, `lookAheadRange()` | Widget-owned time windows passed to readers |
@@ -31,7 +31,7 @@ const manifest: PanelManifest = {
   label: "Your Progress",
   icon: CalendarIcon,
   description: "How sure you feel, course by course",
-  scope: { courseTag: "filter", recordingId: "ignore" },
+  scope: { courseTag: "filter", lectureId: "ignore" },
   reads: ["weekly_overview"],
   load: () => import("@pls/lens-weekly-overview"),
 };

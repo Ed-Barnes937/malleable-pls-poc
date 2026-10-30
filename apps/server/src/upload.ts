@@ -1,9 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir, rm } from 'fs/promises'
+import { TRPCError } from '@trpc/server'
 import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
-import { isCourse } from './routers/_shared'
+import { isCourse, requireOwnLecture } from './routers/_shared'
 import { ensureDefaultAutomations } from './workflows/defaults'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
@@ -92,6 +93,11 @@ function isAudioMagicBytes(buffer: Buffer): boolean {
   return false
 }
 
+async function ownsLecture(userId: string, lectureId: string): Promise<boolean> {
+  const [row] = await withUser(userId, (tx) => tx`SELECT 1 FROM lectures WHERE id = ${lectureId} AND user_id = ${userId}`)
+  return !!row
+}
+
 async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })
 }
@@ -136,6 +142,15 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     // The board the upload came from, so that board's automations run.
     const rawBoard = req.headers['x-workspace-id']
     const workspaceId = typeof rawBoard === 'string' && BOARD_ID_RE.test(rawBoard) ? rawBoard : null
+    // The lecture to record into (e.g. the board's selected one). Without
+    // it, the upload is a new lecture of its own, filed under `course`.
+    const rawLecture = req.headers['x-lecture-id']
+    const lectureId = typeof rawLecture === 'string' && rawLecture !== '' ? rawLecture : null
+    if (lectureId !== null && !BOARD_ID_RE.test(lectureId)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Bad lecture id' }))
+      return
+    }
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
@@ -167,6 +182,15 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
       return
     }
 
+    // Before the file is written: another student's lecture (or one that is
+    // gone) is not found, and leaves nothing behind. Checked again, and held,
+    // in the insert's transaction.
+    if (lectureId && !(await ownsLecture(userId, lectureId))) {
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Lecture not found' }))
+      return
+    }
+
     // Validate file magic bytes to verify actual audio content
     if (!isAudioMagicBytes(body)) {
       res.writeHead(415, { 'Content-Type': 'application/json' })
@@ -183,27 +207,44 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
 
     const audioUrl = `/uploads/${filename}`
 
-    await withUser(userId, async (tx) => {
-      // An account's first upload may come before anything else it has sent.
-      await ensureDefaultAutomations(tx, userId)
-      // Each upload is its own new lecture, filed under the course (the
-      // lecture holds the course; the recording derives it).
-      const [lecture] = await tx`
-        INSERT INTO lectures (user_id, title, course)
-        VALUES (${userId}, ${title}, ${course ?? null})
-        RETURNING id
-      `
-      await tx`
-        INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
-        VALUES (${recordingId}, ${userId}, ${lecture.id}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
-      `
-      await dispatchWorkflows(tx, userId, 'recording:completed', {
-        recording_id: recordingId,
-      }, workspaceId)
-    })
+    let recordedInto: string
+    try {
+      recordedInto = await withUser(userId, async (tx) => {
+        // An account's first upload may come before anything else it has sent.
+        await ensureDefaultAutomations(tx, userId)
+        // Into the given lecture, or a new lecture of its own filed under the
+        // course (the lecture holds the course; the recording derives it).
+        const intoLecture = lectureId
+          ? (await requireOwnLecture(tx, userId, lectureId)).id
+          : ((await tx`
+              INSERT INTO lectures (user_id, title, course)
+              VALUES (${userId}, ${title}, ${course ?? null})
+              RETURNING id
+            `)[0].id as string)
+        await tx`
+          INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
+          VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
+        `
+        await dispatchWorkflows(tx, userId, 'recording:completed', {
+          recording_id: recordingId,
+        }, workspaceId)
+        return intoLecture
+      })
+    } catch (err) {
+      // Nothing was recorded, so the file goes too.
+      await rm(filePath, { force: true })
+      // The lecture went (or changed hands) between the check above and the
+      // insert: still a 404, as if it had been gone all along.
+      if (err instanceof TRPCError && err.code === 'NOT_FOUND') {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Lecture not found' }))
+        return
+      }
+      throw err
+    }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({ id: recordingId, audioUrl }))
+    res.end(JSON.stringify({ id: recordingId, lectureId: recordedInto, audioUrl }))
   } catch (err) {
     console.error('upload error:', err)
     res.writeHead(500, { 'Content-Type': 'application/json' })

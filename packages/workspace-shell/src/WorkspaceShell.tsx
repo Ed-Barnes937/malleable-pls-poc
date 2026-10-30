@@ -7,12 +7,12 @@ import {
   useRemoveWorkspacePanel,
   useUpdatePanelLayouts,
   useUpdatePanelConfig,
-  useSetWorkspaceScope,
+  useSetBoardScope,
   useServerEvents,
   decodeScope,
-  SCOPE_TYPE_BY_DIM,
+  boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope, type ScopeDim } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -101,7 +101,7 @@ export function WorkspaceShell() {
   const removePanel = useRemoveWorkspacePanel()
   const updateLayouts = useUpdatePanelLayouts()
   const updatePanelConfig = useUpdatePanelConfig()
-  const setWorkspaceScope = useSetWorkspaceScope()
+  const setBoardScope = useSetBoardScope()
 
   const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -129,18 +129,17 @@ export function WorkspaceShell() {
     [dbScopes],
   )
 
+  // One atomic write per patch, whatever it touches: the server keeps the
+  // lecture inside the course (see `setBoardScope`).
+  // Resolves to whether it was written; never rejects.
   const handleScopeChange = useCallback(
-    (patch: Partial<Scope>) => {
-      if (!activeWorkspaceId) return
-      for (const [dim, value] of Object.entries(patch) as [ScopeDim, string | undefined][]) {
-        setWorkspaceScope.mutate({
-          workspaceId: activeWorkspaceId,
-          scopeType: SCOPE_TYPE_BY_DIM[dim],
-          scopeValue: value ?? null,
-        })
-      }
+    (patch: Partial<Scope>): Promise<boolean> => {
+      if (!activeWorkspaceId) return Promise.resolve(false)
+      return setBoardScope
+        .mutateAsync({ workspaceId: activeWorkspaceId, ...boardScopePatch(patch) })
+        .then(() => true, () => false)
     },
-    [activeWorkspaceId, setWorkspaceScope.mutate],
+    [activeWorkspaceId, setBoardScope.mutateAsync],
   )
 
   const activeLensTypes = useMemo(

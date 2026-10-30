@@ -50,7 +50,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 
 ## Fallbacks
 
-- **Live transcription fails:** stop the server, run `AI_MODE=mock pnpm dev:server` (the command line wins over `.env`) and upload the demo wav again: mock mode recognises it by hash and returns the real script with real timings. Summary and review titles then come from the mock LLM (still "Review: maternal inheritance").
+- **Live transcription fails:** stop the server, run `AI_MODE=mock pnpm dev:server` (the command line wins over `.env`) and upload the demo wav again. An upload goes into the selected lecture, so it would add a Part 2 to the failed one: press **New lecture** in Record first if you want a fresh lecture. Mock mode recognises the wav by hash and returns the real script with real timings. Summary and review titles then come from the mock LLM (still "Review: maternal inheritance").
 - **LLM fails** (summary, review title, Auto-fill): same switch to `AI_MODE=mock`. Placement never uses the LLM, so blocks land the same.
 - Something odd on the board: `pnpm db:reseed`, reload the browser tab and rebuild the board (about a minute).
 

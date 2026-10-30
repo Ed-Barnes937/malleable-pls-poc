@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: Link2,
   description: 'Links between your lectures',
   group: 'study',
-  scope: { courseTag: 'filter', recordingId: 'target' },
+  scope: { courseTag: 'filter', lectureId: 'target' },
   reads: ['links'],
   load: () => import('./ConnectionsLens'),
   minWidth: 280,

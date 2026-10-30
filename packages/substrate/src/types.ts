@@ -23,6 +23,8 @@ export interface LectureRecording {
   status: string
   duration: number
   created_at: string
+  /** What the recording's AI jobs are still doing, if anything (as `Recording.processing`). */
+  processing: LectureProcessing | null
 }
 
 /**

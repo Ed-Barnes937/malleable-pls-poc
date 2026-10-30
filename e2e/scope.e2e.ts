@@ -7,18 +7,21 @@ import { apiUrl } from './ports'
  * The Scope section offers a picker for every dimension some widget on the
  * board uses, per each manifest's `scope` declaration.
  *
- * In Lecture: audio-capture files new lectures under the course (`label`)
- * and both widgets target the focused recording, so it shows Course and
- * Recording.
+ * In Lecture: audio-capture files new lectures under the course and both
+ * widgets target the board's lecture, so it shows Course and Lecture.
  *
  * Exam Prep: gap-analysis, weakest-topics and test-me use the course but
- * ignore the focused recording, so it shows Course only.
+ * ignore the lecture, so it shows Course only.
+ *
+ * Every write is one `setBoardScope`, and the server keeps the board rule:
+ * a selected lecture brings its course, and a course change (including
+ * "All courses") clears a lecture outside it.
  */
 
 test.describe('Scope pickers', () => {
   test.afterAll(async () => { await reseed() })
 
-  test('In Lecture shows the Course and Recording pickers', async ({ page }) => {
+  test('In Lecture shows the Course and Lecture pickers', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('In Lecture')
@@ -26,7 +29,7 @@ test.describe('Scope pickers', () => {
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.scopeSection).toBeVisible()
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
     await expect(sidebar.courseSelect).toBeVisible()
   })
 
@@ -38,10 +41,10 @@ test.describe('Scope pickers', () => {
     await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
     // No scrolling the menu to find them.
     await expect(sidebar.courseSelect).toBeInViewport({ ratio: 1 })
-    await expect(sidebar.recordingSelect).toBeInViewport({ ratio: 1 })
+    await expect(sidebar.lectureSelect).toBeInViewport({ ratio: 1 })
     const showing = (await sidebar.scopeSection.boundingBox())!
     const palette = (await sidebar.root.getByTestId('widget-palette').boundingBox())!
     expect(showing.y + showing.height).toBeLessThanOrEqual(palette.y)
@@ -72,27 +75,60 @@ test.describe('Scope pickers', () => {
 
     const sidebar = new SidebarPom(page)
     await expect(sidebar.courseSelect).toBeVisible()
-    await expect(sidebar.recordingSelect).toHaveCount(0)
+    await expect(sidebar.lectureSelect).toHaveCount(0)
   })
 
-  test('changing course clears a focus outside it and keeps one inside it', async ({ page }) => {
+  test('changing course clears a lecture outside it and keeps one inside it', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('Evening Review')
     await topBar.openDrawer()
 
     const sidebar = new SidebarPom(page)
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
 
-    // "All courses" still contains the focused biology lecture.
-    await sidebar.selectCourse('All courses')
-    await expect(sidebar.courseSelect).toHaveValue('', { timeout: 10000 })
-    await expect(sidebar.recordingSelect).toHaveValue('rec-bio-4')
+    // Biology again keeps the Biology lecture.
+    await sidebar.selectCourse('Biology')
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4')
 
-    // The focused biology lecture is not in Chemistry - the server clears it.
+    // The Biology lecture is not in Chemistry - the server clears it.
     await sidebar.selectCourse('Chemistry')
     await expect(sidebar.courseSelect).toHaveValue('chemistry', { timeout: 10000 })
-    await expect(sidebar.recordingSelect).toHaveValue('', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('', { timeout: 10000 })
+
+    // "All courses" clears a lecture filed under a course too.
+    await sidebar.selectLecture('Chemistry Lecture: Organic Reactions')
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-chem-1', { timeout: 10000 })
+    await sidebar.selectCourse('All courses')
+    await expect(sidebar.courseSelect).toHaveValue('', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('', { timeout: 10000 })
+  })
+
+  test('selecting a lecture from another course switches the board course', async ({ page }) => {
+    // The test before changed Evening Review's scope.
+    await reseed()
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
+    const sidebar = new SidebarPom(page)
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-bio-4', { timeout: 10000 })
+
+    // On "All courses" every lecture is listed; picking Chemistry's brings its course.
+    await sidebar.selectCourse('All courses')
+    await expect(sidebar.lectureSelect).toHaveValue('', { timeout: 10000 })
+    await sidebar.selectLecture('Chemistry Lecture: Organic Reactions')
+    await expect(sidebar.courseSelect).toHaveValue('chemistry', { timeout: 10000 })
+    await expect(sidebar.lectureSelect).toHaveValue('lec-rec-chem-1')
+    // Only Chemistry's lectures are offered now.
+    await expect(sidebar.lectureSelect.locator('option')).toHaveText(['No lecture selected', 'Chemistry Lecture: Organic Reactions'])
+    await page.keyboard.press('Escape')
+    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions')
+
+    // It is stored that way: a reload shows the same.
+    await page.reload()
+    await topBar.switchToWorkspace('Evening Review')
+    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
   })
 
   test('changing course persists across reload', async ({ page }) => {
@@ -171,12 +207,11 @@ test.describe('Course scope filters every widget', () => {
     await expect(thisWeek.getByText('+1 in other courses')).toHaveCount(0)
   })
 
-  test('a lecture focused outside the board course wins: its title shows and tagging it works', async ({ page, request }) => {
-    // Biology board, Chemistry lecture focused (e.g. uploaded and filed under
-    // Chemistry while on the board). Set the focus directly, as the upload does.
-    const res = await request.post(`${apiUrl}/workspaces.setScope`, {
+  test('selecting a Chemistry lecture on a Biology board makes it a Chemistry board: its title shows and tagging it works', async ({ page, request }) => {
+    // One write, as a widget makes it (e.g. a moment jump): the lecture brings its course.
+    const res = await request.post(`${apiUrl}/workspaces.setBoardScope`, {
       headers: { 'x-user-id': 'dev-user-1' },
-      data: { json: { workspaceId: 'ws-evening-review', scopeType: 'recording', scopeValue: 'rec-chem-1' } },
+      data: { json: { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-chem-1' } },
     })
     expect(res.ok()).toBe(true)
 
@@ -184,7 +219,7 @@ test.describe('Course scope filters every widget', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await topBar.switchToWorkspace('Evening Review')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
 
     const transcript = grid.panelByLabel('Transcript')
     await expect(transcript.getByText('SN1 vs SN2 still confusing')).toBeVisible({ timeout: 10000 })
@@ -196,6 +231,6 @@ test.describe('Course scope filters every widget', () => {
     await expect(transcript.locator('text=confused')).toHaveCount(before + 1, { timeout: 10000 })
 
     await topBar.openDrawer()
-    await expect(new SidebarPom(page).recordingSelect).toHaveValue('rec-chem-1')
+    await expect(new SidebarPom(page).lectureSelect).toHaveValue('lec-rec-chem-1')
   })
 })

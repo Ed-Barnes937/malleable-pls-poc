@@ -15,7 +15,7 @@ export const manifest: PanelManifest = {
   description: 'Your week of classes and study time',
   // Shows every course and dims the others: scope controls what is
   // emphasised, never what is true (other courses' commitments still count).
-  scope: { courseTag: 'highlight', recordingId: 'highlight' },
+  scope: { courseTag: 'highlight', lectureId: 'highlight' },
   reads: ['plan_items', 'recordings'],
   writes: ['plan_items'],
   emits: ['plan-item:created', 'plan-item:updated', 'plan-item:completed'],
