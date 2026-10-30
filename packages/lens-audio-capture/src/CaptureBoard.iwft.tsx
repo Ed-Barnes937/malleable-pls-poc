@@ -126,6 +126,56 @@ test.describe('Record and Transcript on one board', () => {
     await expect(page.getByTestId('transcript').getByTestId('recording-live')).toHaveText('Recording...')
   })
 
+  test('the board drops the lecture made at start mid-capture: the audio stays in it, and Record says where it went', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    boardOn(simulator, 'biology')
+    const { uploads, release } = await serveUploads(page, simulator)
+    await mount(<CaptureBoardHarness />)
+    await page.getByRole('button', { name: 'Start recording' }).click()
+    await expect(scopeText(page)).toHaveText(/^biology \/ lec-/)
+    const lecture = simulator.db.lectures.at(-1)!
+    await expect(page.getByTestId('recording-into')).toHaveText(lecture.title)
+
+    // Elsewhere on the board (the header's lecture picker), the lecture is cleared.
+    await page.getByRole('button', { name: 'Clear the board lecture' }).click()
+    await expect(scopeText(page)).toHaveText('biology / no lecture')
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+    release()
+
+    await expect.poll(() => uploads.length).toBe(1)
+    expect(uploads[0]['x-lecture-id']).toBe(lecture.id)
+    const record = page.getByTestId('record')
+    await expect(record.getByRole('status')).toHaveText(`Saved to ${lecture.title}`)
+    // Record shows what the board shows (no lecture), not the lecture it saved into.
+    await expect(record.getByText('Recording complete')).toHaveCount(0)
+    await expect(page.getByTestId('ready-to-record')).toHaveText('Ready to record')
+    await expect(scopeText(page)).toHaveText('biology / no lecture')
+  })
+
+  test('if making the lecture hangs, Stop waits 10 seconds, then the upload makes and selects a lecture of its own', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    boardOn(simulator, 'biology')
+    await page.clock.install()
+    // lectures.create never answers.
+    await page.route('**/trpc/lectures.create**', () => {})
+    const { uploads, release } = await serveUploads(page, simulator)
+    release()
+    await mount(<CaptureBoardHarness />)
+    await page.getByRole('button', { name: 'Start recording' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+
+    // Still waiting for the lecture at 9 seconds.
+    await page.clock.runFor(9_000)
+    expect(uploads).toHaveLength(0)
+    await page.clock.runFor(1_100)
+    await expect.poll(() => uploads.length).toBe(1)
+    expect(uploads[0]['x-lecture-id']).toBeUndefined()
+    expect(uploads[0]['x-select-on-board']).toBe('1')
+    expect(uploads[0]['x-recording-course']).toBe('biology')
+    expect(uploads[0]['x-upload-id']).toMatch(/^[0-9a-f-]{36}$/)
+  })
+
   test('mic refused: the new lecture stays, empty, and nothing says it is recording', async ({ mount, page, simulator }) => {
     await injectMocks(page, { denyMic: true })
     boardOn(simulator, 'chemistry')

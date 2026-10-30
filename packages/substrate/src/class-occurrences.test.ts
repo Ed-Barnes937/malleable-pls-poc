@@ -31,6 +31,17 @@ describe('occurrenceDate', () => {
     expect(occurrenceDate({ ...late, recurrence: null }, 'Asia/Tokyo')).toBe('2026-10-26')
   })
 
+  it("reads the zone the item was made in before the student's, after the series'", () => {
+    // 22:00 in New York on Tue 3 Nov is Wed 4 Nov in London and Tokyo.
+    const night = item({ starts_at: '2026-11-04T03:00:00.000Z', ends_at: '2026-11-04T04:00:00.000Z', time_zone: 'America/New_York' })
+    expect(occurrenceDate(night, 'Asia/Tokyo')).toBe('2026-11-03')
+    expect(occurrenceDate(night, 'Europe/London')).toBe('2026-11-03')
+    expect(occurrenceDate({ ...night, recurrence: { freq: 'weekly', timeZone: 'Europe/London' } }, 'Asia/Tokyo')).toBe('2026-11-04')
+    expect(occurrenceDate({ ...night, time_zone: null }, 'Asia/Tokyo')).toBe('2026-11-04')
+    expect(occurrenceOn(night, '2026-11-03', 'Asia/Tokyo')).not.toBeNull()
+    expect(occurrenceOn(night, '2026-11-04', 'Asia/Tokyo')).toBeNull()
+  })
+
   it('a one-off class near midnight in BST is dated in London, not UTC', () => {
     expect(occurrenceDate(item({ starts_at: '2026-10-20T23:30:00.000Z' }), 'Europe/London')).toBe('2026-10-21')
   })

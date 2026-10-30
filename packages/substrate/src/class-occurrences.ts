@@ -5,8 +5,9 @@
  *
  * A lecture links to an occurrence by `(class_item_id, class_date)`: the
  * plan item and the occurrence's local date (YYYY-MM-DD). The date is read
- * in the series' time zone, else in the student's (their preference, else
- * the browser's; the caller passes it as `timeZone`), never UTC.
+ * in the series' time zone, else in the zone the item was made in
+ * (`time_zone`), else in the student's (their preference, else the
+ * browser's; the caller passes it as `timeZone`), never UTC.
  */
 import { expandPlanItems } from './plan-items'
 import type { PlanItem, PlanItemOccurrence } from './types'
@@ -23,14 +24,17 @@ export function localDate(instant: string | number | Date, timeZone: string): st
 
 /**
  * The date an occurrence row is on: its start's local date in the series'
- * zone, else in `timeZone` (the student's). This is a lecture's `class_date`.
+ * zone, else the zone the item was made in (`time_zone`, so a one-off class
+ * is dated the same whoever asks, and after the student's zone changes),
+ * else `timeZone` (the student's, for rows from before items kept a zone).
+ * This is a lecture's `class_date`.
  */
 export function occurrenceDate(
-  row: Pick<PlanItem, 'starts_at' | 'recurrence'>,
+  row: Pick<PlanItem, 'starts_at' | 'recurrence' | 'time_zone'>,
   timeZone: string,
 ): string | null {
   if (!row.starts_at) return null
-  return localDate(row.starts_at, row.recurrence?.timeZone ?? timeZone)
+  return localDate(row.starts_at, row.recurrence?.timeZone ?? row.time_zone ?? timeZone)
 }
 
 /**

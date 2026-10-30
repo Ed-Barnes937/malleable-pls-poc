@@ -561,6 +561,21 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(otherCourse.class_item_id).toBeNull()
   })
 
+  it('a one-off class keeps the zone it was made in, and is dated in it whatever zone asks later', async () => {
+    // Tue 3 Nov, 22:00 in New York: Wed 4 Nov in London.
+    const made = await call('planItems.create', {
+      kind: 'commitment', title: 'Night seminar', subtype: 'class', course: 'physics',
+      starts_at: '2026-11-04T03:00:00.000Z', ends_at: '2026-11-04T04:00:00.000Z', timeZone: 'America/New_York',
+    })
+    expect(made.time_zone).toBe('America/New_York')
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: made.id, date: '2026-11-03', timeZone: 'Europe/London' })
+    expect(clicked.lecture).toMatchObject({ class_date: '2026-11-03', title: 'Night seminar · Tue 3 Nov' })
+    const during = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-04T03:30:00.000Z', timeZone: 'Asia/Tokyo' })
+    expect(during.id).toBe(clicked.lecture.id)
+    const edited = await call('planItems.update', { id: made.id, patch: { title: 'Night seminar (new room)' }, timeZone: 'Europe/London' })
+    expect(edited.time_zone).toBe('America/New_York')
+  })
+
   it('deleting a class keeps its lectures, on their day', async () => {
     const { id } = await bioClass()
     const { lecture } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })

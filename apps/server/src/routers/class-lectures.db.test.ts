@@ -29,6 +29,8 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
   let uploadsDir: string
   const alice = `test-alice-${randomUUID().slice(0, 8)}`
   const bob = `test-bob-${randomUUID().slice(0, 8)}`
+  /** Has a time zone preference of her own, set and changed by the tests. */
+  const carol = `test-carol-${randomUUID().slice(0, 8)}`
   const api = () => caller(alice)
   const notFound = expect.objectContaining({ code: 'NOT_FOUND' })
   const badRequest = expect.objectContaining({ code: 'BAD_REQUEST' })
@@ -109,8 +111,8 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'user_provisioning', 'tags', 'workspaces', 'lectures', 'plan_items']) {
-      await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [[alice, bob]])
+    for (const table of ['job_runs', 'workflow_jobs', 'workflows', 'user_provisioning', 'user_preferences', 'tags', 'workspaces', 'lectures', 'plan_items']) {
+      await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [[alice, bob, carol]])
     }
     await db.sql.end()
     if (uploadsDir) await rm(uploadsDir, { recursive: true, force: true })
@@ -302,6 +304,137 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
       const onBob = await upload(alice, { 'x-workspace-id': bobBoard, 'x-select-on-board': '1' })
       expect(onBob).toMatchObject({ status: 200, body: { selected: false } })
       expect(await storedScope(bobBoard)).toEqual([])
+    })
+  })
+  describe('a retried upload (x-upload-id)', () => {
+    const recordingsOf = async (userId: string, uploadId: string) =>
+      db.sql`SELECT id, lecture_id FROM recordings WHERE user_id = ${userId} AND upload_id = ${uploadId}`
+
+    it('a retry after a lost answer gets the saved recording back: no second recording or lecture', async () => {
+      const ws = await board('physics')
+      const uploadId = randomUUID()
+      const headers = { 'x-recording-course': 'physics', 'x-workspace-id': ws, 'x-select-on-board': '1', 'x-upload-id': uploadId }
+      const lecturesBefore = (await api().lectures.list({ courseTag: 'physics' })).length
+      const first = await upload(alice, headers)
+      const retry = await upload(alice, headers)
+      expect(first).toMatchObject({ status: 200, body: { selected: true } })
+      expect(retry).toEqual(first)
+      expect(await recordingsOf(alice, uploadId)).toEqual([{ id: first.body.id, lecture_id: first.body.lectureId }])
+      expect(await api().lectures.list({ courseTag: 'physics' })).toHaveLength(lecturesBefore + 1)
+
+      // Into a given lecture, the same.
+      const into = await api().lectures.create({ course: 'physics' })
+      const partId = randomUUID()
+      const part = await upload(alice, { 'x-lecture-id': into.id, 'x-upload-id': partId })
+      expect((await upload(alice, { 'x-lecture-id': into.id, 'x-upload-id': partId })).body.id).toBe(part.body.id)
+      expect((await api().lectures.byId(into.id))!.recordings).toHaveLength(1)
+    })
+
+    it('says whether the board shows its lecture now, as the first answer would have', async () => {
+      const ws = await board('physics')
+      const uploadId = randomUUID()
+      const headers = { 'x-recording-course': 'physics', 'x-workspace-id': ws, 'x-select-on-board': '1', 'x-upload-id': uploadId }
+      const first = await upload(alice, headers)
+      await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'physics', lectureId: null })
+      expect((await upload(alice, headers)).body).toMatchObject({ id: first.body.id, selected: false })
+    })
+
+    it('concurrent tries of one upload save it once', async () => {
+      for (let round = 0; round < 5; round++) {
+        const ws = await board('chemistry')
+        const uploadId = randomUUID()
+        const headers = { 'x-recording-course': 'chemistry', 'x-workspace-id': ws, 'x-select-on-board': '1', 'x-upload-id': uploadId }
+        const lecturesBefore = (await api().lectures.list({ courseTag: 'chemistry' })).length
+        const tries = await Promise.all(Array.from({ length: 4 }, () => upload(alice, headers)))
+        expect(tries.map((t) => t.status)).toEqual([200, 200, 200, 200])
+        expect(new Set(tries.map((t) => t.body.id)).size).toBe(1)
+        expect(await recordingsOf(alice, uploadId)).toHaveLength(1)
+        expect(await api().lectures.list({ courseTag: 'chemistry' })).toHaveLength(lecturesBefore + 1)
+        expect(await storedScope(ws)).toEqual([['lecture', tries[0].body.lectureId], ['tag', 'chemistry']])
+      }
+    })
+
+    it('is per student, and rejects a malformed id', async () => {
+      const uploadId = randomUUID()
+      const mine = await upload(alice, { 'x-upload-id': uploadId })
+      const bobs = await upload(bob, { 'x-upload-id': uploadId })
+      expect(bobs.status).toBe(200)
+      expect(bobs.body.id).not.toBe(mine.body.id)
+      expect(await recordingsOf(bob, uploadId)).toHaveLength(1)
+      expect((await upload(alice, { 'x-upload-id': 'not ok!' })).status).toBe(400)
+      expect((await upload(alice, { 'x-upload-id': 'x'.repeat(65) })).status).toBe(400)
+    })
+  })
+
+  describe('a one-off class keeps the zone it was made in', () => {
+    // Tue 3 Nov 2026, 22:00-23:00 in New York: Wed 4 Nov in London and UTC.
+    const oneOff = {
+      kind: 'commitment' as const, title: 'Night seminar', subtype: 'class', course: 'physics',
+      starts_at: '2026-11-04T03:00:00.000Z', ends_at: '2026-11-04T04:00:00.000Z',
+    }
+
+    it('is dated in it whatever zone asks later, so Record and the calendar find one lecture', async () => {
+      const as = caller(carol)
+      // No preference yet: the browser's zone is kept.
+      const made = await as.planItems.create({ ...oneOff, timeZone: 'America/New_York' })
+      expect(made.time_zone).toBe('America/New_York')
+      const fromCalendar = await as.lectures.forClassOccurrence({ planItemId: made.id, date: '2026-11-03', timeZone: 'Europe/London' })
+      expect(fromCalendar.lecture).toMatchObject({ class_item_id: made.id, class_date: '2026-11-03', title: 'Night seminar · Tue 3 Nov' })
+
+      // She sets Tokyo later: Record during the class, and a calendar click, land on the same lecture.
+      await as.preferences.update({ time_zone: 'Asia/Tokyo' })
+      const fromRecord = await as.lectures.create({ course: 'physics', matchClass: true, startsAt: new Date('2026-11-04T03:30:00Z') })
+      expect(fromRecord.id).toBe(fromCalendar.lecture.id)
+      const again = await as.lectures.forClassOccurrence({ planItemId: made.id, date: '2026-11-03' })
+      expect(again).toMatchObject({ created: false, lecture: { id: fromCalendar.lecture.id } })
+      await expect(as.lectures.forClassOccurrence({ planItemId: made.id, date: '2026-11-04' })).rejects.toMatchObject(badRequest)
+      expect(await lecturesOf(made.id)).toHaveLength(1)
+
+      // Edits keep the zone; a new item takes her preference over the browser's.
+      const edited = await as.planItems.update({ id: made.id, patch: { title: 'Night seminar (new room)' }, timeZone: 'Europe/London' })
+      expect(edited.time_zone).toBe('America/New_York')
+      expect((await as.planItems.create({ ...oneOff, timeZone: 'America/New_York' })).time_zone).toBe('Asia/Tokyo')
+    })
+
+    it("an item from before items kept a zone takes the student's on its first edit", async () => {
+      const as = caller(carol)
+      const item = await as.planItems.create(oneOff)
+      await db.sql`UPDATE plan_items SET time_zone = NULL WHERE id = ${item.id}`
+      expect((await as.planItems.byId(item.id))!.time_zone).toBeNull()
+      const edited = await as.planItems.update({ id: item.id, patch: { title: 'Renamed' }, timeZone: 'America/New_York' })
+      expect(edited.time_zone).toBe('Asia/Tokyo')
+    })
+  })
+
+  describe('find-or-create when the lecture is deleted between its insert and its read', () => {
+    it('makes it again instead of failing', async () => {
+      const { findOrCreateClassLecture } = await import('./_class-lectures')
+      const date = monday(40)
+      const existing = await api().lectures.forClassOccurrence({ planItemId: bioClass, date })
+      let deletedUnderIt = false
+      const result = await db.withUser(alice, (tx) => {
+        // The insert finds the committed lecture and does nothing; before the
+        // read that follows, another connection deletes it.
+        const racing = new Proxy(tx, {
+          apply(target, thisArg, args: unknown[]) {
+            const query = Reflect.apply(target, thisArg, args) as unknown
+            const strings = args[0]
+            if (deletedUnderIt || !Array.isArray(strings) || !strings.join('').includes('INSERT INTO lectures')) return query
+            return (query as Promise<unknown[]>).then(async (rows) => {
+              if (rows.length === 0) {
+                await db.sql`DELETE FROM lectures WHERE id = ${existing.lecture.id}`
+                deletedUnderIt = true
+              }
+              return rows
+            })
+          },
+        })
+        return findOrCreateClassLecture(racing, alice, bioClass, date, 'Europe/London')
+      })
+      expect(deletedUnderIt).toBe(true)
+      expect(result.created).toBe(true)
+      expect(result.id).not.toBe(existing.lecture.id)
+      expect((await lecturesOf(bioClass)).filter((l) => l.class_date === date).map((l) => l.id)).toEqual([result.id])
     })
   })
 })

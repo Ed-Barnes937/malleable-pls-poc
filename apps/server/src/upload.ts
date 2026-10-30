@@ -42,6 +42,8 @@ function audioExtension(contentType: string | undefined): string | null {
 const MAX_TITLE_LENGTH = 200
 const BOARD_ID_RE = /^[a-zA-Z0-9_-]{1,255}$/
 const MAX_COURSE_LENGTH = 100
+// A client-made id per capture or file (a UUID from the web app).
+const UPLOAD_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/
 
 /**
  * Title / course headers are URI-encoded by the client because header values
@@ -118,6 +120,39 @@ async function selectNewLectureOnBoard(tx: TxSql, userId: string, workspaceId: s
   return true
 }
 
+/** What /upload answers with: the recording, its lecture, and whether that lecture was selected on the board. */
+interface Saved {
+  id: string
+  lectureId: string
+  selected: boolean
+  audioUrl: string | null
+}
+
+/**
+ * The recording a try of this upload (`x-upload-id`) already saved, if one
+ * did: a retry after a lost response gets it back instead of a second copy.
+ * `selected` says whether `selectOn` (the board, with `x-select-on-board`)
+ * now shows its lecture, as a first try's answer would have.
+ */
+async function savedUpload(userId: string, uploadId: string, selectOn: string | null): Promise<Saved | null> {
+  return withUser(userId, async (tx) => {
+    const [row] = await tx`
+      SELECT id, lecture_id, audio_url FROM recordings WHERE user_id = ${userId} AND upload_id = ${uploadId}
+    `
+    if (!row) return null
+    const lectureId = row.lecture_id as string
+    let selected = false
+    if (selectOn) {
+      const [board] = await tx`SELECT id FROM workspaces WHERE id = ${selectOn} AND user_id = ${userId}`
+      selected = !!board && (await readBoardScope(tx, userId, selectOn)).lectureId === lectureId
+    }
+    return { id: row.id as string, lectureId, selected, audioUrl: (row.audio_url as string | null) ?? null }
+  })
+}
+
+/** Thrown inside the insert's transaction when another try of the same upload got there first. */
+class AlreadySaved extends Error {}
+
 async function ensureUploadsDir() {
   await mkdir(UPLOADS_DIR, { recursive: true })
 }
@@ -174,6 +209,15 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     // "1": select the new lecture this upload makes (no x-lecture-id) on the
     // x-workspace-id board, if that board still shows no lecture.
     const selectOnBoard = req.headers['x-select-on-board'] === '1' && lectureId === null && workspaceId !== null
+    // The client's id for this capture or file, the same on every try of it:
+    // a try after one that was saved (its answer lost) saves nothing new.
+    const rawUploadId = req.headers['x-upload-id']
+    const uploadId = typeof rawUploadId === 'string' && rawUploadId !== '' ? rawUploadId : null
+    if (uploadId !== null && !UPLOAD_ID_RE.test(uploadId)) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Bad upload id' }))
+      return
+    }
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
@@ -202,6 +246,16 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     if (body.length === 0) {
       res.writeHead(400, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Empty body' }))
+      return
+    }
+
+    // Already saved by an earlier try: answer as that try would have. Before
+    // the lecture check, as the lecture it went into is the answer, whatever
+    // this try aimed at.
+    const already = uploadId ? await savedUpload(userId, uploadId, selectOnBoard ? workspaceId : null) : null
+    if (already) {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(already))
       return
     }
 
@@ -244,10 +298,15 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
               VALUES (${userId}, ${title}, ${course ?? null})
               RETURNING id
             `)[0].id as string)
-        await tx`
-          INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
-          VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
+        const [inserted] = await tx`
+          INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status, upload_id)
+          VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded', ${uploadId})
+          ON CONFLICT (user_id, upload_id) WHERE upload_id IS NOT NULL DO NOTHING
+          RETURNING id
         `
+        // A concurrent try of this upload saved it first: undo this one
+        // (with any lecture it made) and answer with that try's.
+        if (!inserted) throw new AlreadySaved()
         // The server, not the widget, selects a lecture an upload makes, in
         // this transaction.
         const selected = selectOnBoard && (await selectNewLectureOnBoard(tx, userId, workspaceId!, intoLecture))
@@ -259,6 +318,12 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     } catch (err) {
       // Nothing was recorded, so the file goes too.
       await rm(filePath, { force: true })
+      const saved = err instanceof AlreadySaved && uploadId ? await savedUpload(userId, uploadId, selectOnBoard ? workspaceId : null) : null
+      if (saved) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(saved))
+        return
+      }
       // The lecture went (or changed hands) between the check above and the
       // insert: still a 404, as if it had been gone all along.
       if (err instanceof TRPCError && err.code === 'NOT_FOUND') {

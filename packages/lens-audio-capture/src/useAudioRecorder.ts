@@ -9,6 +9,13 @@ export type CaptureState = 'idle' | 'recording' | 'uploading' | 'complete'
 // lecture around 21 MB, under the 50 MB upload cap.
 const RECORDING_BITS_PER_SECOND = 48_000
 
+/**
+ * How long Stop waits for the lecture Record started making before the
+ * audio goes without it: the upload then makes (and the server selects) a
+ * lecture of its own.
+ */
+export const START_LECTURE_WAIT_MS = 10_000
+
 export interface AudioRecorderOptions {
   /** Course of the new lecture a capture makes when there is no `lectureId`. */
   course?: string | null
@@ -34,12 +41,29 @@ interface Target {
   course: string | null
   /** The board's lecture when it started (for a capture that made its lecture: none). */
   boardLecture: string | null
+  /**
+   * The board has shown `lectureId` since this started. A capture that made
+   * its lecture at start is "moved" once the board stops showing it, but
+   * not before the board has caught up with it.
+   */
+  shown: boolean
+  /** Stop gave up waiting for the lecture being made at start: it is not used if it comes. */
+  gaveUpOnStart?: boolean
 }
 
-type UploadArgs = Omit<UploadRecordingArgs, 'lectureId' | 'boardId' | 'selectOnBoard'>
+type UploadArgs = Omit<UploadRecordingArgs, 'lectureId' | 'boardId' | 'selectOnBoard'> & { uploadId: string }
 
 /** What `uploadFile` takes: the duration is read here, once the target is fixed. */
-export type UploadFileArgs = Omit<UploadArgs, 'durationMs'>
+export type UploadFileArgs = Omit<UploadArgs, 'durationMs' | 'uploadId'>
+
+/** The board has moved on from where `target` was aimed: it shows another lecture, or none. */
+function boardMovedFrom(target: Target, boardLecture: string | null): boolean {
+  if (boardLecture === target.lectureId) return false
+  // A lecture made at start that the board hasn't shown yet: it is still on
+  // its way to the board, unless the board shows another lecture already.
+  if (!target.shown) return boardLecture !== null
+  return true
+}
 
 /**
  * MediaRecorder capture + file upload. State machine: idle → recording →
@@ -98,6 +122,13 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
   courseRef.current = course ?? null
   const startLectureRef = useRef(startLecture)
   startLectureRef.current = startLecture
+  // Captures and uploads not settled yet, to note when the board shows their lecture.
+  const inFlightRef = useRef(new Set<Target>())
+
+  useEffect(() => {
+    if (!lectureId) return
+    for (const target of inFlightRef.current) if (target.lectureId === lectureId) target.shown = true
+  }, [lectureId])
 
   /** Reports the capture into `target`'s lecture as `phase` (null: over). */
   const reportLive = useCallback((target: Target | null, phase: LiveCapturePhase | null) => {
@@ -152,6 +183,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     title: lectureTitleRef.current,
     course: courseRef.current,
     boardLecture: lectureIdRef.current,
+    shown: lectureIdRef.current !== null,
   }), [])
 
   const start = useCallback(async () => {
@@ -161,6 +193,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     chunksRef.current = []
     const target = currentTarget()
     captureTargetRef.current = target
+    inFlightRef.current.add(target)
     setCaptureTitle(target.title)
     startingRef.current = null
     if (target.lectureId) {
@@ -171,9 +204,12 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       // capture goes on regardless and its upload makes the lecture.
       startingRef.current = startLectureRef.current.mutateAsync({ course: target.course }).then(
         (lecture) => {
+          // Too late: Stop has sent the audio without it.
+          if (target.gaveUpOnStart) return
           target.lectureId = lecture.id
           target.title = lecture.title
           target.course = lecture.course
+          if (lectureIdRef.current === lecture.id) target.shown = true
           // Only while this capture is still recording: the mic may have
           // been refused, or it stopped (its upload reports it as saving).
           if (captureTargetRef.current !== target) return
@@ -211,6 +247,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       // The lecture (made above, if it was) stays: an empty lecture is a
       // valid one ("I was there, no audio").
       captureTargetRef.current = null
+      inFlightRef.current.delete(target)
       setCaptureTitle(null)
       reportLive(null, null)
       setError('Microphone access denied')
@@ -222,6 +259,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
   // back to whatever the board's lecture says (the effect above only re-runs
   // when it changes).
   const upload = useCallback(async (args: UploadArgs, target: Target) => {
+    inFlightRef.current.add(target)
     setState('uploading')
     reportLive(target, 'saving')
     const send = (into: string | null) => uploadRecording({
@@ -246,7 +284,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
         const created = await send(target.lectureId)
         const boardMoved = target.lectureId === null
           ? !created.selected
-          : lectureIdRef.current !== target.lectureId && lectureIdRef.current !== target.boardLecture
+          : boardMovedFrom(target, lectureIdRef.current)
         settle(created, boardMoved, target.title ?? args.title)
       } catch (err) {
         if (!(err instanceof LectureGoneError)) throw err
@@ -268,6 +306,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       setState(hasAudioRef.current ? 'complete' : 'idle')
       console.error('upload error:', err)
     } finally {
+      inFlightRef.current.delete(target)
       if (liveRef.current?.lectureId === target.lectureId) reportLive(null, null)
     }
   }, [reportLive])
@@ -300,15 +339,19 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     chunksRef.current = []
 
     if (blob.size === 0) {
+      inFlightRef.current.delete(target)
       reportLive(null, null)
       setError('No audio captured')
       setState(hasAudioRef.current ? 'complete' : 'idle')
       return
     }
 
-    // The lecture made at start, if that is still on its way.
-    await startingRef.current
+    // The lecture made at start, if that is still on its way, for a while:
+    // past that the audio goes without it, and the upload makes (and the
+    // server selects) a lecture of its own.
+    const starting = startingRef.current
     startingRef.current = null
+    if (starting && !(await settlesWithin(starting, START_LECTURE_WAIT_MS))) target.gaveUpOnStart = true
 
     await upload({
       audio: blob,
@@ -316,6 +359,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       title: recordingTitle(Date.now()),
       durationMs: elapsed,
       course: target.course,
+      uploadId: newUploadId(),
     }, target)
   }, [stopTimer, upload, elapsed, currentTarget, reportLive])
 
@@ -332,7 +376,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       setUnsaved(null)
       setState('uploading')
       const durationMs = await readAudioDuration(args.audio)
-      await upload({ ...args, durationMs }, target)
+      await upload({ ...args, durationMs, uploadId: newUploadId() }, target)
     },
     [stopTimer, upload, currentTarget],
   )
@@ -363,6 +407,20 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
     captureTitle,
     hasUnsaved: unsaved !== null, retryUnsaved, discardUnsaved,
   }
+}
+
+/** Whether `promise` settles within `ms`. */
+function settlesWithin(promise: Promise<unknown>, ms: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    promise.then(() => true, () => true),
+    new Promise<boolean>((resolve) => { timer = setTimeout(() => resolve(false), ms) }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+/** One id per capture or file, sent with every try of its upload. */
+function newUploadId(): string {
+  return crypto.randomUUID()
 }
 
 /** Title for a new capture, in house style: "Lecture 27 Oct, 00:20". */

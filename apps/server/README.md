@@ -95,7 +95,9 @@ occurrence's lecture. Every board scope write goes through `writeBoardScope`
 (`src/routers/_board-scope.ts`) under the board's scope lock, which callers
 take before touching lecture rows. `/upload` records into `x-lecture-id`, or
 makes a lecture and, with `x-select-on-board: 1`, selects it on
-`x-workspace-id` if that board shows no lecture. DB-backed tests:
+`x-workspace-id` if that board shows no lecture. `x-upload-id` (one per
+capture or file, the same on every try) makes a retry return the recording
+an earlier try saved instead of a second copy. DB-backed tests:
 `TEST_DATABASE_URL=... pnpm test class-lectures.db`.
 
 ## Preferences (`preferences.get`, `preferences.update`)

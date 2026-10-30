@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { withUser, type TxSql } from '@pls/db'
-import { DEFAULT_REVIEW_TIME_ZONE, defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture } from '@pls/substrate'
+import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
-import { getPreferences, placementTimeZone } from '../preferences/store'
+import { studentTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
 import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
@@ -11,11 +11,6 @@ const lectureId = z.string().max(255)
 const lectureTitle = z.string().trim().min(1).max(500)
 const boardId = z.string().max(255)
 const localDateInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
-
-/** The zone dates and default titles are read in: the student's preference, else the browser's. */
-async function studentTimeZone(tx: TxSql, userId: string, browserZone: string | undefined): Promise<string> {
-  return placementTimeZone(await getPreferences(tx, userId), browserZone ?? DEFAULT_REVIEW_TIME_ZONE)
-}
 
 /** What `forClassOccurrence` returns. */
 export interface ClassOccurrenceLecture {

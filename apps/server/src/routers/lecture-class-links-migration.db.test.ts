@@ -144,6 +144,20 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture class-link backfill (own Postgres d
     }
   })
 
+  it("keeps each class the zone 020 dated its lectures in, so they stay linked whatever zone asks later", async () => {
+    const zones = await db`SELECT id, time_zone FROM plan_items WHERE user_id IN (${dana}, ${eli}) ORDER BY id`
+    expect(zones.map((z) => [z.id, z.time_zone])).toEqual([
+      ['bio', 'Europe/London'], ['chem-a', 'Europe/London'], ['chem-b', 'Europe/London'],
+      ['eli-phys', 'America/New_York'], ['phys', 'Europe/London'], ['shift', 'Europe/London'],
+    ])
+    const [eliClass] = await db`SELECT p.*, 'physics' AS course FROM plan_items p WHERE id = 'eli-phys'`
+    const item = { ...eliClass, starts_at: (eliClass.starts_at as Date).toISOString(), ends_at: (eliClass.ends_at as Date).toISOString() } as unknown as PlanItem
+    // Eli now asks from Tokyo (or London): still Wed 21 Oct, his lecture's day.
+    for (const zone of ['Asia/Tokyo', 'Europe/London', 'America/New_York']) {
+      expect(occurrenceOn(item, '2026-10-21', zone), zone).not.toBeNull()
+    }
+  })
+
   it('deleting a class keeps its lectures, on their day', async () => {
     await db`DELETE FROM plan_items WHERE id = 'phys'`
     const [row] = await db`SELECT class_item_id, class_date::text AS class_date FROM lectures WHERE id = 'dana-8-physics-in'`

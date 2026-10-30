@@ -7,7 +7,8 @@ import { TestProviders } from './mount-wrapper'
 /**
  * Record and Transcript on one board, scoped the way the shell scopes them:
  * from the board's stored scope (`workspaces.scopes`), written back with one
- * `setBoardScope` per change. Shows the scope as text for the test to read.
+ * `setBoardScope` per change. Shows the scope as text for the test to read,
+ * and can clear the board's lecture as the header would.
  */
 export function CaptureBoardHarness({ boardId = 'ws-in-lecture' }: { boardId?: string }) {
   return (
@@ -24,7 +25,7 @@ function Board({ boardId }: { boardId: string }) {
     onSuccess: () => utils.workspaces.scopes.invalidate(boardId),
   })
   if (!rows) return null
-  const scope = decodeScope(rows)
+  const scope = decodeScope(rows as unknown as { scope_type: string; scope_value: string }[])
   const onScopeChange = async (patch: Partial<Scope>) => {
     try {
       await setBoardScope.mutateAsync({ workspaceId: boardId, ...boardScopePatch(patch) })
@@ -36,6 +37,8 @@ function Board({ boardId }: { boardId: string }) {
   return (
     <div className="flex flex-col gap-3 bg-surface p-3">
       <p data-testid="board-scope">{`${scope.courseTag ?? 'all courses'} / ${scope.lectureId ?? 'no lecture'}`}</p>
+      {/* As the header's lecture picker would, from anywhere else on the board. */}
+      <button type="button" onClick={() => void onScopeChange({ lectureId: undefined })}>Clear the board lecture</button>
       <div data-testid="record" style={{ width: 400, height: 300, containerType: 'size' }}>
         <AudioCaptureLens panelId="record" scope={scope} config={{}} onScopeChange={onScopeChange} />
       </div>

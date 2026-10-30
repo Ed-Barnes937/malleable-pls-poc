@@ -1,8 +1,10 @@
 import { test, expect, type APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
-import { trpcMutation, trpcQuery } from './api'
+import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
+import { SEED_TIME_ZONE } from './seed-week'
+import { startOfLocalDay } from '../packages/scheduler/src'
 
 /**
  * A lecture exists from the moment Record is pressed (02 phase 3, D7), and
@@ -39,11 +41,14 @@ test.describe('Record makes its lecture as it starts', () => {
   test.afterAll(async () => { await reseed() })
 
   test('Record during a class: the class lecture is selected at once, the Transcript says Recording..., the Calendar rings the class', async ({ page, request }) => {
-    // A Physics class on right now (one-off, so it is on whatever the day).
+    // A Physics class on right now (one-off, so it is on whatever the day;
+    // no earlier than today's midnight, so it is in this week's Calendar
+    // even just after midnight on a Monday).
     const now = Date.now()
     const physicsClass = await trpcMutation<{ id: string }>(request, 'planItems.create', {
       kind: 'commitment', title: 'Physics lecture', subtype: 'class', course: 'physics',
-      starts_at: new Date(now - 30 * 60_000).toISOString(), ends_at: new Date(now + 60 * 60_000).toISOString(),
+      starts_at: new Date(Math.max(now - 30 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE))).toISOString(),
+      ends_at: new Date(now + 60 * 60_000).toISOString(),
     })
     const ws = await board(request, 'Physics class', ['audio-capture', 'transcript', 'calendar'], 'physics')
 
@@ -99,6 +104,9 @@ test.describe('Record makes its lecture as it starts', () => {
   })
 
   test('Record outside any class makes a fresh lecture, selected before the audio lands', async ({ page, request }) => {
+    // The seeded week has a weekly Chemistry class: without it no class is
+    // on, whatever the time of day.
+    await deleteClassesOf(request, 'chemistry')
     const ws = await board(request, 'Lecture hall', ['audio-capture', 'transcript'], 'chemistry')
     await page.goto('/')
     const topBar = new TopBarPom(page)

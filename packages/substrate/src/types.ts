@@ -190,6 +190,13 @@ export interface PlanItem {
   created_by_workflow_id: string | null
   /** Course tag label (e.g. 'biology'), stored as a 'plan_item' tag. */
   course: string | null
+  /**
+   * The student's IANA zone when the item was made, kept by edits. Dates a
+   * one-off class's occurrence (see `occurrenceDate`), so a later change of
+   * zone can't date it a day apart. Null (or absent) on rows from before it
+   * was stored: the student's zone is used then.
+   */
+  time_zone?: string | null
   created_at: string
   updated_at: string
 }

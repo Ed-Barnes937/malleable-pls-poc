@@ -34,6 +34,15 @@ function useOnBoard<TInput, TOutput>(
   }
 }
 
+/**
+ * A plan item write from a board, with the browser's zone: a new item keeps
+ * the student's zone (their preference, else this one) so its class
+ * occurrence is dated the same whoever asks later (`PlanItem.time_zone`).
+ */
+function withBrowserZone(input: unknown, workspaceId: string | null) {
+  return { ...(input as object), workspaceId, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+}
+
 /** The scope part of a filter, as the list endpoints accept it. */
 function boardScope(filter: QueryFilter) {
   return { courseTag: filter.courseTag, lectureId: filter.lectureId, recordingId: filter.recordingId }
@@ -209,11 +218,11 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.create))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.create), withBrowserZone)
   },
 
   useUpdatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.update))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.update), withBrowserZone)
   },
 
   useCompletePlanItem() {

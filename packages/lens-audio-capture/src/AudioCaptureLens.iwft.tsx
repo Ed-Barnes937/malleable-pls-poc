@@ -317,8 +317,10 @@ test.describe('AudioCaptureLens', () => {
   test('a failed upload says it is not saved yet, and can be tried again or discarded', async ({ mount, page, simulator }) => {
     await injectMocks(page)
     let attempts = 0
+    const uploadIds: string[] = []
     await page.route('**/upload', async (route) => {
       attempts++
+      uploadIds.push(route.request().headers()['x-upload-id'])
       if (attempts === 1) {
         await route.fulfill({ status: 500, body: 'Internal Server Error' })
       } else {
@@ -344,6 +346,9 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Recording complete')).toBeVisible()
     await expect(page.getByTestId('not-saved')).toHaveCount(0)
     expect(attempts).toBe(2)
+    // One capture, one id on every try: a try the server saved (answer lost) isn't saved twice.
+    expect(uploadIds[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(uploadIds[1]).toBe(uploadIds[0])
   })
 
   test('uploading a file with no lecture selected asks for a title and course, and the server selects its new lecture', async ({ mount, page, simulator }) => {

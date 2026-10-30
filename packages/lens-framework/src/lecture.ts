@@ -6,11 +6,12 @@ import { useSubstrate } from './substrate-context'
  * Whether a plan item belongs to a lecture: made from a moment of one of its
  * recordings (`source_type = 'recording'`), or the class occurrence the
  * lecture is (its `class_item_id` on its `class_date`). The occurrence's date
- * is read in the series' zone, else in `timeZone`: the student's placement
- * zone (their preference, else the browser's), as the server reads it.
+ * is read as `occurrenceDate` reads it (series zone, else the item's own),
+ * falling back to `timeZone`: the student's placement zone (their
+ * preference, else the browser's), as the server reads it.
  */
 export function isLinkedToLecture(
-  item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence'>,
+  item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence' | 'time_zone'>,
   lecture: Pick<Lecture, 'recordings' | 'class_item_id' | 'class_date'> | null | undefined,
   timeZone: string,
 ): boolean {
@@ -27,7 +28,7 @@ export function isLinkedToLecture(
  */
 export function useLinkedToLecture(
   lectureId: string | undefined,
-): (item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence'>) => boolean {
+): (item: Pick<PlanItemOccurrence, 'id' | 'source_type' | 'source_id' | 'starts_at' | 'recurrence' | 'time_zone'>) => boolean {
   const substrate = useSubstrate()
   const { data: lecture } = substrate.useLecture(lectureId)
   const { data: prefs } = substrate.usePreferences()

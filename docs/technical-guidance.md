@@ -215,6 +215,13 @@ simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
   `x-lecture-id` but with `x-select-on-board: 1` selects its new lecture on
   `x-workspace-id` when that board still shows no lecture (or one that is
   gone), and says so (`selected`).
+- **An upload is saved once.** The widget gives each capture or file an id
+  (`x-upload-id`) and sends it with every try. A try after one that was
+  saved (its answer lost) gets that recording back, not a second copy.
+- **A class occurrence's date** (`class_date`) is read in the series' zone,
+  else the zone the plan item was made in (`plan_items.time_zone`, kept by
+  edits), else the student's. So a one-off class is the same occurrence on
+  every device and after the student's zone changes.
 - **A capture in progress** is device-local substrate state:
   `useSetLiveCapture(lectureId, 'recording' | 'saving' | null)` from the
   Record widget, `useLiveCapture(lectureId)` for readers such as the

@@ -70,6 +70,11 @@ export interface UploadRecordingArgs {
    * in the same transaction, if that board still shows no lecture.
    */
   selectOnBoard?: boolean
+  /**
+   * This capture's or file's id, the same on every try: a try after one the
+   * server saved (its answer lost) returns that recording, not a second one.
+   */
+  uploadId?: string
 }
 
 /**
@@ -110,6 +115,7 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<Upload
       'x-recording-duration': String(Math.round(args.durationMs)),
       ...(args.boardId ? { 'x-workspace-id': args.boardId } : {}),
       ...(args.boardId && args.selectOnBoard && !args.lectureId ? { 'x-select-on-board': '1' } : {}),
+      ...(args.uploadId ? { 'x-upload-id': args.uploadId } : {}),
       ...(AUTH_TOKEN ? { Authorization: `Bearer ${AUTH_TOKEN}` } : {}),
     },
     body: args.audio,

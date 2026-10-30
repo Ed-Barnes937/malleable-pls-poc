@@ -21,6 +21,9 @@ export interface ClassLecture {
   created: boolean
 }
 
+/** Insert-then-read rounds before `findOrCreateClassLecture` gives up (each needs a concurrent delete to fail). */
+const FIND_OR_CREATE_ROUNDS = 3
+
 /**
  * The lecture of a class occurrence, made if it has none yet: one per
  * student, plan item and local date (`uq_lectures_class_occurrence`), so any
@@ -29,7 +32,7 @@ export interface ClassLecture {
  * Throws NOT_FOUND unless the plan item is the student's own (held with FOR
  * KEY SHARE until the transaction ends, as foreign keys skip row-level
  * security), and BAD_REQUEST when it isn't a class block or has no
- * occurrence on `date` (read in the series' zone, else `timeZone`).
+ * occurrence on `date` (read as `occurrenceDate` does, else in `timeZone`).
  *
  * A new lecture is filed under the class's course, starts when the
  * occurrence does, and is named from the class ("Biology lecture · Tue 28
@@ -52,19 +55,26 @@ export async function findOrCreateClassLecture(
 
   // Insert-or-nothing then read: under READ COMMITTED a concurrent insert of
   // the same occurrence makes this one wait, then do nothing, and the read
-  // that follows sees the committed row.
-  const [inserted] = await tx`
-    INSERT INTO lectures (user_id, title, course, starts_at, class_item_id, class_date)
-    VALUES (${userId}, ${classLectureTitle(item.title, date)}, ${item.course}, ${occurrence.starts_at}, ${planItemId}, ${date})
-    ON CONFLICT (user_id, class_item_id, class_date) WHERE class_item_id IS NOT NULL DO NOTHING
-    RETURNING id
-  `
-  if (inserted) return { id: inserted.id as string, created: true }
-  const [existing] = await tx`
-    SELECT id FROM lectures WHERE user_id = ${userId} AND class_item_id = ${planItemId} AND class_date = ${date}
-  `
-  return { id: existing.id as string, created: false }
+  // that follows sees the committed row. Each statement reads afresh, so if
+  // that row is deleted between the two (the student deleted the lecture
+  // elsewhere), the next round makes it again.
+  for (let round = 0; round < FIND_OR_CREATE_ROUNDS; round++) {
+    const [inserted] = await tx`
+      INSERT INTO lectures (user_id, title, course, starts_at, class_item_id, class_date)
+      VALUES (${userId}, ${classLectureTitle(item.title, date)}, ${item.course}, ${occurrence.starts_at}, ${planItemId}, ${date})
+      ON CONFLICT (user_id, class_item_id, class_date) WHERE class_item_id IS NOT NULL DO NOTHING
+      RETURNING id
+    `
+    if (inserted) return { id: inserted.id as string, created: true }
+    const [existing] = await tx`
+      SELECT id FROM lectures WHERE user_id = ${userId} AND class_item_id = ${planItemId} AND class_date = ${date}
+    `
+    if (existing) return { id: existing.id as string, created: false }
+  }
+  // Made and deleted under us every round: let the caller try again.
+  throw new TRPCError({ code: 'CONFLICT', message: 'That class lecture keeps changing; please try again' })
 }
+
 
 /**
  * The lecture a capture starting at `at` in `course` joins when a class of
