@@ -284,6 +284,25 @@ test('Undo keeps a change made elsewhere while the popover was open, and says th
   await expect(page.getByTestId('board-scope')).toHaveText('physics / no lecture')
 })
 
+test('Undo goes as soon as the board moves on from what the open left, and the row keeps its height', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, at(2, 12))
+  seedWeek(simulator)
+  await mount(<ClassFocusHarness />)
+  await block(page, 'Biology lecture').click()
+  const undo = section(page).getByRole('button', { name: 'Undo' })
+  await expect(undo).toBeVisible()
+  await expect(page.getByTestId('board-scope')).toHaveText(/^biology \/ lec-/)
+  const row = page.getByTestId('class-lecture-row')
+  const before = await row.boundingBox()
+
+  // The header changes the board meanwhile: Undo has nothing left to put back.
+  await page.evaluate(() => (window as unknown as { changeBoardScope: (p: { courseTag: string | null }) => void }).changeBoardScope({ courseTag: 'physics' }))
+  await expect(page.getByTestId('board-scope')).toHaveText('physics / no lecture')
+  await expect(undo).toHaveCount(0)
+  await expect(section(page).getByRole('status')).toContainText(BIO_TITLE)
+  expect(await row.boundingBox()).toEqual(before)
+})
+
 test('Undo puts back the course when the lecture the board showed is gone', async ({ mount, page, simulator }) => {
   await freezeAt(page, simulator, at(2, 12))
   seedWeek(simulator)

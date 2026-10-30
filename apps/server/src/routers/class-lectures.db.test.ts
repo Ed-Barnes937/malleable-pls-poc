@@ -337,6 +337,17 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
       expect(await storedScope(ws)).toEqual([['tag', 'physics']])
     })
 
+    it('refuses an unknown course, as setBoardScope does, and writes nothing', async () => {
+      const ws = await board('chemistry')
+      const none = { courseTag: null, lectureId: null }
+      const shown = { courseTag: 'chemistry', lectureId: null }
+      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: shown }))
+        .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+        .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
+    })
+
     it("is NOT_FOUND on a board that isn't the student's", async () => {
       const ws = await board()
       const none = { courseTag: null, lectureId: null }

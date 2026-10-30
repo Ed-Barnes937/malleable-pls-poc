@@ -7,9 +7,9 @@ import type { BoardScope, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
 import { replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
 
-/** A board scope as `setBoardScope` returns it (null = unset). */
+/** A board scope as `setBoardScope` returns it (null = unset), validated as `setBoardScope` validates it. */
 const boardScope = z.object({
-  courseTag: z.string().max(100).nullable(),
+  courseTag: courseKey.nullable(),
   lectureId: z.string().max(255).nullable(),
 })
 

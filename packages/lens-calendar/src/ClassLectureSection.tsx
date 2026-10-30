@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useManifests, useSubstrate, type FocusClassResult, type FocusedClassLecture, type LectureBoardRef, type UndoFocusClassResult } from '@pls/lens-framework'
-import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
+import { CLASS_CAPTURE_LEAD_MIN, type BoardScope } from '@pls/substrate'
 import { cn } from '@pls/shared-ui'
 import { AudioLines, Loader2 } from 'lucide-react'
 import { formatDuration } from './time'
@@ -19,6 +19,8 @@ export type ClassLectureState =
       lecture: Extract<FocusClassResult, { status: 'focused' }>['lecture']
       /** Present when the open changed the board: puts back what it showed. */
       undo?: () => Promise<UndoFocusClassResult>
+      /** The board as the open left it (what Undo works from); Undo goes once the board shows something else. */
+      after?: BoardScope
     }
   | { state: 'failed'; request: number }
 
@@ -76,6 +78,8 @@ export interface ClassLectureSectionProps {
   lectureBoards: LectureBoardRef[] | undefined
   /** Whether this board has a widget that shows a lecture. */
   boardShowsLectures: boolean
+  /** The board's course and lecture now (undefined when the host doesn't say). */
+  board?: BoardScope
   /** A phone: rows go full width and at least 44px tall. */
   narrow?: boolean
   onRetry: () => void
@@ -95,7 +99,7 @@ export interface ClassLectureSectionProps {
  * second tap) is never moved by an answer arriving.
  */
 export function ClassLectureSection({
-  lecture, occurrence, now, lectureBoards, boardShowsLectures, narrow, onRetry, onOpenOn, onAddWidget,
+  lecture, occurrence, now, lectureBoards, boardShowsLectures, board, narrow, onRetry, onOpenOn, onAddWidget,
 }: ClassLectureSectionProps) {
   const substrate = useSubstrate()
   const manifests = useManifests()
@@ -115,6 +119,24 @@ export function ClassLectureSection({
     revealing.current = false
     boardRefs.current[BOARDS_SHOWN]?.focus()
   }, [allBoards])
+
+  // Undo goes once the board has moved on from what the open left. The board
+  // is read from a cache that catches up just after the answer, so only a
+  // board seen showing it, and then showing something else, has moved on.
+  const after = focused?.after
+  const boardCourse = board?.courseTag
+  const boardLecture = board?.lectureId
+  const [movedOn, setMovedOn] = useState(false)
+  const sawAfter = useRef(false)
+  useEffect(() => {
+    sawAfter.current = false
+    setMovedOn(false)
+  }, [lecture.request, lecture.state])
+  useEffect(() => {
+    if (!after || boardCourse === undefined || boardLecture === undefined) return
+    if (boardCourse === after.courseTag && boardLecture === after.lectureId) sawAfter.current = true
+    else if (sawAfter.current) setMovedOn(true)
+  }, [after, boardCourse, boardLecture])
 
   useEffect(() => {
     setUndo('idle')
@@ -175,7 +197,7 @@ export function ClassLectureSection({
           )}
           {lecture.state === 'failed' && <p className="text-body text-confused">Couldn't show this lecture.</p>}
         </div>
-        {focused?.undo && undo !== 'changed' && (undo === 'undone' ? (
+        {focused?.undo && undo !== 'changed' && !(movedOn && (undo === 'idle' || undo === 'failed')) && (undo === 'undone' ? (
           <span className={cn('inline-flex shrink-0 items-center px-2 text-meta text-text-muted', button)}>Undone</span>
         ) : (
           <button

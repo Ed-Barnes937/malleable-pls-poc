@@ -459,8 +459,16 @@ export default function CalendarLens({
       request,
       lecture: result.lecture,
       undo: changed && onUndoFocusClass ? () => onUndoFocusClass(board) : undefined,
+      after: board.after,
     })
   }
+
+  const currentCourse = highlight && (highlight.courseTag ?? null)
+  const currentLecture = highlight && (highlight.lectureId ?? null)
+  const currentBoard = useMemo<BoardScope | undefined>(
+    () => (currentCourse === undefined || currentLecture === undefined ? undefined : { courseTag: currentCourse, lectureId: currentLecture }),
+    [currentCourse, currentLecture],
+  )
 
   const handleOpen = (item: PlanItemOccurrence, anchor: Anchor) => {
     openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
@@ -856,6 +864,7 @@ export default function CalendarLens({
               now={now}
               lectureBoards={lectureBoards}
               boardShowsLectures={boardShowsLectures ?? false}
+              board={currentBoard}
               narrow={narrow}
               onRetry={() => void focusClass(editing, editing.occurrence_key, true)}
               onOpenOn={onOpenLectureOn && (async (boardId, lecture) => {

@@ -136,6 +136,9 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   /** Twin of the server's `restoreBoardScope`: Undo, only while the board shows what the change left. */
   router.register('workspaces.restoreBoardScope', (input) => {
     const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
+    for (const scope of [to, ifBoardShows]) {
+      if (scope.courseTag != null && !COURSE_LABELS.has(scope.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    }
     requireBoard(db, workspaceId)
     const current = readBoardScope(db, workspaceId)
     if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {

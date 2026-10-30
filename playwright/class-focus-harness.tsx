@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { SubstrateProvider, splitScope, type LectureBoardRef, type SubstrateReader } from '@pls/lens-framework'
-import { decodeScope, substrateTrpc, trpc } from '@pls/substrate-client'
+import { decodeScope, substrateTrpc, trpc, useSetBoardScope } from '@pls/substrate-client'
 import CalendarLens, { manifest as calendar } from '@pls/lens-calendar'
 import { useFocusClass, useUndoFocusClass } from '../packages/workspace-shell/src/class-focus'
 import { TestProviders } from './mount-wrapper'
@@ -70,6 +70,12 @@ function Board({ boardId, lectureBoards, boardShowsLectures, openResult, width, 
   const focusClass = useFocusClass(boardId)
   const undoFocusClass = useUndoFocusClass(boardId)
   const [calls, setCalls] = useState<string[]>([])
+  // The header (or another tab) changing the board, without a press that would close the popover.
+  const { mutate: setBoardScope } = useSetBoardScope()
+  useEffect(() => {
+    ;(window as unknown as { changeBoardScope: (patch: { courseTag?: string | null; lectureId?: string | null }) => void }).changeBoardScope =
+      (patch) => setBoardScope({ workspaceId: boardId, ...patch })
+  }, [boardId, setBoardScope])
   const scope = decodeScope((rows ?? []) as unknown as { scope_type: string; scope_value: string }[])
   const split = splitScope(scope, calendar.scope)
   return (

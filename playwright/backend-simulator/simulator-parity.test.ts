@@ -322,6 +322,16 @@ describe('simulator parity — read procedures return data on default seed', () 
       .rejects.toThrow('Lecture not found')
   })
 
+  it('restoreBoardScope refuses an unknown course and writes nothing, as on the server', async () => {
+    const none = { courseTag: null, lectureId: null }
+    const stored = await query(router, 'workspaces.scopes', 'ws-evening-review')
+    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
+      .rejects.toThrow('Unknown course')
+    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+      .rejects.toThrow('Unknown course')
+    expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual(stored)
+  })
+
   it('lectures.create with a board selects it there; lectures.update re-scopes boards', async () => {
     const lecture = await mutate(router, 'lectures.create', { course: 'physics', title: 'Optics', workspaceId: 'ws-in-lecture' }) as { id: string }
     const scope = async () =>
