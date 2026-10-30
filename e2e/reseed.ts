@@ -53,6 +53,8 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
       // tag); 017 gives each its lecture and restores NOT NULL before the
       // transaction ends.
       await tx.unsafe('ALTER TABLE recordings ALTER COLUMN lecture_id DROP NOT NULL')
+      // Re-running 017 says "already exists, skipping" for each IF NOT EXISTS.
+      await tx.unsafe('SET LOCAL client_min_messages = warning')
 
       // 002 seeds reference data; 008 seeds the freeform-canvas panels (pixel
       // columns), since 006 replaced the grid columns 002 originally used;
