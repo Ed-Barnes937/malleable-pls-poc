@@ -202,6 +202,11 @@ test.describe('Phone calendar taps', () => {
     const box = (await block.boundingBox())!
     await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
     // Straight away: no waiting for the first tap's click to have come and gone.
+    // The popover grows when the lecture line it quotes arrives, and moves with
+    // it, so wait for that and a painted frame (never for the click) before
+    // taking where Mark done is; a tap at a place read before the move misses it.
+    await expect(calendar.popover.getByText(/chloroplast DNA/)).toBeVisible()
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
     const done = (await calendar.popover.getByRole('button', { name: 'Mark done' }).boundingBox())!
     await page.touchscreen.tap(done.x + done.width / 2, done.y + done.height / 2)
     await expect.poll(async () => (await trpcQuery<{ status: string }>(request, 'planItems.byId', row.id)).status).toBe('done')
