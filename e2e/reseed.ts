@@ -15,7 +15,7 @@ import { SEED_LECTURES, withoutSeedRecordings } from './seed-lectures'
 const DATABASE_URL = resolveDatabaseUrl()
 
 const TABLES = [
-  'plan_items', 'user_preferences',
+  'plan_items', 'user_preferences', 'user_provisioning',
   'job_runs', 'workflow_jobs', 'workflows',
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',

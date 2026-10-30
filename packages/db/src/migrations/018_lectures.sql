@@ -1,4 +1,4 @@
--- Migration 017: lectures
+-- Migration 018: lectures
 -- A lecture becomes its own row: a session of a course at a time, which can
 -- exist before (or without) any audio. Recordings belong to a lecture, and a
 -- recording's course is its lecture's course (`lectures.course`) instead of

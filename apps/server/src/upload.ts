@@ -4,6 +4,7 @@ import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
 import { isCourse } from './routers/_shared'
+import { ensureDefaultAutomations } from './workflows/defaults'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -183,6 +184,8 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const audioUrl = `/uploads/${filename}`
 
     await withUser(userId, async (tx) => {
+      // An account's first upload may come before anything else it has sent.
+      await ensureDefaultAutomations(tx, userId)
       // Each upload is its own new lecture, filed under the course (the
       // lecture holds the course; the recording derives it).
       const [lecture] = await tx`

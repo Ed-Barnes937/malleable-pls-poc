@@ -51,4 +51,22 @@ export function registerRecordingsHandlers(router: ProcedureRouter, db: InMemory
       : busy.some((j) => j.job_type === 'ai:summarize-lecture') ? 'summarising' : null
     return { ...withCourse(recording), processing }
   })
+
+  // Mirrors the server: queue the transcription unless it was transcribed or one is on its way.
+  router.register('recordings.transcribe', (input) => {
+    const { recordingId } = input as { recordingId: string }
+    if (!db.recordings.some((r) => r.id === recordingId)) throw new Error('Lecture not found')
+    const hasTranscript = db.recordings.some((r) => r.id === recordingId && r.status === 'ready')
+      || db.transcriptSegments.some((s) => s.recording_id === recordingId)
+    const onItsWay = db.jobRuns.some((j) => j.job_type === 'ai:transcribe'
+      && (j.status === 'pending' || j.status === 'running')
+      && (JSON.parse(j.input ?? '{}') as { recording_id?: string }).recording_id === recordingId)
+    if (hasTranscript || onItsWay) return { queued: false }
+    db.jobRuns.push({
+      id: `jr-${crypto.randomUUID()}`, workflow_id: 'manual', workflow_job_id: 'manual', job_type: 'ai:transcribe',
+      status: 'pending', input: JSON.stringify({ recording_id: recordingId }), output: null, error: null,
+      depth: 0, retry_count: 0, created_at: new Date().toISOString(), started_at: null, completed_at: null,
+    } as never)
+    return { queued: true }
+  })
 }
