@@ -128,6 +128,18 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
+  it('workspaces.summary lists each board with its widget types, in tab order', async () => {
+    expect(await query(router, 'workspaces.summary')).toEqual([
+      { id: 'ws-in-lecture', name: 'In Lecture', sort_order: 0, lens_types: ['audio-capture', 'transcript'] },
+      { id: 'ws-evening-review', name: 'Evening Review', sort_order: 1, lens_types: ['transcript', 'test-me', 'weekly-overview', 'connections'] },
+      { id: 'ws-exam-prep', name: 'Exam Prep', sort_order: 2, lens_types: ['gap-analysis', 'weakest-topics', 'test-me'] },
+    ])
+    const ws = await mutate(router, 'workspaces.create', { name: 'Plan' }) as { id: string }
+    await mutate(router, 'workspaces.addPanel', { workspaceId: ws.id, lensType: 'calendar', slotName: 'a' })
+    const summary = await query(router, 'workspaces.summary') as { id: string; lens_types: string[] }[]
+    expect(summary.at(-1)).toEqual({ id: ws.id, name: 'Plan', sort_order: 3, lens_types: ['calendar'] })
+  })
+
   it('lectures.list and lectures.byId', async () => {
     const all = await query(router, 'lectures.list', {}) as { id: string }[]
     expect(all.map((l) => l.id)).toEqual(['lec-rec-bio-4', 'lec-rec-bio-3', 'lec-rec-chem-1', 'lec-rec-bio-2', 'lec-rec-bio-1'])

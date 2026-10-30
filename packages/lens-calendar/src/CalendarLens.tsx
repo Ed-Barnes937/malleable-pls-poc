@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, isClassBlock, occurrenceDate, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -7,6 +7,7 @@ import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import { ClassLectureSection, type ClassLectureState } from './ClassLectureSection'
 import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
@@ -27,7 +28,11 @@ type Popover =
    * A block from a lecture moment opens on where it came from; `editingTime`
    * swaps that for the date and time pickers.
    */
-  | { mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean }
+  | {
+      mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean
+      /** A class block's lecture, focused on the board as the popover opens. */
+      lecture?: ClassLectureState
+    }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -55,7 +60,10 @@ function courseLabel(course: string): string {
   return COURSES.find((c) => c.value === course)?.label ?? course
 }
 
-export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown }: LensProps) {
+export default function CalendarLens({
+  highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
+  onFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget,
+}: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
   const createItem = mutations.useCreatePlanItem()
@@ -116,6 +124,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
       if (!elsewhere) opener.focus()
     })
+  }, [])
+  /** Closes the popover for somewhere else that takes focus (another board, the board menu). */
+  const leavePopover = useCallback(() => {
+    openerRef.current = null
+    setPopover(null)
   }, [])
   /**
    * A press anywhere in the calendar but the popover closes it and still
@@ -385,8 +398,30 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     setPopover((p) => (p?.mode === 'edit' && p.key === key ? { ...p, moment } : p))
   }
 
+  /** Tells one class open (or Try again) from the next: only the latest answer is shown. */
+  const focusRequestRef = useRef(0)
+  /**
+   * Opening a class block focuses its occurrence's lecture, with its course,
+   * on this board (the shell finds or makes it). Only an open does: a drag
+   * or resize never calls this.
+   */
+  const focusClass = async (item: PlanItemOccurrence, key: string) => {
+    if (!onFocusClass || !isClassBlock(item)) return
+    const date = occurrenceDate(item, prefs?.time_zone ?? browserZone)
+    if (!date) return
+    const request = ++focusRequestRef.current
+    const setLecture = (lecture: ClassLectureState) =>
+      setPopover((p) => (p?.mode === 'edit' && p.key === key && (p.lecture?.request ?? 0) <= request ? { ...p, lecture } : p))
+    setLecture({ state: 'pending', request })
+    const result = await onFocusClass({ planItemId: item.id, date })
+    setLecture(result.status === 'focused'
+      ? { state: 'focused', request, lecture: result.lecture, changed: result.changed, undo: result.undo }
+      : { state: 'failed', request })
+  }
+
   const handleOpen = (item: PlanItemOccurrence, anchor: Anchor) => {
     openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
+    void focusClass(item, item.occurrence_key)
   }
 
   const handleCreate = (start: Date, end: Date, anchor: Anchor) => {
@@ -770,6 +805,27 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
           onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          // As children, so it isn't remounted when the board's scope changes under it.
+          children={popover.lecture && (
+            <ClassLectureSection
+              lecture={popover.lecture}
+              occurrence={editing}
+              now={now}
+              lectureBoards={lectureBoards ?? []}
+              boardShowsLectures={boardShowsLectures ?? false}
+              narrow={narrow}
+              onRetry={() => void focusClass(editing, editing.occurrence_key)}
+              onOpenOn={onOpenLectureOn && (async (boardId, lecture) => {
+                const result = await onOpenLectureOn(boardId, lecture)
+                if (result === 'opened') leavePopover()
+                return result
+              })}
+              onAddWidget={onAddWidget && (() => {
+                leavePopover()
+                onAddWidget()
+              })}
+            />
+          )}
           onToggleDone={
             editing.kind === 'commitment'
               ? undefined

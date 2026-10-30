@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import type { BoardScope } from '@pls/substrate'
+import type { BoardScope, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
 import { replaceScopeRow, writeBoardScope } from './_board-scope'
 
@@ -12,6 +12,35 @@ export const workspacesRouter = router({
     .query(async ({ ctx }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY sort_order, created_at, id`
+      })
+    }),
+
+  /**
+   * Every board with the widget types on it (oldest panel first), in tab
+   * order, in one query: what "Also open in" and other cross-board choices
+   * read, by what a board contains rather than its name.
+   */
+  summary: publicProcedure
+    .query(async ({ ctx }): Promise<WorkspaceSummary[]> => {
+      return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`
+          SELECT w.id, w.name, w.sort_order,
+            COALESCE(
+              array_agg(p.lens_type ORDER BY p.created_at, p.id) FILTER (WHERE p.id IS NOT NULL),
+              '{}'
+            ) AS lens_types
+          FROM workspaces w
+          LEFT JOIN workspace_panels p ON p.workspace_id = w.id AND p.user_id = ${ctx.userId}
+          WHERE w.user_id = ${ctx.userId}
+          GROUP BY w.id
+          ORDER BY w.sort_order, w.created_at, w.id
+        `
+        return rows.map((r) => ({
+          id: r.id as string,
+          name: r.name as string,
+          sort_order: r.sort_order as number,
+          lens_types: r.lens_types as string[],
+        }))
       })
     }),
 

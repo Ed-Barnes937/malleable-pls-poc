@@ -126,6 +126,39 @@ export interface FocusedPlanItem extends PlanItemRef {
   requestedAt: number
 }
 
+/**
+ * One occurrence of a class block on the calendar: the plan item and the
+ * local date it is on (YYYY-MM-DD, as `occurrenceDate` from `@pls/substrate`
+ * reads it). Names exactly one lecture (`lectures.forClassOccurrence`).
+ */
+export interface ClassRef {
+  planItemId: string
+  date: string
+}
+
+/** The lecture a class occurrence focused, as `onFocusClass` reports it. */
+export interface FocusedClassLecture {
+  id: string
+  title: string
+}
+
+/**
+ * - `focused`: the occurrence's lecture (found or made) is now the board's
+ *   lecture, with its course. `changed` is false when the board already
+ *   showed it; otherwise `undo` puts back what the board showed before and
+ *   resolves to whether that was written.
+ * - `failed`: nothing changed on the board (e.g. offline); asking again is safe.
+ */
+export type FocusClassResult =
+  | { status: 'focused'; lecture: FocusedClassLecture; changed: boolean; undo?: () => Promise<boolean> }
+  | { status: 'failed' }
+
+/** Another of the student's boards, named as the student named it. */
+export interface LectureBoardRef {
+  id: string
+  name: string
+}
+
 export interface LensProps {
   panelId: string
   /**
@@ -192,6 +225,29 @@ export interface LensProps {
   focusedPlanItem?: FocusedPlanItem
   /** For `showsPlanItems` widgets: the request with this id has been shown. */
   onPlanItemShown?: (requestId: number) => void
+  /**
+   * A class block was opened on the calendar: the shell finds or makes that
+   * occurrence's lecture and focuses it, with its course, on this board (one
+   * write; no navigation). Never rejects. Optional for the same reason as
+   * `onConfigChange`.
+   */
+  onFocusClass?: (cls: ClassRef) => Promise<FocusClassResult>
+  /**
+   * The student's other boards that can show a lecture (a widget declaring
+   * `lectureId: 'target'`), in tab order: found by what they contain, never
+   * by name. Empty when there are none.
+   */
+  lectureBoards?: LectureBoardRef[]
+  /** Whether this board has a widget that shows a lecture (`lectureId: 'target'`). */
+  boardShowsLectures?: boolean
+  /**
+   * Switch to `boardId` and focus `lecture` there (its course follows), with
+   * a toast offering the way back. Never rejects: `gone` when that board no
+   * longer exists, `failed` when nothing changed for another reason.
+   */
+  onOpenLectureOn?: (boardId: string, lecture: FocusedClassLecture) => Promise<'opened' | 'failed' | 'gone'>
+  /** Open the board menu's widget palette, to add a widget to this board. */
+  onAddWidget?: () => void
   /**
    * Open the automation with this id (a workflow id, e.g. a plan item's
    * `created_by_workflow_id`) so the student can see and edit it. Optional

@@ -10,6 +10,21 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     return db.workspaces
   })
 
+  // As the server: tab order, each board's widget types oldest first.
+  router.register('workspaces.summary', () => {
+    return [...db.workspaces]
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+      .map((w) => ({
+        id: w.id,
+        name: w.name,
+        sort_order: w.sort_order,
+        lens_types: db.workspacePanels
+          .filter((p) => p.workspace_id === w.id)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+          .map((p) => p.lens_type),
+      }))
+  })
+
   router.register('workspaces.panels', (input) => {
     const workspaceId = input as string
     return db.workspacePanels.filter((p) => p.workspace_id === workspaceId)

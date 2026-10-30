@@ -231,6 +231,47 @@ simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
   day where that is unambiguous. What happens to a class's lectures when the
   class's course changes later is undecided; for now they keep their course.
 
+### Focusing a class's lecture ("click Tuesday's Biology class")
+
+Opening a class block on the calendar (a click, a tap or Enter; never a drag
+or resize) focuses that occurrence's lecture, with its course, **on the board
+in view**. It is not an automation (a click is client-side intent, and an
+automation would have to name a board, which is app state nothing can
+guarantee), it never navigates, and it never makes a board or asks the
+student to. Like a Notion or Obsidian link, it names content (the lecture),
+not a view; boards are the student's views.
+
+1. The Calendar calls `LensProps.onFocusClass({ planItemId, date })`, with
+   `date` from `occurrenceDate(row, studentZone)`.
+2. The shell (`useFocusClass` in `packages/workspace-shell/src/class-focus.ts`)
+   calls `lectures.forClassOccurrence` with the board
+   (`useClassOccurrenceLecture` in `@pls/substrate-client`): one call finds or
+   makes the lecture and selects it in the same transaction. It refreshes
+   `lectures` and the board's `workspaces.scopes`, and runs in the board's
+   mutation scope (`boardScopeMutationId`), so quick opens land in order.
+3. The popover's Lecture row (`ClassLectureSection`) names the lecture and
+   its status ("Recorded · 52 min", "On now", "Upcoming", "No recording
+   yet"). Undo (only when the board changed) puts back the board's previous
+   scope with one `setBoardScope`. A failure leaves the board alone and
+   offers Try again. The row keeps one height from pending to answered, so
+   the popover never moves under a phone's second tap.
+4. **Also open in** lists the student's other boards that can show a lecture
+   (`lectureBoards`: a widget declaring `lectureId: 'target'`), by their own
+   names in tab order, from `workspaces.summary` (one query: each board's
+   widget types). It is re-derived on every open and refreshed by board and
+   panel changes, so renaming or rebuilding boards can't break it; nothing
+   stores a board id or a board purpose. Picking one selects the lecture
+   there, switches to it, focuses its tab, and raises the moments-style toast
+   ("Opened Biology lecture · Tue 28 Oct in In Lecture", "Back to Plan").
+   Hidden when there are none.
+5. With no lecture widget on this board and no other board to offer, the row
+   adds "Audio Capture, Transcript and Connections show a lecture. Add a
+   widget" (names from the manifests), which opens the board menu's palette.
+
+On a board without lecture widgets the focus still shows: the Calendar rings
+the occurrence, To-do and Coming up narrow to the course, and the header
+names the lecture.
+
 ### Showing a Moment ("click a study block, land on the lecture moment")
 
 Some items point at a moment in a recording (a plan item's `source_type =

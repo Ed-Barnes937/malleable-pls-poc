@@ -38,6 +38,14 @@ export function useWorkspaces() {
   return trpc.workspaces.list.useQuery()
 }
 
+/**
+ * Every board with the widget types on it, in tab order (`workspaces.summary`):
+ * for choosing a board by what it contains. Board and panel changes refresh it.
+ */
+export function useWorkspaceSummary() {
+  return trpc.workspaces.summary.useQuery()
+}
+
 /** A board's widgets; no request without a board (`null`). */
 export function useWorkspacePanels(workspaceId: string | null) {
   return trpc.workspaces.panels.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
@@ -56,6 +64,7 @@ export function useCreateWorkspace() {
   return trpc.workspaces.create.useMutation({
     onSuccess: (ws) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && ([...prev, ws] as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -66,6 +75,7 @@ export function useDeleteWorkspace() {
   return trpc.workspaces.delete.useMutation({
     onSuccess: (_data, id) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && (prev.filter((w) => w.id !== id) as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -89,7 +99,10 @@ export function useReorderWorkspaces() {
     onError: (_err, _ids, ctx) => {
       if (ctx?.prev) utils.workspaces.list.setData(undefined, ctx.prev)
     },
-    onSettled: () => utils.workspaces.list.invalidate(),
+    onSettled: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.list.invalidate()
+    },
   })
 }
 
@@ -99,13 +112,18 @@ export function useReorderWorkspaces() {
  * one that still exists.
  */
 function refetchBoardsIfGone(utils: ReturnType<typeof trpc.useUtils>, error: { data?: { code?: string } | null }) {
-  if (error.data?.code === 'NOT_FOUND') void utils.workspaces.list.invalidate()
+  if (error.data?.code !== 'NOT_FOUND') return
+  void utils.workspaces.list.invalidate()
+  void utils.workspaces.summary.invalidate()
 }
 
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
     onError: (error) => refetchBoardsIfGone(utils, error),
   })
 }
@@ -113,7 +131,10 @@ export function useAddWorkspacePanel() {
 export function useRemoveWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.removePanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
   })
 }
 
@@ -149,6 +170,34 @@ export function useSetBoardScope() {
       utils.workspaces.scopes.invalidate(input.workspaceId)
       // A lecture made a moment ago (an upload) may not be in the picker's list yet.
       if (input.lectureId) utils.lectures.invalidate()
+    },
+  })
+}
+
+/**
+ * The TanStack mutation scope for writes that move a board's lecture from
+ * one gesture after another (calendar class clicks): they run one at a time,
+ * in order, so the last one asked for is the one the board ends on.
+ */
+export function boardScopeMutationId(workspaceId: string | null): string {
+  return `board-scope-${workspaceId ?? 'none'}`
+}
+
+/**
+ * A calendar class occurrence's lecture (`lectures.forClassOccurrence`):
+ * found or made (exactly one per occurrence), and with `workspaceId` selected
+ * on that board in the same transaction. The answer's `board.before` is what
+ * Undo puts back with `setBoardScope`. Refreshes the lectures (one may be
+ * new) and the board's scope; a board that is gone refreshes the board list.
+ */
+export function useClassOccurrenceLecture(workspaceId: string | null) {
+  const utils = trpc.useUtils()
+  return trpc.lectures.forClassOccurrence.useMutation({
+    scope: { id: boardScopeMutationId(workspaceId) },
+    onError: (error) => refetchBoardsIfGone(utils, error),
+    onSuccess: (_data, input) => {
+      void utils.lectures.invalidate()
+      if (input.workspaceId) void utils.workspaces.scopes.invalidate(input.workspaceId)
     },
   })
 }
