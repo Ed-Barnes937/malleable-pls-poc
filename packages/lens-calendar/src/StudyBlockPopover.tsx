@@ -92,7 +92,7 @@ export function StudyBlockPopover({
   const recordingId = row.source_id ?? ''
   const offsetMs = row.source_offset_ms ?? 0
   const { data: recording } = substrate.useRecording(recordingId)
-  const { data: segments } = substrate.useTranscript(recordingId)
+  const { data: segments, isLoading: quoteLoading } = substrate.useTranscript(recordingId)
   const { data: tags } = substrate.useTags({ recordingId })
   const { data: automation } = substrate.useAutomation(row.created_by_workflow_id ?? '')
 
@@ -114,14 +114,6 @@ export function StudyBlockPopover({
   const sentence = automation ? reviewAutomationSentence(automation) : null
   const markStyle = mark ? TAG_STYLES[mark] : undefined
 
-  // What loads after the popover opens (the lecture's title, the line and its
-  // mark, the automation) is given its room up front, so the buttons stay
-  // where the student's finger is going: the title's two lines, the quote's
-  // three and the mark's row are always reserved (the mark's blank when there
-  // is none), and the automation's row while it loads.
-  const quoteLoading = segments === undefined
-  const automationLoading = !!row.created_by_workflow_id && automation === undefined
-
   const button = 'inline-flex h-10 items-center justify-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors disabled:opacity-50'
 
   return (
@@ -140,7 +132,7 @@ export function StudyBlockPopover({
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
           <AudioLines className="h-4 w-4 shrink-0" />
-          <span className="line-clamp-2 min-h-[2lh]"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', offsetMs)} /></span>
+          <span className="line-clamp-2"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', offsetMs)} /></span>
         </p>
         <button
           type="button"
@@ -178,18 +170,17 @@ export function StudyBlockPopover({
           data-testid="calendar-moment-quote"
           className={cn('flex flex-col gap-1 rounded-item border-l-4 px-3 py-2.5', tone.soft, markStyle?.line ?? tone.stripeBorder)}
         >
-          {!(mark && markStyle) && <div aria-hidden className="min-h-[1lh] text-meta" />}
           {mark && markStyle && (
             <figcaption className={cn('inline-flex items-center gap-1.5 text-meta font-semibold', markStyle.text)}>
               <markStyle.icon className="h-3.5 w-3.5" />
               {MARK_WORDS[mark]}
             </figcaption>
           )}
-          <blockquote className="line-clamp-3 min-h-[3lh] text-body text-text-primary">{segment ? `"${segment.text}"` : null}</blockquote>
+          <blockquote className={cn('line-clamp-3 text-body text-text-primary', !segment && 'min-h-[3lh]')}>{segment ? `"${segment.text}"` : null}</blockquote>
         </figure>
       )}
 
-      <div data-testid="calendar-moment" className="flex flex-col gap-1.5">
+      <div data-testid="calendar-moment" data-popover-anchor={canEdit ? undefined : ''} className="flex flex-col gap-1.5">
         {canShowMoment && moment !== 'nowhere' && (
           <button
             type="button"
@@ -213,7 +204,7 @@ export function StudyBlockPopover({
       </div>
 
       {canEdit && (
-        <div className="grid grid-cols-2 gap-2">
+        <div data-popover-anchor className="grid grid-cols-2 gap-2">
           {onToggleDone && (
             <button
               type="button"
@@ -237,7 +228,6 @@ export function StudyBlockPopover({
       {error && <p role="alert" className="text-meta text-confused">{error}</p>}
       <PendingStatus pending={pending} done={done} />
 
-      {automationLoading && <div aria-hidden className="min-h-[2lh] border-t border-border-subtle pt-3 text-meta" />}
       {row.created_by_workflow_id && automation && (
         <p data-testid="calendar-made-by" className="flex items-start gap-1.5 border-t border-border-subtle pt-3 text-meta text-text-secondary">
           <Zap className="mt-0.5 h-3.5 w-3.5 shrink-0" />

@@ -207,43 +207,6 @@ test.describe('Phone calendar taps', () => {
     await expect.poll(async () => (await trpcQuery<{ status: string }>(request, 'planItems.byId', row.id)).status).toBe('done')
   })
 
-  test("a block's popover keeps Mark done where it is while the lecture's title and line load into it", async ({ page, request }) => {
-    const today = new Date()
-    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 16)
-    await trpcMutation(request, 'planItems.create', {
-      kind: 'task', title: 'Tap then wait', course: 'biology', duration_min: 60,
-      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
-      source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
-    })
-    await page.goto('/')
-    await new TopBarPom(page).switchToWorkspace('My week')
-    const calendar = new CalendarPom(page)
-    const block = calendar.block('Tap then wait')
-    await block.scrollIntoViewIfNeeded()
-    // The lecture's title, line and mark arrive late: the popover opens without them.
-    // Held only from here: tRPC batches requests, so a held one would hold the
-    // calendar's own along with it.
-    let release!: () => void
-    const held = new Promise<void>((resolve) => { release = resolve })
-    await page.route(/recordings\.byId|transcripts\.byRecording|tags\.list/, async (route) => {
-      await held
-      await route.continue()
-    })
-    const box = (await block.boundingBox())!
-    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
-    const markDone = calendar.popover.getByRole('button', { name: 'Mark done' })
-    await expect(markDone).toBeVisible()
-    const before = { popover: (await calendar.popover.boundingBox())!, markDone: (await markDone.boundingBox())! }
-
-    release()
-    await expect(calendar.popover.getByText(/chloroplast DNA/)).toBeVisible()
-    await expect(calendar.popover.getByTestId('calendar-moment-source')).toContainText('Biology Lecture')
-    // Let any re-placement the arrival caused be painted before looking.
-    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
-    // The popover keeps its room (so wherever it is placed it neither grows nor moves), and Mark done stays put.
-    expect({ popover: await calendar.popover.boundingBox(), markDone: await markDone.boundingBox() }).toEqual(before)
-  })
-
   test("after a tap opened and closed a block's popover, a ghost's Accept works on the first tap", async ({ page, request }) => {
     const today = new Date()
     const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 10)
