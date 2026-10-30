@@ -14,6 +14,7 @@ import { eventsRouter } from './routers/events'
 import { planItemsRouter } from './routers/plan-items'
 import { planningRouter } from './routers/planning'
 import { preferencesRouter } from './routers/preferences'
+import { resourcesRouter } from './routers/resources'
 
 export const appRouter = router({
   lectures: lecturesRouter,
@@ -31,6 +32,7 @@ export const appRouter = router({
   planItems: planItemsRouter,
   planning: planningRouter,
   preferences: preferencesRouter,
+  resources: resourcesRouter,
 })
 
 export type AppRouter = typeof appRouter

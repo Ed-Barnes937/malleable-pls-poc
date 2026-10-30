@@ -25,6 +25,12 @@ import type {
   RefitPreview,
   RefitResult,
   WorkflowWithJobs,
+  Resource,
+  ResourceWithBody,
+  ResourceListQuery,
+  NewResourceLink,
+  NewResourceNote,
+  ResourceUpdate,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -67,6 +73,7 @@ export interface MutationHandle<TInput, TOutput = TInput> {
 // ---------------------------------------------------------------------------
 
 export type TableName =
+  | 'lectures'
   | 'recordings'
   | 'transcript_segments'
   | 'tags'
@@ -78,6 +85,7 @@ export type TableName =
   | 'weakest_topics'
   | 'plan_items'
   | 'user_preferences'
+  | 'resources'
 
 // ---------------------------------------------------------------------------
 // SubstrateReader — read-only hooks for view lenses
@@ -135,6 +143,18 @@ export interface SubstrateReader {
    * automatic placement (Auto-fill, reviews, re-fit) obeys.
    */
   usePreferences: () => QueryResult<UserPreferences>
+  /**
+   * The student's links and notes, newest first, without note bodies
+   * (`excerpt` instead). `courseTag` keeps those in the course (filed under
+   * it or one of its lectures), `lectureId` those of the lecture.
+   */
+  useResources: (filter?: ResourceListQuery) => QueryResult<Resource[]>
+  /**
+   * One resource with its note body, or null. No request for an empty id.
+   * `refetch` reads it from the server now (e.g. after a CONFLICT), resolving
+   * with what it has.
+   */
+  useResource: (id: string | undefined) => QueryResult<ResourceWithBody> & { refetch: () => Promise<ResourceWithBody | null> }
 }
 
 /**
@@ -145,6 +165,12 @@ export interface SubstrateReader {
 export function isConflictError(err: unknown): boolean {
   const data = (err as { data?: { code?: unknown } } | null)?.data
   return data?.code === 'CONFLICT'
+}
+
+/** Whether `err` is the server saying the thing does not exist (or is not the student's). */
+export function isNotFoundError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'NOT_FOUND'
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +236,17 @@ export interface SubstrateWriter extends SubstrateReader {
    * one to its default. Resolves with the result, defaults filled in.
    */
   useUpdatePreferences: () => MutationHandle<PreferencesUpdate, UserPreferences>
+
+  /** A link; refused (BAD_REQUEST) unless http(s). Sent with the panel's board. */
+  useCreateResourceLink: () => MutationHandle<Omit<NewResourceLink, 'workspaceId'>, ResourceWithBody>
+  /** A markdown note, empty unless a body is given. Sent with the panel's board. */
+  useCreateResourceNote: () => MutationHandle<Omit<NewResourceNote, 'workspaceId'>, ResourceWithBody>
+  /**
+   * Renames, edits or moves a resource. With `expectedUpdatedAt` it fails
+   * with a CONFLICT (see `isConflictError`) if the resource changed since.
+   */
+  useUpdateResource: () => MutationHandle<ResourceUpdate, ResourceWithBody>
+  useDeleteResource: () => MutationHandle<string, { id: string }>
 }
 
 // ---------------------------------------------------------------------------
