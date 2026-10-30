@@ -101,8 +101,9 @@ describe.skipIf(!TEST_DATABASE_URL)('recordings (Postgres)', () => {
     beforeEach(async () => {
       await db.withUser(user, async (tx) => {
         await tx`DELETE FROM transcript_segments WHERE recording_id = ${lecture}`
-        await tx`DELETE FROM recordings WHERE id = ${lecture}`
-        await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${lecture}, ${user}, 'Manual', 'uploaded')`
+        // Its lecture too: recordings cascade with their lecture.
+        await tx`DELETE FROM lectures WHERE id = ${`lec-${lecture}`}`
+        await insertRecording(tx, { id: lecture, userId: user, title: 'Manual', status: 'uploaded' })
       })
     })
 
