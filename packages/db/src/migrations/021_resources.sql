@@ -1,4 +1,4 @@
--- Migration 019: resources
+-- Migration 021: resources (019 and 020 are taken by 02 phase 3, #109)
 -- Links, markdown notes and (later) uploaded files a student keeps for a
 -- course or a lecture: the Resources widget. See
 -- plans/product-changes/04-content-widget.md.
