@@ -16,6 +16,9 @@ lectures
   created_at, updated_at
   -- a session of a course at a time; exists before or without audio.
   -- course: a key from COURSE_LABELS, NULL = not filed under a course
+  -- class_item_id + class_date: the class occurrence it is (a class block
+  --   plan item and the occurrence's local date), one lecture per
+  --   occurrence (unique index). If the class is deleted, class_date stays.
 
 recordings
   id, lecture_id, created_at, duration, audio_url, status (transcribing|ready)
@@ -172,8 +175,8 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 
 | Widget | Course | Lecture | Unset scope |
 |---|---|---|---|
-| Audio capture | `filter` (a new lecture is filed under it) | `target`: "Ready to record *<lecture>*" and captures and uploads go into it (`x-lecture-id`); with audio it plays the latest part, offers **Record more** (another part) and **New lecture** (clears the board lecture) | "Ready to record"; a capture or upload is a new lecture in the board course, which becomes the board lecture |
-| Transcript | `filter` | `target`: the lecture's recordings, one part at a time ("Part 1", "Part 2"; a moment opens its part); "No recording yet" when it has none | "Pick a lecture", with the course's latest lectures as one-click choices |
+| Audio capture | `filter` (a new lecture is filed under it) | `target`: "Ready to record *<lecture>*" and captures and uploads go into it (`x-lecture-id`); with audio it plays the latest part, offers **Record more** (another part) and **New lecture** (clears the board lecture) | "Ready to record"; pressing Record makes the lecture at once (the server selects it, and joins a class of the course that is on, see below); a file upload makes it with the upload (the server selects it) |
+| Transcript | `filter` | `target`: the lecture's recordings, one part at a time ("Part 1", "Part 2"; a moment opens its part); "No recording yet" when it has none, "Recording..." / "Saving the recording..." while a capture into it is under way ("Recording part 2..." on a lecture with audio) | "Pick a lecture", with the course's latest lectures as one-click choices |
 | Connections | `filter` | `target`: links out of all its recordings | prompt to focus a lecture |
 | Test me | `filter` | `ignore` | all material |
 | Your progress (weekly-overview) | `filter` | `ignore` | all courses |
@@ -182,6 +185,51 @@ earlier `timeframe` board scope was never applied by any reader and was removed
 | Coming up | `filter` + "+N elsewhere"; open deadlines from earlier always shown ("Still to do from Monday") | `highlight` | all, next 14 days (look-ahead is a per-panel config knob) |
 | To-do | `filter` + "+N elsewhere"; new to-dos inherit course | `highlight` | all open (plus those done today) |
 | Calendar | `highlight` (dim other courses; items with no course, like a shift, stay undimmed; never hide commitments) | `highlight` (rings blocks from the lecture's moments and its class occurrence) | current week, everything |
+
+### Lectures and class occurrences
+
+A lecture can be one occurrence of a class: a *class block* (a commitment
+that is a `class` or has a course, `isClassBlock`) on a local date
+(`class_date`, read in the series' zone, else the student's). The shared
+rules live in `packages/substrate/src/class-occurrences.ts` (server, CT
+simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
+`classForCapture`, `classLectureTitle`.
+
+- `lectures.forClassOccurrence({ planItemId, date, workspaceId?, timeZone? })`
+  finds or makes the occurrence's lecture (exactly one, however many callers
+  race: unique index + `ON CONFLICT DO NOTHING`, then read), named from the
+  class ("Biology lecture · Tue 28 Oct") and filed under its course. With a
+  board it selects it there in the same transaction and returns the board's
+  scope before and after (for Undo). This is what a calendar class click uses.
+- **Record makes its lecture as capture starts** (`useStartLecture`, i.e.
+  `lectures.create({ matchClass: true, workspaceId })`): the server makes the
+  lecture and selects it on the board in one transaction, so every widget
+  knows it during the class. If a class of the board's course is on (from 15
+  minutes before its start to its end), it is that occurrence's lecture, the
+  same one a calendar click finds. `classForCapture` is the one place that
+  decides this; it matches silently today (open product question Q8: ask the
+  first time instead?). A refused microphone leaves the empty lecture
+  selected, which is valid.
+- **The server selects lectures that captures and uploads make**; the widget
+  never writes the board scope after an upload. `/upload` without
+  `x-lecture-id` but with `x-select-on-board: 1` selects its new lecture on
+  `x-workspace-id` when that board still shows no lecture (or one that is
+  gone), and says so (`selected`).
+- **An upload is saved once.** The widget gives each capture or file an id
+  (`x-upload-id`) and sends it with every try. A try after one that was
+  saved (its answer lost) gets that recording back, not a second copy.
+- **A class occurrence's date** (`class_date`) is read in the series' zone,
+  else the zone the plan item was made in (`plan_items.time_zone`, kept by
+  edits), else the student's. So a one-off class is the same occurrence on
+  every device and after the student's zone changes.
+- **A capture in progress** is device-local substrate state:
+  `useSetLiveCapture(lectureId, 'recording' | 'saving' | null)` from the
+  Record widget, `useLiveCapture(lectureId)` for readers such as the
+  Transcript. It is not persisted (the audio lives in the page until it is
+  uploaded), and the page asks before a reload while it holds audio.
+- Migration 020 linked existing lectures to the class occurrence on their
+  day where that is unambiguous. What happens to a class's lectures when the
+  class's course changes later is undecided; for now they keep their course.
 
 ### Showing a Moment ("click a study block, land on the lecture moment")
 

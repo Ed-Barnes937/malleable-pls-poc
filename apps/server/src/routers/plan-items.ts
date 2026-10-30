@@ -13,6 +13,7 @@ import {
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
 import {
   assertValid,
@@ -88,9 +89,9 @@ export const planItemsRouter = router({
 
   create: publicProcedure
     .input(newPlanItemOnBoardInput)
-    .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
+    .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
-        const item = await insertPlanItem(tx, ctx.userId, input)
+        const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
         await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item
       })
@@ -109,8 +110,11 @@ export const planItemsRouter = router({
         const { course, ...patch } = input.patch
         const merged: Stored = { ...current, ...patch }
         assertValid(merged)
+        // An item from before items kept their zone takes the student's now;
+        // one that has a zone keeps it (see PlanItem.time_zone).
+        const timeZone = current.time_zone ?? await studentTimeZone(tx, ctx.userId, input.timeZone)
         await tx`
-          UPDATE plan_items SET ${tx({ ...columns(tx, merged), updated_at: new Date() })}
+          UPDATE plan_items SET ${tx({ ...columns(tx, merged), time_zone: timeZone, updated_at: new Date() })}
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)

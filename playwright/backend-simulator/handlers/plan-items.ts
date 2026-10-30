@@ -2,8 +2,9 @@ import {
   expandPlanItems,
   matchesPlanItemFilters,
   validatePlanItem,
-  newPlanItemInput,
-  planItemUpdateInput,
+  newPlanItemOnBoardInput,
+  planItemUpdateOnBoardInput,
+  DEFAULT_REVIEW_TIME_ZONE,
   planItemListInput,
   planItemIdInput,
   planItemOnBoardInput,
@@ -51,6 +52,9 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   }
 
   const withCourse = (row: StoredPlanItem): PlanItem => ({ ...row, course: courseOf(row.id) })
+  // As the server keeps it on a new item: the preference, else the browser's.
+  const studentTimeZone = (browserZone: string | undefined) =>
+    withDefaults(db.preferences).time_zone ?? browserZone ?? DEFAULT_REVIEW_TIME_ZONE
 
   const find = (id: string): StoredPlanItem => {
     const row = db.planItems.find((p) => p.id === id)
@@ -75,7 +79,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   })
 
   router.register('planItems.create', (input) => {
-    const { course, ...fields } = parse(newPlanItemInput, input)
+    const { course, workspaceId: _board, timeZone, ...fields } = parse(newPlanItemOnBoardInput, input)
     assertValid(fields)
     const now = new Date().toISOString()
     const row: StoredPlanItem = {
@@ -94,6 +98,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
       source_offset_ms: fields.source_offset_ms ?? null,
       // Only automations credit themselves, server side; never from a client.
       created_by_workflow_id: null,
+      time_zone: studentTimeZone(timeZone),
       created_at: now,
       updated_at: now,
     }
@@ -103,12 +108,12 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   })
 
   router.register('planItems.update', (input) => {
-    const { id, patch } = parse(planItemUpdateInput, input)
+    const { id, patch, timeZone } = parse(planItemUpdateOnBoardInput, input)
     const row = find(id)
     const { course, ...fields } = patch
     const merged = { ...row, ...fields }
     assertValid(merged)
-    Object.assign(row, fields, { updated_at: new Date().toISOString() })
+    Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: new Date().toISOString() })
     if (course !== undefined) setCourse(id, course)
     return withCourse(row)
   })
@@ -126,6 +131,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const id = parse(planItemIdInput, input)
     if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
+    // As the server's ON DELETE SET NULL: its lectures keep their date.
+    for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
   })
 
   /** The student's study hours and budget, and their zone if set (else the caller's), as the server reads them. */
