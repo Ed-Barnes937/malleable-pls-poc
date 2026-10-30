@@ -202,7 +202,7 @@ export function useAudioRecorder(hasAudio: boolean | undefined, options: AudioRe
       // The lecture exists from now: the server makes it (or finds the
       // class that is on) and selects it on the board. If that fails, the
       // capture goes on regardless and its upload makes the lecture.
-      startingRef.current = startLectureRef.current.mutateAsync({ course: target.course }).then(
+      startingRef.current = startLectureRef.current.mutateAsync({ course: target.course, boardLecture: target.boardLecture }).then(
         (lecture) => {
           // Too late: Stop has sent the audio without it.
           if (target.gaveUpOnStart) return

@@ -318,10 +318,17 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     } catch (err) {
       // Nothing was recorded, so the file goes too.
       await rm(filePath, { force: true })
-      const saved = err instanceof AlreadySaved && uploadId ? await savedUpload(userId, uploadId, selectOnBoard ? workspaceId : null) : null
-      if (saved) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(saved))
+      if (err instanceof AlreadySaved && uploadId) {
+        const saved = await savedUpload(userId, uploadId, selectOnBoard ? workspaceId : null)
+        if (saved) {
+          res.writeHead(200, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify(saved))
+          return
+        }
+        // The winning try's recording was deleted in between: nothing to
+        // answer with, and this try saved nothing. The client can retry.
+        res.writeHead(409, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Upload conflict, try again' }))
         return
       }
       // The lecture went (or changed hands) between the check above and the

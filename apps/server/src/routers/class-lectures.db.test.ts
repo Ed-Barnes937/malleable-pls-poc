@@ -272,6 +272,33 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
   })
 
+  describe('lectures.create selectIfBoardShows (a create that lands late)', () => {
+    it('still selects when the board shows what it did when the capture started', async () => {
+      const ws = await board()
+      const made = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: null })
+      expect(await storedScope(ws)).toEqual([['lecture', made.id], ['tag', 'physics']])
+      const next = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: made.id })
+      expect(await storedScope(ws)).toEqual([['lecture', next.id], ['tag', 'physics']])
+    })
+
+    it('leaves a board an upload selected meanwhile alone, and still returns the lecture', async () => {
+      const ws = await board()
+      const uploaded = await upload(alice, { 'x-recording-course': 'physics', 'x-workspace-id': ws, 'x-select-on-board': '1' })
+      expect(uploaded.body.selected).toBe(true)
+      const late = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: null })
+      expect(late.id).not.toBe(uploaded.body.lectureId)
+      expect(await storedScope(ws)).toEqual([['lecture', uploaded.body.lectureId], ['tag', 'physics']])
+    })
+
+    it('replaces a lecture that is gone', async () => {
+      const ws = await board()
+      const gone = await api().lectures.create({ course: 'chemistry', workspaceId: ws })
+      await db.sql`DELETE FROM lectures WHERE id = ${gone.id}`
+      const made = await api().lectures.create({ course: 'biology', workspaceId: ws, selectIfBoardShows: null })
+      expect(await storedScope(ws)).toEqual([['lecture', made.id], ['tag', 'biology']])
+    })
+  })
+
   describe('/upload selecting the lecture it makes', () => {
     it('selects it on the board when the board has no lecture', async () => {
       const ws = await board('physics')

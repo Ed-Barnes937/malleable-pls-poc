@@ -171,9 +171,12 @@ export interface SubstrateWriter extends SubstrateReader {
    * selected on the calling panel's board by the server in the same write
    * (its course comes with it). When a class of that course is on, it is
    * that class occurrence's lecture instead (found or made, the same one a
-   * calendar click on that class finds).
+   * calendar click on that class finds). `boardLecture` is the lecture the
+   * board showed when the capture started: the server selects the new one
+   * only if the board still shows it (or one that is gone), so a slow call
+   * can't undo a selection made meanwhile.
    */
-  useStartLecture: () => MutationHandle<{ course: string | null }, Lecture>
+  useStartLecture: () => MutationHandle<{ course: string | null; boardLecture: string | null }, Lecture>
   /** Reports a capture into a lecture (see `useLiveCapture`); null when it is over. */
   useSetLiveCapture: () => (lectureId: string, phase: LiveCapturePhase | null) => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>

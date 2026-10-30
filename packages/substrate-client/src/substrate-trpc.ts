@@ -190,15 +190,16 @@ export const substrateTrpc: SubstrateWriter = {
         if (boardId) utils.workspaces.scopes.invalidate(boardId)
       },
     })
-    const toInput = ({ course }: { course: string | null }) => ({
+    const toInput = ({ course, boardLecture }: { course: string | null; boardLecture: string | null }) => ({
       course,
+      selectIfBoardShows: boardLecture,
       matchClass: true,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       ...(boardId ? { workspaceId: boardId } : {}),
     })
     return {
-      mutate: (input: { course: string | null }) => mutation.mutate(toInput(input)),
-      mutateAsync: (input: { course: string | null }) => mutation.mutateAsync(toInput(input)),
+      mutate: (input: { course: string | null; boardLecture: string | null }) => mutation.mutate(toInput(input)),
+      mutateAsync: (input: { course: string | null; boardLecture: string | null }) => mutation.mutateAsync(toInput(input)),
       isPending: mutation.isPending,
     }
   },

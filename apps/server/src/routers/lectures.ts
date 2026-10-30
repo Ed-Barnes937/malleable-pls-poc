@@ -58,6 +58,20 @@ async function lectureById(tx: TxSql, userId: string, id: string): Promise<Lectu
   return lecture ?? null
 }
 
+/**
+ * Whether a board's selection may still be replaced by a lecture that was
+ * decided on when it showed `expected` (undefined: always; null: no lecture):
+ * it shows that lecture, or one that is gone. The same rule /upload uses
+ * with `x-select-on-board`. Call under the board's scope lock.
+ */
+async function boardStillShows(tx: TxSql, userId: string, workspaceId: string, expected: string | null | undefined): Promise<boolean> {
+  if (expected === undefined) return true
+  const { lectureId: current } = await readBoardScope(tx, userId, workspaceId)
+  if (current === null || current === undefined || current === expected) return true
+  const [stillThere] = await tx`SELECT 1 FROM lectures WHERE id = ${current} AND user_id = ${userId}`
+  return !stillThere
+}
+
 export const lecturesRouter = router({
   /** The student's lectures, latest first, optionally only those in a course. */
   list: publicProcedure
@@ -97,6 +111,12 @@ export const lecturesRouter = router({
       timeZone: timeZoneInput.optional(),
       workspaceId: boardId.optional(),
       matchClass: z.boolean().optional(),
+      // With `workspaceId`: select the lecture only if the board still shows
+      // this lecture (null = none) or one that is gone, as it did when the
+      // caller started. A board that has moved on (e.g. a slow create that an
+      // upload's selection overtook) keeps what it shows and the lecture is
+      // returned unselected. Left out: always select.
+      selectIfBoardShows: lectureId.nullable().optional(),
     }))
     .mutation(async ({ ctx, input }): Promise<Lecture> => {
       return withUser(ctx.userId, async (tx) => {
@@ -117,7 +137,9 @@ export const lecturesRouter = router({
           `
           id = row.id as string
         }
-        if (input.workspaceId) await writeBoardScope(tx, ctx.userId, input.workspaceId, { lectureId: id })
+        if (input.workspaceId && (await boardStillShows(tx, ctx.userId, input.workspaceId, input.selectIfBoardShows))) {
+          await writeBoardScope(tx, ctx.userId, input.workspaceId, { lectureId: id })
+        }
         return (await lectureById(tx, ctx.userId, id))!
       })
     }),
