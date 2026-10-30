@@ -19,7 +19,7 @@ const TABLES = [
   'job_runs', 'workflow_jobs', 'workflows',
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',
-  'transcript_segments', 'recordings', 'lectures',
+  'transcript_segments', 'resources', 'recordings', 'lectures',
 ]
 
 /** Where reseed writes, as "host:port/database" (never the credentials). */
@@ -71,6 +71,10 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
       await fileSeedsUnderLectures(tx)
 
       await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
+      await insertSeedResources(tx)
+      // Links lectures to their class occurrences where unambiguous, as the
+      // migration did for real data (data only).
+      await tx.unsafe(readFileSync(resolve(__dirname, '../packages/db/src/migrations/020_link_lectures_to_classes.sql'), 'utf-8'))
     })
   } finally {
     await sql.end()
@@ -126,6 +130,45 @@ async function fileSeedsUnderLectures(sql: Sql) {
   }
   const [{ remaining }] = await sql`SELECT count(*)::int AS remaining FROM workspace_scopes WHERE user_id = 'dev-user-1' AND scope_type = 'recording'`
   if (remaining > 0) throw new Error(`Reseed left ${remaining} board focus row(s) on a recording`)
+}
+
+/**
+ * A couple of resources for the Resources widget: the Biology reading list
+ * (a Google Doc) for the course, and a note on the Mitochondrial DNA lecture.
+ */
+export const SEED_RESOURCES = [
+  {
+    id: 'res-bio-reading-list',
+    kind: 'link',
+    title: 'Biology reading list',
+    url: 'https://docs.google.com/document/d/1bioReadingList/edit',
+    provider: 'google_doc',
+    body_md: null,
+    lecture_id: null,
+    course: 'biology',
+  },
+  {
+    id: 'res-mtdna-notes',
+    kind: 'note',
+    title: 'Mitochondrial DNA - key points',
+    url: null,
+    provider: null,
+    body_md: [
+      '## Key points',
+      '',
+      '- Inherited from the **mother** only',
+      '- Circular, about 16,500 base pairs',
+      '- [ ] Ask about heteroplasmy in the seminar',
+    ].join('\n'),
+    lecture_id: 'lec-rec-bio-4',
+    course: null,
+  },
+] as const
+
+async function insertSeedResources(sql: Sql) {
+  for (const resource of SEED_RESOURCES) {
+    await sql`INSERT INTO resources ${sql({ ...resource, user_id: 'dev-user-1' })}`
+  }
 }
 
 /** Inserts plan items for dev-user-1 with their course as a 'plan_item' tag, as the server stores them. */

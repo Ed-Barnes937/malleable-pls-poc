@@ -30,6 +30,7 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
+import { registerResourcesHandlers } from './handlers/resources'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -49,6 +50,7 @@ function makeRouter(): ProcedureRouter {
   registerWorkflowsHandlers(router, db)
   registerPlanItemsHandlers(router, db)
   registerPreferencesHandlers(router, db)
+  registerResourcesHandlers(router, db)
   return router
 }
 
@@ -496,5 +498,148 @@ describe('simulator parity - which automation made a plan item', () => {
     await call('workflows.delete', { workflowId: 'wf-confused-review' })
     expect(await call('workflows.byId', 'wf-confused-review')).toBeNull()
     expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
+  })
+})
+
+describe('simulator parity - resources behave like the server router', () => {
+  let router: ProcedureRouter
+  beforeEach(() => {
+    router = makeRouter()
+  })
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message)
+
+  it('creates links and notes, filed under a lecture or a course, and filters like the server', async () => {
+    const link = await mutate(router, 'resources.createLink', { url: 'https://docs.google.com/document/d/1x/edit', courseTag: 'biology' })
+    expect(link).toMatchObject({ kind: 'link', provider: 'google_doc', title: 'Google Doc', course: 'biology', lecture_id: null })
+    const note = await mutate(router, 'resources.createNote', { lectureId: 'lec-rec-chem-1' }) as { id: string }
+    expect(note).toMatchObject({ kind: 'note', title: 'Untitled note', body_md: '', lecture_course: 'chemistry' })
+    await mutate(router, 'resources.createNote', { title: 'Loose' })
+
+    const titles = async (input?: unknown) => ((await query(router, 'resources.list', input)) as { title: string }[]).map((r) => r.title).sort()
+    expect(await titles({ courseTag: 'biology' })).toEqual(['Google Doc'])
+    expect(await titles({ courseTag: 'chemistry' })).toEqual(['Untitled note'])
+    expect(await titles({ lectureId: 'lec-rec-chem-1' })).toEqual(['Untitled note'])
+    expect(await titles()).toEqual(['Google Doc', 'Loose', 'Untitled note'])
+    expect((await query(router, 'resources.list')) as object[]).not.toContainEqual(expect.objectContaining({ body_md: expect.anything() }))
+  })
+
+  it('refuses what the server refuses', async () => {
+    expect(await errorOf(mutate(router, 'resources.createLink', { url: 'javascript:alert(1)' }))).toMatch(/http/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-rec-bio-1', courseTag: 'biology' }))).toMatch(/not both/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { courseTag: 'history' }))).toMatch(/Unknown course/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-missing' }))).toMatch(/not found/)
+    expect(await errorOf(mutate(router, 'resources.delete', 'res-missing'))).toMatch(/not found/)
+  })
+
+  it('moves, edits, and refuses a stale save', async () => {
+    const note = await mutate(router, 'resources.createNote', { courseTag: 'biology' }) as { id: string; updated_at: string }
+    const saved = await mutate(router, 'resources.update', { id: note.id, patch: { body_md: '**hi**' }, expectedUpdatedAt: note.updated_at }) as { updated_at: string; excerpt: string }
+    expect(saved.excerpt).toBe('hi')
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { body_md: 'old' }, expectedUpdatedAt: note.updated_at }))).toMatch(/another device/)
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { lectureId: 'lec-rec-bio-1' } })).toMatchObject({ lecture_id: 'lec-rec-bio-1', course: null })
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { courseTag: 'physics' } })).toMatchObject({ lecture_id: null, course: 'physics' })
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { url: 'https://x.test' } }))).toMatch(/Only a link/)
+    expect(await mutate(router, 'resources.delete', note.id)).toEqual({ id: note.id })
+    expect(await query(router, 'resources.get', note.id)).toBeNull()
+  })
+})
+
+describe('simulator parity - class lectures (Record during a class, calendar class clicks)', () => {
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    router = makeRouter()
+  })
+
+  async function call(path: string, input: unknown) {
+    const result = await router.resolve(path, input)
+    if (result.error) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+    return result.data as Record<string, any>
+  }
+
+  const scope = async (workspaceId: string) =>
+    ((await router.resolve('workspaces.scopes', workspaceId)).data as { scope_type: string; scope_value: string }[])
+      .map((s) => [s.scope_type, s.scope_value]).sort()
+
+  /** Mondays 10:00-12:00 London from Mon 19 Oct 2026, as the server's db test. */
+  const bioClass = () => call('planItems.create', {
+    kind: 'commitment', title: 'Biology lecture', subtype: 'class', course: 'biology',
+    starts_at: '2026-10-19T09:00:00.000Z', ends_at: '2026-10-19T11:00:00.000Z',
+    recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+  })
+
+  it('forClassOccurrence finds or makes one lecture per occurrence and selects it on the board', async () => {
+    const { id } = await bioClass()
+    const first = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(first.created).toBe(true)
+    expect(first.lecture).toMatchObject({
+      title: 'Biology lecture · Mon 26 Oct', course: 'biology', class_item_id: id, class_date: '2026-10-26',
+      starts_at: '2026-10-26T10:00:00.000Z',
+    })
+    expect(first.board.after).toEqual({ courseTag: 'biology', lectureId: first.lecture.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.lecture.id], ['tag', 'biology']])
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    expect(again).toMatchObject({ created: false, lecture: { id: first.lecture.id }, board: null })
+  })
+
+  it('forClassOccurrence refuses a missing class, a date it is not on, and a shift', async () => {
+    const { id } = await bioClass()
+    const shift = await call('planItems.create', {
+      kind: 'commitment', title: 'Cafe shift', subtype: 'shift',
+      starts_at: '2026-10-19T17:00:00.000Z', ends_at: '2026-10-19T21:00:00.000Z',
+    })
+    await expect(call('lectures.forClassOccurrence', { planItemId: 'missing', date: '2026-10-26' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-27' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: shift.id, date: '2026-10-19' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('lectures.create with matchClass joins the class on now, and the calendar click finds the same lecture', async () => {
+    const { id } = await bioClass()
+    const during = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T09:46:00.000Z', workspaceId: 'ws-in-lecture' })
+    expect(during).toMatchObject({ class_item_id: id, class_date: '2026-11-16', title: 'Biology lecture · Mon 16 Nov' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', during.id], ['tag', 'biology']])
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-11-16' })
+    expect(clicked.lecture.id).toBe(during.id)
+    const after = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T12:01:00.000Z' })
+    expect(after.class_item_id).toBeNull()
+    const otherCourse = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-16T10:30:00.000Z' })
+    expect(otherCourse.class_item_id).toBeNull()
+  })
+
+  it('lectures.create selectIfBoardShows: selects when the board is unchanged, leaves a board that moved on, replaces a gone lecture', async () => {
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    const first = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.id], ['tag', 'physics']])
+    const next = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: first.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // A create that started when the board showed nothing lands late: the board keeps what it shows.
+    const late = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(late.id).not.toBe(next.id)
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // Left out: always selects.
+    const forced = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', forced.id], ['tag', 'physics']])
+  })
+
+  it('a one-off class keeps the zone it was made in, and is dated in it whatever zone asks later', async () => {
+    // Tue 3 Nov, 22:00 in New York: Wed 4 Nov in London.
+    const made = await call('planItems.create', {
+      kind: 'commitment', title: 'Night seminar', subtype: 'class', course: 'physics',
+      starts_at: '2026-11-04T03:00:00.000Z', ends_at: '2026-11-04T04:00:00.000Z', timeZone: 'America/New_York',
+    })
+    expect(made.time_zone).toBe('America/New_York')
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: made.id, date: '2026-11-03', timeZone: 'Europe/London' })
+    expect(clicked.lecture).toMatchObject({ class_date: '2026-11-03', title: 'Night seminar · Tue 3 Nov' })
+    const during = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-04T03:30:00.000Z', timeZone: 'Asia/Tokyo' })
+    expect(during.id).toBe(clicked.lecture.id)
+    const edited = await call('planItems.update', { id: made.id, patch: { title: 'Night seminar (new room)' }, timeZone: 'Europe/London' })
+    expect(edited.time_zone).toBe('America/New_York')
+  })
+
+  it('deleting a class keeps its lectures, on their day', async () => {
+    const { id } = await bioClass()
+    const { lecture } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    await call('planItems.delete', id)
+    expect(await call('lectures.byId', lecture.id)).toMatchObject({ class_item_id: null, class_date: '2026-10-26' })
   })
 })

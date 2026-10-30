@@ -1,13 +1,29 @@
 import { z } from 'zod'
 import { withUser, type TxSql } from '@pls/db'
-import { DEFAULT_REVIEW_TIME_ZONE, defaultLectureTitle, timeZoneInput, type Lecture } from '@pls/substrate'
+import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
-import { getPreferences, placementTimeZone } from '../preferences/store'
-import { andInCourse, courseKey, recordingProcessing, requireOwnBoard, requireOwnLecture } from './_shared'
+import { studentTimeZone } from '../preferences/store'
+import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
 import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
+import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
 
 const lectureId = z.string().max(255)
 const lectureTitle = z.string().trim().min(1).max(500)
+const boardId = z.string().max(255)
+const localDateInput = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
+
+/** What `forClassOccurrence` returns. */
+export interface ClassOccurrenceLecture {
+  lecture: Lecture
+  /** This call made the lecture (the occurrence had none). */
+  created: boolean
+  /**
+   * With `workspaceId`: the board's scope before and after the write, in
+   * that transaction (e.g. to offer Undo with `setBoardScope(before)`, and
+   * only when they differ). Null without a board.
+   */
+  board: { before: BoardScope; after: BoardScope } | null
+}
 
 /**
  * Lectures as `Lecture` rows, with their recordings oldest first (each with
@@ -17,7 +33,9 @@ const lectureTitle = z.string().trim().min(1).max(500)
 function selectLectures(tx: TxSql, userId: string, where: ReturnType<TxSql['unsafe']>) {
   return tx<Lecture[]>`
     SELECT
-      l.id, l.title, l.course, l.starts_at, l.class_item_id, l.class_date, l.created_at, l.updated_at,
+      l.id, l.title, l.course, l.starts_at, l.class_item_id,
+      -- As YYYY-MM-DD, as the client compares it, not a Date at UTC midnight.
+      l.class_date::text AS class_date, l.created_at, l.updated_at,
       COALESCE(recs.list, '[]'::json) AS recordings
     FROM lectures l
     LEFT JOIN LATERAL (
@@ -40,6 +58,20 @@ async function lectureById(tx: TxSql, userId: string, id: string): Promise<Lectu
   return lecture ?? null
 }
 
+/**
+ * Whether a board's selection may still be replaced by a lecture that was
+ * decided on when it showed `expected` (undefined: always; null: no lecture):
+ * it shows that lecture, or one that is gone. The same rule /upload uses
+ * with `x-select-on-board`. Call under the board's scope lock.
+ */
+async function boardStillShows(tx: TxSql, userId: string, workspaceId: string, expected: string | null | undefined): Promise<boolean> {
+  if (expected === undefined) return true
+  const { lectureId: current } = await readBoardScope(tx, userId, workspaceId)
+  if (current === null || current === undefined || current === expected) return true
+  const [stillThere] = await tx`SELECT 1 FROM lectures WHERE id = ${current} AND user_id = ${userId}`
+  return !stillThere
+}
+
 export const lecturesRouter = router({
   /** The student's lectures, latest first, optionally only those in a course. */
   list: publicProcedure
@@ -58,37 +90,93 @@ export const lecturesRouter = router({
     }),
 
   /**
-   * A new lecture, e.g. from a widget before any audio exists. Named from
-   * its course and start time in the student's zone unless `title` is given.
-   * With `workspaceId` it is also selected on that board, in the same
-   * transaction, bringing its course with it (see `writeBoardScope`).
+   * A new lecture, e.g. from a widget before any audio exists (Record makes
+   * one when capture starts). Named from its course and start time in the
+   * student's zone unless `title` is given. With `workspaceId` it is also
+   * selected on that board, in the same transaction, bringing its course
+   * with it (see `writeBoardScope`).
+   *
+   * With `matchClass`, when a class of `course` is on at `startsAt` (see
+   * `classForCapture`), it is that class occurrence's lecture instead, found
+   * or made exactly as `forClassOccurrence` does (so "press Record during
+   * Biology" and "open Tuesday's Biology class" land on one lecture), and
+   * `title` is not used.
    */
   create: publicProcedure
     .input(z.object({
       course: courseKey.nullable(),
       title: lectureTitle.optional(),
       startsAt: z.coerce.date().optional(),
-      // The browser's zone, for the default title when the student has set none.
+      // The browser's zone, for dates and the default title when the student has set none.
       timeZone: timeZoneInput.optional(),
-      workspaceId: z.string().max(255).optional(),
+      workspaceId: boardId.optional(),
+      matchClass: z.boolean().optional(),
+      // With `workspaceId`: select the lecture only if the board still shows
+      // this lecture (null = none) or one that is gone, as it did when the
+      // caller started. A board that has moved on (e.g. a slow create that an
+      // upload's selection overtook) keeps what it shows and the lecture is
+      // returned unselected. Left out: always select.
+      selectIfBoardShows: lectureId.nullable().optional(),
     }))
     .mutation(async ({ ctx, input }): Promise<Lecture> => {
       return withUser(ctx.userId, async (tx) => {
-        if (input.workspaceId) await requireOwnBoard(tx, ctx.userId, input.workspaceId)
+        // The board's scope lock (which checks it is the student's) before the
+        // lecture rows, as forClassOccurrence does, so racing captures queue.
+        if (input.workspaceId) await lockBoardScope(tx, ctx.userId, input.workspaceId)
         const startsAt = input.startsAt ?? new Date()
-        let title = input.title
-        if (!title) {
-          const zone = placementTimeZone(await getPreferences(tx, ctx.userId), input.timeZone ?? DEFAULT_REVIEW_TIME_ZONE)
-          title = defaultLectureTitle(input.course, startsAt, zone)
+        const zone = await studentTimeZone(tx, ctx.userId, input.timeZone)
+        let id = input.matchClass
+          ? (await classLectureForCapture(tx, ctx.userId, { course: input.course, at: startsAt }, zone))?.id
+          : undefined
+        if (!id) {
+          const title = input.title ?? defaultLectureTitle(input.course, startsAt, zone)
+          const [row] = await tx`
+            INSERT INTO lectures (user_id, title, course, starts_at)
+            VALUES (${ctx.userId}, ${title}, ${input.course}, ${startsAt})
+            RETURNING id
+          `
+          id = row.id as string
         }
-        const [row] = await tx`
-          INSERT INTO lectures (user_id, title, course, starts_at)
-          VALUES (${ctx.userId}, ${title}, ${input.course}, ${startsAt})
-          RETURNING id
-        `
-        const id = row.id as string
-        if (input.workspaceId) await writeBoardScope(tx, ctx.userId, input.workspaceId, { lectureId: id })
+        if (input.workspaceId && (await boardStillShows(tx, ctx.userId, input.workspaceId, input.selectIfBoardShows))) {
+          await writeBoardScope(tx, ctx.userId, input.workspaceId, { lectureId: id })
+        }
         return (await lectureById(tx, ctx.userId, id))!
+      })
+    }),
+
+  /**
+   * The lecture of one occurrence of a class (`planItemId` on local `date`,
+   * YYYY-MM-DD in the series' zone, else the student's), made on first use:
+   * exactly one per occurrence however many callers race. Past, current and
+   * future occurrences all work. With `workspaceId` it is also selected on
+   * that board in the same transaction (course follows, per
+   * `writeBoardScope`), and the board's scope before and after is returned.
+   *
+   * NOT_FOUND: the plan item or board isn't the student's. BAD_REQUEST: the
+   * plan item isn't a class block, or isn't on `date`.
+   */
+  forClassOccurrence: publicProcedure
+    .input(z.object({
+      planItemId: z.string().max(255),
+      date: localDateInput,
+      workspaceId: boardId.optional(),
+      // The browser's zone, to date a one-off class when the student has set none.
+      timeZone: timeZoneInput.optional(),
+    }))
+    .mutation(async ({ ctx, input }): Promise<ClassOccurrenceLecture> => {
+      return withUser(ctx.userId, async (tx) => {
+        // The board lock first, as every scope write takes it before the
+        // rows it names, so racing calls queue on it rather than deadlock.
+        if (input.workspaceId) await lockBoardScope(tx, ctx.userId, input.workspaceId)
+        const zone = await studentTimeZone(tx, ctx.userId, input.timeZone)
+        const { id, created } = await findOrCreateClassLecture(tx, ctx.userId, input.planItemId, input.date, zone)
+        let board: ClassOccurrenceLecture['board'] = null
+        if (input.workspaceId) {
+          const before = await readBoardScope(tx, ctx.userId, input.workspaceId)
+          const after = await writeBoardScope(tx, ctx.userId, input.workspaceId, { lectureId: id })
+          board = { before, after }
+        }
+        return { lecture: (await lectureById(tx, ctx.userId, id))!, created, board }
       })
     }),
 

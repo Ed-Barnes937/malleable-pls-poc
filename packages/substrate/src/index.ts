@@ -98,6 +98,16 @@ export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
 export { defaultLectureTitle } from './lectures'
 export {
+  CLASS_CAPTURE_LEAD_MIN,
+  captureClassRange,
+  classForCapture,
+  classLectureTitle,
+  isClassBlock,
+  localDate,
+  occurrenceDate,
+  occurrenceOn,
+} from './class-occurrences'
+export {
   busyTime,
   isMissedBlock,
   REFIT_LOOKAHEAD_DAYS,
@@ -158,3 +168,28 @@ export type {
 } from './types'
 
 export type { WorkflowJob, WorkflowWithJobs } from '@pls/workflows'
+
+export {
+  MAX_NOTE_LENGTH,
+  MAX_RESOURCE_TITLE_LENGTH,
+  MAX_RESOURCE_URL_LENGTH,
+  UNTITLED_NOTE,
+  newResourceLinkInput,
+  newResourceNoteInput,
+  noteExcerpt,
+  parseResourceUrl,
+  resourceCourse,
+  resourceIdInput,
+  resourceLinkLabel,
+  resourceListInput,
+  resourceUpdateInput,
+  type NewResourceLink,
+  type NewResourceNote,
+  type ParsedResourceUrl,
+  type Resource,
+  type ResourceKind,
+  type ResourceListQuery,
+  type ResourceProvider,
+  type ResourceUpdate,
+  type ResourceWithBody,
+} from './resources'

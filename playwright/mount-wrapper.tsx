@@ -13,10 +13,12 @@ import { manifest as weakestTopics } from '@pls/lens-weakest-topics'
 import { manifest as calendar } from '@pls/lens-calendar'
 import { manifest as todo } from '@pls/lens-todo'
 import { manifest as comingUp } from '@pls/lens-coming-up'
+import { manifest as resources } from '@pls/lens-resources'
 import { TRPC_URL } from './backend-simulator'
 
 const manifests: PanelManifest[] = [
   audioCapture,
+  resources,
   transcript,
   testMe,
   weeklyOverview,
@@ -28,7 +30,8 @@ const manifests: PanelManifest[] = [
   comingUp,
 ]
 
-export function TestProviders({ children }: { children: React.ReactNode }) {
+/** `boardId`: the board the mounted widgets sit on (none by default, as outside a board). */
+export function TestProviders({ children, boardId }: { children: React.ReactNode; boardId?: string }) {
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -44,7 +47,7 @@ export function TestProviders({ children }: { children: React.ReactNode }) {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ManifestRegistryProvider manifests={manifests}>
-          <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc}>
+          <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc} boardId={boardId}>
             {children}
           </SubstrateProvider>
         </ManifestRegistryProvider>

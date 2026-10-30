@@ -27,10 +27,11 @@ export const boardScope = z.object({
  * Targets that carry a course. A lecture holds its course as a column
  * (`lectures.course`) and a recording's course is its lecture's; a plan item
  * carries its course as a `tags` row (`target_type = 'plan_item'`) whose
- * label is the course. Anything else (segments, tags, confidence, links)
- * inherits the course of the recording it belongs to.
+ * label is the course. A resource is filed under a course (`resources.course`)
+ * or a lecture, whose course it takes. Anything else (segments, tags,
+ * confidence, links) inherits the course of the recording it belongs to.
  */
-export type CourseTarget = 'lecture' | 'recording' | 'plan_item'
+export type CourseTarget = 'lecture' | 'recording' | 'plan_item' | 'resource'
 
 /** True for a course key the API accepts. */
 export function isCourse(course: string): boolean {
@@ -95,6 +96,18 @@ export function inCourse(
         WHERE course_lecture.user_id = ${userId}
           AND course_lecture.id = ${targetId}
           AND course_lecture.course = ${course}
+      )
+    `
+  }
+  if (target === 'resource') {
+    return tx`
+      EXISTS (
+        SELECT 1 FROM resources course_resource
+        LEFT JOIN lectures course_lecture
+          ON course_lecture.id = course_resource.lecture_id AND course_lecture.user_id = ${userId}
+        WHERE course_resource.user_id = ${userId}
+          AND course_resource.id = ${targetId}
+          AND (course_resource.course = ${course} OR course_lecture.course = ${course})
       )
     `
   }
