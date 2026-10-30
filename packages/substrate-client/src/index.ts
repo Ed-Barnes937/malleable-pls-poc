@@ -19,6 +19,7 @@ export {
   BOARD_SCOPE_WRITES,
   useLectures,
   useLecture,
+  useUpdateLecture,
   usePlanItemList,
   usePreferences,
   useRecentJobs,

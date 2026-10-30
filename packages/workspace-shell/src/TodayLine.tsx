@@ -49,7 +49,8 @@ export function TodayLine({ short = false }: { short?: boolean }) {
   if (short) {
     const options = shortLineOptions(line.short, study)
     if (options.length === 0) return null
-    // Keeps 40% of the row: a long "Showing" chip truncates rather than crowd it out.
+    // At least 40% of the row: when the scope pills leave less, the row wraps
+    // and the line goes under them, so neither is cut short.
     return <TodayLineText options={options} strong={study} className="min-w-[40%] flex-1 basis-0" textClassName="text-meta" />
   }
   // Nothing left of the day to mention: like the phone, say nothing.
@@ -67,7 +68,7 @@ export function TodayLine({ short = false }: { short?: boolean }) {
 }
 
 /**
- * Takes the bar's free space (never space the tabs or scope chip need) and
+ * Takes the bar's free space (never space the tabs or scope pills need) and
  * shows the first of `options` that fits whole, else nothing, since a
  * half-cut "Tues..." helps no one.
  */

@@ -1,108 +1,14 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { X } from 'lucide-react'
-import {
-  useWorkspaces,
-  useWorkspaceScopes,
-  useSetBoardScope,
-  useLectures,
-  useLecture,
-  decodeScope,
-} from '@pls/substrate-client'
-import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
+import { useWorkspaces } from '@pls/substrate-client'
+import { SectionLabel, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
 import { useActiveWorkspaceId } from './activeBoard'
-import { useManifests, type ScopeDim } from '@pls/lens-framework'
-import { useBoardScopeDims } from './useBoardScopeDims'
+import { useManifests } from '@pls/lens-framework'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 import { groupWidgets } from './widget-groups'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { ThemeToggle } from './ThemeToggle'
 import { BoardAppearance } from './BoardAppearance'
-
-/* ── Constants ── */
-
-const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
-
-/* ── Scope Editor ── */
-
-/**
- * Renders only the scope pickers whose dimensions are used by at least one
- * widget on the board (see `ScopeDeclaration`). The section is hidden
- * entirely when every widget ignores scope.
- */
-function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeDims: Set<ScopeDim> }) {
-  const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const setBoardScope = useSetBoardScope()
-
-  const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
-  const currentCourse = decodedScope.courseTag ?? ''
-  const currentLectureId = decodedScope.lectureId ?? ''
-  // The board course's lectures (every lecture on "All courses"); picking
-  // one from another course switches the board to it.
-  const { data: courseLectures } = useLectures(decodedScope.courseTag)
-  // The selected lecture is always in the course, but the list may not have
-  // caught up with one made a moment ago (an upload): never show it as unset.
-  const { data: selected } = useLecture(decodedScope.lectureId)
-  const lectures = selected && !courseLectures?.some((l) => l.id === selected.id)
-    ? [selected, ...(courseLectures ?? [])]
-    : courseLectures
-
-  // One write either way; the server clears a lecture outside a new course.
-  const handleCourse = useCallback(
-    (value: string) => setBoardScope.mutate({ workspaceId, courseTag: value || null }),
-    [workspaceId, setBoardScope],
-  )
-  const handleLecture = useCallback(
-    (value: string) => setBoardScope.mutate({ workspaceId, lectureId: value || null }),
-    [workspaceId, setBoardScope],
-  )
-
-  return (
-    <div className="flex flex-col gap-2">
-      {activeDims.has('courseTag') && (
-        <div className={pickerRow}>
-          <label htmlFor="scope-course" className={pickerLabel}>
-            Course
-          </label>
-          <Select
-            id="scope-course"
-            value={currentCourse}
-            onChange={(e) => handleCourse(e.target.value)}
-          >
-            {COURSE_FILTERS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-
-      {activeDims.has('lectureId') && (
-        <div className={pickerRow}>
-          <label htmlFor="scope-lecture" className={pickerLabel}>
-            Lecture
-          </label>
-          <Select
-            id="scope-lecture"
-            value={currentLectureId}
-            onChange={(e) => handleLecture(e.target.value)}
-          >
-            <option value="">No lecture selected</option>
-            {lectures?.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.recordings.length === 0 ? `${l.title} (no recording yet)` : l.title}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** One picker per row, its label beside it, so the section stays short. */
-const pickerRow = 'flex items-center gap-2 [&>:last-child]:min-w-0 [&>:last-child]:flex-1'
-const pickerLabel = 'w-14 shrink-0 px-1 text-meta font-semibold text-text-secondary'
 
 /* ── Widget Palette ── */
 
@@ -179,7 +85,6 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
   const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useActiveWorkspaceId()
   const { data: boards } = useWorkspaces()
-  const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
   // On a phone the top bar keeps only the menu, the tabs and the widgets
   // button: Activity, the theme and the board's appearance move in here.
   const narrow = useNarrowScreen()
@@ -194,9 +99,9 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
     return () => document.removeEventListener('keydown', handler)
   }, [open, onClose])
 
-  // The menu opens at the top, Showing first. It stays mounted while closed,
-  // so without this it keeps an old scroll position (e.g. the one scroll
-  // anchoring gave it when adding the first widget brought Showing in above).
+  // The menu opens at the top, on the widget palette. It stays mounted while
+  // closed, so without this it keeps an old scroll position (e.g. from
+  // scrolling the palette the last time it was open).
   const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (open && scrollRef.current) scrollRef.current.scrollTop = 0
@@ -287,22 +192,13 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         </div>
         <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
-            {/* Widgets, scope, automations and appearance all belong to a board. */}
+            {/* Widgets, automations and appearance all belong to a board; what it
+                shows is chosen in the top bar. */}
             {boards?.length === 0 && (
               <p data-testid="drawer-no-board" className="px-1 text-body text-text-secondary">
                 Make a board first, then you can add widgets to it.
               </p>
             )}
-            {/* Scope first: a few compact rows, always in view without scrolling
-                past the palette. Hidden when every widget on the board ignores scope. */}
-            {activeWorkspaceId && activeScopeDims.size > 0 && (
-              <section data-testid="scope-section">
-                <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
-                <p className="mb-2.5 px-1 text-meta text-text-muted">What the widgets on this board focus on.</p>
-                <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
-              </section>
-            )}
-
             {/* Widgets */}
             {activeWorkspaceId && (
               <section data-testid="widget-palette">

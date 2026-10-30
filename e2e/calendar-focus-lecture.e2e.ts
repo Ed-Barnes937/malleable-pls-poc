@@ -94,7 +94,7 @@ test.describe('A calendar class focuses its lecture', () => {
     const calendar = new CalendarPom(page)
     const todo = new PanelGridPom(page).panelByLabel('To-do')
     const block = calendar.block('Genetics lecture')
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry')
+    await expect(topBar.coursePill).toHaveText('Chemistry')
     await expect(todo.getByText('Chemistry problem sheet')).toBeVisible()
     await expect(todo.getByText('Plan the Biology essay')).toHaveCount(0)
     await expect(block).not.toHaveAttribute('data-linked')
@@ -105,8 +105,8 @@ test.describe('A calendar class focuses its lecture', () => {
     // The board now shows the class's lecture, with its course.
     const [lecture] = await lecturesOf(request, cls.id)
     expect(lecture).toMatchObject({ title: cls.title, course: 'biology', class_date: cls.date })
-    expect(await boardScope(request, plan)).toEqual({ course: 'biology', lecture: lecture.id })
-    await expect(topBar.scopeChip).toHaveText(`Showing: Biology · ${cls.title}`)
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: 'biology', lecture: lecture.id })
+    await topBar.expectScope('Biology', cls.title)
     await expect(block).toHaveAttribute('data-linked', 'true')
     await expect(todo.getByText('Plan the Biology essay')).toBeVisible()
     await expect(todo.getByText('Chemistry problem sheet')).toHaveCount(0)
@@ -117,8 +117,8 @@ test.describe('A calendar class focuses its lecture', () => {
 
     await section.getByRole('button', { name: 'Undo' }).click()
     await expect(section.getByText('Undone')).toBeVisible()
-    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry')
-    expect(await boardScope(request, plan)).toEqual({ course: 'chemistry', lecture: null })
+    await expect(topBar.coursePill).toHaveText('Chemistry')
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: 'chemistry', lecture: null })
     await expect(todo.getByText('Chemistry problem sheet')).toBeVisible()
     await expect(block).not.toHaveAttribute('data-linked')
 
@@ -147,8 +147,8 @@ test.describe('A calendar class focuses its lecture', () => {
     await also.getByRole('button', { name: 'In Lecture' }).click()
     await topBar.expectActiveWorkspace('In Lecture')
     const [lecture] = await lecturesOf(request, cls.id)
-    expect(await boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
-    await expect(topBar.scopeChip).toHaveText(`Showing: Biology · ${cls.title}`)
+    await expect.poll(() => boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
+    await topBar.expectScope('Biology', cls.title)
     const grid = new PanelGridPom(page)
     await expect(grid.panelByLabel('Audio Capture')).toContainText(`Ready to record ${cls.title}`)
     await expect(grid.panelByLabel('Transcript')).toContainText('No recording yet')
@@ -158,7 +158,7 @@ test.describe('A calendar class focuses its lecture', () => {
     await toast.getByRole('button', { name: 'Back to Plan' }).click()
     await topBar.expectActiveWorkspace('Plan')
     // Going back leaves both boards showing the lecture.
-    await expect(topBar.scopeChip).toHaveText(`Showing: Biology · ${cls.title}`)
+    await topBar.expectScope('Biology', cls.title)
   })
 
   test('boards are found by what they contain, not their names', async ({ page, request }) => {
@@ -254,7 +254,7 @@ test.describe('A calendar class focuses its lecture', () => {
     await undo.click()
     await expect(section.getByRole('status')).toContainText('The board has changed since.')
     await expect(undo).toHaveCount(0)
-    expect(await boardScope(request, plan)).toEqual({ course: null, lecture: null })
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: null })
   })
 
   test('two quick opens: Undo puts back the board from before the first, not the class passed through', async ({ page, request }) => {
@@ -278,7 +278,7 @@ test.describe('A calendar class focuses its lecture', () => {
     await expect.poll(async () => (await boardScope(request, plan)).lecture).not.toBeNull()
     await section.getByRole('button', { name: 'Undo' }).click()
     await expect(section.getByText('Undone')).toBeVisible()
-    expect(await boardScope(request, plan)).toEqual({ course: 'chemistry', lecture: null })
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: 'chemistry', lecture: null })
   })
 
   test("next week's class: its lecture is made now, upcoming, and Record names its date", async ({ page, request }) => {
@@ -354,7 +354,7 @@ test.describe('A calendar class on a phone', () => {
     // Focused, not undone, and still on this board.
     await topBar.expectActiveWorkspace('Plan')
     await expect(section.getByRole('button', { name: 'Undo' })).toBeVisible()
-    expect((await boardScope(request, plan)).course).toBe('biology')
+    await expect.poll(async () => (await boardScope(request, plan)).course).toBe('biology')
 
     const target = section.getByRole('button', { name: 'In Lecture' })
     const rect = (await target.boundingBox())!
@@ -362,7 +362,7 @@ test.describe('A calendar class on a phone', () => {
     await page.touchscreen.tap(rect.x + rect.width / 2, rect.y + rect.height / 2)
     await topBar.expectActiveWorkspace('In Lecture')
     const [lecture] = await lecturesOf(request, cls.id)
-    expect(await boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
+    await expect.poll(() => boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
   })
   for (const outcome of ['answered', 'failed'] as const) {
     test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request }) => {
