@@ -314,20 +314,36 @@ test.describe('The confused-to-calendar ripple', () => {
   test('a scroll just after the glide has stopped moves the board once, by its own amount', async ({ page, request }) => {
     await demoLikeBoard(request)
     const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    // Event-driven, not polled: the board's `scrollend` says the glide has
+    // stopped (a position unchanged between two polls can also be a frame the
+    // loaded page was late to paint), and the next one says the wheel has
+    // taken, where a poll can read the board before the wheel has reached it.
     await grid.root.evaluate((board) => {
-      const w = window as unknown as { glideAt: number | null; wheelAt: number | null }
+      const w = window as unknown as {
+        glideAt: number | null
+        wheelAt: number | null
+        glideStopped: Promise<number>
+        wheelMoved: Promise<number>
+      }
       w.glideAt = null
       w.wheelAt = null
       board.addEventListener('scroll', () => { w.glideAt ??= performance.now() })
-      document.addEventListener('wheel', () => { w.wheelAt ??= performance.now() }, { capture: true })
+      w.glideStopped = new Promise((resolve) => board.addEventListener('scrollend', () => resolve(board.scrollTop), { once: true }))
+      w.wheelMoved = new Promise((resolve) => {
+        let wheeled = false
+        document.addEventListener('wheel', () => { w.wheelAt ??= performance.now(); wheeled = true }, { capture: true })
+        board.addEventListener('scrollend', () => { if (wheeled) resolve(board.scrollTop) })
+      })
     })
     const markedAt = Date.now()
     await transcript.getByRole('button', { name: 'confused', exact: true }).click()
-    await expect.poll(() => page.evaluate(() => (window as unknown as { glideAt: number | null }).glideAt), { intervals: [10], timeout: 15000 }).not.toBeNull()
-    // The board has followed the review and stopped; straight away the student scrolls it down 100px.
-    const stopped = await settledScrollTop(grid.root, 50)
+    // In place before the glide, so the wheel follows its stop by one round trip.
     await page.mouse.move(1380, 600)
+    // The board has followed the review and stopped; straight away the student scrolls it down 100px.
+    const stopped = await page.evaluate(() => (window as unknown as { glideStopped: Promise<number> }).glideStopped)
     await page.mouse.wheel(0, 100)
+    expect(await page.evaluate(() => (window as unknown as { wheelMoved: Promise<number> }).wheelMoved)).toBe(stopped + 100)
+    // ...and it stays there: nothing of the glide's is applied on top.
     expect(await settledScrollTop(grid.root)).toBe(stopped + 100)
     const { glideAt, wheelAt } = await page.evaluate(() => {
       const w = window as unknown as { glideAt: number; wheelAt: number }
