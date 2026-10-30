@@ -274,6 +274,65 @@ simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
   day where that is unambiguous. What happens to a class's lectures when the
   class's course changes later is undecided; for now they keep their course.
 
+### Focusing a class's lecture ("click Tuesday's Biology class")
+
+Opening a class block on the calendar (a click, a tap or Enter; never a drag
+or resize) focuses that occurrence's lecture, with its course, **on the board
+in view**. It is not an automation (a click is client-side intent, and an
+automation would have to name a board, which is app state nothing can
+guarantee), it never navigates, and it never makes a board or asks the
+student to. Like a Notion or Obsidian link, it names content (the lecture),
+not a view; boards are the student's views.
+
+1. The Calendar calls `LensProps.onFocusClass({ planItemId, date })`, with
+   `date` from `occurrenceDate(row, studentZone)`. It waits for the
+   student's preferences first, so the date is read in the zone the server
+   reads it in (their stored zone, else the browser's).
+2. The shell (`useFocusClass` in `packages/workspace-shell/src/class-focus.ts`)
+   calls `lectures.forClassOccurrence` with the board
+   (`useClassOccurrenceLecture` in `@pls/substrate-client`): one call finds or
+   makes the lecture and selects it in the same transaction, and answers
+   with the lecture (its recordings go straight into the `lectures.byId`
+   cache, so a recorded class never first reads "No recording yet") and the
+   board's scope before and after.
+3. Every board scope write, whatever makes it (the header, a class open,
+   Undo, "Also open in"), runs in one TanStack mutation scope
+   (`BOARD_SCOPE_WRITES`), so writes reach the server one at a time in the
+   order the student made them. A write doesn't re-read the board while a
+   later one is still to be answered.
+4. The popover's Lecture row (`ClassLectureSection`) names the lecture and
+   its status ("Recorded · 52 min", "On now", "Upcoming", "No recording
+   yet"). Undo shows only when the board changed. It calls
+   `LensProps.onUndoFocusClass({ before, after })`, which puts `before` back
+   with `workspaces.restoreBoardScope` only while the board still shows
+   `after`: a change made since, anywhere, is kept, and the row says "The
+   board has changed since." and drops Undo. A `before` lecture that has
+   since been deleted comes back as just its course; one refiled under
+   another course comes back with its new course. Quick opens (one made from
+   the last one's popover, or before it answered) are one Undo session:
+   Undo puts back the board from before the first, not a class passed
+   through. A failure leaves the board alone and offers Try again. Nothing
+   in the row changes height once shown (pending, answered, failed, Undo's
+   outcome, a board that couldn't open), so the popover's buttons never move
+   under a phone's second tap.
+5. **Also open in** lists the student's other boards that can show a lecture
+   (`lectureBoards`: a widget declaring `lectureId: 'target'`), by their own
+   names in tab order, from `workspaces.summary` (one query: each board's
+   widget types). It is re-derived on every open and refreshed by board and
+   panel changes, so renaming or rebuilding boards can't break it; nothing
+   stores a board id or a board purpose. Picking one selects the lecture
+   there, switches to it, focuses its tab, and raises the moments-style toast
+   ("Opened Biology lecture · Tue 28 Oct in In Lecture", "Back to Plan").
+   Hidden when there are none, and not shown at all until the board summary
+   has loaded.
+6. With no lecture widget on this board and no other board to offer, the row
+   adds "Audio Capture, Transcript, Connections and Resources show a lecture. Add a
+   widget" (named from the manifests, in registration order), which opens the board menu's palette.
+
+On a board without lecture widgets the focus still shows: the Calendar rings
+the occurrence, To-do and Coming up narrow to the course, and the header
+names the lecture.
+
 ### Showing a Moment ("click a study block, land on the lecture moment")
 
 Some items point at a moment in a recording (a plan item's `source_type =

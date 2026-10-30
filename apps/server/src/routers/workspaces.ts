@@ -3,15 +3,50 @@ import { TRPCError } from '@trpc/server'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import type { BoardScope } from '@pls/substrate'
+import type { BoardScope, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
-import { replaceScopeRow, writeBoardScope } from './_board-scope'
+import { replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
+
+/** A board scope as `setBoardScope` returns it (null = unset), validated as `setBoardScope` validates it. */
+const boardScope = z.object({
+  courseTag: courseKey.nullable(),
+  lectureId: z.string().max(255).nullable(),
+})
 
 export const workspacesRouter = router({
   list: publicProcedure
     .query(async ({ ctx }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`SELECT * FROM workspaces WHERE user_id = ${ctx.userId} ORDER BY sort_order, created_at, id`
+      })
+    }),
+
+  /**
+   * Every board with the widget types on it (oldest panel first), in tab
+   * order, in one query: what "Also open in" and other cross-board choices
+   * read, by what a board contains rather than its name.
+   */
+  summary: publicProcedure
+    .query(async ({ ctx }): Promise<WorkspaceSummary[]> => {
+      return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`
+          SELECT w.id, w.name, w.sort_order,
+            COALESCE(
+              array_agg(p.lens_type ORDER BY p.created_at, p.id) FILTER (WHERE p.id IS NOT NULL),
+              '{}'
+            ) AS lens_types
+          FROM workspaces w
+          LEFT JOIN workspace_panels p ON p.workspace_id = w.id AND p.user_id = ${ctx.userId}
+          WHERE w.user_id = ${ctx.userId}
+          GROUP BY w.id
+          ORDER BY w.sort_order, w.created_at, w.id
+        `
+        return rows.map((r) => ({
+          id: r.id as string,
+          name: r.name as string,
+          sort_order: r.sort_order as number,
+          lens_types: r.lens_types as string[],
+        }))
       })
     }),
 
@@ -211,6 +246,25 @@ export const workspacesRouter = router({
     .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {
       return withUser(ctx.userId, async (tx) => {
         return writeBoardScope(tx, ctx.userId, workspaceId, patch)
+      })
+    }),
+
+  /**
+   * Undo for a board scope change: puts back `to` only if the board still
+   * shows `ifBoardShows` (what that change left), so a change made since,
+   * anywhere, is kept (`restored: false`, nothing written). A lecture in
+   * `to` comes back with the course it has now; one that is gone leaves
+   * just `to`'s course. Returns the board's scope after.
+   */
+  restoreBoardScope: publicProcedure
+    .input(z.object({
+      workspaceId: z.string().max(255),
+      to: boardScope,
+      ifBoardShows: boardScope,
+    }))
+    .mutation(async ({ ctx, input }): Promise<{ restored: boolean; scope: BoardScope }> => {
+      return withUser(ctx.userId, async (tx) => {
+        return restoreBoardScope(tx, ctx.userId, input.workspaceId, input.to, input.ifBoardShows)
       })
     }),
 })

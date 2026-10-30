@@ -2,6 +2,8 @@ import { test, expect, type APIRequestContext, type Locator, type Page } from '@
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation } from './api'
+import { startOfLocalDay } from '../packages/scheduler/src'
+import { SEED_TIME_ZONE } from './seed-week'
 
 /**
  * A study block's popover opens before the lecture it came from has loaded
@@ -90,6 +92,74 @@ for (const viewport of VIEWPORTS) {
           // Let any re-placement the arrival caused be painted before looking.
           await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
           expect(await markDone.boundingBox()).toEqual(before)
+        })
+      }
+    }
+  })
+}
+
+/**
+ * A class's popover opens at once and the lecture it focuses arrives later
+ * (and, with it, the boards that can show it, or the quiet "Add a widget"):
+ * the row above its buttons changes while the student's finger is on its way.
+ * Its primary action row is the anchor, so it must not move, whether the
+ * lecture is found or the focus fails.
+ */
+const CLASS_OUTCOMES = [
+  { name: 'the lecture is found', fails: false },
+  { name: 'the focus fails', fails: true },
+]
+
+for (const viewport of VIEWPORTS) {
+  test.describe(`Class popover stillness on ${viewport.name}`, () => {
+    test.use({ viewport: viewport.size, hasTouch: viewport.touch, isMobile: viewport.touch })
+    test.beforeEach(async ({ request }) => {
+      await reseed()
+      await boardWithCalendar(request)
+    })
+
+    for (const outcome of CLASS_OUTCOMES) {
+      for (const hour of HOURS) {
+        test(`${hour}:00 class: its buttons stay where they are while ${outcome.name}`, async ({ page, request }) => {
+          const start = startOfLocalDay(Date.now(), SEED_TIME_ZONE) + hour * 3_600_000
+          await trpcMutation(request, 'planItems.create', {
+            kind: 'commitment', title: 'Tap then wait', subtype: 'class', course: 'biology',
+            starts_at: new Date(start).toISOString(), ends_at: new Date(start + 3_600_000).toISOString(),
+            timeZone: SEED_TIME_ZONE,
+          })
+          await page.goto('/')
+          await new TopBarPom(page).switchToWorkspace('My week')
+          const calendar = new CalendarPom(page)
+          const block = calendar.block('Tap then wait')
+          await block.scrollIntoViewIfNeeded()
+
+          // The focus and the board summary are held from here (tRPC batches
+          // requests, so holding earlier would hold the calendar's own).
+          let release!: () => void
+          const held = new Promise<void>((resolve) => { release = resolve })
+          await page.route(/lectures\.forClassOccurrence|workspaces\.summary/, async (route) => {
+            await held
+            if (outcome.fails && route.request().url().includes('forClassOccurrence')) return route.abort()
+            await route.continue()
+          })
+          const box = await settledBox(page, block)
+          const at = { x: box.x + box.width / 2, y: box.y + Math.min(10, box.height / 2) }
+          if (viewport.touch) await page.touchscreen.tap(at.x, at.y)
+          else await page.mouse.click(at.x, at.y)
+
+          const row = calendar.popover.locator('[data-popover-anchor]')
+          await expect(calendar.popover.getByTestId('class-lecture')).toBeVisible()
+          await expect(calendar.popover.getByTestId('class-lecture-status')).toHaveAttribute('data-state', 'pending')
+          const before = await settledBox(page, row)
+
+          release()
+          await expect(calendar.popover.getByTestId('class-lecture-status'))
+            .toHaveAttribute('data-state', outcome.fails ? 'failed' : 'focused')
+          // The board summary arrives too: "Also open in" (other boards show lectures) or the quiet hint.
+          await expect(calendar.popover.getByRole('group', { name: 'Also open in' }).or(calendar.popover.getByTestId('class-lecture-hint'))).toBeVisible()
+          // Let any re-placement the arrival caused be painted before looking.
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+          expect(await row.boundingBox()).toEqual(before)
         })
       }
     }
