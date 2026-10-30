@@ -151,6 +151,12 @@ export interface SubstrateWriter extends SubstrateReader {
    * when it already has a transcript or one is on its way.
    */
   useTranscribeRecording: () => MutationHandle<{ recordingId: string }, { queued: boolean }>
+  /**
+   * After a recording is added outside the substrate (the `/upload` route):
+   * refreshes what lists recordings and lectures, e.g. the lecture it went
+   * into now has another part.
+   */
+  useRecordingAdded: () => () => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only

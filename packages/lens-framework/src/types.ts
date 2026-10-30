@@ -152,9 +152,11 @@ export interface LensProps {
    * lecture the lens just created. `undefined` clears a dimension. The shell
    * writes it in one atomic `setBoardScope`, so the server's rules apply: a
    * lecture brings its course, a course change clears a lecture outside it.
+   * The shell's promise says whether the write went through (it never
+   * rejects), for a widget that must undo what it showed when it didn't.
    * Optional for the same reason as `onConfigChange`.
    */
-  onScopeChange?: (patch: Partial<Scope>) => void
+  onScopeChange?: (patch: Partial<Scope>) => void | Promise<boolean>
   /**
    * Jump to a recording moment ("click a study block, land on the lecture
    * moment"): the shell selects the recording's lecture on the board (which

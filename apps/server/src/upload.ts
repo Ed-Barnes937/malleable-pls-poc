@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { writeFile, mkdir } from 'fs/promises'
+import { writeFile, mkdir, rm } from 'fs/promises'
+import { TRPCError } from '@trpc/server'
 import path from 'path'
 import { sql, withUser } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
@@ -206,27 +207,41 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
 
     const audioUrl = `/uploads/${filename}`
 
-    const recordedInto = await withUser(userId, async (tx) => {
-      // An account's first upload may come before anything else it has sent.
-      await ensureDefaultAutomations(tx, userId)
-      // Into the given lecture, or a new lecture of its own filed under the
-      // course (the lecture holds the course; the recording derives it).
-      const intoLecture = lectureId
-        ? (await requireOwnLecture(tx, userId, lectureId)).id
-        : ((await tx`
-            INSERT INTO lectures (user_id, title, course)
-            VALUES (${userId}, ${title}, ${course ?? null})
-            RETURNING id
-          `)[0].id as string)
-      await tx`
-        INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
-        VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
-      `
-      await dispatchWorkflows(tx, userId, 'recording:completed', {
-        recording_id: recordingId,
-      }, workspaceId)
-      return intoLecture
-    })
+    let recordedInto: string
+    try {
+      recordedInto = await withUser(userId, async (tx) => {
+        // An account's first upload may come before anything else it has sent.
+        await ensureDefaultAutomations(tx, userId)
+        // Into the given lecture, or a new lecture of its own filed under the
+        // course (the lecture holds the course; the recording derives it).
+        const intoLecture = lectureId
+          ? (await requireOwnLecture(tx, userId, lectureId)).id
+          : ((await tx`
+              INSERT INTO lectures (user_id, title, course)
+              VALUES (${userId}, ${title}, ${course ?? null})
+              RETURNING id
+            `)[0].id as string)
+        await tx`
+          INSERT INTO recordings (id, user_id, lecture_id, title, duration, audio_url, status)
+          VALUES (${recordingId}, ${userId}, ${intoLecture}, ${title}, ${durationMs}, ${audioUrl}, 'uploaded')
+        `
+        await dispatchWorkflows(tx, userId, 'recording:completed', {
+          recording_id: recordingId,
+        }, workspaceId)
+        return intoLecture
+      })
+    } catch (err) {
+      // Nothing was recorded, so the file goes too.
+      await rm(filePath, { force: true })
+      // The lecture went (or changed hands) between the check above and the
+      // insert: still a 404, as if it had been gone all along.
+      if (err instanceof TRPCError && err.code === 'NOT_FOUND') {
+        res.writeHead(404, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Lecture not found' }))
+        return
+      }
+      throw err
+    }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ id: recordingId, lectureId: recordedInto, audioUrl }))

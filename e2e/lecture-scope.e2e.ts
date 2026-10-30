@@ -35,6 +35,10 @@ const monday = (() => {
 const at = (day: number, h: number, m = 0) =>
   new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m).toISOString()
 
+// The capture timer once it has run 2s or more (it ticks each second, so an
+// exact "0:02" is on screen for only a moment).
+const AT_LEAST_2S = /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d)$/
+
 // A real MediaRecorder on Chromium's fake microphone, for the Record tests.
 test.use({
   launchOptions: { args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
@@ -65,7 +69,7 @@ test.describe('A board selects a lecture', () => {
       // Record: it goes into this lecture, which stays the board's lecture.
       await audio.getByRole('button', { name: 'Start recording' }).click()
       await expect(audio.getByText('REC')).toBeVisible()
-      await expect(audio.getByText('0:02')).toBeVisible({ timeout: 10000 })
+      await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       await expect(transcript.getByText('Enzymes')).toBeVisible({ timeout: 10000 })
       await expect(transcript.getByText(/\d+ segments/)).toBeVisible({ timeout: 20000 })
@@ -76,7 +80,7 @@ test.describe('A board selects a lecture', () => {
       // Record more: a second part of the same lecture.
       await audio.getByRole('button', { name: 'Record more' }).click()
       await expect(audio.getByText('REC')).toBeVisible()
-      await expect(audio.getByText('0:02')).toBeVisible({ timeout: 10000 })
+      await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       const parts = transcript.getByRole('group', { name: 'Lecture parts' }).getByRole('button')
       await expect(parts).toHaveText(['Part 1', 'Part 2'], { timeout: 10000 })
@@ -108,7 +112,7 @@ test.describe('A board selects a lecture', () => {
 
       const before = (await trpcQuery<Lecture[]>(request, 'lectures.list', { courseTag: 'chemistry' })).map((l) => l.id)
       await audio.getByRole('button', { name: 'Start recording' }).click()
-      await expect(audio.getByText('0:02')).toBeVisible({ timeout: 10000 })
+      await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       await expect(transcript.getByText(/\d+ segments/)).toBeVisible({ timeout: 20000 })
 
@@ -218,5 +222,48 @@ test.describe('A board selects a lecture', () => {
     const toast = page.getByTestId('toast-host').getByTestId('toast')
     await toast.getByRole('button', { name: 'Back to Biology' }).click()
     await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+  })
+
+  test('"Back to ..." says so when the board could not be changed back', async ({ page, request }) => {
+    await board(request, 'Biology week', ['calendar', 'transcript'], 'biology')
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Review: SN1 mechanism', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      course: 'chemistry', source_type: 'recording', source_id: 'rec-chem-1', source_offset_ms: 540000,
+    })
+
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Biology week')
+    const calendar = new CalendarPom(page)
+    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await calendar.block('Review: SN1 mechanism').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+
+    // The way back fails on the server.
+    await page.route('**/workspaces.setBoardScope*', (route) => route.fulfill({ status: 500, body: 'down' }))
+    const toast = page.getByTestId('toast-host').getByTestId('toast')
+    await toast.getByRole('button', { name: 'Back to Biology' }).click()
+    await expect(toast).toHaveText("Couldn't go back - try again")
+    await expect(topBar.scopeChip).toHaveText('Showing: Chemistry · Chemistry Lecture: Organic Reactions')
+  })
+
+  test("\"Go to moment\" says it couldn't, when the moment's recording is gone", async ({ page, request }) => {
+    await board(request, 'Biology week', ['calendar', 'transcript'], 'biology')
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Review: a lost moment', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      course: 'biology', source_type: 'recording', source_id: 'rec-gone', source_offset_ms: 60000,
+    })
+
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Biology week')
+    const calendar = new CalendarPom(page)
+    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await calendar.block('Review: a lost moment').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+
+    await expect(calendar.popover.getByText("Couldn't open the moment just now.")).toBeVisible()
+    await expect(topBar.scopeChip).toHaveText('Showing: Biology')
   })
 })

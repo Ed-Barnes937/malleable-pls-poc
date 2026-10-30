@@ -113,11 +113,18 @@ export function useShowMoment(
       // Moments are shown from a widget, so there is always a board; this is for the types.
       if (!activeWorkspaceId) return 'no-viewer'
       // The lecture the moment's recording belongs to: what the board selects.
-      const recording = await utils.recordings.byId.fetch(moment.recordingId).catch(() => null)
-      const lectureId = (recording?.lecture_id as string | undefined) ?? undefined
+      // Without it there is nothing to select, so say the moment can't be
+      // opened (the caller shows that) rather than claim it was shown.
+      const recording = await utils.recordings.byId.fetch(moment.recordingId)
+      const lectureId = recording?.lecture_id as string | undefined
+      if (!lectureId) throw new Error("That moment's lecture can't be found")
       const lectureCourse = (recording?.course as string | null | undefined) ?? null
-      const selectLecture = async (workspaceId: string) => {
-        if (lectureId) await setBoardScope({ workspaceId, lectureId })
+      const selectLecture = (workspaceId: string) => setBoardScope({ workspaceId, lectureId })
+      // A toast's "Back to ..." runs after this has returned: report a failed
+      // write there rather than leave the rejection unhandled.
+      const goBack = (workspaceId: string, scope: { courseTag?: string | null; lectureId: string | null }) => () => {
+        setBoardScope({ workspaceId, ...scope }).catch(() =>
+          pushToast({ message: "Couldn't go back - try again", tone: 'error', board: workspaceId }))
       }
 
       let target: MomentBoardCandidate | undefined
@@ -177,7 +184,7 @@ export function useShowMoment(
         })
       }
       await selectLecture(workspaceId)
-      if (!previous || !lectureId || previous.lectureId === lectureId) return 'shown'
+      if (!previous || previous.lectureId === lectureId) return 'shown'
 
       const leaving = previous.lectureId
       const course = previous.courseTag ?? null
@@ -200,12 +207,12 @@ export function useShowMoment(
           ? {
               label: fromTitle ? `Back to ${fromTitle}` : 'Back to the last lecture',
               icon: ChevronLeft,
-              onClick: () => void setBoardScope({ workspaceId, lectureId: leaving }),
+              onClick: goBack(workspaceId, { lectureId: leaving }),
             }
           : {
               label: `Back to ${courseName(course)}`,
               icon: ChevronLeft,
-              onClick: () => void setBoardScope({ workspaceId, courseTag: course, lectureId: null }),
+              onClick: goBack(workspaceId, { courseTag: course, lectureId: null }),
             },
       })
       return 'shown'

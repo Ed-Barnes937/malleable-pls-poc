@@ -174,9 +174,13 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
-  it('workspaces.scopes', async () => {
-    const data = await query(router, 'workspaces.scopes', 'ws-in-lecture')
-    expect(Array.isArray(data)).toBe(true)
+  it('workspaces.scopes, ordered by type as on the server', async () => {
+    // The course is written before the lecture, so stored order is tag first.
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'biology' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: 'lec-rec-bio-4' })
+    const data = await query(router, 'workspaces.scopes', 'ws-in-lecture') as { scope_type: string }[]
+    expect(data.map((s) => s.scope_type)).toEqual(['lecture', 'tag'])
   })
 
   it('workflows.forLens', async () => {

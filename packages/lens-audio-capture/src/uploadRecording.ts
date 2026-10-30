@@ -67,6 +67,17 @@ export interface UploadRecordingArgs {
   boardId?: string | null
 }
 
+/**
+ * The lecture an upload was aimed at is gone (deleted, or never this
+ * student's): nothing was recorded, so the audio can still go into a new one.
+ */
+export class LectureGoneError extends Error {
+  constructor() {
+    super('Upload failed - that lecture is gone')
+    this.name = 'LectureGoneError'
+  }
+}
+
 /** What /upload made: the recording, and the lecture it is in. */
 export interface UploadedRecording {
   id: string
@@ -100,7 +111,7 @@ export async function uploadRecording(args: UploadRecordingArgs): Promise<Upload
   if (!res.ok) {
     if (res.status === 413) throw new Error('Upload failed - that file is too large (50MB max)')
     if (res.status === 415) throw new Error('Upload failed - that file type isn\'t supported')
-    if (res.status === 404) throw new Error('Upload failed - that lecture is gone')
+    if (res.status === 404 && args.lectureId) throw new LectureGoneError()
     throw new Error('Upload failed - please try again')
   }
 

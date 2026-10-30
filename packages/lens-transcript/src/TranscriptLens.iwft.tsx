@@ -213,7 +213,7 @@ test("with no lecture, offers the course's latest lectures as one-click choices"
   const picked: (string | undefined)[] = []
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ courseTag: 'biology' }} config={{}} onScopeChange={(patch) => picked.push(patch.lectureId)} />
+      <TranscriptLens panelId="test" scope={{ courseTag: 'biology' }} config={{}} onScopeChange={(patch) => { picked.push(patch.lectureId) }} />
     </TestProviders>,
   )
 

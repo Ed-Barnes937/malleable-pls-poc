@@ -161,7 +161,8 @@ row (`target_type = 'plan_item'`, used by `planItems.list`); segments, tags,
 confidence and links inherit the course of their recording. Highlighting
 widgets ring what belongs to the lecture with `useLinkedToLecture`
 (`packages/lens-framework/src/lecture.ts`): items made from a moment of any of
-its recordings, and its class occurrence.
+its recordings, and its class occurrence (dated in the series' time zone, else
+the student's: their preference, else the browser's).
 
 Time windows are not a board dimension. Widgets that show time own their
 navigation and look-ahead (a calendar shows the week being viewed, Coming up

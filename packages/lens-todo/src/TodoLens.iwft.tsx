@@ -294,7 +294,7 @@ test('a to-do from a lecture moment links back to it and selects the lecture', a
 
   await mount(
     <TestProviders>
-      <TodoLens {...defaultProps} onScopeChange={(patch) => focused.push(patch.lectureId)} />
+      <TodoLens {...defaultProps} onScopeChange={(patch) => { focused.push(patch.lectureId) }} />
     </TestProviders>,
   )
 

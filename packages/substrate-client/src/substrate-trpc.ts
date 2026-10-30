@@ -157,6 +157,14 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useRecordingAdded() {
+    const utils = trpc.useUtils()
+    return useCallback(() => {
+      utils.recordings.invalidate()
+      utils.lectures.invalidate()
+    }, [utils])
+  },
+
   useRecordConfidence() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.confidence.record.useMutation({

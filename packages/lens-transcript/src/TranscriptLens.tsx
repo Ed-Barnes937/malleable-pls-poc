@@ -503,7 +503,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   if (lecture && lecture.recordings.length === 0) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-2">
-        <span className="truncate text-title font-semibold text-text-primary">{lecture.title}</span>
+        <span data-testid="lecture-title" className="truncate text-title font-semibold text-text-primary">{lecture.title}</span>
         <div className="flex flex-1 items-center justify-center">
           <EmptyState icon={AudioLines} message="No recording yet" />
         </div>
@@ -514,7 +514,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="truncate text-title font-semibold text-text-primary">
+        <span data-testid="lecture-title" className="truncate text-title font-semibold text-text-primary">
           {lecture?.title ?? recording?.title ?? 'Loading...'}
         </span>
         {tone && courseLabel && (

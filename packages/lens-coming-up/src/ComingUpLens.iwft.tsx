@@ -108,7 +108,7 @@ test('clicking a deadline focuses the board on its course', async ({ mount, page
 
   await mount(
     <TestProviders>
-      <ComingUpLens {...defaultProps} onScopeChange={(patch) => courses.push(patch.courseTag)} />
+      <ComingUpLens {...defaultProps} onScopeChange={(patch) => { courses.push(patch.courseTag) }} />
     </TestProviders>,
   )
 

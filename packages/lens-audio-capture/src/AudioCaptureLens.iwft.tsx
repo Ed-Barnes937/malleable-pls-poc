@@ -69,7 +69,7 @@ test.describe('AudioCaptureLens', () => {
     const patches: object[] = []
     await mount(
       <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={(p) => patches.push(p)} />
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={(p) => { patches.push(p) }} />
       </AudioCaptureHarness>,
     )
 
@@ -78,7 +78,57 @@ test.describe('AudioCaptureLens', () => {
     await page.getByRole('button', { name: 'New lecture' }).click()
     // One patch, clearing the lecture (the course stays).
     expect(patches).toEqual([{ lectureId: undefined }])
-    await expect(page.getByText('Ready to record')).toBeVisible()
+    // At once, though the board (this mount's scope) still names the old
+    // lecture: the next capture is a new lecture, not another part.
+    await expect(page.getByTestId('ready-to-record')).toHaveText('Ready to record')
+    let uploadHeaders: Record<string, string> | undefined
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-fresh', lectureId: 'lec-fresh' }) })
+    })
+    await page.getByRole('button', { name: 'Start recording' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+    await expect.poll(() => uploadHeaders).toBeDefined()
+    expect(uploadHeaders!['x-lecture-id']).toBeUndefined()
+    expect(uploadHeaders!['x-recording-course']).toBe('biology')
+    await expect.poll(() => patches).toEqual([{ lectureId: undefined }, { lectureId: 'lec-fresh' }])
+  })
+
+  test('New lecture says so when the board could not be changed, and keeps the lecture', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={async () => false} />
+      </AudioCaptureHarness>,
+    )
+
+    await page.getByRole('button', { name: 'New lecture' }).click()
+    await expect(page.getByRole('alert')).toHaveText("Couldn't start a new lecture - try again")
+    await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Record more' })).toBeVisible()
+  })
+
+  test('shows nothing to press while the board lecture loads, rather than "Ready to record"', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    // Hold lectures.byId until the test lets it go.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/trpc/lectures.byId**', async (route) => {
+      await held
+      await route.fallback()
+    })
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} />
+      </AudioCaptureHarness>,
+    )
+
+    await expect(page.getByText('0:00')).toBeVisible()
+    await expect(page.getByTestId('ready-to-record')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Start recording' })).toHaveCount(0)
+    release()
+    await expect(page.getByRole('button', { name: 'Record more' })).toBeVisible()
   })
 
   test('a selected lecture with no recording is ready to record into it, by name', async ({ mount, page, simulator }) => {
@@ -95,7 +145,7 @@ test.describe('AudioCaptureLens', () => {
     const selected: (string | undefined)[] = []
     await mount(
       <AudioCaptureHarness>
-        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-empty', courseTag: 'biology' }} config={{}} onScopeChange={(p) => selected.push(p.lectureId)} />
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-empty', courseTag: 'biology' }} config={{}} onScopeChange={(p) => { selected.push(p.lectureId) }} />
       </AudioCaptureHarness>,
     )
 
@@ -103,10 +153,105 @@ test.describe('AudioCaptureLens', () => {
     await page.getByRole('button', { name: 'Start recording' }).click()
     await expect(page.getByText('REC')).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
-    // Into the selected lecture: no new lecture, so no course header.
+    // Into the selected lecture: no new lecture, so no course header, and
+    // no scope write (the board shows it already).
     await expect.poll(() => uploadHeaders['x-lecture-id']).toBe('lec-empty')
     expect(uploadHeaders['x-recording-course']).toBeUndefined()
-    await expect.poll(() => selected).toEqual(['lec-empty'])
+    await expect(page.getByRole('button', { name: 'Record more' })).toBeVisible()
+    expect(selected).toEqual([])
+  })
+
+  test('a capture goes into the lecture it started in, even if the board switches lecture meanwhile', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    let uploadHeaders: Record<string, string> | undefined
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-part-2', lectureId: 'lec-rec-bio-4' }) })
+    })
+    const patches: object[] = []
+    const lens = (scope: { lectureId?: string; courseTag?: string }) => (
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={scope} config={{}} onScopeChange={(p) => { patches.push(p) }} />
+      </AudioCaptureHarness>
+    )
+    const component = await mount(lens({ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }))
+
+    await page.getByRole('button', { name: 'Record more' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    // Mid-recording, the board moves to another lecture (e.g. from the drawer).
+    await component.update(lens({ lectureId: 'lec-rec-bio-3', courseTag: 'biology' }))
+    await expect(page.getByText('REC')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+
+    await expect.poll(() => uploadHeaders?.['x-lecture-id']).toBe('lec-rec-bio-4')
+    // Saved where it was aimed, said so, and the board keeps what it shows now.
+    await expect(page.getByRole('status')).toHaveText('Saved to Biology Lecture: Mitochondrial DNA')
+    await expect(page.getByText('Biology Lecture: Mitochondria & Energy')).toBeVisible()
+    expect(patches).toEqual([])
+  })
+
+  test('a capture with no lecture is filed under the course it started in, even if the board moves on', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    let uploadHeaders: Record<string, string> | undefined
+    await page.route('**/upload', async (route) => {
+      uploadHeaders = route.request().headers()
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-new', lectureId: 'lec-new' }) })
+    })
+    const patches: object[] = []
+    const lens = (scope: { lectureId?: string; courseTag?: string }) => (
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={scope} config={{}} onScopeChange={(p) => { patches.push(p) }} />
+      </AudioCaptureHarness>
+    )
+    const component = await mount(lens({ courseTag: 'biology' }))
+
+    await page.getByRole('button', { name: 'Start recording' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    await component.update(lens({ courseTag: 'chemistry', lectureId: 'lec-rec-chem-1' }))
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+
+    await expect.poll(() => uploadHeaders).toBeDefined()
+    expect(uploadHeaders!['x-lecture-id']).toBeUndefined()
+    expect(uploadHeaders!['x-recording-course']).toBe('biology')
+    await expect(page.getByRole('status')).toContainText('Saved to Lecture ')
+    expect(patches).toEqual([])
+  })
+
+  test('when the lecture is gone, the audio is kept and can be saved as a new lecture', async ({ mount, page, simulator }) => {
+    await injectMocks(page)
+    const uploads: Record<string, string>[] = []
+    await page.route('**/upload', async (route) => {
+      const headers = route.request().headers()
+      uploads.push(headers)
+      if (headers['x-lecture-id']) {
+        await route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Lecture not found' }) })
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ id: 'rec-saved', lectureId: 'lec-saved' }) })
+      }
+    })
+    const patches: object[] = []
+    await mount(
+      <AudioCaptureHarness>
+        <AudioCaptureLens panelId="test" scope={{ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }} config={{}} onScopeChange={(p) => { patches.push(p) }} />
+      </AudioCaptureHarness>,
+    )
+
+    await page.getByRole('button', { name: 'Record more' }).click()
+    await expect(page.getByText('REC')).toBeVisible()
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+
+    await expect(page.getByRole('alert')).toHaveText("That lecture is gone, so this recording isn't saved yet")
+    // The board lets go of the gone lecture.
+    await expect.poll(() => patches).toEqual([{ lectureId: undefined }])
+    await page.getByRole('button', { name: 'Save as a new lecture' }).click()
+
+    await expect.poll(() => uploads.length).toBe(2)
+    expect(uploads[1]['x-lecture-id']).toBeUndefined()
+    expect(uploads[1]['x-recording-course']).toBe('biology')
+    // Same audio, same title.
+    expect(uploads[1]['x-recording-title']).toBe(uploads[0]['x-recording-title'])
+    await expect.poll(() => patches).toEqual([{ lectureId: undefined }, { lectureId: 'lec-saved' }])
+    await expect(page.getByRole('alert')).toHaveCount(0)
   })
 
   test('clicking record starts recording state', async ({ mount, page, simulator }) => {
@@ -195,7 +340,7 @@ test.describe('AudioCaptureLens', () => {
           panelId="test"
           scope={{ courseTag: 'biology' }}
           config={{}}
-          onScopeChange={(patch) => focused.push(patch.lectureId)}
+          onScopeChange={(patch) => { focused.push(patch.lectureId) }}
         />
       </AudioCaptureHarness>,
     )

@@ -104,7 +104,10 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.scopes', (input) => {
     const workspaceId = input as string
-    return db.workspaceScopes.filter((s) => s.workspace_id === workspaceId)
+    // Ordered by type, as on the server.
+    return db.workspaceScopes
+      .filter((s) => s.workspace_id === workspaceId)
+      .sort((a, b) => (a.scope_type < b.scope_type ? -1 : a.scope_type > b.scope_type ? 1 : 0))
   })
 
   // The one scope write, as on the server (see `writeBoardScope`).

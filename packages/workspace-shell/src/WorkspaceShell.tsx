@@ -131,12 +131,15 @@ export function WorkspaceShell() {
 
   // One atomic write per patch, whatever it touches: the server keeps the
   // lecture inside the course (see `setBoardScope`).
+  // Resolves to whether it was written; never rejects.
   const handleScopeChange = useCallback(
-    (patch: Partial<Scope>) => {
-      if (!activeWorkspaceId) return
-      setBoardScope.mutate({ workspaceId: activeWorkspaceId, ...boardScopePatch(patch) })
+    (patch: Partial<Scope>): Promise<boolean> => {
+      if (!activeWorkspaceId) return Promise.resolve(false)
+      return setBoardScope
+        .mutateAsync({ workspaceId: activeWorkspaceId, ...boardScopePatch(patch) })
+        .then(() => true, () => false)
     },
-    [activeWorkspaceId, setBoardScope.mutate],
+    [activeWorkspaceId, setBoardScope.mutateAsync],
   )
 
   const activeLensTypes = useMemo(
