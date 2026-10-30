@@ -158,6 +158,12 @@ export function isConflictError(err: unknown): boolean {
   return data?.code === 'CONFLICT'
 }
 
+/** Whether `err` is the server saying the thing does not exist (or is not the student's). */
+export function isNotFoundError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'NOT_FOUND'
+}
+
 // ---------------------------------------------------------------------------
 // SubstrateWriter — extends reader with mutation capabilities for tools
 // ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import { ChevronDown, ChevronRight, Library, NotebookPen, Plus, X } from 'lucide
 import { AddPanel, type AttachTo } from './AddPanel'
 import { groupResources, type LectureGroup } from './grouping'
 import { MoveDialog, type Destination } from './MoveDialog'
-import { pendingNoteSaver } from './noteSavers'
+import { dropNoteSaver, pendingNoteSaver } from './noteSavers'
 import { NoteView } from './NoteView'
 import { ResourceRow } from './ResourceRow'
 
@@ -78,7 +78,10 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   const createNote = writer.useCreateResourceNote()
   const update = writer.useUpdateResource()
   const remove = writer.useDeleteResource()
-  const deletes = useDeferredDelete((id) => remove.mutate(id))
+  const deletes = useDeferredDelete((id) => {
+    // Unsaved text (if any) has nowhere to go once the note is deleted.
+    remove.mutateAsync(id).then(() => dropNoteSaver(id), () => {})
+  })
 
   const [adding, setAdding] = useState(false)
   const [openNote, setOpenNote] = useState<string | null>(null)

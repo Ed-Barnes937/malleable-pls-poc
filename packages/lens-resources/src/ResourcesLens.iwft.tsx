@@ -389,3 +389,22 @@ test('a rename or move that fails says so', async ({ mount, page, simulator }) =
   await expect(page.getByRole('alert')).toHaveText("Couldn't move Draft. Try again.")
   expect(simulator.db.resources[0]).toMatchObject({ title: 'Draft', course: 'biology', lecture_id: null })
 })
+
+test('deleting a note whose last save failed drops its unsaved text: nothing is left to ask about on close', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-note', title: 'Doomed', body_md: '', course: 'biology' })
+  await offlineSaves(page)
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await page.getByRole('button', { name: 'Doomed', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Doomed' }).click()
+  await page.keyboard.type('Never saved')
+  await page.getByRole('button', { name: 'Back to resources' }).click()
+  const row = page.getByTestId('resource-row').filter({ hasText: 'Doomed' })
+  await expect(row.getByText('Not saved')).toBeVisible()
+  const asksBeforeClosing = () => page.evaluate(() => !window.dispatchEvent(new Event('beforeunload', { cancelable: true })))
+  expect(await asksBeforeClosing()).toBe(true)
+
+  await page.getByRole('button', { name: 'More for Doomed' }).click()
+  await page.getByRole('button', { name: 'Delete' }).click()
+  await expect.poll(() => simulator.db.resources.length, { timeout: 8000 }).toBe(0)
+  await expect.poll(asksBeforeClosing).toBe(false)
+})

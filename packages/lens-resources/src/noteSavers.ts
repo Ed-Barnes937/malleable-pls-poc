@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { isConflictError } from '@pls/lens-framework'
+import { isConflictError, isNotFoundError } from '@pls/lens-framework'
 import type { ResourceUpdate, ResourceWithBody } from '@pls/substrate'
 
 /** How long typing pauses before a note saves. */
@@ -32,7 +32,7 @@ export class NoteSaver {
   title: string
   body: string
   /** Views showing this note. Changes save at once when there are none. */
-  views = 0
+  private views = 0
   private base: string | Date | undefined
   private pending: Patch | null = null
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -63,6 +63,24 @@ export class NoteSaver {
     return this.status === 'failed' || this.status === 'conflict'
   }
 
+  /** Whether a view is showing this note. */
+  get open(): boolean {
+    return this.views > 0
+  }
+
+  /** A view of the note opens (put back in the registry if it was released while no view showed). */
+  attach() {
+    this.views++
+    if (!savers.has(this.id)) savers.set(this.id, this)
+  }
+
+  /** A view closes: saves what is left, and lets go of the saver if that was the last view and nothing is left to save. */
+  detach() {
+    this.views--
+    this.flush()
+    this.release()
+  }
+
   /** Whether the last save (or the load) was this version of the note. */
   isAt(updatedAt: string | Date) {
     return this.base !== undefined && new Date(this.base).getTime() === new Date(updatedAt).getTime()
@@ -81,6 +99,8 @@ export class NoteSaver {
   }
 
   change(patch: Patch) {
+    // The editor's last words can arrive after the view closed and the saver was released.
+    if (!savers.has(this.id)) savers.set(this.id, this)
     if (patch.title !== undefined) this.title = patch.title
     if (patch.body_md !== undefined) this.body = patch.body_md ?? ''
     this.pending = { ...this.pending, ...patch }
@@ -131,6 +151,11 @@ export class NoteSaver {
       this.inFlight = false
       this.setStatus(this.pending ? 'unsaved' : 'saved')
     } catch (err) {
+      if (isNotFoundError(err)) {
+        // The note is gone (deleted elsewhere): there is nothing to save it to.
+        this.inFlight = false
+        return this.discard()
+      }
       // Keep what didn't save, under anything typed since.
       this.pending = { ...patch, ...(this.pending as Patch | null) }
       this.inFlight = false
@@ -138,6 +163,26 @@ export class NoteSaver {
     }
     // Typed while that save was on its way.
     if (this.pending && this.status === 'unsaved') void this.run()
+  }
+
+  /** Forgets this note's unsaved text, for a note that no longer exists. */
+  discard() {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.pending = null
+    this.force = false
+    this.status = 'idle'
+    if (savers.get(this.id) === this) savers.delete(this.id)
+    for (const listener of this.listeners) listener()
+    notifyAll()
+  }
+
+  /** Leaves the registry once nothing shows the note and nothing is left to save. */
+  private release() {
+    if (this.views === 0 && !this.dirty && savers.get(this.id) === this) {
+      savers.delete(this.id)
+      notifyAll()
+    }
   }
 
   private setStatus(status: SaveStatus) {
@@ -152,6 +197,9 @@ export class NoteSaver {
   }
 }
 
+// Module scope, so it is shared by everything on the page. It must be cleared
+// on sign-out once real auth lets one page switch users without a reload,
+// or the next student would see (and try to save) the last one's notes.
 const savers = new Map<string, NoteSaver>()
 const registryListeners = new Set<() => void>()
 
@@ -167,7 +215,7 @@ function notifyAll() {
  */
 export function openNoteSaver(id: string, note: ResourceWithBody | null | undefined, save: Save): NoteSaver | null {
   const existing = savers.get(id)
-  if (existing && (existing.dirty || existing.views > 0 || (note && existing.isAt(note.updated_at)))) {
+  if (existing && (existing.dirty || existing.open || (note && existing.isAt(note.updated_at)))) {
     existing.setSave(save)
     return existing
   }
@@ -175,6 +223,16 @@ export function openNoteSaver(id: string, note: ResourceWithBody | null | undefi
   const saver = new NoteSaver(id, note, save)
   savers.set(id, saver)
   return saver
+}
+
+/** Lets go of a note's saver and its unsaved text, once the note is deleted. */
+export function dropNoteSaver(id: string) {
+  savers.get(id)?.discard()
+}
+
+/** Whether a note has a saver at all (one is released once nothing shows the note and nothing is left to save). */
+export function hasNoteSaver(id: string): boolean {
+  return savers.has(id)
 }
 
 /** The saver of a note that still has something to save, if any. */

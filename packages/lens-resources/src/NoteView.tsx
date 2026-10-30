@@ -59,11 +59,8 @@ function LoadedNote({ saver, onBack, leaving }: { saver: NoteSaver; onBack?: () 
   // While the note shows, changes wait for a pause; once it closes, they
   // (the editor's last words) save at once. Leaving saves what's left.
   useEffect(() => {
-    saver.views++
-    return () => {
-      saver.views--
-      saver.flush()
-    }
+    saver.attach()
+    return () => saver.detach()
   }, [saver])
 
   const reload = async () => {
