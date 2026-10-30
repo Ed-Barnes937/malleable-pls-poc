@@ -1,6 +1,7 @@
 import type { CreateHTTPContextOptions } from '@trpc/server/adapters/standalone'
 import type { ExecutorRegistry } from '@pls/workflows'
 import type { AiDeps } from './ai/deps'
+import { provisionAccount } from './workflows/defaults'
 
 export interface Context {
   userId: string
@@ -18,6 +19,8 @@ export function createContextFactory({ ai, executors }: Pick<Context, 'ai' | 'ex
       ?? info.connectionParams?.['userId']
       ?? 'anonymous'
     const userId = USER_ID_RE.test(raw) ? raw : 'anonymous'
+    // Every account starts with the default automations (skipped for the anonymous fallback; a no-op once done).
+    if (userId !== 'anonymous') await provisionAccount(userId)
 
     return { userId, ai, executors }
   }

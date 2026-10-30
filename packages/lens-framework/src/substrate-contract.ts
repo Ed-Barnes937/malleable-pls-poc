@@ -136,6 +136,11 @@ export interface SubstrateWriter extends SubstrateReader {
   useCreateTag: () => MutationHandle<NewTag>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
+  /**
+   * Transcribes a lecture the automations never picked up. `queued` is false
+   * when it already has a transcript or one is on its way.
+   */
+  useTranscribeRecording: () => MutationHandle<{ recordingId: string }, { queued: boolean }>
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only

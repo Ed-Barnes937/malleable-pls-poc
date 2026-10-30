@@ -129,6 +129,16 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useTranscribeRecording() {
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.recordings.transcribe.useMutation({
+      onSuccess: () => {
+        utils.recordings.invalidate()
+        utils.jobs.invalidate()
+      },
+    }))
+  },
+
   useRecordConfidence() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.confidence.record.useMutation({

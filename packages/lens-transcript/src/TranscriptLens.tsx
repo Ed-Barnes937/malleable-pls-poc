@@ -281,6 +281,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   )
   const createTag = mutations.useCreateTag()
   const createAnnotation = mutations.useCreateAnnotation()
+  const transcribe = mutations.useTranscribeRecording()
 
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null)
   const [annotationDraft, setAnnotationDraft] = useState('')
@@ -397,6 +398,11 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // Until the transcript lands there is nothing to show but that it's coming.
   const transcribing = recording?.processing === 'transcribing' && !segments?.length
   const summarising = recording?.processing === 'summarising'
+  // Never transcribed (status stays 'uploaded' until a run finishes, so a
+  // lecture that was transcribed but said nothing is not this) and nothing on
+  // its way: no automation ran (e.g. the student deleted the transcribe one,
+  // or the run failed), so say so and offer it.
+  const untranscribed = !!recording && !!segments && segments.length === 0 && recording.status !== 'ready' && !recording.processing && !isCapture
 
   /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
   const markedAt = useRef<number | null>(null)
@@ -437,7 +443,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
             {courseLabel}
           </span>
         )}
-        {recording && segments && !transcribing && (
+        {recording && segments && !transcribing && !untranscribed && (
           <span className="ml-auto shrink-0 text-meta text-text-muted tabular-nums">
             {segments.length} segments
           </span>
@@ -461,13 +467,28 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         </div>
       )}
 
+      {untranscribed && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2.5 text-center">
+          <p data-testid="untranscribed" className="text-body text-text-secondary">This lecture isn't transcribed yet.</p>
+          <button
+            type="button"
+            disabled={transcribe.isPending}
+            onClick={() => transcribe.mutate({ recordingId })}
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            <AudioLines className="h-4 w-4" />
+            Transcribe it
+          </button>
+        </div>
+      )}
+
       {summarising && summaryLines.length === 0 && (
         <section aria-label="Lecture summary" className="rounded-item bg-surface-inset px-3.5 py-2.5">
           <InProgress icon={Sparkles} message="Writing your summary..." testId="summarising" />
         </section>
       )}
 
-      <div hidden={transcribing} className="flex min-h-0 flex-1 gap-1.5">
+      <div hidden={transcribing || untranscribed} className="flex min-h-0 flex-1 gap-1.5">
       <div ref={listRef} className="relative -ml-3 min-h-0 flex-1 space-y-px overflow-y-auto pl-3 pr-1">
         {summaryLines.length > 0 && (
           <section
