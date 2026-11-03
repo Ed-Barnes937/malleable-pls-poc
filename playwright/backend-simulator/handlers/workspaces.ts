@@ -1,6 +1,7 @@
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { writeBoardScope } from './lectures'
+import type { BoardScope } from '@pls/substrate'
+import { readBoardScope, writeBoardScope } from './lectures'
 
 /** Mirrors `COURSE_LABELS` on the server. */
 const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
@@ -8,6 +9,21 @@ const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
     return db.workspaces
+  })
+
+  // As the server: tab order, each board's widget types oldest first.
+  router.register('workspaces.summary', () => {
+    return [...db.workspaces]
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+      .map((w) => ({
+        id: w.id,
+        name: w.name,
+        sort_order: w.sort_order,
+        lens_types: db.workspacePanels
+          .filter((p) => p.workspace_id === w.id)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+          .map((p) => p.lens_type),
+      }))
   })
 
   router.register('workspaces.panels', (input) => {
@@ -115,6 +131,22 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, ...patch } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
     if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
     return writeBoardScope(db, workspaceId, patch)
+  })
+
+  /** Twin of the server's `restoreBoardScope`: Undo, only while the board shows what the change left. */
+  router.register('workspaces.restoreBoardScope', (input) => {
+    const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
+    for (const scope of [to, ifBoardShows]) {
+      if (scope.courseTag != null && !COURSE_LABELS.has(scope.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    }
+    requireBoard(db, workspaceId)
+    const current = readBoardScope(db, workspaceId)
+    if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
+      return { restored: false, scope: current }
+    }
+    const lectureThere = !!to.lectureId && db.lectures.some((l) => l.id === to.lectureId)
+    const patch = lectureThere ? { lectureId: to.lectureId } : { courseTag: to.courseTag, lectureId: null }
+    return { restored: true, scope: writeBoardScope(db, workspaceId, patch) }
   })
 }
 

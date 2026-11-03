@@ -130,6 +130,18 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
+  it('workspaces.summary lists each board with its widget types, in tab order', async () => {
+    expect(await query(router, 'workspaces.summary')).toEqual([
+      { id: 'ws-in-lecture', name: 'In Lecture', sort_order: 0, lens_types: ['audio-capture', 'transcript'] },
+      { id: 'ws-evening-review', name: 'Evening Review', sort_order: 1, lens_types: ['transcript', 'test-me', 'weekly-overview', 'connections'] },
+      { id: 'ws-exam-prep', name: 'Exam Prep', sort_order: 2, lens_types: ['gap-analysis', 'weakest-topics', 'test-me'] },
+    ])
+    const ws = await mutate(router, 'workspaces.create', { name: 'Plan' }) as { id: string }
+    await mutate(router, 'workspaces.addPanel', { workspaceId: ws.id, lensType: 'calendar', slotName: 'a' })
+    const summary = await query(router, 'workspaces.summary') as { id: string; lens_types: string[] }[]
+    expect(summary.at(-1)).toEqual({ id: ws.id, name: 'Plan', sort_order: 3, lens_types: ['calendar'] })
+  })
+
   it('lectures.list and lectures.byId', async () => {
     const all = await query(router, 'lectures.list', {}) as { id: string }[]
     expect(all.map((l) => l.id)).toEqual(['lec-rec-bio-4', 'lec-rec-bio-3', 'lec-rec-chem-1', 'lec-rec-bio-2', 'lec-rec-bio-1'])
@@ -308,6 +320,16 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(await scope('ws-evening-review')).toEqual([])
     await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-missing' }))
       .rejects.toThrow('Lecture not found')
+  })
+
+  it('restoreBoardScope refuses an unknown course and writes nothing, as on the server', async () => {
+    const none = { courseTag: null, lectureId: null }
+    const stored = await query(router, 'workspaces.scopes', 'ws-evening-review')
+    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
+      .rejects.toThrow('Unknown course')
+    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+      .rejects.toThrow('Unknown course')
+    expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual(stored)
   })
 
   it('lectures.create with a board selects it there; lectures.update re-scopes boards', async () => {
@@ -591,6 +613,24 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     await expect(call('lectures.forClassOccurrence', { planItemId: 'missing', date: '2026-10-26' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
     await expect(call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-27' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     await expect(call('lectures.forClassOccurrence', { planItemId: shift.id, date: '2026-10-19' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('restoreBoardScope puts back what a class focus replaced, only while the board shows what it left', async () => {
+    const { id } = await bioClass()
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'chemistry' })
+    const { board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    // Changed since: kept, and nothing written.
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
+      .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
+    // Unchanged since: put back.
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: again.board.after }))
+      .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: null } })
+    // A lecture that is gone: just its course comes back.
+    expect(await call('workspaces.restoreBoardScope', {
+      workspaceId: 'ws-in-lecture', to: { courseTag: 'physics', lectureId: 'lec-gone' }, ifBoardShows: { courseTag: 'chemistry', lectureId: null },
+    })).toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: null } })
   })
 
   it('lectures.create with matchClass joins the class on now, and the calendar click finds the same lecture', async () => {

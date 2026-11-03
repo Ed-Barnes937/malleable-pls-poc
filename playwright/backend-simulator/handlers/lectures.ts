@@ -44,7 +44,7 @@ export function requireLecture(db: InMemoryDb, lectureId: string): StoredLecture
   return lecture
 }
 
-function readBoardScope(db: InMemoryDb, workspaceId: string): BoardScope {
+export function readBoardScope(db: InMemoryDb, workspaceId: string): BoardScope {
   const value = (type: string) => db.workspaceScopes.find((s) => s.workspace_id === workspaceId && s.scope_type === type)?.scope_value ?? null
   return { courseTag: value('tag'), lectureId: value('lecture') }
 }

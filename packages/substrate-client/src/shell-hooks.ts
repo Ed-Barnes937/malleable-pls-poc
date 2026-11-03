@@ -39,6 +39,14 @@ export function useWorkspaces() {
   return trpc.workspaces.list.useQuery()
 }
 
+/**
+ * Every board with the widget types on it, in tab order (`workspaces.summary`):
+ * for choosing a board by what it contains. Board and panel changes refresh it.
+ */
+export function useWorkspaceSummary() {
+  return trpc.workspaces.summary.useQuery()
+}
+
 /** A board's widgets; no request without a board (`null`). */
 export function useWorkspacePanels(workspaceId: string | null) {
   return trpc.workspaces.panels.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
@@ -65,6 +73,7 @@ export function useCreateWorkspace() {
   return trpc.workspaces.create.useMutation({
     onSuccess: (ws) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && ([...prev, ws] as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -75,6 +84,7 @@ export function useDeleteWorkspace() {
   return trpc.workspaces.delete.useMutation({
     onSuccess: (_data, id) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && (prev.filter((w) => w.id !== id) as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -98,7 +108,10 @@ export function useReorderWorkspaces() {
     onError: (_err, _ids, ctx) => {
       if (ctx?.prev) utils.workspaces.list.setData(undefined, ctx.prev)
     },
-    onSettled: () => utils.workspaces.list.invalidate(),
+    onSettled: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.list.invalidate()
+    },
   })
 }
 
@@ -108,13 +121,18 @@ export function useReorderWorkspaces() {
  * one that still exists.
  */
 function refetchBoardsIfGone(utils: ReturnType<typeof trpc.useUtils>, error: { data?: { code?: string } | null }) {
-  if (error.data?.code === 'NOT_FOUND') void utils.workspaces.list.invalidate()
+  if (error.data?.code !== 'NOT_FOUND') return
+  void utils.workspaces.list.invalidate()
+  void utils.workspaces.summary.invalidate()
 }
 
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
     onError: (error) => refetchBoardsIfGone(utils, error),
   })
 }
@@ -122,7 +140,10 @@ export function useAddWorkspacePanel() {
 export function useRemoveWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.removePanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
   })
 }
 
@@ -162,22 +183,8 @@ export function useUpdateWorkspaceBackground() {
 export function useSetBoardScope() {
   const utils = trpc.useUtils()
   const queryClient = useQueryClient()
-  const courseOf = (lectureId: string) => cachedLectureCourse(queryClient, lectureId)
-
-  /** The board's unanswered writes, oldest first, less `except` (the one finishing). */
-  const pendingPatches = (workspaceId: string, except?: BoardScopeWrite): BoardScopePatch[] =>
-    pendingBoardScopeWrites(queryClient, workspaceId)
-      .filter((m) => m.state.variables !== except)
-      .map((m) => {
-        const { workspaceId: _board, ...patch } = m.state.variables as BoardScopeWrite
-        return patch
-      })
-
-  /** Shows `base` with the board's unanswered writes (less `except`) on top. */
-  const show = (workspaceId: string, base: BoardScope, except?: BoardScopeWrite) => {
-    const next = applyBoardScopePatches(base, pendingPatches(workspaceId, except), courseOf)
-    utils.workspaces.scopes.setData(workspaceId, (rows) => rows && replaceBoardScope(rows, workspaceId, next))
-  }
+  const pendingPatches = (workspaceId: string, except?: unknown) => boardScopePatches(queryClient, workspaceId, except)
+  const show = (workspaceId: string, base: BoardScope, except?: unknown) => showBoardScope(utils, queryClient, workspaceId, base, except)
 
   return trpc.workspaces.setBoardScope.useMutation({
     scope: { id: BOARD_SCOPE_WRITES },
@@ -229,6 +236,57 @@ function pendingBoardScopeWrites(queryClient: QueryClient, workspaceId: string) 
         m.options.scope?.id === BOARD_SCOPE_WRITES && (m.state.variables as BoardScopeWrite | undefined)?.workspaceId === workspaceId,
     })
     .sort((a, b) => a.mutationId - b.mutationId)
+}
+
+/**
+ * The board's unanswered scope writes, oldest first, less `except` (the one
+ * finishing), as patches. A class open or an Undo is in the queue too, as a
+ * patch of nothing: the board shows its answer once it lands
+ * (`settleBoardScopeWrite`).
+ */
+function boardScopePatches(queryClient: QueryClient, workspaceId: string, except?: unknown): BoardScopePatch[] {
+  return pendingBoardScopeWrites(queryClient, workspaceId)
+    .filter((m) => m.state.variables !== except)
+    .map((m) => {
+      const { courseTag, lectureId } = m.state.variables as BoardScopeWrite
+      return { ...(courseTag !== undefined && { courseTag }), ...(lectureId !== undefined && { lectureId }) }
+    })
+}
+
+/** Shows `base` on the board with its unanswered writes (less `except`) on top. */
+function showBoardScope(
+  utils: ReturnType<typeof trpc.useUtils>,
+  queryClient: QueryClient,
+  workspaceId: string,
+  base: BoardScope,
+  except?: unknown,
+) {
+  const next = applyBoardScopePatches(base, boardScopePatches(queryClient, workspaceId, except), (id) => cachedLectureCourse(queryClient, id))
+  utils.workspaces.scopes.setData(workspaceId, (rows) => rows && replaceBoardScope(rows, workspaceId, next))
+}
+
+/**
+ * A board scope write other than `setBoardScope` (a class open, Undo) is
+ * done, leaving the board at `scope` (unknown when it failed). With later
+ * writes still to come, that is the new base they show over, as for
+ * `setBoardScope`; once it is the last, the board is re-read.
+ */
+function settleBoardScopeWrite(
+  utils: ReturnType<typeof trpc.useUtils>,
+  queryClient: QueryClient,
+  workspaceId: string,
+  self: unknown,
+  scope: BoardScope | undefined,
+) {
+  if (pendingBoardScopeWrites(queryClient, workspaceId).some((m) => m.state.variables !== self)) {
+    const bases = confirmedScopes(queryClient)
+    if (scope) bases.set(workspaceId, scope)
+    const base = bases.get(workspaceId)
+    if (base) showBoardScope(utils, queryClient, workspaceId, base, self)
+    return
+  }
+  confirmedScopes(queryClient).delete(workspaceId)
+  void utils.workspaces.scopes.invalidate(workspaceId)
 }
 
 /** Per query client, each board's scope as the server last confirmed it, while writes to it are unanswered. */
@@ -306,6 +364,52 @@ export function useUpdateLecture() {
       // A course change re-scopes the boards that have the lecture selected.
       if (input.course !== undefined) void utils.workspaces.scopes.invalidate()
     },
+  })
+}
+
+/**
+ * A calendar class occurrence's lecture (`lectures.forClassOccurrence`):
+ * found or made (exactly one per occurrence), and with `workspaceId` selected
+ * on that board in the same transaction. The answer's `board` (before and
+ * after) is what Undo works from (`useRestoreBoardScope`). The lecture goes
+ * straight into the cache (its recordings say whether it is recorded), the
+ * lectures are refreshed (one may be new) and so is the board's scope; a
+ * board that is gone refreshes the board list. One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`).
+ */
+export function useClassOccurrenceLecture() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.lectures.forClassOccurrence.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onError: (error, input) => {
+      if (input.workspaceId) settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, undefined)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSuccess: ({ lecture, board }, input) => {
+      utils.lectures.byId.setData(lecture.id, lecture)
+      void utils.lectures.invalidate()
+      if (input.workspaceId) settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, board?.after)
+    },
+  })
+}
+
+/**
+ * Undo for a board scope change (`workspaces.restoreBoardScope`): puts back
+ * `to` only while the board still shows `ifBoardShows`, so a change made
+ * since, anywhere, is kept (`restored: false`). One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`), in order with the rest.
+ */
+export function useRestoreBoardScope() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.workspaces.restoreBoardScope.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onError: (error, input) => {
+      settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, undefined)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSuccess: ({ scope }, input) => settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, scope),
   })
 }
 

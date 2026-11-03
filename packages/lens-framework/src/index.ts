@@ -12,6 +12,12 @@ export type {
   FocusedPlanItem,
   PlanItemRef,
   ShowMomentResult,
+  ClassRef,
+  FocusClassResult,
+  ClassFocusBoard,
+  UndoFocusClassResult,
+  FocusedClassLecture,
+  LectureBoardRef,
 } from './types'
 export {
   usesScopeDim,

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, isClassBlock, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -7,6 +7,7 @@ import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
 import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import { ClassLectureSection, type ClassLectureState } from './ClassLectureSection'
 import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
@@ -27,7 +28,11 @@ type Popover =
    * A block from a lecture moment opens on where it came from; `editingTime`
    * swaps that for the date and time pickers.
    */
-  | { mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean }
+  | {
+      mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean
+      /** A class block's lecture, focused on the board as the popover opens. */
+      lecture?: ClassLectureState
+    }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -55,7 +60,10 @@ function courseLabel(course: string): string {
   return COURSES.find((c) => c.value === course)?.label ?? course
 }
 
-export default function CalendarLens({ highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown }: LensProps) {
+export default function CalendarLens({
+  highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
+  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget,
+}: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
   const createItem = mutations.useCreatePlanItem()
@@ -116,6 +124,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
       if (!elsewhere) opener.focus()
     })
+  }, [])
+  /** Closes the popover for somewhere else that takes focus (another board, the board menu). */
+  const leavePopover = useCallback(() => {
+    openerRef.current = null
+    setPopover(null)
   }, [])
   /**
    * A press anywhere in the calendar but the popover closes it and still
@@ -385,8 +398,81 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     setPopover((p) => (p?.mode === 'edit' && p.key === key ? { ...p, moment } : p))
   }
 
+  /** Tells one class open (or Try again) from the next: only the latest answer is shown. */
+  const focusRequestRef = useRef(0)
+  /**
+   * The class opens Undo answers for: the board as it was before the first
+   * of them, and as the latest left it. A run of opens is one session when
+   * each is made straight from the last one's popover (a press on the next
+   * block) or before the last one has answered, so Undo after quick opens
+   * puts back the board the student started from, not a class they passed
+   * through. Anything else that closes the popover ends it.
+   */
+  const focusSessionRef = useRef<{ before?: BoardScope; after?: BoardScope; unanswered: number }>({ unanswered: 0 })
+  /**
+   * The student's zone once their preferences have loaded: an occurrence's
+   * date is read in the zone the server will read it in (their stored zone,
+   * else this browser's).
+   */
+  const prefsRef = useRef(prefs)
+  const prefsWaiting = useRef<Array<() => void>>([])
+  useEffect(() => {
+    prefsRef.current = prefs
+    if (prefs) for (const resume of prefsWaiting.current.splice(0)) resume()
+  }, [prefs])
+  const studentZone = async () => {
+    if (!prefsRef.current) await new Promise<void>((resume) => prefsWaiting.current.push(resume))
+    return prefsRef.current?.time_zone ?? browserZone
+  }
+  /**
+   * Opening a class block focuses its occurrence's lecture, with its course,
+   * on this board (the shell finds or makes it). Only an open does: a drag
+   * or resize never calls this. `continued`: made from a popover still open
+   * (Try again, or straight from another block's), so Undo keeps the
+   * session's board from before.
+   */
+  const focusClass = async (item: PlanItemOccurrence, key: string, continued: boolean) => {
+    if (!onFocusClass || !isClassBlock(item)) return
+    const request = ++focusRequestRef.current
+    if (!continued && focusSessionRef.current.unanswered === 0) focusSessionRef.current = { unanswered: 0 }
+    const session = focusSessionRef.current
+    const setLecture = (lecture: ClassLectureState) =>
+      setPopover((p) => (p?.mode === 'edit' && p.key === key && (p.lecture?.request ?? 0) <= request ? { ...p, lecture } : p))
+    setLecture({ state: 'pending', request })
+    session.unanswered++
+    let result: Awaited<ReturnType<typeof onFocusClass>> = { status: 'failed' }
+    try {
+      const date = occurrenceDate(item, await studentZone())
+      if (date) result = await onFocusClass({ planItemId: item.id, date })
+    } finally {
+      session.unanswered--
+    }
+    if (result.status !== 'focused') return setLecture({ state: 'failed', request })
+    // A board changed between two opens (elsewhere) starts the session over:
+    // Undo never puts back past a change it didn't make.
+    if (!session.before || !session.after || !sameScope(session.after, result.board.before)) session.before = result.board.before
+    session.after = result.board.after
+    const board = { before: session.before, after: result.board.after }
+    const changed = !sameScope(board.before, board.after)
+    setLecture({
+      state: 'focused',
+      request,
+      lecture: result.lecture,
+      undo: changed && onUndoFocusClass ? () => onUndoFocusClass(board) : undefined,
+      after: board.after,
+    })
+  }
+
+  const currentCourse = highlight && (highlight.courseTag ?? null)
+  const currentLecture = highlight && (highlight.lectureId ?? null)
+  const currentBoard = useMemo<BoardScope | undefined>(
+    () => (currentCourse === undefined || currentLecture === undefined ? undefined : { courseTag: currentCourse, lectureId: currentLecture }),
+    [currentCourse, currentLecture],
+  )
+
   const handleOpen = (item: PlanItemOccurrence, anchor: Anchor) => {
     openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key })
+    void focusClass(item, item.occurrence_key, !!anchor.fromPopover)
   }
 
   const handleCreate = (start: Date, end: Date, anchor: Anchor) => {
@@ -770,6 +856,28 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
           onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          // As children, so it isn't remounted when the board's scope changes under it.
+          children={popover.lecture && (
+            <ClassLectureSection
+              lecture={popover.lecture}
+              occurrence={editing}
+              now={now}
+              lectureBoards={lectureBoards}
+              boardShowsLectures={boardShowsLectures ?? false}
+              board={currentBoard}
+              narrow={narrow}
+              onRetry={() => void focusClass(editing, editing.occurrence_key, true)}
+              onOpenOn={onOpenLectureOn && (async (boardId, lecture) => {
+                const result = await onOpenLectureOn(boardId, lecture)
+                if (result === 'opened') leavePopover()
+                return result
+              })}
+              onAddWidget={onAddWidget && (() => {
+                leavePopover()
+                onAddWidget()
+              })}
+            />
+          )}
           onToggleDone={
             editing.kind === 'commitment'
               ? undefined
@@ -790,4 +898,9 @@ const navButton = 'inline-flex items-center justify-center rounded-item border b
 /** What a failed "Mark done" (or "Not done yet") says once its popover has closed. */
 function doneFailed(row: PlanItemOccurrence): string {
   return row.status === 'done' ? `Couldn't reopen "${row.title}".` : `Couldn't mark "${row.title}" done.`
+}
+
+/** Whether two board scopes are the same course and lecture. */
+function sameScope(a: BoardScope, b: BoardScope): boolean {
+  return a.courseTag === b.courseTag && a.lectureId === b.lectureId
 }

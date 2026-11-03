@@ -35,6 +35,7 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { hasPlanItemViewer, useShowMoment } from './moments'
+import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
 
@@ -147,6 +148,13 @@ export function WorkspaceShell() {
     [panels],
   )
   const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
+  // A calendar class focuses its lecture here; "Also open in" lists the other
+  // boards that can show it, found by what they contain.
+  const handleFocusClass = useFocusClass(activeWorkspaceId)
+  const handleUndoFocusClass = useUndoFocusClass(activeWorkspaceId)
+  const { lectureBoards, boardShowsLectures, summary: boardSummary } = useLectureBoards(activeWorkspaceId, activeLensTypes, manifests)
+  const handleOpenLectureOn = useOpenLectureOn(activeWorkspaceId, boardSummary)
+  const openWidgetPalette = useCallback(() => setDrawerOpen(true), [])
   const focusPlanItem = useWorkspaceStore((s) => s.focusPlanItem)
   const canShowPlanItem = hasPlanItemViewer(activeLensTypes, manifests)
   const handleShowPlanItem = useCallback(
@@ -379,6 +387,12 @@ export function WorkspaceShell() {
             onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
+            onFocusClass={handleFocusClass}
+            onUndoFocusClass={handleUndoFocusClass}
+            lectureBoards={lectureBoards}
+            boardShowsLectures={boardShowsLectures}
+            onOpenLectureOn={handleOpenLectureOn}
+            onAddWidget={openWidgetPalette}
             onEditAutomation={setAutomationId}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
@@ -396,7 +410,7 @@ export function WorkspaceShell() {
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
   )
 
   // Icon resolver: look up icon from the manifest registry
