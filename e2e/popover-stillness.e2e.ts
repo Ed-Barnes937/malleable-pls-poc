@@ -37,10 +37,10 @@ async function settledBox(page: Page, el: Locator) {
   return JSON.parse(last) as { x: number; y: number; width: number; height: number }
 }
 
-async function boardWithCalendar(request: APIRequestContext) {
+async function boardWithCalendar(request: APIRequestContext, height = 640) {
   const board = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: 'My week' })
   await trpcMutation(request, 'workspaces.addPanel', {
-    workspaceId: board.id, lensType: 'calendar', slotName: 'calendar', pos_x: 24, pos_y: 24, width: 900, height: 640,
+    workspaceId: board.id, lensType: 'calendar', slotName: 'calendar', pos_x: 24, pos_y: 24, width: 900, height,
   })
 }
 
@@ -110,12 +110,16 @@ const CLASS_OUTCOMES = [
   { name: 'the focus fails', fails: true },
 ]
 
-for (const viewport of VIEWPORTS) {
+// Tall enough (the calendar and the window) that a popover isn't pinned to
+// the calendar's bottom edge, where nothing above its buttons could move them.
+const CLASS_VIEWPORTS = VIEWPORTS.map((v) => ({ ...v, size: { ...v.size, height: 1300 } }))
+
+for (const viewport of CLASS_VIEWPORTS) {
   test.describe(`Class popover stillness on ${viewport.name}`, () => {
     test.use({ viewport: viewport.size, hasTouch: viewport.touch, isMobile: viewport.touch })
     test.beforeEach(async ({ request }) => {
       await reseed()
-      await boardWithCalendar(request)
+      await boardWithCalendar(request, 1000)
     })
 
     for (const outcome of CLASS_OUTCOMES) {
@@ -127,27 +131,45 @@ for (const viewport of VIEWPORTS) {
             starts_at: new Date(start).toISOString(), ends_at: new Date(start + 3_600_000).toISOString(),
             timeZone: SEED_TIME_ZONE,
           })
+          // The board summary (which boards can show a lecture) and the focus
+          // answer arrive after the popover is open. The summary is fetched with
+          // the page's first batch, so that batch's answer to it is made an
+          // error; the retry is its own request, held with the focus.
+          let release!: () => void
+          const held = new Promise<void>((resolve) => { release = resolve })
+          let summaryFailed = false
+          await page.route(/lectures\.forClassOccurrence|workspaces\.summary/, async (route) => {
+            const url = new URL(route.request().url())
+            const paths = decodeURIComponent(url.pathname).replace(/^\//, '').split(',')
+            if (paths.includes('lectures.forClassOccurrence')) {
+              await held
+              if (outcome.fails) return route.abort()
+              return route.continue()
+            }
+            if (paths.length === 1) {
+              await held
+              return route.continue()
+            }
+            if (summaryFailed) return route.continue()
+            summaryFailed = true
+            const response = await route.fetch()
+            const body = (await response.json()) as unknown[]
+            body[paths.indexOf('workspaces.summary')] = {
+              error: { json: { message: 'held back', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } },
+            }
+            await route.fulfill({ response, json: body })
+          })
           await page.goto('/')
           await new TopBarPom(page).switchToWorkspace('My week')
           const calendar = new CalendarPom(page)
           const block = calendar.block('Tap then wait')
           await block.scrollIntoViewIfNeeded()
-
-          // The focus and the board summary are held from here (tRPC batches
-          // requests, so holding earlier would hold the calendar's own).
-          let release!: () => void
-          const held = new Promise<void>((resolve) => { release = resolve })
-          await page.route(/lectures\.forClassOccurrence|workspaces\.summary/, async (route) => {
-            await held
-            if (outcome.fails && route.request().url().includes('forClassOccurrence')) return route.abort()
-            await route.continue()
-          })
           const box = await settledBox(page, block)
           const at = { x: box.x + box.width / 2, y: box.y + Math.min(10, box.height / 2) }
           if (viewport.touch) await page.touchscreen.tap(at.x, at.y)
           else await page.mouse.click(at.x, at.y)
 
-          const row = calendar.popover.locator('[data-popover-anchor]')
+          const row = calendar.popover.getByRole('button', { name: 'Save' })
           await expect(calendar.popover.getByTestId('class-lecture')).toBeVisible()
           await expect(calendar.popover.getByTestId('class-lecture-status')).toHaveAttribute('data-state', 'pending')
           const before = await settledBox(page, row)
