@@ -148,6 +148,7 @@ export type {
   Workspace,
   WorkspacePanel,
   WorkspaceScope,
+  WorkspaceSummary,
   Scope,
   CourseProgress,
   WeakTopic,

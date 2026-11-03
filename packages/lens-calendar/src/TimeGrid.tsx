@@ -19,6 +19,8 @@ export interface Anchor {
   clientY: number
   /** The top and bottom of the block pressed (or the new block a press on empty time makes), in client coordinates. */
   span?: { top: number; bottom: number }
+  /** The press that opens it closed another block's popover: the student went straight from one to the next. */
+  fromPopover?: boolean
 }
 
 export interface TimeGridProps {
@@ -130,6 +132,8 @@ type Drag =
       moved: boolean
       /** The press closed this block's own popover: a click (no move) leaves it closed. */
       closedOwnPopover: boolean
+      /** The press closed another popover: a click opens this block's straight from it. */
+      closedOtherPopover: boolean
       /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
       span: { top: number; bottom: number }
     }
@@ -302,6 +306,7 @@ export function TimeGrid({
       y: e.clientY,
       moved: false,
       closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
+      closedOtherPopover: closedPopover(e.nativeEvent) && !closedPopoverOf(e.nativeEvent, item.occurrence_key),
       span: { top: box.top, bottom: box.bottom },
     })
   }
@@ -358,7 +363,7 @@ export function TimeGrid({
       if (!ghost) {
         // A click on the block whose popover it just closed leaves it closed (a toggle).
         if (!drag.closedOwnPopover) {
-          onOpen(drag.item, { ...anchor, span: drag.span })
+          onOpen(drag.item, { ...anchor, span: drag.span, fromPopover: drag.closedOtherPopover || undefined })
           tapOpened.current = e.pointerType === 'touch'
         }
       }

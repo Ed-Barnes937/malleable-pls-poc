@@ -124,6 +124,18 @@ export interface Workspace {
   sort_order: number
 }
 
+/**
+ * A board as `workspaces.summary` lists it: what is on it (each panel's
+ * widget type, oldest first), in tab order. For choosing a board by its
+ * contents, e.g. "Also open in".
+ */
+export interface WorkspaceSummary {
+  id: string
+  name: string
+  sort_order: number
+  lens_types: string[]
+}
+
 export interface WorkspacePanel {
   id: string
   workspace_id: string

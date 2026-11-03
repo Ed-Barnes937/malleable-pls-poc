@@ -116,3 +116,36 @@ export async function writeBoardScope(
   await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.lectureId, lectureId)
   return { courseTag, lectureId }
 }
+
+/** Whether two board scopes are the same course and lecture. */
+export function sameBoardScope(a: BoardScope, b: BoardScope): boolean {
+  return a.courseTag === b.courseTag && a.lectureId === b.lectureId
+}
+
+/**
+ * Puts back a board scope remembered from earlier (Undo after a calendar
+ * class focused its lecture), only if the board still shows `ifBoardShows`
+ * (what the remembered change left): a change made since, elsewhere (the
+ * header, another tab or device), is never overwritten. `restored` is false
+ * when the board has moved on, and nothing is written.
+ *
+ * `to` is put back as well as it still can be: its lecture, with the course
+ * that lecture now has (it may have been refiled under another one since),
+ * or, when that lecture is gone, just its course.
+ */
+export async function restoreBoardScope(
+  tx: TxSql,
+  userId: string,
+  workspaceId: string,
+  to: BoardScope,
+  ifBoardShows: BoardScope,
+): Promise<{ restored: boolean; scope: BoardScope }> {
+  await lockBoardScope(tx, userId, workspaceId)
+  const current = await readBoardScope(tx, userId, workspaceId)
+  if (!sameBoardScope(current, ifBoardShows)) return { restored: false, scope: current }
+  const [lecture] = to.lectureId
+    ? await tx`SELECT 1 FROM lectures WHERE id = ${to.lectureId} AND user_id = ${userId}`
+    : []
+  const patch: BoardScopePatch = lecture ? { lectureId: to.lectureId } : { courseTag: to.courseTag, lectureId: null }
+  return { restored: true, scope: await writeBoardScope(tx, userId, workspaceId, patch) }
+}

@@ -196,7 +196,8 @@ export function EventPopover({
       <PendingStatus pending={pending} done={done} />
 
       {canEdit && (
-        <div className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
+        // The anchor: late content above (the lecture row) grows around it, so the buttons stay put.
+        <div data-popover-anchor className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
           {onDelete && (confirmDelete ? (
             <button
               type="button"
