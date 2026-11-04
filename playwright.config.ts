@@ -40,8 +40,9 @@ export default defineConfig({
   ],
   webServer: [
     {
-      // Postgres (docker) + migrations + API server — e2e runs from a cold
-      // start with only docker available.
+      // Creates PG_DB if missing, migrates and starts the API. Postgres must
+      // already be up (`pnpm dev:db`): e2e never runs docker compose, so it
+      // can't recreate the container other checkouts share.
       command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} DISABLE_RATE_LIMIT=1 pnpm run e2e:server`,
       url: `${apiUrl}/health`,
       reuseExistingServer: true,

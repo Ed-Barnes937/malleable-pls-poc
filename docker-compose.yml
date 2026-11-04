@@ -1,6 +1,7 @@
 # Pinned so every checkout and worktree shares one Postgres container instead
 # of each trying to start its own on the same port. Parallel work isolates by
-# database instead (PG_DB, see e2e/README.md).
+# database instead (PG_DB, see e2e/README.md). Only `pnpm dev:db` starts it;
+# nothing else (e2e included) runs docker compose.
 name: malleable-plc-poc
 
 services:
@@ -11,7 +12,10 @@ services:
       POSTGRES_USER: pls
       POSTGRES_PASSWORD: pls
     ports:
-      - "127.0.0.1:${PG_PORT:-5433}:5432"
+      # Fixed, not ${PG_PORT}: a changed binding makes compose recreate the
+      # shared container under every other checkout. `pnpm dev:db` also passes
+      # --no-recreate, so it only ever creates or starts it.
+      - "127.0.0.1:5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

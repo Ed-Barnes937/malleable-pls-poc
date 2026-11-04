@@ -2,7 +2,7 @@
 
 ## Running
 
-`pnpm test:e2e` boots Postgres (if needed), migrates, starts the API (`e2e:server`, always `AI_MODE=mock`) and the web app, reseeds `dev-user-1` (`global-setup.ts`), then runs the `*.e2e.ts` journeys in Chromium. `scope.e2e.ts` (the header's scope pills) also runs in WebKit: install it once with `pnpm exec playwright install webkit`, and run only Chromium with `--project chromium`.
+`pnpm test:e2e` checks Postgres is up (it never starts it: run `pnpm dev:db` first), creates the `PG_DB` database if it is missing, migrates it, starts the API (`e2e:server`, always `AI_MODE=mock`) and the web app, reseeds `dev-user-1` (`global-setup.ts`), then runs the `*.e2e.ts` journeys in Chromium. `scope.e2e.ts` (the header's scope pills) also runs in WebKit: install it once with `pnpm exec playwright install webkit`, and run only Chromium with `--project chromium`.
 
 ## Seed data
 
@@ -14,12 +14,12 @@ Playwright reuses any server already listening on its ports. The e2e defaults di
 
 ## Isolation: one database and port pair per checkout
 
-Every checkout and worktree shares the one Postgres container (`docker-compose.yml` pins the project name; localhost:5433, user/pass `pls`/`pls`). Parallel work isolates by **database** and **ports**:
+Every checkout and worktree shares the one Postgres container (`docker-compose.yml` pins the project name; localhost:5433, user/pass `pls`/`pls`). Only `pnpm dev:db` starts it, with `--no-recreate` and a fixed port, so no checkout or env can recreate, stop or rebind it; nothing else (e2e included) runs `docker compose`. Parallel work isolates by **database** and **ports**:
 
 | Variable | Default | Used by |
 |---|---|---|
 | `PG_DB` | `malleable_pls` | `dev:migrate`, `dev:server`, `e2e:server`, `db:reseed`, e2e global setup |
-| `PG_PORT` | `5433` | same as `PG_DB` |
+| `PG_PORT` | `5433` | same as `PG_DB`; only to reach a Postgres other than the shared container, which is always on 5433 |
 | `DATABASE_URL` | built from `PG_PORT` / `PG_DB` | same as `PG_DB`; **wins over `PG_DB` / `PG_PORT` when set** |
 | `API_PORT` | e2e `3901`, browse `3001` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
 | `WEB_PORT` | e2e `5901`, browse `5173` | Playwright e2e config (`e2e/ports.ts`), `scripts/browse.mts` |
@@ -30,10 +30,9 @@ Those scripts resolve the URL in one place (`e2e/db-url.mts`, applied by `script
 The default `malleable_pls` database is Ed's dev data: never reseed or migrate it from a ticket branch. For ticket `T<N>` use database `malleable_pls_t<N>` and ports `31<NN>` (API) / `52<NN>` (web) / `33<NN>` (CT), NN = two-digit ticket number, so T5 is 3105 / 5205 / 3305:
 
 ```sh
-docker exec malleable-plc-poc-postgres-1 createdb -U pls malleable_pls_t5
 PG_DB=malleable_pls_t5 API_PORT=3105 WEB_PORT=5205 pnpm test:e2e
 CT_PORT=3305 pnpm test:ct
-# when the ticket is merged:
+# e2e:server created malleable_pls_t5 on first run; when the ticket is merged:
 docker exec malleable-plc-poc-postgres-1 dropdb -U pls malleable_pls_t5
 ```
 
