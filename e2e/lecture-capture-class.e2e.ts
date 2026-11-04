@@ -40,6 +40,28 @@ async function deleteAllClasses(request: APIRequestContext) {
   for (const item of items.filter(isClassBlock)) await trpcMutation(request, 'planItems.delete', item.id)
 }
 
+/**
+ * A one-off Physics class on right now, inside today's local day: it starts
+ * at the later of 30 minutes ago and today's midnight, and ends at the
+ * earlier of an hour from now and tonight's midnight. Never crossing
+ * midnight keeps it one block in the Calendar (a class that does is drawn
+ * as two, and `block('Physics lecture')` finds both), and it stays in the
+ * week the Calendar opens on, even just after midnight on a Monday.
+ *
+ * The server decides which class is on from its own real clock, so the
+ * clock cannot be pinned here. The class is on until midnight, so Record
+ * finds it unless the test reaches Record after midnight (only a risk in
+ * the last few seconds of the day).
+ */
+async function classOnNow(request: APIRequestContext): Promise<{ id: string }> {
+  const now = Date.now()
+  return trpcMutation<{ id: string }>(request, 'planItems.create', {
+    kind: 'commitment', title: 'Physics lecture', subtype: 'class', course: 'physics',
+    starts_at: new Date(Math.max(now - 30 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE))).toISOString(),
+    ends_at: new Date(Math.min(now + 60 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE, 1))).toISOString(),
+  })
+}
+
 const AT_LEAST_2S = /^(0:0[2-9]|0:[1-5]\d|[1-9]\d*:\d\d)$/
 
 test.use({
@@ -52,15 +74,8 @@ test.describe('Record makes its lecture as it starts', () => {
   test.afterAll(async () => { await reseed() })
 
   test('Record during a class: the class lecture is selected at once, the Transcript says Recording..., the Calendar rings the class', async ({ page, request }) => {
-    // A Physics class on right now (one-off, so it is on whatever the day;
-    // no earlier than today's midnight, so it is in this week's Calendar
-    // even just after midnight on a Monday).
-    const now = Date.now()
-    const physicsClass = await trpcMutation<{ id: string }>(request, 'planItems.create', {
-      kind: 'commitment', title: 'Physics lecture', subtype: 'class', course: 'physics',
-      starts_at: new Date(Math.max(now - 30 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE))).toISOString(),
-      ends_at: new Date(now + 60 * 60_000).toISOString(),
-    })
+    // A Physics class on right now (see classOnNow).
+    const physicsClass = await classOnNow(request)
     const ws = await board(request, 'Physics class', ['audio-capture', 'transcript', 'calendar'], 'physics')
 
     await page.goto('/')
@@ -115,12 +130,7 @@ test.describe('Record makes its lecture as it starts', () => {
 
   test('Record during a class on an "All courses" board: the class lecture, filed under its course, and the board stays "All courses"', async ({ page, request }) => {
     await deleteAllClasses(request)
-    const now = Date.now()
-    const physicsClass = await trpcMutation<{ id: string }>(request, 'planItems.create', {
-      kind: 'commitment', title: 'Physics lecture', subtype: 'class', course: 'physics',
-      starts_at: new Date(Math.max(now - 30 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE))).toISOString(),
-      ends_at: new Date(now + 60 * 60_000).toISOString(),
-    })
+    const physicsClass = await classOnNow(request)
     const ws = await board(request, 'Any class', ['audio-capture', 'transcript', 'calendar'])
 
     await page.goto('/')
