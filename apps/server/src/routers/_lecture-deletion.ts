@@ -88,9 +88,11 @@ async function derivedPlanItems(tx: TxSql, userId: string, recordingIds: string[
 }
 
 /**
- * Locks the plan items made from the recordings' moments (FOR UPDATE, in id
- * order, the order any other write locking several of them should use), so
- * the list made next can't change before they are deleted or kept.
+ * Locks the plan items made from the recordings' moments (FOR UPDATE), so
+ * the list made next can't change before they are deleted or kept. In id
+ * order, so two deletes touching the same items lock them the same way
+ * round; other writes that change several plan items (re-placing reviews,
+ * accepting a refit) don't follow that order yet.
  */
 export async function lockDerivedPlanItems(tx: TxSql, userId: string, recordingIds: string[]): Promise<void> {
   await tx`SELECT id FROM plan_items WHERE ${derivedPlanItemsWhere(tx, userId, recordingIds)} ORDER BY id FOR UPDATE`
