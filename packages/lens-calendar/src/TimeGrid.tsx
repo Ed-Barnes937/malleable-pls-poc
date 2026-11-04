@@ -106,6 +106,8 @@ const REVEAL_HALO_PX = 24
 
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
+/** Too short for the time line, but tall enough for a two-line title alone (an hour at the smallest hour height). */
+const TWO_LINE_TITLE_ONLY_PX = 30
 /** Tall enough for a free gap's "1h 30m free" label. */
 const FREE_LABEL_PX = 28
 /** A drafted block's accept and dismiss row, under its title and time. */
@@ -725,7 +727,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   const fromMoment = item.source_type === 'recording' && item.source_id != null
   const kindLabel = isCommitment ? (item.subtype ?? 'Fixed') : 'Study time'
   const look = blockLook(item)
-  const twoLines = height >= TWO_LINE_TITLE_PX
+  const twoLines = height >= TWO_LINE_TITLE_PX || (!roomy && height >= TWO_LINE_TITLE_ONLY_PX)
 
   return (
     <div
