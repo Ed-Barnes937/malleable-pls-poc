@@ -254,6 +254,10 @@ export default function CalendarLens({
     () => (todoData ? (todoData as PlanItemOccurrence[]).filter((t) => !assigning.has(t.id)) : null),
     [todoData, assigning],
   )
+  const saving = useMemo(
+    () => [...assigning.values()].map((a) => ({ id: a.id, starts_at: a.starts_at!, ends_at: a.ends_at! })),
+    [assigning],
+  )
 
   /** The block a study block for `taskId` at [start, end) would overlap (commitments and other study time). */
   const clashAt = useCallback(
@@ -762,6 +766,7 @@ export default function CalendarLens({
               now={now.getTime()}
               layer={layer}
               todos={todos}
+              saving={saving}
               autofill={autofill}
               onAutofillChange={setAutofill}
               onClose={() => {
