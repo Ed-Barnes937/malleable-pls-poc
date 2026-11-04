@@ -189,6 +189,43 @@ test.describe('a lecture filed under no course', () => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
     await expect(fileSelect(page)).toHaveCount(0)
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+  })
+
+  test('the lecture menu offers "Choose a course...": the courses in its place, one files it', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    const writes = await watch(page, 'lectures.update')
+    await menuButton(page).click()
+    await page.getByRole('menu', { name: 'Lecture options' }).getByRole('menuitem', { name: 'Choose a course...' }).click()
+    const courses = page.getByRole('menu', { name: 'File this lecture under' }).getByRole('menuitem')
+    await expect(courses).toHaveText(['Biology', 'Chemistry', 'Physics'])
+    // The first course has focus, for the keyboard; Escape would close the menu.
+    await expect(courses.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(menuButton(page)).toBeFocused()
+    await expect(fileSelect(page)).toHaveCount(0)
+    await expect.poll(() => writes.inputs).toEqual([{ id: 'lec-unfiled', course: 'physics' }])
+    await expect.poll(() => simulator.db.lectures.find((l) => l.id === 'lec-unfiled')?.course).toBe('physics')
+    await expect(coursePill(page)).toHaveText('All courses')
+    // Filed: the menu no longer offers it.
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+  })
+
+  test('on a phone the pill gives way to the menu', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await page.setViewportSize({ width: 360, height: 740 })
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" compact />)
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    await expect(page.getByTestId('lecture-file-course')).toBeHidden()
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toBeVisible()
   })
 })
 

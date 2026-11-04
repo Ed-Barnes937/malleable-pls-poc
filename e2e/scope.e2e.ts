@@ -241,6 +241,48 @@ test.describe('Header scope pickers on a phone', () => {
   })
 })
 
+for (const width of [360, 390]) {
+  test.describe(`An unfiled lecture on a phone (${width}px)`, () => {
+    test.use({ viewport: { width, height: 800 }, hasTouch: true })
+
+    test('the header fits, and "Choose a course..." in the lecture menu files it', async ({ page, request }) => {
+      const unfiled = await trpcMutation<{ id: string }>(request, 'lectures.create', { course: null, title: 'Guest talk on inherited disease' })
+      await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: unfiled.id })
+      const topBar = await openBoard(page, 'Evening Review')
+      await topBar.expectScope('All courses', 'Guest talk on inherited disease', { timeout: 10000 })
+
+      // Every control of the header in view, whole (the "Choose a course" pill
+      // gives way to the menu here); nothing overflows or scrolls sideways.
+      await expect(page.getByTestId('lecture-file-course')).toBeHidden()
+      await expect(topBar.lectureMenuButton).toBeVisible()
+      // The board's scope controls (the tabs scroll on their own, by design).
+      const controls = await topBar.scopeGroup.evaluate((group) =>
+        [...group.querySelectorAll<HTMLElement>('button, select')]
+          .filter((el) => el.getClientRects().length > 0)
+          .map((el) => {
+            const box = el.getBoundingClientRect()
+            return { name: el.getAttribute('aria-label') ?? el.textContent, left: box.left, right: box.right }
+          }))
+      for (const control of controls) {
+        expect(control.left, String(control.name)).toBeGreaterThanOrEqual(0)
+        expect(control.right, String(control.name)).toBeLessThanOrEqual(width)
+      }
+      expect(await topBar.scopeGroup.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+
+      const saved = page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
+      await topBar.chooseLectureAction('Choose a course...')
+      await page.getByRole('menu', { name: 'File this lecture under' }).getByRole('menuitem', { name: 'Physics' }).click()
+      expect((await saved).ok()).toBe(true)
+      expect((await trpcQuery<{ course: string | null }>(request, 'lectures.byId', unfiled.id)).course).toBe('physics')
+      expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: unfiled.id })
+      await topBar.expectScope('All courses', 'Guest talk on inherited disease')
+      await topBar.lectureMenuButton.click()
+      await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+    })
+  })
+}
+
 test.describe('Course scope filters every widget', () => {
   test('a Biology Exam Prep board shows only Biology and highlights it in All Courses', async ({ page }) => {
     const topBar = await openBoard(page, 'Exam Prep')
