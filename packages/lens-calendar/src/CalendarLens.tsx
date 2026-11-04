@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, isClassBlock, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, SESSION_SOURCE_TYPE, bookedMinutes, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -198,8 +198,15 @@ export default function CalendarLens({
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
   // Open to-dos with no time yet: what Help me plan offers, and what an
-  // Auto-fill ghost's to-do must still be when it is accepted.
-  const { data: todoData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
+  // Auto-fill ghost's to-do must still be when it is accepted. A to-do
+  // booked in sessions offers only the time not booked yet (`todosToPlan`).
+  const { data: unscheduledData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
+  const { data: sessionData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE })
+  const booked = useMemo(() => bookedMinutes((sessionData ?? []) as PlanItemOccurrence[]), [sessionData])
+  const todoData = useMemo(
+    () => (unscheduledData && sessionData ? todosToPlan(unscheduledData as PlanItemOccurrence[], booked) : undefined),
+    [unscheduledData, sessionData, booked],
+  )
 
   /**
    * To-dos being given a time by hand (a suggested slot, a drop, Pick a
@@ -285,7 +292,13 @@ export default function CalendarLens({
   // Each is checked against the calendar as it is now, so a ghost never
   // lands on something.
   const layer = useProposalLayer({
-    save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
+    // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
+    save: async (p) => {
+      if (!p.session) return updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
+      const todo = todos?.find((t) => t.id === p.taskId)
+      if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
+      return createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
+    },
     saveTogether: { [REFIT_SOURCE]: refit.save },
     onDismiss: refit.onDismiss,
     rows: items,
@@ -353,6 +366,11 @@ export default function CalendarLens({
     if (clash) throw new ScheduleClash(`"${todo.title}" would overlap ${clash.title} there. Pick a free time.`)
     const patch = { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin }
     const row = todos?.find((t) => t.id === todo.id)
+    // A to-do already booked in sessions gets another session: its own row keeps its total.
+    if (row && booked.has(todo.id)) {
+      await createItem.mutateAsync(newSession(row, patch.starts_at, patch.ends_at))
+      return
+    }
     if (row) setAssigning((prev) => new Map(prev).set(todo.id, { ...row, ...patch, occurrence_key: todo.id }))
     try {
       await updateItem.mutateAsync({ id: todo.id, patch })
@@ -762,6 +780,7 @@ export default function CalendarLens({
               now={now.getTime()}
               layer={layer}
               todos={todos}
+              booked={booked}
               autofill={autofill}
               onAutofillChange={setAutofill}
               onClose={() => {

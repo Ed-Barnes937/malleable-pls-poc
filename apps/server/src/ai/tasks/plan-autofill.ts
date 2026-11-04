@@ -8,7 +8,7 @@ export interface PlanAutofillTaskInput {
   /** Study time left this week (free time capped per day), from `@pls/scheduler`'s `capacity`. */
   freeMin: number
   neededMin: number
-  /** The student's study time per day: no to-do longer than this fits in one day. */
+  /** The student's study time per day: a to-do longer than this is split across days. */
   minutesPerDay: number
   /** Short lecture moments the student found hard (confused, or low "how sure you feel"). */
   weakTopics: string[]
@@ -34,8 +34,9 @@ export const planAutofillTask = defineLlmTask({
   system: [
     'You help a university student plan study time for their week. Be calm, kind and honest; never guilt-trip.',
     'Rank every to-do id from most to least important: sooner due dates first, then weak topics, then quick wins.',
-    'Only if the to-dos need more time than is left, or one is longer than a day\'s study time, suggest shrinking one or two of them',
-    '(new length in minutes, a multiple of 15, shorter than now and no longer than a day\'s study time) with a short reason; otherwise return no trims.',
+    'Only if the to-dos need more time than is left, suggest shrinking one or two of them',
+    '(new length in minutes, a multiple of 15, shorter than now) with a short reason; otherwise return no trims.',
+    'A to-do longer than a day\'s study time is fine: the app splits it into sessions across days.',
     'Write one short sentence (under 25 words) about priorities or a suggestion, using the student\'s to-do names.',
     'Never mention amounts of time and never say what will or will not fit: the app places the blocks and shows those numbers itself.',
   ].join(' '),
@@ -65,7 +66,7 @@ export const planAutofillTask = defineLlmTask({
     const note = first.dueAt
       ? `${first.title} is due soonest, so it gets first pick of your study time.`
       : `Starting with ${first.title}, the quickest to tick off.`
-    return { order, trims: defaultTrims(input.tasks, shortfall, input.minutesPerDay), note }
+    return { order, trims: defaultTrims(input.tasks, shortfall), note }
   },
   maxTokens: 400,
 })

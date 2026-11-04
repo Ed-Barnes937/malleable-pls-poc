@@ -1,10 +1,13 @@
 import type { TransactionSql } from 'postgres'
 import { withUser } from '@pls/db'
 import {
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
   planAutofillInput,
   planCapacity,
   planTasks,
   sanitizeAdvice,
+  todosToPlan,
   weekLayout,
   type PlanAdvice,
 } from '@pls/substrate'
@@ -56,11 +59,14 @@ export const planningRouter = router({
         // Every course: scope never changes what is busy or what needs doing.
         rows: await listPlanItems(tx, ctx.userId, { from: input.from, to: input.to, statuses: ['open', 'done'] }),
         todos: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open'], scheduled: false }),
+        // A to-do booked in sessions is planned only for what is left (`todosToPlan`).
+        sessions: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE }),
         weak: await weakTopics(tx, ctx.userId),
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
       }))
-      const tasks = planTasks(loaded.todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
+      const todos = todosToPlan(loaded.todos, bookedMinutes(loaded.sessions))
+      const tasks = planTasks(todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
       const { prefs } = loaded
       const timeZone = placementTimeZone(prefs, input.timeZone)
@@ -79,6 +85,6 @@ export const planningRouter = router({
         weakTopics: loaded.weak,
         timeZone,
       })
-      return sanitizeAdvice(raw, tasks, cap, prefs.study_min_per_day)
+      return sanitizeAdvice(raw, tasks, cap)
     }),
 })

@@ -5,7 +5,7 @@ import {
   completeTrims,
   defaultTrims,
   draftCopy,
-  longestBlockMin,
+  autofillOrder,
   noteWithoutAmounts,
   openTime,
   outsideStudyHours,
@@ -237,8 +237,41 @@ describe('draftPlan', () => {
       { taskId: 'b', start: at(0, 10, 15), end: at(0, 11, 15) },
       // Tuesday is spent by the pinned ghost.
       { taskId: 'a', start: at(2, 9), end: at(2, 10) },
+      // Longer than a day: split into sessions, the hour Wednesday has left, then Thursday.
+      { taskId: 'long', start: at(2, 10, 15), end: at(2, 11, 15) },
+      { taskId: 'long', start: at(3, 9), end: at(3, 11) },
     ])
-    expect(r.unplaced).toEqual([{ taskId: 'long', reason: 'over-daily-budget' }])
+    expect(r.unplaced).toEqual([])
+  })
+
+  it('splits a to-do before its due time, never across a due time on the calendar', () => {
+    // Wednesday 20:40: 20:45-22:00 is left tonight; the quiz is Thursday 10:00.
+    const quizDue = iso(3, 10)
+    const rows = [item({ id: 'quiz', kind: 'deadline', due_at: quizDue })]
+    const l = weekLayout(rows, week, { timeZone: tz })
+    const r = draftPlan(
+      [task({ id: 'revise', durationMin: 120, dueAt: quizDue, latest: Date.parse(quizDue) })],
+      l,
+      { now: at(2, 20, 40) },
+    )
+    expect(r.placements).toEqual([
+      { taskId: 'revise', start: at(2, 20, 45), end: at(2, 22) },
+      { taskId: 'revise', start: at(3, 9), end: at(3, 9, 45) },
+    ])
+    // The due time itself is busy: a block may end on it but never start on it or run across it.
+    const after = draftPlan([task({ id: 'x', durationMin: 60 })], l, { now: at(3, 9, 50) })
+    expect(after.placements).toEqual([{ taskId: 'x', start: at(3, 10, 15), end: at(3, 11, 15) }])
+  })
+
+  it('orders dated to-dos first, soonest due first, then the advised order', () => {
+    const list = [
+      task({ id: 'undated-a' }),
+      task({ id: 'fri', dueAt: iso(4, 17) }),
+      task({ id: 'undated-b' }),
+      task({ id: 'thu', dueAt: iso(3, 10) }),
+    ]
+    expect(autofillOrder(list, ['undated-b', 'fri', 'undated-a', 'thu']).map((t) => t.id))
+      .toEqual(['thu', 'fri', 'undated-b', 'undated-a'])
   })
 
   it('suggests slots on days with budget left', () => {
@@ -260,14 +293,11 @@ describe('ranking and trims', () => {
     expect(rankForPlan(tasks)).toEqual(['review', 'quiz', 'lab', 'cards', 'reading'])
   })
 
-  it('trims every to-do longer than a day, longest first, and shrinks towards a shortfall', () => {
-    expect(defaultTrims(tasks, 0, 120).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
-    // Three too long for a 1h day: all three get a way forward.
-    expect(defaultTrims(tasks, 0, 60).map((t) => t.taskId)).toEqual(['lab', 'reading', 'quiz'])
-    // Shortfall only (budget not binding): the longest shrinks, not below half.
-    expect(defaultTrims(tasks, 60, 600).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 180]])
-    expect(defaultTrims(tasks, 0, 600)).toEqual([])
-    expect(defaultTrims([task({ id: 'short', durationMin: 45 })], 60, 600)).toEqual([])
+  it('trims only towards a shortfall: the longest shrinks, not below half (a to-do longer than a day is split instead)', () => {
+    expect(defaultTrims(tasks, 60).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 180]])
+    expect(defaultTrims(tasks, 300).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120]])
+    expect(defaultTrims(tasks, 0)).toEqual([])
+    expect(defaultTrims([task({ id: 'short', durationMin: 45 })], 60)).toEqual([])
   })
 
   it('sanitizes advice: full order, valid trims only, tidy note', () => {
@@ -284,9 +314,9 @@ describe('ranking and trims', () => {
         { taskId: 'review', durationMin: 15, reason: 'over the cap of two' },
       ],
       note: `  ${'word '.repeat(80)} `,
-    }, tasks, over, 600)
+    }, tasks, over)
     expect(advice.order).toEqual(['lab', 'quiz', 'review', 'cards', 'reading'])
-    // Capacity trims (none of these is longer than a 10h day): at most two.
+    // Capacity trims: at most two.
     expect(advice.trims).toEqual([
       { taskId: 'lab', durationMin: 120, reason: 'Draft it first' },
       { taskId: 'reading', durationMin: 90, reason: 'ok' },
@@ -294,44 +324,19 @@ describe('ranking and trims', () => {
     expect(advice.note!.length).toBeLessThanOrEqual(220)
     expect(advice.note!.endsWith('...')).toBe(true)
 
-    // When everything fits, only to-dos longer than a day may be trimmed.
+    // When everything fits, nothing is trimmed (a to-do longer than a day is split).
     const fits = { ...over, fits: true, shortfallMin: 0 }
-    const relaxed = sanitizeAdvice({ order: [], trims: [{ taskId: 'lab', durationMin: 120, reason: '' }, { taskId: 'quiz', durationMin: 60, reason: '' }], note: '  ' }, tasks, fits, 120)
-    expect(relaxed.trims.map((t) => t.taskId)).toEqual(['lab', 'reading'])
+    const relaxed = sanitizeAdvice({ order: [], trims: [{ taskId: 'lab', durationMin: 120, reason: '' }, { taskId: 'quiz', durationMin: 60, reason: '' }], note: '  ' }, tasks, fits)
+    expect(relaxed.trims).toEqual([])
     expect(relaxed.note).toBeNull()
-  })
-
-  it('clamps trims to one day, and gives every too-long to-do one', () => {
-    const fits = { freeMin: 900, neededMin: 600, shortfallMin: 0, spareMin: 300, fits: true }
-    const advice = sanitizeAdvice({
-      order: [],
-      // 4h -> 3h still does not fit a 2h day: clamped to 2h.
-      trims: [{ taskId: 'lab', durationMin: 180, reason: 'shorter' }],
-      note: null,
-    }, tasks, fits, 120)
-    expect(advice.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
-    // The wording follows the budget in force, whatever the model said.
-    expect(advice.trims[0].reason).toBe('Longer than your 2h a day - a focused first pass fits, and you can finish it later.')
-    expect(completeTrims([], tasks, { overCapacity: true, minutesPerDay: 100 }).map((t) => t.durationMin)).toEqual([90, 90, 90])
-    expect(longestBlockMin(100)).toBe(90)
-  })
-
-  it('offers the new day length after the study time per day changes', () => {
-    // Advice from a 2h day ("Shrink to 2h?"), re-read at 3h a day: "Shrink to 3h?".
-    const lab = tasks.find((t) => t.id === 'lab')!
-    expect(lab.durationMin).toBeGreaterThan(180)
-    const offers = completeTrims([{ taskId: 'lab', durationMin: 120, reason: '' }], tasks, { overCapacity: false, minutesPerDay: 180 })
-    expect(offers.find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 180, reason: expect.stringContaining('3h a day') })
-    // A capacity trim (a to-do that fits a day) keeps the advice's length.
-    expect(completeTrims([{ taskId: 'lab', durationMin: 120, reason: 'r' }], tasks, { overCapacity: true, minutesPerDay: 600 })
-      .find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 120 })
+    expect(completeTrims([], tasks, { overCapacity: true })).toEqual([])
   })
 
   it('drops sentences with amounts of time from the note (code says the numbers)', () => {
     expect(noteWithoutAmounts('Quiz prep goes first. About 4h 30m will not fit! Problem sheet 3 can wait.'))
       .toBe('Quiz prep goes first. Problem sheet 3 can wait.')
     const cap = { freeMin: 0, neededMin: 60, shortfallMin: 60, spareMin: 0, fits: false }
-    expect(sanitizeAdvice({ order: [], trims: [], note: 'You need 3 hours more.' }, tasks, cap, 600).note).toBeNull()
+    expect(sanitizeAdvice({ order: [], trims: [], note: 'You need 3 hours more.' }, tasks, cap).note).toBeNull()
   })
 })
 

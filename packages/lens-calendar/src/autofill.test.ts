@@ -16,15 +16,43 @@ function todo(id: string, over: Partial<PlanItem> = {}) {
 describe('buildAutofillDraft', () => {
   const todos = [todo('lab', { duration_min: 240, course: 'chemistry' }), todo('quiz'), todo('cards', { duration_min: null })]
 
-  it('places in the advised order, reports what did not fit, and applies trims', () => {
+  it('places in the advised order, splits what is longer than a day into numbered sessions, and applies trims', () => {
     const advice = { order: ['quiz', 'lab', 'cards'] }
     const draft = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, estimates: { cards: 60 } })
-    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['quiz', iso(0, 9)], ['cards', iso(0, 10, 15)]])
-    expect(draft.unplaced.map((u) => [u.taskId, u.reason])).toEqual([['lab', 'over-daily-budget']])
+    expect(draft.proposals.map((p) => [p.id, p.title, p.startsAt, p.endsAt, p.session])).toEqual([
+      ['quiz', 'quiz', iso(0, 9), iso(0, 10), undefined],
+      // Monday has 1h left after quiz: the 4h lab takes Tuesday and Wednesday.
+      ['cards', 'cards', iso(0, 10, 15), iso(0, 11, 15), undefined],
+      [`lab@${at(1, 9)}`, 'lab (1 of 2)', iso(1, 9), iso(1, 11), { index: 1, count: 2 }],
+      [`lab@${at(2, 9)}`, 'lab (2 of 2)', iso(2, 9), iso(2, 11), { index: 2, count: 2 }],
+    ])
+    expect(draft.unplaced).toEqual([])
 
     const trimmed = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, trims: new Map([['lab', 120]]), estimates: { cards: 60 } })
     const lab = trimmed.proposals.find((p) => p.taskId === 'lab')!
-    expect(lab).toMatchObject({ startsAt: iso(1, 9), endsAt: iso(1, 11), note: 'Shrunk from 4h', course: 'chemistry' })
+    expect(lab).toMatchObject({ id: 'lab', title: 'lab', startsAt: iso(1, 9), endsAt: iso(1, 11), note: 'Shrunk from 4h', course: 'chemistry' })
+  })
+
+  it('places dated to-dos first, soonest due first, whatever the advice says', () => {
+    const dated = [todo('later', { due_at: iso(4, 17) }), todo('undated'), todo('soon', { due_at: iso(3, 10) })]
+    const draft = buildAutofillDraft({ todos: dated, layout, now: at(0, 0), advice: { order: ['undated', 'later', 'soon'] } })
+    expect(draft.proposals.map((p) => [p.taskId, p.startsAt])).toEqual([['soon', iso(0, 9)], ['later', iso(0, 10, 10 + 5)], ['undated', iso(1, 9)]])
+  })
+
+  it('drafts the rest of a to-do already booked in sessions as sessions too', () => {
+    const draft = buildAutofillDraft({
+      todos: [todo('lab', { duration_min: 60 })], layout, now: at(0, 0), advice: { order: [] }, booked: new Map([['lab', 120]]),
+    })
+    expect(draft.proposals).toMatchObject([{ taskId: 'lab', title: 'lab', session: { index: 1, count: 1 } }])
+  })
+
+  it('keeps a dragged session of a split to-do and places only the rest', () => {
+    const pinned: Proposal = { id: 'lab@1', taskId: 'lab', title: 'lab (1 of 2)', startsAt: iso(3, 9), endsAt: iso(3, 11), adjusted: true, session: { index: 1, count: 2 } }
+    const draft = buildAutofillDraft({ todos: [todo('lab', { duration_min: 180 })], layout, now: at(0, 0), advice: { order: [] }, pinned: [pinned] })
+    expect(draft.proposals.map((p) => [p.title, p.startsAt, p.endsAt])).toEqual([
+      ['lab (1 of 2)', iso(0, 9), iso(0, 10)],
+      ['lab (2 of 2)', iso(3, 9), iso(3, 11)],
+    ])
   })
 
   it('keeps pinned (dragged) ghosts where they are and places around them', () => {
@@ -73,7 +101,7 @@ describe('proposals', () => {
     const save = vi.fn(async (p: Proposal) => {
       if (p.id === 'bad') throw new Error('nope')
     })
-    let rows: { id: string; starts_at: string | null }[] = []
+    let rows: { id: string; starts_at: string | null; kind: 'task'; source_type: string | null; source_id: string | null }[] = []
     const { result, rerender } = renderHook(() => useProposalLayer({ save, rows }))
     act(() => result.current.propose('autofill', [ghost, { ...ghost, id: 'bad', taskId: 'tb', title: 'Bad one', startsAt: iso(1, 8), endsAt: iso(1, 9) }]))
     await act(() => result.current.acceptAll())
@@ -82,7 +110,7 @@ describe('proposals', () => {
     expect(result.current.error).toMatch(/"Bad one"/)
     expect(result.current.proposals.map((p) => p.id)).toEqual(['g1', 'bad'])
 
-    rows = [{ id: 't1', starts_at: ghost.startsAt }]
+    rows = [{ id: 't1', starts_at: ghost.startsAt, kind: 'task', source_type: null, source_id: null }]
     rerender()
     expect(result.current.proposals.map((p) => p.id)).toEqual(['bad'])
     // Accepting an already-saved one does nothing.

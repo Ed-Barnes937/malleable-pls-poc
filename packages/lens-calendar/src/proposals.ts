@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PlanItemOccurrence } from '@pls/substrate'
+import { sessionParentId, type PlanItemOccurrence } from '@pls/substrate'
 
 /**
  * Proposals ("ghost blocks"): study time drafted for a to-do but not saved.
@@ -23,6 +23,12 @@ export interface Proposal {
   note?: string
   /** The student dragged or resized it: re-drafting keeps it where it is. */
   adjusted?: boolean
+  /**
+   * Saved as a session of its to-do (a separate study block linked to it,
+   * see @pls/substrate sessions) rather than as the to-do's own time: the
+   * to-do was split, or already has sessions. `count` > 1 shows "(1 of 2)".
+   */
+  session?: { index: number; count: number }
 }
 
 export interface ProposalLayer {
@@ -110,7 +116,7 @@ export function useProposalLayer({
    * it no longer holds: that is not the student's answer.
    */
   onDismiss?: (proposals: Proposal[], source: string) => void
-  rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at'>>
+  rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at' | 'kind' | 'source_type' | 'source_id'>>
   validate?: ProposalValidator
 }): ProposalLayer {
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -146,8 +152,11 @@ export function useProposalLayer({
     const ids = new Set<string>()
     for (const [id] of saved) {
       const p = proposals.find((x) => x.id === id)
-      const row = p && rows.find((r) => r.id === p.taskId)
-      if (!p || (row?.starts_at && Date.parse(row.starts_at) === Date.parse(p.startsAt))) ids.add(id)
+      // The to-do's own block, or (for a session) a session of it at that time.
+      const row = p && rows.find((r) =>
+        (p.session ? sessionParentId(r) === p.taskId : r.id === p.taskId)
+        && r.starts_at && Date.parse(r.starts_at) === Date.parse(p.startsAt))
+      if (!p || row) ids.add(id)
     }
     return ids
   }, [saved, proposals, rows])
