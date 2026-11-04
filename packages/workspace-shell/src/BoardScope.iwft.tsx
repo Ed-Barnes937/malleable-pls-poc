@@ -28,7 +28,12 @@ const coursePill = (page: Page) => page.getByTestId('scope-course').getByTestId(
 const lecturePill = (page: Page) => page.getByTestId('scope-lecture').getByTestId('scope-pill-text')
 const courseSelect = (page: Page) => group(page).getByRole('combobox', { name: 'Course' })
 const lectureSelect = (page: Page) => group(page).getByRole('combobox', { name: 'Lecture' })
-const renameButton = (page: Page) => group(page).getByRole('button', { name: 'Rename lecture' })
+const menuButton = (page: Page) => group(page).getByRole('button', { name: 'Lecture options' })
+/** Opens the lecture's menu and chooses Rename. */
+async function startRename(page: Page) {
+  await menuButton(page).click()
+  await page.getByRole('menu', { name: 'Lecture options' }).getByRole('menuitem', { name: 'Rename this lecture...' }).click()
+}
 
 /** Clears a board's course and lecture in the simulator. */
 function clearScope(simulator: BackendSimulator, workspaceId: string) {
@@ -165,7 +170,7 @@ test.describe('renaming the lecture inline', () => {
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
     const writes = await watch(page, 'lectures.update', { hold: true })
 
-    await renameButton(page).click()
+    await startRename(page)
     const input = page.getByRole('textbox', { name: 'Lecture name' })
     await expect(input).toBeFocused()
     await expect(input).toHaveValue('Biology Lecture: Mitochondrial DNA')
@@ -175,8 +180,9 @@ test.describe('renaming the lecture inline', () => {
     await page.keyboard.press('Enter')
 
     await expect(lecturePill(page)).toHaveText('mtDNA inheritance')
-    await expect(renameButton(page)).toBeFocused()
-    expect(writes.inputs).toEqual([{ id: 'lec-rec-bio-4', title: 'mtDNA inheritance' }])
+    await expect(menuButton(page)).toBeFocused()
+    // The name shows before the request is out (optimistic): it reaches the server a moment later.
+    await expect.poll(() => writes.inputs).toEqual([{ id: 'lec-rec-bio-4', title: 'mtDNA inheritance' }])
     // No scope write, and the board keeps its lecture.
     await expect(lectureSelect(page)).toHaveValue('lec-rec-bio-4')
     writes.release()
@@ -187,7 +193,7 @@ test.describe('renaming the lecture inline', () => {
 
   test('leaving the field saves too', async ({ mount, page, simulator }) => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
-    await renameButton(page).click()
+    await startRename(page)
     await page.getByRole('textbox', { name: 'Lecture name' }).fill('Inheritance')
     await page.getByRole('textbox', { name: 'Lecture name' }).blur()
     await expect(lecturePill(page)).toHaveText('Inheritance')
@@ -199,14 +205,14 @@ test.describe('renaming the lecture inline', () => {
     const writes = await watch(page, 'lectures.update')
     const input = page.getByRole('textbox', { name: 'Lecture name' })
 
-    await renameButton(page).click()
+    await startRename(page)
     await input.fill('Something else')
     await page.keyboard.press('Escape')
     await expect(input).toHaveCount(0)
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
-    await expect(renameButton(page)).toBeFocused()
+    await expect(menuButton(page)).toBeFocused()
 
-    await renameButton(page).click()
+    await startRename(page)
     await input.fill('   ')
     await page.keyboard.press('Enter')
     await expect(input).toHaveCount(0)
@@ -219,18 +225,48 @@ test.describe('renaming the lecture inline', () => {
   test('a failed rename brings the old name back and says so', async ({ mount, page, simulator: _boards }) => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
-    await renameButton(page).click()
+    await startRename(page)
     await page.getByRole('textbox', { name: 'Lecture name' }).fill('Never saved')
     await page.keyboard.press('Enter')
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
     await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't rename the lecture - try again")
   })
 
+  test('the lecture menu works by keyboard, and Escape closes it back onto its button', async ({ mount, page, simulator: _boards }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await menuButton(page).focus()
+    await page.keyboard.press('Enter')
+    const menu = page.getByRole('menu', { name: 'Lecture options' })
+    await expect(menuButton(page)).toHaveAttribute('aria-expanded', 'true')
+    await expect(menu.getByRole('menuitem', { name: 'Rename this lecture...' })).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitem', { name: 'Delete this lecture...' })).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(menu.getByRole('menuitem', { name: 'Rename this lecture...' })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(menuButton(page)).toBeFocused()
+    await expect(menuButton(page)).toHaveAttribute('aria-expanded', 'false')
+
+    // Tab closes it back onto its button, so focus never falls out of the page.
+    await page.keyboard.press('Enter')
+    await expect(menu.getByRole('menuitem', { name: 'Rename this lecture...' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(menu).toHaveCount(0)
+    await expect(menuButton(page)).toBeFocused()
+
+    // A press elsewhere closes it too.
+    await menuButton(page).click()
+    await expect(menu).toBeVisible()
+    await page.mouse.click(5, 300)
+    await expect(menu).toHaveCount(0)
+  })
+
   test('is offered only with a lecture selected', async ({ mount, page, simulator }) => {
     clearScope(simulator, 'ws-in-lecture')
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await expect(lecturePill(page)).toHaveText('No lecture')
-    await expect(renameButton(page)).toHaveCount(0)
+    await expect(menuButton(page)).toHaveCount(0)
     // Not an option in the list, where an arrow key could land on it.
     await expect(lectureSelect(page).locator('option', { hasText: /Rename/ })).toHaveCount(0)
   })
@@ -238,7 +274,7 @@ test.describe('renaming the lecture inline', () => {
   test('the field goes, renaming nothing, when the board moves to another lecture from elsewhere', async ({ mount, page, simulator }) => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" elsewhereLectureId="lec-rec-bio-3" />)
     const writes = await watch(page, 'lectures.update')
-    await renameButton(page).click()
+    await startRename(page)
     const input = page.getByRole('textbox', { name: 'Lecture name' })
     await input.fill('Half typed')
 
@@ -246,10 +282,10 @@ test.describe('renaming the lecture inline', () => {
     await page.getByTestId('select-elsewhere').evaluate((el: HTMLButtonElement) => el.click())
     await expect(input).toHaveCount(0)
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondria & Energy')
-    await expect(renameButton(page)).toBeVisible()
+    await expect(menuButton(page)).toBeVisible()
 
     // Renaming again starts from the new lecture's own title.
-    await renameButton(page).click()
+    await startRename(page)
     await expect(input).toHaveValue('Biology Lecture: Mitochondria & Energy')
     await page.keyboard.press('Escape')
 

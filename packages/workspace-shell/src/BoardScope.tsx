@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Pencil } from 'lucide-react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronRight, MoreHorizontal } from 'lucide-react'
 import {
   decodeScope,
+  useDeleteLecture,
   useLecture,
+  useLectureDeletePreview,
   useLectures,
   usePreferences,
   useSetBoardScope,
   useUpdateLecture,
   useWorkspaceScopes,
 } from '@pls/substrate-client'
-import type { Lecture } from '@pls/substrate'
+import { isEmptyLectureDeletion, type Lecture, type LectureDeletePreview } from '@pls/substrate'
 import { COURSES, cn, courseTone } from '@pls/shared-ui'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { ScopePill, type ScopePillFace } from './ScopePill'
 import { useToastStore } from './toast'
+import { DeleteLectureDialog } from './DeleteLectureDialog'
 
 export interface BoardScopeProps {
   workspaceId: string
@@ -117,12 +121,18 @@ function LecturePill({ courseTag, lectureId, onChange }: {
     ? [current, ...(courseLectures ?? [])]
     : (courseLectures ?? [])
   const dateOf = useLectureDate()
-  const renameRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLButtonElement>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
   // The lecture being renamed. The field goes if the board moves to another
   // lecture meanwhile (from elsewhere: a moment opened, another tab), rather
   // than rename the wrong one.
   const [renamingId, setRenamingId] = useState<string | null>(null)
   if (renamingId !== null && renamingId !== lectureId) setRenamingId(null)
+  const deletion = useLectureDeletion({
+    onCancel: () => menuRef.current?.focus(),
+    // The menu goes with the lecture: focus the pill, which now reads "No lecture".
+    onDeleted: () => requestAnimationFrame(() => selectRef.current?.focus()),
+  })
 
   // Selected but not loaded yet: say so rather than flash "No lecture".
   const loading = !!lectureId && selected === undefined
@@ -140,7 +150,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         onDone={() => {
           setRenamingId(null)
           // Back on the button it came from, for the keyboard.
-          requestAnimationFrame(() => renameRef.current?.focus())
+          requestAnimationFrame(() => menuRef.current?.focus())
         }}
       />
     )
@@ -149,6 +159,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
   return (
     <>
       <ScopePill
+        ref={selectRef}
         label="Lecture"
         data-testid="scope-lecture"
         value={current || loading ? lectureId! : ''}
@@ -166,20 +177,209 @@ function LecturePill({ courseTag, lectureId, onChange }: {
       </ScopePill>
       {/* A button, not an option in the list, so no arrow key or type-ahead lands on it. */}
       {current && (
-        <button
-          ref={renameRef}
-          type="button"
-          data-testid="lecture-rename-button"
-          aria-label="Rename lecture"
-          title="Rename this lecture"
-          onClick={() => setRenamingId(current.id)}
-          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:h-9 sm:w-7"
+        <LectureMenu
+          buttonRef={menuRef}
+          busy={deletion.checking}
+          onRename={() => setRenamingId(current.id)}
+          onDelete={() => deletion.start(current)}
+        />
+      )}
+      {deletion.dialog}
+    </>
+  )
+}
+
+/**
+ * The lecture's own actions, beside its pill: one small button (so the
+ * header has room for it at every width) opening a menu of "Rename this
+ * lecture..." and "Delete this lecture...". Arrow keys move through it,
+ * Escape or a press elsewhere closes it, and focus goes back to the button.
+ * Rendered over the page (a portal), so the header never clips it.
+ */
+function LectureMenu({ buttonRef, busy, onRename, onDelete }: {
+  buttonRef: RefObject<HTMLButtonElement | null>
+  /** A delete is being worked out: Delete waits. */
+  busy: boolean
+  onRename: () => void
+  onDelete: () => void
+}) {
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null)
+  const menu = useRef<HTMLDivElement>(null)
+  const open = at !== null
+  const items = [
+    { label: 'Rename this lecture...', run: onRename, disabled: false },
+    { label: 'Delete this lecture...', run: onDelete, disabled: busy },
+  ]
+
+  const close = useCallback((refocus: boolean) => {
+    setAt(null)
+    if (refocus) buttonRef.current?.focus()
+  }, [buttonRef])
+
+  useLayoutEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const outside = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (!menu.current?.contains(target) && !buttonRef.current?.contains(target)) close(false)
+    }
+    // It is placed once, under the button: anything that moves the button closes it.
+    const moved = () => close(false)
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('resize', moved)
+    window.addEventListener('scroll', moved, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      window.removeEventListener('resize', moved)
+      window.removeEventListener('scroll', moved, true)
+    }
+  }, [open, close, buttonRef])
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const enabled = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]
+    const index = enabled.indexOf(document.activeElement as HTMLButtonElement)
+    const move = (to: number) => {
+      e.preventDefault()
+      enabled[(to + enabled.length) % enabled.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') move(index + 1)
+    else if (e.key === 'ArrowUp') move(index - 1)
+    else if (e.key === 'Home') move(0)
+    else if (e.key === 'End') move(enabled.length - 1)
+    else if (e.key === 'Escape') {
+      // Not the board menu's or a dialog's Escape.
+      e.preventDefault()
+      e.stopPropagation()
+      close(true)
+    } else if (e.key === 'Tab') {
+      // Back on the button, rather than focus falling out of the page with the menu.
+      e.preventDefault()
+      close(true)
+    }
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        data-testid="lecture-menu-button"
+        aria-label="Lecture options"
+        title="Rename or delete this lecture"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          if (open) return close(false)
+          const box = buttonRef.current!.getBoundingClientRect()
+          setAt({ top: box.bottom + 4, right: Math.max(8, window.innerWidth - box.right) })
+        }}
+        className={cn(
+          'flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:h-9 sm:w-7',
+          open && 'bg-surface-overlay text-text-primary',
+        )}
+      >
+        <MoreHorizontal aria-hidden className="h-4 w-4" />
+      </button>
+      {at && createPortal(
+        <div
+          ref={menu}
+          role="menu"
+          aria-label="Lecture options"
+          data-testid="lecture-menu"
+          onKeyDown={onKeyDown}
+          style={{ top: at.top, right: at.right }}
+          // Above the top bar (z 9999), under the activity drawer and dialogs.
+          className="fixed z-[10002] flex min-w-48 flex-col rounded-widget border border-border-subtle bg-surface-raised p-1 shadow-pop"
         >
-          <Pencil aria-hidden className="h-3.5 w-3.5" />
-        </button>
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => {
+                close(true)
+                item.run()
+              }}
+              className="flex h-10 items-center rounded-item px-3 text-left text-body text-text-primary hover:bg-surface-overlay focus-visible:bg-surface-overlay focus-visible:outline-none disabled:opacity-40 sm:h-9"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
       )}
     </>
   )
+}
+
+/**
+ * Deleting a lecture from the header: asks the server what it would remove
+ * (`lectures.deletePreview`); an empty lecture (nothing recorded, no
+ * resources or plan items from it) goes at once, anything else waits for
+ * the confirm step (`DeleteLectureDialog`). Either way the toast names it.
+ * `onCancel` puts focus back where it came from when the student keeps it,
+ * `onDeleted` somewhere that is still there once it is gone.
+ */
+function useLectureDeletion({ onCancel, onDeleted }: { onCancel: () => void; onDeleted: () => void }) {
+  const fetchPreview = useLectureDeletePreview()
+  const deleteLecture = useDeleteLecture()
+  const pushToast = useToastStore((s) => s.push)
+  const [checking, setChecking] = useState(false)
+  const [confirming, setConfirming] = useState<{ preview: LectureDeletePreview; hasClass: boolean } | null>(null)
+
+  const deleted = (title: string) => {
+    pushToast({ message: `Deleted ${title}`, tone: 'success', key: 'lecture-delete' })
+    onDeleted()
+  }
+  const failed = () => pushToast({ message: "Couldn't delete the lecture - try again", tone: 'error', key: 'lecture-delete' })
+
+  const start = async (lecture: Lecture) => {
+    setChecking(true)
+    try {
+      // Twice at most: an empty lecture that gained something meanwhile (CONFLICT) is shown for confirming.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const preview = await fetchPreview(lecture.id)
+        if (!isEmptyLectureDeletion(preview)) {
+          setConfirming({ preview, hasClass: lecture.class_item_id !== null })
+          return
+        }
+        try {
+          await deleteLecture.mutateAsync({ id: lecture.id, fingerprint: preview.fingerprint })
+          deleted(lecture.title)
+          return
+        } catch (err) {
+          if ((err as { data?: { code?: string } | null }).data?.code !== 'CONFLICT') throw err
+        }
+      }
+      failed()
+    } catch (err) {
+      // Gone already (another tab): what the student wanted.
+      if ((err as { data?: { code?: string } | null }).data?.code === 'NOT_FOUND') deleted(lecture.title)
+      else failed()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const dialog = confirming && (
+    <DeleteLectureDialog
+      preview={confirming.preview}
+      hasClass={confirming.hasClass}
+      onClose={() => {
+        setConfirming(null)
+        onCancel()
+      }}
+      onDeleted={(title) => {
+        setConfirming(null)
+        deleted(title)
+      }}
+    />
+  )
+  return { start: (lecture: Lecture) => void start(lecture), checking, dialog }
 }
 
 /**

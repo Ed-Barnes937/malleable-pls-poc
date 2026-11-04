@@ -107,8 +107,10 @@ export async function writeBoardScope(
     courseTag = lecture.course
   } else if (lectureId) {
     // The lecture stays only while it is in the board course. A lecture that
-    // is gone (deleted since) never stays.
-    const [lecture] = await tx`SELECT course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId}`
+    // is gone (deleted since) never stays. FOR KEY SHARE, as for a selected
+    // one: a lecture being deleted is waited for, then found gone, so this
+    // never writes back a selection `lectures.delete` has just removed.
+    const [lecture] = await tx`SELECT course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE`
     if (!lecture || ((lecture.course as string | null) ?? null) !== courseTag) lectureId = null
   }
 
