@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { Lecture, PlanItem, Recording } from '../packages/substrate/src'
 import { localDate } from '../packages/substrate/src/class-occurrences'
 import { startOfLocalDay } from '../packages/scheduler/src'
