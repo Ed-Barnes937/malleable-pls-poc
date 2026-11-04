@@ -28,8 +28,8 @@ const NOW = Date.parse(process.env.DEMO_NOW ?? '2026-10-27T10:30:00Z')
 const WEEK_MS = 7 * 24 * 60 * 60_000
 const DEMO_WAV = path.join(__dirname, '..', 'demo', 'lecture-mitochondrial-dna.wav')
 const LECTURE = 'Mitochondrial DNA - today'
-/** Step 2 at the default time, after Shrink: the two left over don't fit in what the days' 2h has left. */
-const DEFAULT_DRAFT_SUMMARY = "Drafted 5h of study time. 4h didn't fit. The other 2h is on days with too little study time left for them."
+/** Step 2 at the default time, after Shrink: the one left over doesn't fit in what the days' 2h has left. */
+const DEFAULT_DRAFT_SUMMARY = "Drafted 6h 30m of study time. 2h didn't fit. The other 30m is on days with too little study time left for it."
 const AUTOFILLED = ['seed-todo-past-paper', 'seed-todo-problem-sheet', 'seed-todo-flashcards', 'seed-todo-essay-plan']
 
 /** Monday 00:00 London of the week containing `now`. */
@@ -107,8 +107,9 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await plan.getByTestId('autofill').click()
     const draft = plan.getByTestId('autofill-draft')
     await expect(draft.getByTestId('autofill-trim')).toHaveCount(1, { timeout: 15000 })
-    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) is too long for one day.')
-    await draft.getByRole('button', { name: 'Shrink to 2h' }).click()
+    // 3h short: the longest to-do, the 3h lab report, could be shorter.
+    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) could be shorter, so more fits.')
+    await draft.getByRole('button', { name: 'Shrink to 1h 30m' }).click()
     if (!process.env.DEMO_NOW) {
       // The default demo time is frozen, so the draft is too.
       await expect(draft.getByTestId('autofill-summary')).toHaveText(DEFAULT_DRAFT_SUMMARY)

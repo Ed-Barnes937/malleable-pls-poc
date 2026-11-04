@@ -591,3 +591,23 @@ test('a list that fits says nothing about more', async ({ mount, page, simulator
   await expect(page.getByText('Only task')).toBeVisible()
   await expect(page.getByTestId('todo-more-below')).toHaveCount(0)
 })
+
+test('a to-do booked in sessions is one row, and ticking it off ticks off its sessions', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: daysFromNow(3, 17) })
+  for (const [id, day] of [['lab-1', 1], ['lab-2', 2]] as const) {
+    seedPlanItem(simulator, {
+      id, kind: 'task', title: 'Lab report write-up', duration_min: 120, source_type: 'plan_item', source_id: 'lab',
+      starts_at: daysFromNow(day, 9), ends_at: daysFromNow(day, 11),
+    })
+  }
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  await expect(page.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })).toHaveCount(1)
+  await expect(page.getByText('1 to do')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Done: Lab report write-up' }).click()
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.title === 'Lab report write-up').map((p) => p.status))
+    .toEqual(['done', 'done', 'done'])
+})

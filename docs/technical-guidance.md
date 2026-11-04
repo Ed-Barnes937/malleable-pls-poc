@@ -49,7 +49,8 @@ plan_items
   status (open|done|dismissed),
   recurrence?,                     -- v1, commitments only: { freq: 'weekly', until?, timeZone? }
   subtype?,                        -- free-text label: class, shift, study...
-  source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment
+  source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment, or
+                                   --   'plan_item' + the to-do's id for a session of a split to-do
   created_at, updated_at
   -- course: a tag with target_type 'plan_item' (lectures hold theirs as a column)
 

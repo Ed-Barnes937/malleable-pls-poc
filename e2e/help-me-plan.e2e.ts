@@ -76,8 +76,10 @@ test.describe('Help me plan', () => {
     await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
     const draft = panel.getByTestId('autofill-draft')
     await expect(draft.getByTestId('autofill-note')).toContainText('Lab report write-up is due soonest, so it gets first pick of your study time.')
-    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (4h) is too long for one day.')
-    await expect(draft.getByTestId('autofill-unplaced')).toContainText("Lab report write-up (4h) didn't fit")
+    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (4h) could be shorter, so more fits.')
+    // Due first, the lab report takes Tuesday's and Wednesday's 2h as two sessions; the rest doesn't fit.
+    await expect(draft.getByTestId('autofill-block')).toHaveText([/Lab report write-up \(1 of 2\)/, /Lab report write-up \(2 of 2\)/])
+    await expect(draft.getByTestId('autofill-unplaced')).toContainText("Chemistry reading (1h) didn't fit")
     // Nothing is written while it is a draft.
     expect((await tasks(request)).find((t) => t.id === ids.reading.id)?.starts_at).toBeNull()
 
@@ -112,28 +114,41 @@ test.describe('Help me plan', () => {
   }
 
   test('study time the draft leaves is named for why, so the draft adds up to the headline', async ({ page, request }) => {
-    // Four 90-minute to-dos in three 2h days: each day keeps a 30-minute piece.
-    await seedTodos(request, [['Essay draft', 90], ['Problem set', 90], ['Past paper', 90], ['Reading', 90]])
+    // Seven 45-minute to-dos (too short to split) in three 2h days: two a day, and each day keeps a 30-minute piece.
+    await seedTodos(request, Array.from({ length: 7 }, (_, i) => [`Problem set ${i + 1}`, 45] as const))
     const { panel } = await openPlanner(page)
-    await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 6.')
+    await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 5.5.')
     await panel.getByTestId('autofill').click()
-    // 4h 30m drafted + 1h 30m in 30-minute pieces = the 6h free; + 1h 30m that didn't fit = the 6h needed.
+    // 4h 30m drafted + 1h 30m in 30-minute pieces = the 6h free.
     // Each day has only 30 minutes of its 2h left: the budget binds, so it isn't blamed on short gaps.
     await expect(panel.getByTestId('autofill-summary')).toHaveText(
-      "Drafted 4h 30m of study time. 1h 30m didn't fit. The other 1h 30m is on days with too little study time left for it.",
+      "Drafted 4h 30m of study time. 45m didn't fit. The other 1h 30m is on days with too little study time left for it.",
       { timeout: 15000 },
     )
     await expect(panel.getByTestId('autofill-unplaced')).toContainText("didn't fit: too little study time left on any day.")
   })
 
-  test('a to-do too long for a day is named as the reason, not short gaps', async ({ page, request }) => {
+  test('a to-do longer than a day is split into sessions, saved as blocks of its own; the to-do keeps its total', async ({ page, request }) => {
     await seedTodos(request, [['Essay draft', 180], ['Reading', 60]])
-    const { panel } = await openPlanner(page)
+    const { calendar, panel } = await openPlanner(page)
     await expect(panel.getByTestId('plan-capacity')).toContainText('About 6 hours of study time left next week (2h a day). Your to-dos need 4.')
     await panel.getByTestId('autofill').click()
-    await expect(panel.getByTestId('autofill-summary')).toHaveText("Drafted 1h of study time. 3h didn't fit.", { timeout: 15000 })
-    await expect(panel.getByTestId('autofill-unplaced')).toContainText("Essay draft (3h) didn't fit: longer than your 2h a day.")
-    await expect(panel.getByTestId('autofill-draft')).not.toContainText('gaps too short')
+    const draft = panel.getByTestId('autofill-draft')
+    await expect(draft.getByTestId('autofill-summary')).toHaveText('Drafted 4h of study time. Everything fits.', { timeout: 15000 })
+    await expect(draft.getByTestId('autofill-block')).toHaveText([/Reading/, /Essay draft \(1 of 2\)/, /Essay draft \(2 of 2\)/])
+    await expect(calendar.root.getByTestId('calendar-ghost').filter({ hasText: 'Essay draft (1 of 2)' })).toHaveAttribute('aria-label', /10:15 - 11:15/)
+    await expect(calendar.root.getByTestId('calendar-ghost').filter({ hasText: 'Essay draft (2 of 2)' })).toHaveAttribute('aria-label', /09:00 - 11:00/)
+
+    await panel.getByRole('button', { name: 'Accept draft' }).click()
+    await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
+    await expect(calendar.block('Essay draft')).toHaveCount(2)
+    const after = await trpcQuery<(Row & { source_type: string | null; source_id: string | null })[]>(request, 'planItems.list', { kinds: ['task'] })
+    const essay = after.find((t) => t.title === 'Essay draft' && !t.source_type)!
+    expect(essay).toMatchObject({ starts_at: null, duration_min: 180 })
+    const sessions = after.filter((t) => t.source_type === 'plan_item' && t.source_id === essay.id)
+    expect(sessions.map((t) => [t.starts_at, t.ends_at, t.duration_min])).toEqual([[at(0, 10, 15), at(0, 11, 15), 60], [at(1, 9), at(1, 11), 120]])
+    // All booked: it no longer waits for a time.
+    await expect(panel.getByTestId('plan-todo').filter({ hasText: 'Essay draft' })).toHaveCount(0)
   })
 
   test('over capacity: the headline and the Auto-fill draft agree on the numbers and the daily cap', async ({ page, request }) => {
@@ -148,7 +163,6 @@ test.describe('Help me plan', () => {
     const draft = panel.getByTestId('autofill-draft')
     // Auto-fill fills exactly the study time the headline counts, and leaves out exactly the shortfall.
     await expect(draft.getByTestId('autofill-summary')).toHaveText("Drafted 6h of study time. 2h didn't fit.", { timeout: 15000 })
-    await expect(draft.getByRole('button', { name: /split/i })).toHaveCount(0)
     const blocks = await draft.getByTestId('autofill-block').count()
     await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(blocks)
 
