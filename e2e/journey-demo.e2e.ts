@@ -128,6 +128,8 @@ test.describe('Journey: the demo script (mock AI)', () => {
     }
     await plan.getByRole('button', { name: 'Accept draft' }).click()
     await expect(calendar.block('Lab report write-up')).toHaveCount(1)
+    // Every drafted block has saved and landed (none still saving under the drag below).
+    await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
     await plan.getByRole('button', { name: /close/i }).first().click()
 
     // ...and drag one accepted block to a new slot: Saturday 15:00, always free.
