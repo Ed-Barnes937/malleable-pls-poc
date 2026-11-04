@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "files": ["playwright.config.ts", "playwright-ct.config.ts", "vitest.config.ts", "vitest.setup.ts"]
+}

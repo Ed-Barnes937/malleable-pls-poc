@@ -9,11 +9,11 @@ const overlaps = (a: Box, b: Box) =>
   a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
 /** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, no study planned yet. */
-const TUESDAY = new Date('2026-10-27T09:00:00Z')
+const TUESDAY = Date.parse('2026-10-27T09:00:00Z')
 /** Saturday 31 Oct 2026, 09:00 in London: no class or shift. */
-const SATURDAY = new Date('2026-10-31T09:00:00Z')
+const SATURDAY = Date.parse('2026-10-31T09:00:00Z')
 /** Biology runs 10:00-12:00 on Wednesdays: over by now. */
-const WEDNESDAY_NOON = new Date('2026-10-28T12:00:00Z')
+const WEDNESDAY_NOON = Date.parse('2026-10-28T12:00:00Z')
 
 async function newBoard(page: Page, name = 'My week') {
   const topBar = new TopBarPom(page)
@@ -246,7 +246,7 @@ test.describe('The today line', () => {
      * and the frame that lays it out; two reads in a row must agree.
      */
     const state = async (): Promise<'full' | 'no-weekday' | 'hidden'> => {
-      const seen = await topBar.todayLine.evaluate(async (el) => {
+      const seen = await topBar.todayLine.evaluate(async (el: HTMLElement) => {
         const painted = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)))
         const read = () => {
           const box = el.parentElement!
