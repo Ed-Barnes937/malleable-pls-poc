@@ -104,6 +104,23 @@ describe.skipIf(!TEST_DATABASE_URL)('settling a job run (Postgres)', () => {
     ])
   })
 
+  it("inside a caller's transaction, a throw undoes only what the adapter transaction wrote", async () => {
+    await db.sql`DELETE FROM job_runs WHERE user_id = ${user}`
+    const queue = (adapter: StorageAdapter, jobType: string) =>
+      adapter.enqueueJobRun({ workflowId: 'wf-test', workflowJobId: 'wj-test', jobType, input: {}, depth: 0 })
+    await db.withUser(user, async (tx) => {
+      const adapter = createPgAdapter({ tx, userId: user })
+      await queue(adapter, 'test:callers')
+      await expect(adapter.transaction!(async (inner) => {
+        await queue(inner, 'test:undone')
+        throw new Error('changed my mind')
+      })).rejects.toThrow('changed my mind')
+      // The caller's transaction goes on.
+      await queue(adapter, 'test:after')
+    })
+    expect((await runs()).map((r) => r.job_type)).toEqual(['test:callers', 'test:after'])
+  })
+
   it('rolls the completion back when a follow-up cannot be queued, then fails the run and retries it', async () => {
     const seen = await runOnce(
       async () => ({ output: { done: true }, events: [{ type: 'test:first-done', payload: {} }] }),

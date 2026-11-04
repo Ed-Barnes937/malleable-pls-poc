@@ -144,10 +144,13 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
 
     /**
      * `{ sql }` mode: one `sql.begin` (with the user set) for all of `fn`'s
-     * calls. `{ tx }` mode is inside the caller's transaction already.
+     * calls. `{ tx }` mode: a savepoint in the caller's transaction, so a
+     * throw undoes `fn`'s writes and leaves the caller's own.
      */
     async transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
-      if ('tx' in opts) return fn(adapter)
+      if ('tx' in opts) {
+        return opts.tx.savepoint((sp) => fn(createPgAdapter({ tx: sp, userId }))) as Promise<T>
+      }
       return opts.sql.begin(async (tx) => {
         await tx`SELECT set_config('app.current_user_id', ${userId}, true)`
         return fn(createPgAdapter({ tx, userId }))
