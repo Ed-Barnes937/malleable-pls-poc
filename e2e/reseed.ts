@@ -8,6 +8,7 @@ import { readFileSync } from 'fs'
 import { createRequire } from 'module'
 import { resolve } from 'path'
 import { resolveDatabaseUrl } from './db-url.mts'
+import { assertSchemaMatches } from '../packages/db/src/schema-guard'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 import { SEED_LECTURES, withoutSeedRecordings } from './seed-lectures'
@@ -47,6 +48,14 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
     // One transaction: the server never sees a half-seeded student. Data
     // only (no DDL), so it takes no table locks the running server waits on.
     await sql.begin(async (tx: Sql) => {
+      // Only a database at exactly this checkout's schema: another branch's
+      // (extra migrations) is not ours to write, and one behind needs
+      // migrating first (`pnpm dev:migrate`), not a seed that half-fits.
+      await assertSchemaMatches(tx, {
+        action: 'reseed',
+        allowPending: false,
+        migrationsDir: resolve(__dirname, '../packages/db/src/migrations'),
+      })
       for (const table of TABLES) {
         await tx.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
       }
