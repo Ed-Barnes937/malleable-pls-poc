@@ -5,15 +5,32 @@
 // Postgres: `pnpm dev:db` is the only thing that touches the shared container.
 import postgres from 'postgres'
 
+/** The shared dev container `pnpm dev:db` starts (docker-compose.yml). */
+const DEV_DB_PORT = '5433'
+
+function fail(message: string): never {
+  console.error(`ensure-database: ${message}`)
+  process.exit(1)
+}
+
 const databaseUrl = process.env.DATABASE_URL
-if (!databaseUrl) {
-  console.error('ensure-database: DATABASE_URL is not set')
-  process.exit(2)
+if (!databaseUrl) fail('DATABASE_URL is not set.')
+if (!URL.canParse(databaseUrl)) {
+  fail('DATABASE_URL is not a valid URL. Expected postgres://user:password@host:port/database (see e2e/README.md).')
 }
 
 const target = new URL(databaseUrl)
 const dbName = decodeURIComponent(target.pathname.slice(1))
-const where = `${target.hostname}:${target.port || '5432'}`
+if (!dbName || dbName.includes('/')) {
+  fail(`DATABASE_URL names no database (path "${target.pathname}"). Expected postgres://user:password@host:port/database.`)
+}
+const port = target.port || '5432'
+const where = `${target.hostname}:${port}`
+const isLocal = ['localhost', '127.0.0.1', '::1', '[::1]'].includes(target.hostname)
+const howToStart = isLocal && port === DEV_DB_PORT
+  ? 'Start it with `pnpm dev:db`.'
+  : `\`pnpm dev:db\` only starts the shared container on localhost:${DEV_DB_PORT}; start this one yourself or point PG_PORT / DATABASE_URL at it.`
+
 // Connect to the maintenance database: the target may not exist yet.
 const maintenance = new URL(databaseUrl)
 maintenance.pathname = '/postgres'
@@ -34,13 +51,9 @@ try {
     await sql`SELECT 1`
   } catch (err) {
     const code = errorCode(err)
-    const unreachable = code === 'ECONNREFUSED' || code === 'CONNECT_TIMEOUT' || code === 'ENOTFOUND'
-    console.error(
-      unreachable
-        ? `Postgres isn't running on ${where}. Start it with \`pnpm dev:db\`.`
-        : `Can't connect to Postgres on ${where}: ${err instanceof Error ? err.message : String(err)}`,
-    )
-    process.exit(1)
+    if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') fail(`can't resolve the Postgres host "${target.hostname}" in DATABASE_URL.`)
+    if (code === 'ECONNREFUSED' || code === 'CONNECT_TIMEOUT') fail(`Postgres isn't running on ${where}. ${howToStart}`)
+    fail(`can't connect to Postgres on ${where}: ${err instanceof Error ? err.message : String(err)}`)
   }
 
   const existing = await sql`SELECT 1 FROM pg_database WHERE datname = ${dbName}`
