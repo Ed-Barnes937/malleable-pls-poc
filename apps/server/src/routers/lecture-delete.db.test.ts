@@ -33,6 +33,15 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
   /** A unique id with a readable prefix. */
   const uid = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`
   const sqlAs = <T>(userId: string, fn: (tx: TxSql) => Promise<T>) => db.withUser(userId, fn)
+  /**
+   * How many sessions are waiting for a lock the session `holder` (a
+   * `pg_backend_pid()`) holds. By pid: `pg_stat_activity` lists every
+   * database on the server, so matching on query text also counts the same
+   * test running against another database (a parallel run or checkout).
+   */
+  const waitingOn = async (holder: number) => (await db.sql`
+    SELECT count(*)::int AS n FROM pg_stat_activity WHERE ${holder}::int = ANY(pg_blocking_pids(pid))
+  `)[0].n as number
 
   /** An audio file under the uploads dir, and its `audio_url`. */
   function audioFile(): { url: string; file: string } {
@@ -261,7 +270,9 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     const inserted = new Promise<void>((resolve) => { written = resolve })
     let commit!: () => void
     const committing = new Promise<void>((resolve) => { commit = resolve })
+    let holder = 0
     const job = sqlAs(alice, async (tx) => {
+      holder = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
       await tx`SELECT 1 FROM recordings WHERE id = ${rec} FOR KEY SHARE`
       await tx`INSERT INTO annotations (user_id, anchor_type, anchor_id, body) VALUES (${alice}, ${LECTURE_SUMMARY_ANCHOR}, ${rec}, 'Late summary')`
       written()
@@ -271,10 +282,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
 
     const deleting = api().lectures.delete({ id: lectureId })
     // The delete is waiting for the job's lock on the recording.
-    await expect.poll(async () => (await db.sql`
-      SELECT count(*)::int AS n FROM pg_stat_activity
-      WHERE wait_event_type = 'Lock' AND query LIKE '%FROM recordings WHERE lecture_id%FOR UPDATE%'
-    `)[0].n).toBe(1)
+    await expect.poll(() => waitingOn(holder)).toBe(1)
     commit()
     await job
     await deleting
@@ -369,7 +377,9 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     const ready = new Promise<void>((resolve) => { deleted = resolve })
     let commit!: () => void
     const committing = new Promise<void>((resolve) => { commit = resolve })
+    let holder = 0
     const deleting = sqlAs(alice, async (tx) => {
+      holder = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
       await tx`SELECT id FROM lectures WHERE id = ${lectureId} FOR UPDATE`
       await tx`DELETE FROM workspace_scopes WHERE scope_type = 'lecture' AND scope_value = ${lectureId}`
       await tx`DELETE FROM lectures WHERE id = ${lectureId}`
@@ -381,10 +391,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     // Meanwhile the board's course is set again: it still sees the lecture
     // (not committed away yet) and would keep it.
     const write = api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'biology' })
-    await expect.poll(async () => (await db.sql`
-      SELECT count(*)::int AS n FROM pg_stat_activity
-      WHERE wait_event_type = 'Lock' AND (query LIKE '%FROM lectures WHERE id%' OR query LIKE '%INSERT INTO workspace_scopes%')
-    `)[0].n).toBe(1)
+    await expect.poll(() => waitingOn(holder)).toBe(1)
     commit()
     await deleting
 
