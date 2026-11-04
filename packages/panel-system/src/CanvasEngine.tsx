@@ -6,6 +6,8 @@ import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
 import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
+// PROTOTYPE p5: canvas behaviour variants (see proto-p5.ts).
+import { useP5Store, p5Variant, pushLayout, nudgeLayout, snapDrop, snapResize, keepInside, GAP as P5_GAP, type Rect as P5Rect } from './proto-p5'
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -130,8 +132,77 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
         />
       )}
+      {/* PROTOTYPE p5 (C): where the widget being moved will land. */}
+      {!narrow && <P5Preview />}
     </div>
   )
+}
+
+/* ── PROTOTYPE p5 helpers ── */
+
+function P5Preview() {
+  const preview = useP5Store((s) => s.preview)
+  if (!preview) return null
+  return (
+    <div
+      data-testid="p5-preview"
+      aria-hidden
+      className="pointer-events-none absolute rounded-widget border-2 border-dashed border-accent bg-accent/10"
+      style={{ left: preview.x, top: preview.y, width: preview.w, height: preview.h, zIndex: 9000, transition: 'left 120ms ease-out, top 120ms ease-out, width 120ms ease-out, height 120ms ease-out' }}
+    />
+  )
+}
+
+/** Canvas size for p5: its width, and how far down a widget may go (the view, or lower where the board already scrolls). */
+function p5Canvas(el: Element | null | undefined, movingId: string, start: PanelItem[]) {
+  const width = el?.clientWidth ?? 0
+  const height = el?.clientHeight ?? 0
+  const lowest = Math.max(0, ...start.filter((p) => p.id !== movingId).map((p) => p.pos_y + p.height))
+  return { width, height, bottom: Math.max(height, lowest + P5_GAP) }
+}
+
+/** Moves the given panels in one store update. */
+function p5Apply(moves: Map<string, { x: number; y: number }>) {
+  if (moves.size === 0) return
+  const changed = useCanvasStore.getState().panels.some((p) => {
+    const m = moves.get(p.id)
+    return m && (m.x !== p.pos_x || m.y !== p.pos_y)
+  })
+  if (!changed) return
+  useCanvasStore.setState((s) => ({
+    panels: s.panels.map((p) => {
+      const m = moves.get(p.id)
+      return m && (m.x !== p.pos_x || m.y !== p.pos_y) ? { ...p, pos_x: m.x, pos_y: m.y } : p
+    }),
+  }))
+}
+
+function p5Label(p: PanelItem) {
+  const names: Record<string, string> = { todo: 'To-do', 'coming-up': 'Coming up', calendar: 'Calendar' }
+  return p.title ?? names[p.lensType ?? ''] ?? p.lensType ?? p.id
+}
+
+/** Variant B: after a drop or resize, nudge widgets it left mostly covered. */
+function p5Nudge(movedId: string, el: Element | null | undefined) {
+  const panels = useCanvasStore.getState().panels
+  const moves = nudgeLayout(movedId, panels, { width: el?.clientWidth ?? 0, height: el?.clientHeight ?? 0 })
+  p5Apply(moves)
+  const ids = [...moves.keys()]
+  useP5Store.getState().flashMoved(ids)
+  useP5Store.getState().setLastEvent(ids.length
+    ? `Nudged ${ids.map((id) => p5Label(panels.find((p) => p.id === id)!)).join(', ')} to the nearest free spot`
+    : 'Nothing covered enough to nudge')
+}
+
+/** Variant A: report which neighbours the gesture pushed. */
+function p5ReportPush(movingId: string, start: PanelItem[]) {
+  const now = useCanvasStore.getState().panels
+  const pushed = now.filter((p) => {
+    const s = start.find((q) => q.id === p.id)
+    return p.id !== movingId && s && s.pos_y !== p.pos_y
+  })
+  useP5Store.getState().flashMoved(pushed.map((p) => p.id))
+  useP5Store.getState().setLastEvent(pushed.length ? `Pushed ${pushed.map(p5Label).join(', ')} down` : 'Nothing in the way')
 }
 
 /* ── Narrow layout ── */
@@ -241,6 +312,9 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
     panelW: number
     panelH: number
   } | null>(null)
+  // PROTOTYPE p5: the layout when the gesture began, and the canvas element.
+  const p5StartRef = useRef<PanelItem[]>([])
+  const p5CanvasRef = useRef<Element | null>(null)
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -262,6 +336,8 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 
       onGestureChange(true)
       const target = e.currentTarget as HTMLElement
+      p5StartRef.current = useCanvasStore.getState().panels
+      p5CanvasRef.current = target.closest('[data-canvas-scroll]')
       target.setPointerCapture(e.pointerId)
     },
     [panelId, bringToFront, onGestureChange],
@@ -284,6 +360,15 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       }
 
       const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+      const variant = p5Variant()
+      if (variant !== 'off') {
+        // PROTOTYPE p5: never grow past the canvas edges.
+        const c = p5Canvas(p5CanvasRef.current, panelId, p5StartRef.current)
+        if (axes.dx === 1) newW = Math.min(newW, c.width - panelX)
+        if (axes.dx === -1) newW = Math.min(newW, panelX + panelW)
+        if (axes.dy === 1) newH = Math.min(newH, c.bottom - panelY)
+        if (axes.dy === -1) newH = Math.min(newH, panelY + panelH)
+      }
       const clamped = clampDimensions(newW, newH, panel?.constraints)
       const { x: newX, y: newY } = anchoredPosition(
         { x: panelX, y: panelY, w: panelW, h: panelH },
@@ -293,6 +378,13 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       )
 
       resizePanel(panelId, newX, newY, clamped.width, clamped.height)
+      const rect: P5Rect = { x: newX, y: newY, w: clamped.width, h: clamped.height }
+      if (variant === 'a') p5Apply(pushLayout(panelId, rect, p5StartRef.current))
+      if (variant === 'c') {
+        useP5Store.getState().setPreview(
+          snapResize(panelId, { x: panelX, y: panelY, w: panelW, h: panelH }, rect, useCanvasStore.getState().panels),
+        )
+      }
     },
     [direction, panelId, resizePanel, shiftRef],
   )
@@ -305,8 +397,25 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       onGestureChange(false)
       const target = e.currentTarget as HTMLElement
       target.releasePointerCapture(e.pointerId)
+      // PROTOTYPE p5
+      const variant = p5Variant()
+      if (variant === 'a') p5ReportPush(panelId, p5StartRef.current)
+      if (variant === 'b') requestAnimationFrame(() => p5Nudge(panelId, p5CanvasRef.current))
+      if (variant === 'c') {
+        const landing = useP5Store.getState().preview
+        useP5Store.getState().setPreview(null)
+        if (landing) {
+          const now = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+          const shrunk = now && (Math.round(landing.h) < now.height || Math.round(landing.w) < now.width)
+          // After the gesture ends, so the snap back animates.
+          requestAnimationFrame(() => {
+            resizePanel(panelId, Math.round(landing.x), Math.round(landing.y), Math.round(landing.w), Math.round(landing.h))
+            useP5Store.getState().setLastEvent(shrunk ? 'Stopped at the neighbour: snapped back to the free space' : 'Resized into free space')
+          })
+        }
+      }
     },
-    [onGestureChange],
+    [onGestureChange, panelId, resizePanel],
   )
 
   return (
@@ -335,7 +444,12 @@ function usePanelDrag(
 
   const onGestureChange = useCallback((active: boolean) => setIsGesturing(active), [])
 
-  const onDragStart = useCallback(() => setIsGesturing(true), [])
+  // PROTOTYPE p5: the layout when the drag began.
+  const p5StartRef = useRef<PanelItem[]>([])
+  const onDragStart = useCallback(() => {
+    p5StartRef.current = useCanvasStore.getState().panels
+    setIsGesturing(true)
+  }, [])
 
   const onDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
@@ -351,7 +465,16 @@ function usePanelDrag(
       }
 
       const canvas = canvasRef.current
-      if (canvas) {
+      const variant = p5Variant()
+      if (canvas && variant !== 'off') {
+        // PROTOTYPE p5: the whole widget stays on the canvas.
+        const c = p5Canvas(canvas, panel.id, p5StartRef.current)
+        const r = keepInside({ x: current.pos_x + offsetX, y: current.pos_y + offsetY, w: current.width, h: current.height }, c)
+        offsetX = r.x - current.pos_x
+        offsetY = r.y - current.pos_y
+        if (variant === 'a') p5Apply(pushLayout(panel.id, r, p5StartRef.current))
+        if (variant === 'c') useP5Store.getState().setPreview(snapDrop(panel.id, r, useCanvasStore.getState().panels, c))
+      } else if (canvas) {
         const clamped = clampToCanvas(
           { x: current.pos_x + offsetX, y: current.pos_y + offsetY },
           { width: current.width, height: current.height },
@@ -381,6 +504,33 @@ function usePanelDrag(
       }
 
       const canvas = canvasRef.current
+      const variant = p5Variant()
+      if (canvas && variant !== 'off') {
+        // PROTOTYPE p5
+        const c = p5Canvas(canvas, panel.id, p5StartRef.current)
+        const r = keepInside({ x: newX, y: newY, w: current.width, h: current.height }, c)
+        x.jump(0)
+        y.jump(0)
+        movePanel(panel.id, r.x, r.y)
+        if (variant === 'a') {
+          p5Apply(pushLayout(panel.id, r, p5StartRef.current))
+          p5ReportPush(panel.id, p5StartRef.current)
+        }
+        const landing = variant === 'c' ? snapDrop(panel.id, r, useCanvasStore.getState().panels, c) : null
+        useP5Store.getState().setPreview(null)
+        requestAnimationFrame(() => {
+          setIsGesturing(false)
+          // After the gesture ends, so the snap or nudge animates.
+          requestAnimationFrame(() => {
+            if (variant === 'b') p5Nudge(panel.id, canvas)
+            if (landing) {
+              movePanel(panel.id, Math.round(landing.x), Math.round(landing.y))
+              useP5Store.getState().setLastEvent(landing.x !== r.x || landing.y !== r.y ? 'Snapped to the nearest free slot' : 'Dropped in free space')
+            }
+          })
+        })
+        return
+      }
       if (canvas) {
         const clamped = clampToCanvas(
           { x: newX, y: newY },
@@ -440,6 +590,8 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
   const [isHovered, setIsHovered] = useState(false)
+  // PROTOTYPE p5: a widget the canvas just moved gets a brief ring.
+  const p5Moved = useP5Store((s) => s.moved.includes(panel.id))
 
   const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
     usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
@@ -463,7 +615,9 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
     toggleFullscreen(panel.id, rect.width, rect.height)
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
-  const shadow = isGesturing
+  const shadow = p5Moved
+    ? 'var(--shadow-panel-focused), inset 0 0 0 3px color-mix(in oklab, var(--color-accent) 85%, transparent)'
+    : isGesturing
     ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 50%, transparent)'
     : isSelected
       ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 70%, transparent)'

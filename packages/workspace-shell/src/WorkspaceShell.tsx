@@ -21,7 +21,12 @@ import {
   placeNewPanel,
   scrollPanelIntoView,
   type PanelItem,
+  // PROTOTYPE p5
+  useP5Store,
+  tidyLayout,
+  STACK_BREAKPOINT,
 } from '@pls/panel-system'
+import { ProtoP5Switcher } from './ProtoP5Switcher'
 import { useWorkspaceStore } from './store'
 import { useActiveWorkspaceId, useKeepActiveBoard } from './activeBoard'
 import { NoBoards } from './NoBoards'
@@ -451,12 +456,35 @@ export function WorkspaceShell() {
   const handleOrganize = useCallback(() => {
     const el = canvasRef.current
     if (!el) return
+    // PROTOTYPE p5: Tidy up fills the view, Calendar first, with Undo.
+    if (useP5Store.getState().variant !== 'off') {
+      if (el.clientWidth < STACK_BREAKPOINT) {
+        pushToast({ message: 'Tidy up arranges the desktop layout, so it does nothing on a phone', tone: 'success', key: 'p5-tidy' })
+        return
+      }
+      const before = useCanvasStore.getState().panels
+      useCanvasStore.setState({ panels: tidyLayout(before, { width: el.clientWidth, height: el.clientHeight }) })
+      useP5Store.getState().setLastEvent('Tidied up: Calendar first, sizes kept where they fit')
+      pushToast({
+        message: 'Widgets tidied up',
+        tone: 'success',
+        key: 'p5-tidy',
+        action: {
+          label: 'Undo',
+          onClick: () => {
+            useCanvasStore.setState({ panels: before })
+            useP5Store.getState().setLastEvent('Tidy up undone')
+          },
+        },
+      })
+      return
+    }
     const { organizePanels } = useCanvasStore.getState()
     organizePanels(el.clientWidth, el.clientHeight)
     // Persist the new layout to DB
     const updated = useCanvasStore.getState().panels
     handleLayoutChange(updated)
-  }, [handleLayoutChange])
+  }, [handleLayoutChange, pushToast])
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
@@ -507,6 +535,8 @@ export function WorkspaceShell() {
         <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
       )}
       <ToastHost />
+      {/* PROTOTYPE p5 */}
+      <ProtoP5Switcher />
     </div>
   )
 }

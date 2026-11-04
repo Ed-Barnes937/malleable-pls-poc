@@ -16,3 +16,5 @@ export {
 export { snapToGrid, GRID_SIZE } from './snap'
 export { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel, PLACEMENT_GAP } from './geometry'
 export { scrollPanelIntoView } from './reveal'
+// PROTOTYPE p5 (proto/p5-canvas only, never merged)
+export { useP5Store, tidyLayout, overlapReport, P5_VARIANTS, type P5Variant } from './proto-p5'
