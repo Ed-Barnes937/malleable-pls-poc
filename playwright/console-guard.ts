@@ -81,8 +81,9 @@ function watchConsole(context: BrowserContext) {
 async function settle(context: BrowserContext) {
   await Promise.all(context.pages().map((page) => Promise.race([
     page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))),
-    // A page that is closing or stuck must not hold the test up.
-    new Promise((resolve) => setTimeout(resolve, 1_000)),
+    // A page that is closing, stuck or on a faked clock (page.clock.install)
+    // must not hold the test up.
+    new Promise((resolve) => setTimeout(resolve, 250)),
   ]).catch(() => {})))
 }
 
