@@ -88,7 +88,7 @@ test.describe('AudioCaptureLens', () => {
     })
     const lecturesBefore = simulator.db.lectures.length
     await page.getByRole('button', { name: 'Start recording' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     // A new Biology lecture, made as the capture starts.
     await expect.poll(() => simulator.db.lectures.length).toBe(lecturesBefore + 1)
     const fresh = simulator.db.lectures.at(-1)!
@@ -156,7 +156,7 @@ test.describe('AudioCaptureLens', () => {
 
     await expect(page.getByTestId('ready-to-record')).toHaveText('Ready to record Biology lecture 30 Oct, 10:04')
     await page.getByRole('button', { name: 'Start recording' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
     // Into the selected lecture: no new lecture, so no course header, and
     // no scope write (the board shows it already).
@@ -182,10 +182,10 @@ test.describe('AudioCaptureLens', () => {
     const component = await mount(lens({ lectureId: 'lec-rec-bio-4', courseTag: 'biology' }))
 
     await page.getByRole('button', { name: 'Record more' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     // Mid-recording, the board moves to another lecture (e.g. from the drawer).
     await component.update(lens({ lectureId: 'lec-rec-bio-3', courseTag: 'biology' }))
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
     await expect.poll(() => uploadHeaders?.['x-lecture-id']).toBe('lec-rec-bio-4')
@@ -212,7 +212,7 @@ test.describe('AudioCaptureLens', () => {
     const lecturesBefore = simulator.db.lectures.length
 
     await page.getByRole('button', { name: 'Start recording' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     // The lecture is made as capture starts, in the board course.
     await expect.poll(() => simulator.db.lectures.length).toBe(lecturesBefore + 1)
     const made = simulator.db.lectures.at(-1)!
@@ -248,7 +248,7 @@ test.describe('AudioCaptureLens', () => {
     )
 
     await page.getByRole('button', { name: 'Record more' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
     await expect.poll(() => uploads.length).toBe(2)
@@ -275,7 +275,7 @@ test.describe('AudioCaptureLens', () => {
 
     await expect(page.getByText('Ready to record')).toBeVisible()
     await page.locator('button').filter({ has: page.locator('.lucide-mic') }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     // 24 kbps measurably hurt Whisper accuracy.
     expect(await page.evaluate(() => (window as unknown as { __mediaRecorderOptions?: MediaRecorderOptions }).__mediaRecorderOptions?.audioBitsPerSecond)).toBe(48_000)
   })
@@ -297,7 +297,7 @@ test.describe('AudioCaptureLens', () => {
     )
 
     await page.locator('button').filter({ has: page.locator('.lucide-mic') }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.locator('button').filter({ has: page.locator('.lucide-square') }).click()
     await expect(page.getByText('Recording complete')).toBeVisible({ timeout: 5000 })
   })
@@ -336,7 +336,7 @@ test.describe('AudioCaptureLens', () => {
     )
 
     await page.locator('button').filter({ has: page.locator('.lucide-mic') }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.locator('button').filter({ has: page.locator('.lucide-square') }).click()
     await expect(page.getByText('Upload failed')).toBeVisible({ timeout: 5000 })
     await expect(page.getByTestId('not-saved')).toHaveText('Not saved yet')
