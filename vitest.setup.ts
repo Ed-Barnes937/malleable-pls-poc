@@ -23,9 +23,12 @@ if (expect.getState().testPath?.endsWith('.db.test.ts')) {
 // and asserts what it logged; that spy stands in for this guard.
 //
 // Limit: an error a test leaves behind (a timer, a late promise) fails
-// whichever test is running when it lands, usually the next one, or the file
-// (afterAll) after its last test. The message says so; look at the test
-// before it. Tracking the cause per test would need async context tracking.
+// whichever test is running when it lands, usually the next one. After a
+// file's last test, afterAll waits one macrotask first, so a promise or a
+// setTimeout(0) left by that test still fails the file; a longer timer is
+// missed. The message says so; look at the test before it. Tracking the cause
+// per test would need async context tracking. Probed by
+// playwright/vitest-console-guard.test.ts.
 const realConsoleError = console.error
 let consoleErrors: string[] = []
 console.error = (...args: unknown[]) => {
@@ -39,4 +42,7 @@ function failOnConsoleErrors(when: string) {
   throw new Error(`console.error was called ${logged.length} time(s) ${when} (if this test logs nothing, an earlier test in the file left it behind):\n${logged.join('\n')}`)
 }
 afterEach(() => failOnConsoleErrors('during this test'))
-afterAll(() => failOnConsoleErrors('after the last test in this file'))
+afterAll(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  failOnConsoleErrors('after the last test in this file')
+})
