@@ -2,9 +2,11 @@ import type { PanelManifest } from '@pls/lens-framework'
 
 /**
  * First-run starting points for an empty board, named for what the student
- * wants to do. A starter only adds widgets (in this order, largest first, so
- * click-to-add placement packs them well); it never adds automations, so it
- * stays a tool and not a workflow.
+ * wants to do. A starter only adds widgets, listed in workflow order (the
+ * order the student uses them in); the group layout (`layoutGroup`) places
+ * them in that order, left to right, a column stacking top to bottom when
+ * they don't fit in one row. It never adds automations, so it stays a tool
+ * and not a workflow.
  */
 export interface BoardStarter {
   id: 'plan' | 'capture' | 'revise'
@@ -14,7 +16,7 @@ export interface BoardStarter {
 
 export const BOARD_STARTERS: BoardStarter[] = [
   { id: 'plan', label: 'Plan my time', lensTypes: ['calendar', 'todo', 'coming-up'] },
-  { id: 'capture', label: 'Capture a lecture', lensTypes: ['audio-capture', 'transcript'] },
+  { id: 'capture', label: 'Capture a lecture', lensTypes: ['audio-capture', 'transcript', 'resources'] },
   { id: 'revise', label: 'Find what to revise', lensTypes: ['weakest-topics', 'weekly-overview'] },
 ]
 
