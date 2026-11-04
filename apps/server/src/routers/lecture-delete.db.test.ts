@@ -326,5 +326,69 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
       expect(await job).toEqual({ output: { recording_id: rec, skipped: 'recording deleted', quiet: true } })
       expect(await rowsWhere('transcript_segments', 'recording_id', [rec])).toBe(0)
     })
+
+    it('skip, not fail, when the transcriber finds the audio gone because the lecture was deleted', async () => {
+      const rec = uid('rec')
+      const audio = audioFile()
+      const { lectureId } = await sqlAs(alice, (tx) =>
+        insertRecording(tx, { id: rec, userId: alice, title: 'Upload', status: 'uploaded', audioUrl: audio.url }))
+      // As a live transcriber that reads the file only once it is under way.
+      const executors = makeExecutors({
+        ...ai,
+        transcriber: {
+          name: 'reads-late',
+          transcribe: async (file) => {
+            await api().lectures.delete({ id: lectureId })
+            const { readFile } = await import('node:fs/promises')
+            await readFile(file)
+            return []
+          },
+        },
+      })
+      expect(await run(executors, 'ai:transcribe', { recording_id: rec }))
+        .toEqual({ output: { recording_id: rec, skipped: 'recording deleted', quiet: true } })
+    })
+
+    it('still fail when the transcriber fails and the recording is there', async () => {
+      const rec = uid('rec')
+      await sqlAs(alice, (tx) => insertRecording(tx, { id: rec, userId: alice, title: 'Upload', status: 'uploaded', audioUrl: audioFile().url }))
+      const executors = makeExecutors({ ...ai, transcriber: { name: 'down', transcribe: async () => { throw new Error('provider down') } } })
+      await expect(run(executors, 'ai:transcribe', { recording_id: rec })).rejects.toThrow('provider down')
+    })
+  })
+
+  it('a course-only scope write racing a delete never puts the deleted lecture back on the board', async () => {
+    const rec = uid('rec')
+    const { lectureId } = await sqlAs(alice, (tx) => insertRecording(tx, { id: rec, userId: alice, title: 'Race', course: 'biology' }))
+    const ws = (await api().workspaces.create({ name: uid('Board') })).id as string
+    await api().workspaces.setBoardScope({ workspaceId: ws, lectureId })
+
+    // The delete's own steps, held open before commit: the lecture locked,
+    // the board's selection and the lecture gone.
+    let deleted!: () => void
+    const ready = new Promise<void>((resolve) => { deleted = resolve })
+    let commit!: () => void
+    const committing = new Promise<void>((resolve) => { commit = resolve })
+    const deleting = sqlAs(alice, async (tx) => {
+      await tx`SELECT id FROM lectures WHERE id = ${lectureId} FOR UPDATE`
+      await tx`DELETE FROM workspace_scopes WHERE scope_type = 'lecture' AND scope_value = ${lectureId}`
+      await tx`DELETE FROM lectures WHERE id = ${lectureId}`
+      deleted()
+      await committing
+    })
+    await ready
+
+    // Meanwhile the board's course is set again: it still sees the lecture
+    // (not committed away yet) and would keep it.
+    const write = api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'biology' })
+    await expect.poll(async () => (await db.sql`
+      SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock' AND (query LIKE '%FROM lectures WHERE id%' OR query LIKE '%INSERT INTO workspace_scopes%')
+    `)[0].n).toBe(1)
+    commit()
+    await deleting
+
+    expect(await write).toEqual({ courseTag: 'biology', lectureId: null })
+    expect(await rowsWhere('workspace_scopes', 'workspace_id', [ws])).toBe(1)
   })
 })

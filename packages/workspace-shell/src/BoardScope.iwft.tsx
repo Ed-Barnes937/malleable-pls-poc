@@ -248,6 +248,13 @@ test.describe('renaming the lecture inline', () => {
     await expect(menuButton(page)).toBeFocused()
     await expect(menuButton(page)).toHaveAttribute('aria-expanded', 'false')
 
+    // Tab closes it back onto its button, so focus never falls out of the page.
+    await page.keyboard.press('Enter')
+    await expect(menu.getByRole('menuitem', { name: 'Rename this lecture...' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(menu).toHaveCount(0)
+    await expect(menuButton(page)).toBeFocused()
+
     // A press elsewhere closes it too.
     await menuButton(page).click()
     await expect(menu).toBeVisible()

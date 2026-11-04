@@ -3,6 +3,8 @@ import { useDeleteLecture, useLectureDeletePreview } from '@pls/substrate-client
 import type { LectureDeletePreview } from '@pls/substrate'
 import { Dialog, dayAndTime, doByLabel } from '@pls/shared-ui'
 
+const noop = () => {}
+
 /** How many plan items the confirm step names before "and N more". */
 export const NAMED_PLAN_ITEMS = 5
 
@@ -56,6 +58,10 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
 
   const { recordings, marks, planItems, keptPlanItems, resources } = preview
   const busy = deleteLecture.isPending || refreshing
+  // Once Delete is pressed it can't be called off: Cancel, Escape, the
+  // backdrop and the close button wait for the answer, so the dialog never
+  // closes on a delete that then goes through ("Deleted ...").
+  const close = deleteLecture.isPending ? noop : onClose
 
   const confirm = () => {
     setNotice(null)
@@ -85,7 +91,7 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
   return (
     <Dialog
       open
-      onClose={onClose}
+      onClose={close}
       title={`Delete "${preview.lecture.title}"?`}
       // Full width on a phone; the list scrolls between the title and the buttons.
       className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md flex-col"
@@ -136,8 +142,9 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
           <button
             type="button"
             autoFocus
-            onClick={onClose}
-            className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            onClick={close}
+            disabled={deleteLecture.isPending}
+            className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-40"
           >
             Cancel
           </button>

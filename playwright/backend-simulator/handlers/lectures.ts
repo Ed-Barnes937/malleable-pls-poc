@@ -174,7 +174,7 @@ function lectureDeletion(db: InMemoryDb, lecture: StoredLecture): { preview: Lec
   const going = derived.filter((p) => p.status !== 'done')
   const kept = derived.filter((p) => p.status === 'done')
   const resources = db.resources.filter((r) => r.lecture_id === lecture.id)
-  const files = resources.filter((r) => r.kind === 'file').length
+  const files = resources.filter((r) => r.file_key).length
 
   const preview: LectureDeletePreview = {
     lecture: { id: lecture.id, title: lecture.title },

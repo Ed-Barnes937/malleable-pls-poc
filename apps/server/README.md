@@ -102,9 +102,9 @@ an earlier try saved instead of a second copy. DB-backed tests:
 
 `deletePreview` / `delete` remove a lecture and everything only there
 because of it (`src/routers/_lecture-deletion.ts`): recordings, transcripts,
-the marks on them (polymorphic rows, deleted by `deleteRecordingData`, the
-one place to add a new target type), unfinished plan items made from its
-moments (finished ones stay, unlinked), resources and every board's
+the marks on them (polymorphic rows, listed once in `RECORDING_DATA`, which
+both the preview and `deleteRecordingData` read: add a new target type
+there), unfinished plan items made from its moments (finished ones stay, unlinked), resources and every board's
 selection of it. `delete` takes the preview's `fingerprint` and is CONFLICT
 if anything changed since; audio files go from disk after the commit
 (`src/uploaded-files.ts`). AI jobs whose recording is gone finish as quiet

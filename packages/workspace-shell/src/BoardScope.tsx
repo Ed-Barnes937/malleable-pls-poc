@@ -122,12 +122,17 @@ function LecturePill({ courseTag, lectureId, onChange }: {
     : (courseLectures ?? [])
   const dateOf = useLectureDate()
   const menuRef = useRef<HTMLButtonElement>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
   // The lecture being renamed. The field goes if the board moves to another
   // lecture meanwhile (from elsewhere: a moment opened, another tab), rather
   // than rename the wrong one.
   const [renamingId, setRenamingId] = useState<string | null>(null)
   if (renamingId !== null && renamingId !== lectureId) setRenamingId(null)
-  const deletion = useLectureDeletion(() => menuRef.current?.focus())
+  const deletion = useLectureDeletion({
+    onCancel: () => menuRef.current?.focus(),
+    // The menu goes with the lecture: focus the pill, which now reads "No lecture".
+    onDeleted: () => requestAnimationFrame(() => selectRef.current?.focus()),
+  })
 
   // Selected but not loaded yet: say so rather than flash "No lecture".
   const loading = !!lectureId && selected === undefined
@@ -154,6 +159,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
   return (
     <>
       <ScopePill
+        ref={selectRef}
         label="Lecture"
         data-testid="scope-lecture"
         value={current || loading ? lectureId! : ''}
@@ -248,7 +254,11 @@ function LectureMenu({ buttonRef, busy, onRename, onDelete }: {
       e.preventDefault()
       e.stopPropagation()
       close(true)
-    } else if (e.key === 'Tab') close(false)
+    } else if (e.key === 'Tab') {
+      // Back on the button, rather than focus falling out of the page with the menu.
+      e.preventDefault()
+      close(true)
+    }
   }
 
   return (
@@ -311,16 +321,20 @@ function LectureMenu({ buttonRef, busy, onRename, onDelete }: {
  * (`lectures.deletePreview`); an empty lecture (nothing recorded, no
  * resources or plan items from it) goes at once, anything else waits for
  * the confirm step (`DeleteLectureDialog`). Either way the toast names it.
- * `onCancel` puts focus back where it came from when the student keeps it.
+ * `onCancel` puts focus back where it came from when the student keeps it,
+ * `onDeleted` somewhere that is still there once it is gone.
  */
-function useLectureDeletion(onCancel: () => void) {
+function useLectureDeletion({ onCancel, onDeleted }: { onCancel: () => void; onDeleted: () => void }) {
   const fetchPreview = useLectureDeletePreview()
   const deleteLecture = useDeleteLecture()
   const pushToast = useToastStore((s) => s.push)
   const [checking, setChecking] = useState(false)
   const [confirming, setConfirming] = useState<{ preview: LectureDeletePreview; hasClass: boolean } | null>(null)
 
-  const deleted = (title: string) => pushToast({ message: `Deleted ${title}`, tone: 'success', key: 'lecture-delete' })
+  const deleted = (title: string) => {
+    pushToast({ message: `Deleted ${title}`, tone: 'success', key: 'lecture-delete' })
+    onDeleted()
+  }
   const failed = () => pushToast({ message: "Couldn't delete the lecture - try again", tone: 'error', key: 'lecture-delete' })
 
   const start = async (lecture: Lecture) => {

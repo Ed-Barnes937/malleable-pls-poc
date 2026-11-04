@@ -21,7 +21,10 @@ export type StoredPlanItem = Omit<PlanItem, 'course'>
 export type StoredRecording = Omit<Recording, 'course' | 'processing'>
 
 /** A resource as stored: its lecture's title and course and the excerpt are read through. */
-export type StoredResource = Omit<ResourceWithBody, 'lecture_title' | 'lecture_course' | 'excerpt'>
+export type StoredResource = Omit<ResourceWithBody, 'lecture_title' | 'lecture_course' | 'excerpt'> & {
+  /** An uploaded file's `FileStore` key, as on the server (none until 04 PR B adds uploads). */
+  file_key?: string | null
+}
 
 /** A lecture as stored (`lectures`); its recordings point at it. */
 export type StoredLecture = Omit<Lecture, 'recordings'>

@@ -139,6 +139,41 @@ test('an empty lecture is deleted at once, with no dialog', async ({ mount, page
   await expect(page.getByTestId('toast')).toHaveText('Deleted Photosynthesis')
   await expect(dialog(page)).toHaveCount(0)
   expect(simulator.db.lectures.some((l) => l.id === 'lec-photosynthesis')).toBe(false)
+  // The menu went with the lecture: focus is on the pill, not lost.
+  await expect(group(page).getByRole('combobox', { name: 'Lecture' })).toBeFocused()
+  expect(console.unexpected()).toEqual([])
+})
+
+test('once Delete is pressed the dialog stays until the answer: no Cancel, Escape or backdrop', async ({ mount, page, simulator }) => {
+  const console = watchConsole(page)
+  seedLecture(simulator, { reviews: 1 })
+  await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let sent!: () => void
+  const arrived = new Promise<void>((resolve) => { sent = resolve })
+  await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.delete'), async (route) => {
+    sent()
+    await held
+    await route.fallback()
+  })
+  await deleteButton(page).click()
+  await dialog(page).getByRole('button', { name: 'Delete lecture' }).click()
+  await arrived
+
+  await expect(dialog(page).getByRole('button', { name: 'Deleting...' })).toBeDisabled()
+  await expect(dialog(page).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await page.getByTestId('dialog-backdrop').click({ position: { x: 5, y: 5 } })
+  await dialog(page).getByRole('button', { name: 'Close' }).click()
+  await expect(dialog(page)).toBeVisible()
+  expect(simulator.db.lectures.some((l) => l.id === 'lec-photosynthesis')).toBe(true)
+
+  release()
+  await expect(dialog(page)).toHaveCount(0)
+  await expect(page.getByTestId('toast')).toHaveText('Deleted Photosynthesis')
+  await expect(lecturePill(page)).toHaveText('No lecture')
+  await expect(group(page).getByRole('combobox', { name: 'Lecture' })).toBeFocused()
   expect(console.unexpected()).toEqual([])
 })
 

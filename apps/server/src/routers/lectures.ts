@@ -7,7 +7,7 @@ import { studentTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
 import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
-import { deleteRecordingData, planLectureDeletion } from './_lecture-deletion'
+import { deleteRecordingData, lockDerivedPlanItems, planLectureDeletion } from './_lecture-deletion'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { removeLectureFiles } from '../uploaded-files'
 
@@ -74,15 +74,6 @@ async function boardStillShows(tx: TxSql, userId: string, workspaceId: string, e
   if (current === null || current === undefined || current === expected) return true
   const [stillThere] = await tx`SELECT 1 FROM lectures WHERE id = ${current} AND user_id = ${userId}`
   return !stillThere
-}
-
-/** The student's lecture (id and title), or NOT_FOUND; `lock` holds it FOR UPDATE until the transaction ends. */
-async function ownLecture(tx: TxSql, userId: string, id: string, lock: boolean): Promise<{ id: string; title: string }> {
-  const [lecture] = lock
-    ? await tx`SELECT id, title FROM lectures WHERE id = ${id} AND user_id = ${userId} FOR UPDATE`
-    : await tx`SELECT id, title FROM lectures WHERE id = ${id} AND user_id = ${userId}`
-  if (!lecture) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lecture not found' })
-  return { id: lecture.id as string, title: lecture.title as string }
 }
 
 /** What `lectures.delete` answers with. */
@@ -248,7 +239,7 @@ export const lecturesRouter = router({
     .input(lectureId)
     .query(async ({ ctx, input }): Promise<LectureDeletePreview> => {
       return withUser(ctx.userId, async (tx) => {
-        const lecture = await ownLecture(tx, ctx.userId, input, false)
+        const lecture = await requireOwnLecture(tx, ctx.userId, input)
         return (await planLectureDeletion(tx, ctx.userId, lecture)).preview
       })
     }),
@@ -275,12 +266,23 @@ export const lecturesRouter = router({
         // waits for this and then finds it gone, and once this holds the
         // lock every selection of it is committed and seen below. That is
         // why the board rows can go without each board's scope lock.
-        const lecture = await ownLecture(tx, ctx.userId, input.id, true)
+        const { id, title } = await requireOwnLecture(tx, ctx.userId, input.id, { forUpdate: true })
+        const lecture = { id, title }
         // And its recordings: an AI job writing to one (a transcript, the
         // summary, a study block) holds it FOR KEY SHARE while it does, so
         // this waits for that write and lists it, or the job waits and then
-        // finds the recording gone. Nothing lands after the list is made.
-        await tx`SELECT id FROM recordings WHERE lecture_id = ${lecture.id} AND user_id = ${ctx.userId} FOR UPDATE`
+        // finds the recording gone, so no AI job's write lands after the
+        // list is made. A tag, note or confidence rating the student adds
+        // to one of its moments at that same instant takes no lock and can
+        // still be left behind, pointing at nothing (harmless: no reader
+        // reaches it once its moment is gone).
+        const recordings = await tx`
+          SELECT id FROM recordings WHERE lecture_id = ${lecture.id} AND user_id = ${ctx.userId} ORDER BY id FOR UPDATE
+        `
+        // And the plan items made from its moments, in id order, so a
+        // concurrent change to one (marked done meanwhile) is either in the
+        // list or waits for the delete.
+        await lockDerivedPlanItems(tx, ctx.userId, recordings.map((r) => r.id as string))
         const plan = await planLectureDeletion(tx, ctx.userId, lecture)
         if (input.fingerprint !== undefined && input.fingerprint !== plan.preview.fingerprint) {
           throw new TRPCError({ code: 'CONFLICT', message: 'The lecture has changed since - check what will be deleted' })

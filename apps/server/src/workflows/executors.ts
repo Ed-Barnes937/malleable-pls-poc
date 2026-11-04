@@ -72,7 +72,16 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       }
 
       const audioUrl = (recording.audio_url as string | null) ?? ''
-      const segments = await transcriber.transcribe(path.join(uploadsDir(), path.basename(audioUrl)))
+      let segments: Awaited<ReturnType<typeof transcriber.transcribe>>
+      try {
+        segments = await transcriber.transcribe(path.join(uploadsDir(), path.basename(audioUrl)))
+      } catch (err) {
+        // Its lecture deleted while this ran: the audio file went with it,
+        // so a transcriber that reads it late fails. Not a failed job.
+        const [still] = await withUser(userId, (tx) => tx`SELECT 1 FROM recordings WHERE id = ${recordingId}`)
+        if (!still) return recordingDeleted(recordingId)
+        throw err
+      }
 
       const written = await withUser(userId, async (tx) => {
         if (!(await holdRecording(tx, recordingId))) return false

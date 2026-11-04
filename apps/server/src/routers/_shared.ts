@@ -64,17 +64,21 @@ export async function requireOwnBoard(tx: TxSql, userId: string, workspaceId: st
  * otherwise, for the same reason as `requireOwnBoard`: foreign keys skip
  * row-level security, so without it a recording or a board could point at
  * another student's lecture.
+ *
+ * `forUpdate` locks it FOR UPDATE instead (deleting it): every write that
+ * names it then waits, and finds it gone.
  */
 export async function requireOwnLecture(
   tx: TxSql,
   userId: string,
   lectureId: string,
-): Promise<{ id: string; course: string | null }> {
-  const [lecture] = await tx`
-    SELECT id, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE
-  `
+  { forUpdate = false }: { forUpdate?: boolean } = {},
+): Promise<{ id: string; title: string; course: string | null }> {
+  const [lecture] = forUpdate
+    ? await tx`SELECT id, title, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR UPDATE`
+    : await tx`SELECT id, title, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE`
   if (!lecture) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lecture not found' })
-  return { id: lecture.id as string, course: (lecture.course as string | null) ?? null }
+  return { id: lecture.id as string, title: lecture.title as string, course: (lecture.course as string | null) ?? null }
 }
 
 /**
