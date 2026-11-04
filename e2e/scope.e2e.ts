@@ -205,9 +205,10 @@ test.describe('Header scope pickers', () => {
         [activity.x + activity.width / 2, activity.y + activity.height / 2])
       expect(hit).toBe('activity-button')
 
-      // The lecture title is cut short rather than pushing anything out, and still readable;
+      // The lecture title is cut short rather than pushing anything out, and still readable
+      // (5rem from 640 to 768, where the one-row header is tightest);
       // the tabs keep a floor (7rem) so the active board's name stays readable.
-      expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 96)
+      expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 80)
       expect(tabs.width).toBeGreaterThanOrEqual(112)
       // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
       expect(right(lastButton)).toBeLessThanOrEqual(width)
@@ -241,9 +242,10 @@ test.describe('Header scope pickers on a phone', () => {
   })
 })
 
-for (const width of [360, 390]) {
-  test.describe(`An unfiled lecture on a phone (${width}px)`, () => {
-    test.use({ viewport: { width, height: 800 }, hasTouch: true })
+for (const width of [360, 390, 640, 768, 1024]) {
+  test.describe(`An unfiled lecture at ${width}px`, () => {
+    const phone = width < 640
+    test.use({ viewport: { width, height: 800 }, hasTouch: phone })
 
     test('the header fits, and "Choose a course..." in the lecture menu files it', async ({ page, request }) => {
       const unfiled = await trpcMutation<{ id: string }>(request, 'lectures.create', { course: null, title: 'Guest talk on inherited disease' })
@@ -251,21 +253,31 @@ for (const width of [360, 390]) {
       const topBar = await openBoard(page, 'Evening Review')
       await topBar.expectScope('All courses', 'Guest talk on inherited disease', { timeout: 10000 })
 
-      // Every control of the header in view, whole (the "Choose a course" pill
-      // gives way to the menu here); nothing overflows or scrolls sideways.
-      await expect(page.getByTestId('lecture-file-course')).toBeHidden()
+      // The "Choose a course" pill only where the header has room (lg); the menu offers it everywhere.
+      if (width >= 1024) await expect(page.getByTestId('lecture-file-course')).toBeVisible()
+      else await expect(page.getByTestId('lecture-file-course')).toBeHidden()
       await expect(topBar.lectureMenuButton).toBeVisible()
-      // The board's scope controls (the tabs scroll on their own, by design).
-      const controls = await topBar.scopeGroup.evaluate((group) =>
-        [...group.querySelectorAll<HTMLElement>('button, select')]
-          .filter((el) => el.getClientRects().length > 0)
+      // Every control in the header whole and in view, except the board tabs,
+      // which scroll on their own by design; nothing scrolls sideways.
+      const controls = await topBar.root.evaluate((bar) => {
+        const inScroller = (el: HTMLElement) => {
+          for (let up = el.parentElement; up && up !== bar; up = up.parentElement) {
+            const overflowX = getComputedStyle(up).overflowX
+            if (overflowX === 'auto' || overflowX === 'scroll') return true
+          }
+          return false
+        }
+        return [...bar.querySelectorAll<HTMLElement>('button, select, a, input')]
+          .filter((el) => el.getClientRects().length > 0 && !inScroller(el))
           .map((el) => {
             const box = el.getBoundingClientRect()
-            return { name: el.getAttribute('aria-label') ?? el.textContent, left: box.left, right: box.right }
-          }))
+            return { name: el.getAttribute('aria-label') ?? el.textContent ?? el.tagName, left: box.left, right: box.right }
+          })
+      })
+      expect(controls.map((c) => c.name)).toEqual(expect.arrayContaining(['Course', 'Lecture', 'Lecture options']))
       for (const control of controls) {
-        expect(control.left, String(control.name)).toBeGreaterThanOrEqual(0)
-        expect(control.right, String(control.name)).toBeLessThanOrEqual(width)
+        expect(control.left, control.name).toBeGreaterThanOrEqual(0)
+        expect(control.right, control.name).toBeLessThanOrEqual(width)
       }
       expect(await topBar.scopeGroup.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
@@ -277,6 +289,7 @@ for (const width of [360, 390]) {
       expect((await trpcQuery<{ course: string | null }>(request, 'lectures.byId', unfiled.id)).course).toBe('physics')
       expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: unfiled.id })
       await topBar.expectScope('All courses', 'Guest talk on inherited disease')
+      await expect(page.getByTestId('lecture-file-course')).toHaveCount(0)
       await topBar.lectureMenuButton.click()
       await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
     })

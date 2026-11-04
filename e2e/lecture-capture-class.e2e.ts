@@ -1,6 +1,6 @@
 import { test, expect } from './test'
 import type { APIRequestContext } from '@playwright/test'
-import type { Lecture } from '../packages/substrate/src'
+import type { Lecture, PlanItem } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
@@ -36,9 +36,7 @@ async function board(request: APIRequestContext, name: string, lensTypes: string
 
 /** Every class block the student has (the reseeded week's included), so only the ones a test makes are on. */
 async function deleteAllClasses(request: APIRequestContext) {
-  const items = await trpcQuery<{ id: string; kind: string; subtype: string | null; course: string | null }[]>(
-    request, 'planItems.list', { kinds: ['commitment'] },
-  )
+  const items = await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['commitment'] })
   for (const item of items.filter(isClassBlock)) await trpcMutation(request, 'planItems.delete', item.id)
 }
 

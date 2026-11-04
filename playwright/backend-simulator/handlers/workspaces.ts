@@ -128,7 +128,9 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   // The one scope write, as on the server (see `writeBoardScope`).
   router.register('workspaces.setBoardScope', (input) => {
-    const { workspaceId, ...patch } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    const { workspaceId, courseTag, lectureId } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    // Only what the server's input schema accepts (never `courseFollowsLecture`).
+    const patch = { courseTag, lectureId }
     if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
     return writeBoardScope(db, workspaceId, patch)
   })

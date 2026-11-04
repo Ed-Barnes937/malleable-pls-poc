@@ -73,7 +73,9 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
       {showCourse && (
         <CoursePill courseTag={scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}
-      {showCourse && showLecture && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
+      {/* Decoration only: it gives way first where the one-row header is tightest (sm to md), so a
+          wide course ("All courses", "Chemistry") and the lecture still leave the buttons in view. */}
+      {showCourse && showLecture && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted sm:max-md:hidden" />}
       {showLecture && (
         <LecturePill
           courseTag={scope.courseTag}
@@ -170,8 +172,11 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         onChange={onChange}
         describe={describe}
         // A title is cut short before anything else in the bar, but always
-        // keeps a few words; "No lecture" is short and never cut.
-        className={current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0'}
+        // keeps a few words (a little less from sm to md, where the one-row
+        // header is tightest: a wide course such as "All courses" beside it
+        // must still leave the buttons in view); "No lecture" is short and
+        // never cut.
+        className={current ? 'max-w-[32ch] min-w-24 shrink sm:min-w-20 md:min-w-36' : 'shrink-0'}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}
@@ -423,7 +428,7 @@ function useFileLectureUnderCourse(): (lecture: Lecture, course: string) => void
 }
 
 /**
- * "Choose a course" beside a lecture filed under none (from `sm` up; the
+ * "Choose a course" beside a lecture filed under none (from `lg` up; the
  * lecture menu offers it at every width): picking one files it there. Gone
  * once the lecture has a course.
  */
@@ -439,8 +444,8 @@ function FileUnderCoursePill({ onFile }: { onFile: (course: string) => void }) {
       describe={(value) => (value
         ? { text: courseLabel(value), dotClassName: courseTone(value).stripe }
         : { text: 'Choose a course', muted: true })}
-      // Only where the header has room for it: on a phone the menu offers it.
-      className="hidden min-w-max shrink-0 sm:inline-flex"
+      // Only where the header has room for it (lg up): below that the menu offers it.
+      className="hidden min-w-max shrink-0 lg:inline-flex"
     >
       <option value="" disabled>Choose a course</option>
       {COURSES.map((c) => (
