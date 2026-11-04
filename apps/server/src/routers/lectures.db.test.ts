@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { insertRecording } from '../test-support/recordings'
+import { lockProbes } from '../test-support/locks'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -28,6 +29,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   let chem: string
   let unfiled: string
   let bobLecture: string
+  let locks: ReturnType<typeof lockProbes>
 
   const notFound = expect.objectContaining({ code: 'NOT_FOUND' })
   const badRequest = expect.objectContaining({ code: 'BAD_REQUEST' })
@@ -43,6 +45,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    locks = lockProbes(db.sql)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -171,50 +174,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       }
     })
 
-    /**
-     * Holds the board (FOR NO KEY UPDATE) and its scope rows (FOR UPDATE), as
-     * a scope write on it under way does, in a transaction of its own until
-     * `release`. `pid` is its backend.
-     */
-    const holdBoard = async (workspaceId: string) => {
-      let pid = 0
-      let held!: () => void
-      const holding = new Promise<void>((done) => { held = done })
-      let release!: () => void
-      const released = new Promise<void>((done) => { release = done })
-      const done = db.sql.begin(async (tx) => {
-        pid = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
-        await tx`SELECT id FROM workspaces WHERE id = ${workspaceId} FOR NO KEY UPDATE`
-        await tx`SELECT id FROM workspace_scopes WHERE workspace_id = ${workspaceId} FOR UPDATE`
-        held()
-        await released
-      })
-      await holding
-      return { pid, release: async () => { release(); await done } }
-    }
-    /** How many backends wait on `pid`, and how many wait on one of those. */
-    const waiting = async (pid: number) => (await db.sql`
-      SELECT
-        (SELECT count(*)::int FROM pg_stat_activity a WHERE ${pid}::int = ANY(pg_blocking_pids(a.pid))) AS on_it,
-        (SELECT count(*)::int FROM pg_stat_activity a WHERE EXISTS (
-          SELECT 1 FROM pg_stat_activity b
-          WHERE ${pid}::int = ANY(pg_blocking_pids(b.pid)) AND b.pid = ANY(pg_blocking_pids(a.pid))
-        )) AS behind_those
-    `)[0] as { on_it: number; behind_those: number }
-    /**
-     * Starts `write` and waits until it has either finished or is waiting
-     * behind the transaction blocked on `pid` (the course change): what it
-     * would read before then is the question each race test asks. Returns
-     * the write's outcome, still to come.
-     */
-    const settledOrBehind = async <T>(pid: number, write: () => Promise<T>): Promise<{ outcome: Promise<T> }> => {
-      let settled = false
-      const outcome = write().finally(() => { settled = true })
-      // Not left unhandled while the poll runs; awaited by the caller.
-      outcome.catch(() => {})
-      await expect.poll(async () => settled || (await waiting(pid)).behind_those === 1).toBe(true)
-      return { outcome }
-    }
+    /** Two fresh boards of Alice's, in the order a course change locks them. */
+    const twoBoards = async (courseTag?: string) => locks.inLockOrder([await board(courseTag), await board(courseTag)])
 
     it('a lecture moving course while another board selects it leaves no board showing it under its old course', async () => {
       const moving = await api().lectures.create({ course: 'physics', title: 'Moving' })
@@ -224,13 +185,13 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
 
       // A scope write on the board already showing it is under way, so the
       // course change waits partway, for that board.
-      const holder = await holdBoard(showing)
+      const holder = await locks.holdBoard(showing)
       try {
         const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
-        await expect.poll(async () => (await waiting(holder.pid)).on_it).toBe(1)
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
 
         // Meanwhile another board selects the lecture, and the change goes on.
-        const { outcome: selection } = await settledOrBehind(holder.pid, () =>
+        const { outcome: selection } = await locks.settledOrBehind(holder.pid, () =>
           api().workspaces.setBoardScope({ workspaceId: selecting, lectureId: moving.id }))
         await holder.release()
         await Promise.all([update, selection])
@@ -264,7 +225,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       await written
       try {
         const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
-        await expect.poll(async () => (await waiting(pid)).on_it).toBe(1)
+        await expect.poll(async () => (await locks.waiting(pid)).on_it).toBe(1)
         commit()
         await Promise.all([clearing, update])
       } finally {
@@ -284,13 +245,13 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       const to = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: moving.id })
       const ifBoardShows = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: null })
 
-      const holder = await holdBoard(showing)
+      const holder = await locks.holdBoard(showing)
       let restored
       try {
         const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
-        await expect.poll(async () => (await waiting(holder.pid)).on_it).toBe(1)
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
 
-        const { outcome: undo } = await settledOrBehind(holder.pid, () =>
+        const { outcome: undo } = await locks.settledOrBehind(holder.pid, () =>
           api().workspaces.restoreBoardScope({ workspaceId: undoing, to, ifBoardShows }))
         await holder.release()
         ;[, restored] = await Promise.all([update, undo])
@@ -302,6 +263,57 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       for (const ws of [showing, undoing]) {
         expect(await storedScope(ws)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
       }
+    })
+
+    it('a board changing course while its lecture moves course keeps the lecture only if it is in the new course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving, board narrowing' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      // An "All courses" board showing the lecture, about to narrow to its old course.
+      const narrowing = await board()
+      await api().workspaces.setBoardScope({ workspaceId: narrowing, lectureId: moving.id })
+
+      const holder = await locks.holdBoard(showing)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        const { outcome: narrowed } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: narrowing, courseTag: 'physics' }))
+        await holder.release()
+        await Promise.all([update, narrowed])
+      } finally {
+        await holder.release()
+      }
+
+      // The lecture is in chemistry now, so physics doesn't keep it.
+      expect(await storedScope(narrowing)).toEqual([['tag', 'physics']])
+      expect(await storedScope(showing)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+    })
+
+    it('a board moving to another lecture while a course change refiles it does not deadlock', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving, board moving on' })
+      const next = await api().lectures.create({ course: 'chemistry', title: 'Next' })
+      const [first, second] = await twoBoards('physics')
+      for (const ws of [first, second]) await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: moving.id })
+
+      // The course change has locked the first board's lecture row and waits for the second's.
+      const holder = await locks.holdLectureRow(second)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        // The first board moves on, and waits for the change at its lecture row.
+        const { outcome: moved } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: first, lectureId: next.id }))
+        await holder.release()
+        await Promise.all([update, moved])
+      } finally {
+        await holder.release()
+      }
+
+      expect(await storedScope(first)).toEqual([['lecture', next.id], ['tag', 'chemistry']])
+      expect(await storedScope(second)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
     })
 
     it('the database refuses a second row of one dimension', async () => {
@@ -397,6 +409,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       expect(await storedScope(other)).toEqual([['tag', 'biology']])
       expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])
 
+      // Unfiling it turns a course board showing it into "All courses", as
+      // selecting a lecture filed under no course does.
       await api().lectures.update({ id: lecture.id, course: null })
       expect(await storedScope(selected)).toEqual([['lecture', lecture.id]])
       expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])

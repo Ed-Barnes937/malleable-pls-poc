@@ -23,10 +23,20 @@ import { requireOwnLecture } from './_shared'
  * - Deleting a lecture (`lectures.delete`): the lecture FOR UPDATE, its
  *   recordings and derived plan items, then the lecture rows naming it
  *   (DELETE). No board lock.
+ * - Deleting a board (`workspaces.delete`): the board (`lockBoardScope`'s
+ *   lock), then its scope rows FOR UPDATE, lecture row then course row
+ *   (`lockBoardScopeRows`), then the delete, which cascades to those rows.
+ *   Without that explicit lock the cascade would reach them in the order
+ *   they lie on disk, course row first on boards written before the lecture
+ *   row was written first.
  * - A recording or resource written into a lecture (uploads, resources) and
  *   foreign key checks: the lecture FOR KEY SHARE, which conflicts only with
  *   deleting it. An upload that then selects the lecture takes the board and
  *   upgrades to FOR SHARE, which waits only for a course change or delete.
+ *
+ * A course change to no course (unfiling the lecture) turns a course board
+ * showing it into "All courses", as selecting a lecture filed under no
+ * course does in `writeBoardScope`; an "All courses" board keeps it.
  *
  * Why I1 holds: FOR SHARE conflicts with NO KEY UPDATE, so a scope write
  * and a course change of the same lecture run one after the other. A write
@@ -35,14 +45,28 @@ import { requireOwnLecture } from './_shared'
  * commit, and only then lists the boards showing it, so it refiles every
  * board they made show it, and none can start showing it until it commits.
  *
- * Why no deadlock: the course change and delete never wait for a board
- * lock, and a scope write holds no scope row while it waits for a lecture.
- * A board's rows are always locked lecture row first, then course row, and
- * a scope write touches only its own board. So a scope write waits for a
- * change only on the lecture, holding the board alone, and a change waits
- * for a scope write only on a scope row, which that write took after its
- * last lecture read: from then on it waits for nothing but its own board's
- * rows, which the change only reaches after the lecture row the write holds.
+ * Why no deadlock: the course change and lecture delete never wait for a
+ * board lock, and a scope write holds no scope row while it waits for a
+ * lecture. A board's rows are always locked lecture row first, then course
+ * row, and a scope write or board delete touches only its own board. So a
+ * scope write waits for a change only on the lecture, holding the board
+ * alone, and a change waits for a scope write only on a scope row, which
+ * that write took after its last lecture read: from then on it waits for
+ * nothing but its own board's rows, which the change only reaches after the
+ * lecture row the write holds. A board delete takes no lecture: it waits
+ * for a change or lecture delete only on the board's lecture row, holding no
+ * scope row yet, and once it holds that row they wait for it, holding none
+ * of that board's rows. Changes and deletes of different lectures share no
+ * scope row (a board shows one lecture).
+ *
+ * A future transaction that changes the course of several lectures (a class
+ * moving to another course takes its future lectures with it) must lock all
+ * of them FOR NO KEY UPDATE in a fixed order (by id) before it refiles any
+ * board. A scope write holds one lecture FOR SHARE and then waits for its
+ * board's rows: a change that had already refiled one lecture (holding
+ * board rows) and then waited for another lecture that write holds would
+ * deadlock with it, as would two such changes taking lectures in different
+ * orders.
  */
 
 /**
@@ -92,6 +116,21 @@ export async function lockBoardScope(tx: TxSql, userId: string, workspaceId: str
     SELECT id FROM workspaces WHERE id = ${workspaceId} AND user_id = ${userId} FOR NO KEY UPDATE
   `
   if (!board) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
+}
+
+/**
+ * Locks the board's scope rows FOR UPDATE in the protocol's order, lecture
+ * row then course row ('lecture' sorts before 'tag'), for a statement that
+ * would otherwise reach them in an order of its own (a cascade from deleting
+ * the board). The caller holds `lockBoardScope`.
+ */
+export async function lockBoardScopeRows(tx: TxSql, userId: string, workspaceId: string): Promise<void> {
+  await tx`
+    SELECT id FROM workspace_scopes
+    WHERE workspace_id = ${workspaceId} AND user_id = ${userId}
+    ORDER BY scope_type
+    FOR UPDATE
+  `
 }
 
 /**
