@@ -6,6 +6,7 @@ import {
   planTasks,
   sanitizeAdvice,
   weekLayout,
+  withSavingBlocks,
   type PlanAdvice,
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
@@ -60,11 +61,13 @@ export const planningRouter = router({
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
       }))
-      const tasks = planTasks(loaded.todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
+      // The plan as the student sees it: blocks they placed by hand still saving count as placed.
+      const plan = withSavingBlocks(loaded.rows, loaded.todos, input.saving)
+      const tasks = planTasks(plan.todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
       const { prefs } = loaded
       const timeZone = placementTimeZone(prefs, input.timeZone)
-      const layout = weekLayout(loaded.rows, week, {
+      const layout = weekLayout(plan.rows, week, {
         timeZone,
         studyHours: prefs.study_hours,
         studyMinPerDay: prefs.study_min_per_day,

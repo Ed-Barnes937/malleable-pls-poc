@@ -24,6 +24,7 @@ import {
   studyDays,
   suggestTaskSlots,
   weekLayout,
+  withSavingBlocks,
   type PlanTask,
 } from './planning'
 import type { PlanItem } from './types'
@@ -344,6 +345,31 @@ describe('planAutofillInput', () => {
     expect(planAutofillInput.safeParse({ ...base, to: base.from }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, to: iso(14, 0) }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
+  })
+
+  it('takes the blocks still saving, with their times normalised to UTC', () => {
+    const saving = [{ id: 'quiz', starts_at: '2026-11-02T09:00:00+00:00', ends_at: '2026-11-02T10:00:00Z' }]
+    expect(planAutofillInput.parse({ ...base, saving }).saving).toEqual([{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
+    expect(planAutofillInput.safeParse({ ...base, saving: [{ id: 'quiz', starts_at: 'soon', ends_at: iso(0, 10) }] }).success).toBe(false)
+  })
+})
+
+describe('withSavingBlocks', () => {
+  const shift = item({ id: 'shift', kind: 'commitment', starts_at: iso(0, 17), ends_at: iso(0, 22) })
+  const quiz = item({ id: 'quiz', kind: 'task', duration_min: 60 })
+  const lab = item({ id: 'lab', kind: 'task', duration_min: 120 })
+
+  it('counts a to-do still saving as placed at its time: busy that day, no longer to plan', () => {
+    const plan = withSavingBlocks([shift], [quiz, lab], [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
+    expect(plan.todos.map((t) => t.id)).toEqual(['lab'])
+    expect(plan.rows).toEqual([shift, { ...quiz, starts_at: iso(0, 9), ends_at: iso(0, 10) }])
+    expect(weekLayout(plan.rows, week, { timeZone: tz }).busy).toEqual([{ start: at(0, 9), end: at(0, 10), taskId: 'quiz' }])
+  })
+
+  it('ignores blocks for anything that is not one of the to-dos (already saved, or not theirs)', () => {
+    const plan = withSavingBlocks([shift], [lab], [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }, { id: 'shift', starts_at: iso(1, 9), ends_at: iso(1, 10) }])
+    expect(plan).toEqual({ rows: [shift], todos: [lab] })
+    expect(withSavingBlocks([shift], [lab])).toEqual({ rows: [shift], todos: [lab] })
   })
 })
 

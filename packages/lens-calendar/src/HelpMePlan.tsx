@@ -19,6 +19,7 @@ import {
   suggestTaskSlots,
   type PlanItemOccurrence,
   type PlanTask,
+  type SavingBlock,
   type StudyHours,
   type WeekLayout,
 } from '@pls/substrate'
@@ -78,6 +79,11 @@ export interface HelpMePlanPanelProps {
   layer: ProposalLayer
   /** Open to-dos with no time yet (null while loading). */
   todos: PlanItemOccurrence[] | null
+  /**
+   * Blocks given to to-dos by hand that are still saving (gone from `todos`,
+   * already on the grid): Auto-fill's advice counts them as placed.
+   */
+  saving: ReadonlyArray<SavingBlock>
   /** Auto-fill's state, owned by the Calendar so it survives closing the panel. */
   autofill: AutofillState
   onAutofillChange: (next: AutofillState) => void
@@ -109,7 +115,7 @@ const SOURCE = 'autofill'
  * the student accepts them.
  */
 export function HelpMePlanPanel({
-  layout, weekLabel, now, layer, todos: loaded, autofill, onAutofillChange: setAutofill,
+  layout, weekLabel, now, layer, todos: loaded, saving, autofill, onAutofillChange: setAutofill,
   onClose, onCollapse, onSchedule, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
@@ -175,6 +181,7 @@ export function HelpMePlanPanel({
         to: new Date(asked.week.end).toISOString(),
         timeZone: asked.timeZone,
         estimates,
+        saving: [...saving],
       })
       // The same week, as it is now (the student may have moved to another week meanwhile: keep the one asked about).
       const current = latest.current

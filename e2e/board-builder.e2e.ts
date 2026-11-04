@@ -191,6 +191,34 @@ test.describe('Building a board', () => {
     expect(Math.abs(second.y - first.y)).toBeLessThan(1)
   })
 
+  test("a widget added while a new board's widgets are still loading goes in that board's first spot, not around the last board's", async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    // The board that opens first (In Lecture) fills the top-left of the board.
+    await expect(grid.panels.first()).toBeVisible()
+    const emptyBoardSpot = await (async () => {
+      const canvas = (await grid.root.boundingBox())!
+      return { x: canvas.x + 24, y: canvas.y + 24 }
+    })()
+
+    // The new board's widget list is held back until the widget has been added.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/workspaces.panels**', async (route) => { await held; await route.continue() })
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.expectActiveWorkspace('My week')
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('To-do')
+    release()
+
+    await grid.expectPanelCount(1)
+    const box = await settledBox(grid.panelByLabel('To-do'))
+    expect(Math.abs(box.x - emptyBoardSpot.x)).toBeLessThan(30)
+    expect(Math.abs(box.y - emptyBoardSpot.y)).toBeLessThan(30)
+  })
+
   test('fullscreen sits above other widgets and does not survive a reload', async ({ page }) => {
     const { grid } = await buildBiologyBoard(page)
     const transcript = grid.panelByLabel('Transcript')

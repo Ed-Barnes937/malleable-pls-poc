@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { PanelManifest } from '@pls/lens-framework'
 import { useCanvasStore, type PanelItem } from '@pls/panel-system'
 
@@ -33,6 +33,9 @@ function buildItem(p: PanelRow, manifests: PanelManifest[]): PanelItem {
  * Syncs DB panel rows into the canvas store.
  * Full sync on workspace switch; incremental add/remove thereafter so
  * user-dragged positions aren't overwritten before they're persisted.
+ *
+ * Returns the board whose panels the canvas store holds: until a newly
+ * opened board's rows arrive, the store still holds the last board's.
  */
 export function usePanelSync(
   activeWorkspaceId: string | null,
@@ -42,6 +45,7 @@ export function usePanelSync(
 ) {
   const setPanels = useCanvasStore((s) => s.setPanels)
   const syncedWorkspaceRef = useRef<string | null>(null)
+  const [syncedWorkspace, setSyncedWorkspace] = useState<string | null>(null)
 
   useEffect(() => {
     if (!panels) return
@@ -50,6 +54,7 @@ export function usePanelSync(
       syncedWorkspaceRef.current = activeWorkspaceId
       const items = panels.map((p) => buildItem(p, manifests))
       setPanels(items)
+      setSyncedWorkspace(activeWorkspaceId)
 
       // Auto-organize if all panels are stacked at the same position (migration default)
       if (items.length > 1 && items.every((p) => p.pos_x === items[0].pos_x && p.pos_y === items[0].pos_y)) {
@@ -73,4 +78,6 @@ export function usePanelSync(
       if (!dbIds.has(p.id)) store.removePanel(p.id)
     }
   }, [panels, activeWorkspaceId, setPanels, manifests])
+
+  return syncedWorkspace
 }

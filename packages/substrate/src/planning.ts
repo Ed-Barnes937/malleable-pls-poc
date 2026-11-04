@@ -592,10 +592,43 @@ export const planAutofillInput = z.object({
   timeZone: z.string().min(1).max(100).refine(isTimeZone, { message: 'Unknown time zone' }),
   /** Lengths the student accepted as assumed for to-dos with no estimate. */
   estimates: z.record(z.string().max(255), z.number().int().min(5).max(24 * 60)).optional(),
+  /**
+   * Blocks the student just gave to-dos by hand that are still on their way
+   * to the server: the advice counts them as placed (see `withSavingBlocks`).
+   */
+  saving: z.array(z.object({ id: z.string().max(255), starts_at: isoDateTime, ends_at: isoDateTime })).max(100).optional(),
 }).refine((q) => Date.parse(q.from) < Date.parse(q.to), { message: 'from must be before to' })
   .refine((q) => Date.parse(q.to) - Date.parse(q.from) <= 8 * 24 * 60 * MINUTE_MS, { message: 'plan at most a week at a time' })
 
 export type PlanAutofillInput = z.input<typeof planAutofillInput>
+
+/** A to-do's block placed by hand that the server may not have yet. */
+export interface SavingBlock {
+  id: string
+  starts_at: string
+  ends_at: string
+}
+
+/**
+ * The plan as the student sees it while blocks they placed by hand are still
+ * saving: each of `saving` that is still one of `todos` (open, no time yet)
+ * leaves the to-dos and joins the week's `rows` at its time. One the server
+ * already has (or that isn't one of `todos`) changes nothing, so a client can
+ * only describe its own to-dos, never add busy time of its own.
+ */
+export function withSavingBlocks<R extends Row, T extends Row & Todo>(
+  rows: ReadonlyArray<R>,
+  todos: ReadonlyArray<T>,
+  saving: ReadonlyArray<SavingBlock> = [],
+): { rows: (R | T)[]; todos: T[] } {
+  const at = new Map(saving.map((s) => [s.id, s]))
+  const placed = todos.filter((t) => at.has(t.id))
+  if (placed.length === 0) return { rows: [...rows], todos: [...todos] }
+  return {
+    rows: [...rows, ...placed.map((t) => ({ ...t, starts_at: at.get(t.id)!.starts_at, ends_at: at.get(t.id)!.ends_at }))],
+    todos: todos.filter((t) => !at.has(t.id)),
+  }
+}
 
 function isTimeZone(timeZone: string): boolean {
   try {

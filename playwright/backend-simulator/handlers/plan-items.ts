@@ -22,6 +22,7 @@ import {
   refitPreviewInput,
   refitRange,
   withDefaults,
+  withSavingBlocks,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -148,8 +149,11 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const now = clock()
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
-    const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
-    const todos = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
+    const { rows, todos } = withSavingBlocks(
+      expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }),
+      all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null),
+      q.saving,
+    )
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)
