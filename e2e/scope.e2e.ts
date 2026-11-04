@@ -1,8 +1,9 @@
 import { test, expect } from './test'
-import type { Locator, Page } from '@playwright/test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
+import { trpcMutation, trpcQuery } from './api'
 
 /**
  * The board header's scope pickers: a course pill for every board with a
@@ -14,8 +15,9 @@ import { apiUrl } from './ports'
  * ignore the lecture, so it shows Course only.
  *
  * Every choice is one `setBoardScope`, and the server keeps the board rule:
- * a selected lecture brings its course, and a course change (including
- * "All courses") clears a lecture outside it.
+ * a board's lecture belongs to its course, unless the board is "All
+ * courses", which stays so whatever lecture is chosen; a course change
+ * clears a lecture outside it; "All courses" keeps any lecture.
  *
  * Also run in WebKit (`playwright.config.ts`): the pills are transparent
  * native selects over a styled label, so this checks Safari hits them too.
@@ -26,6 +28,14 @@ const ORGANIC = 'Chemistry Lecture: Organic Reactions'
 
 test.beforeEach(async () => { await reseed() })
 test.afterAll(async () => { await reseed() })
+
+async function boardScope(request: APIRequestContext, workspaceId: string) {
+  const rows = await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', workspaceId)
+  return {
+    course: rows.find((r) => r.scope_type === 'tag')?.scope_value ?? null,
+    lecture: rows.find((r) => r.scope_type === 'lecture')?.scope_value ?? null,
+  }
+}
 
 async function openBoard(page: Page, name: string) {
   await page.goto('/')
@@ -83,34 +93,66 @@ test.describe('Header scope pickers', () => {
     await topBar.expectScope('Chemistry', null, { timeout: 10000 })
   })
 
-  test('"All courses" clears a lecture filed under a course', async ({ page }) => {
+  test('"All courses" keeps a lecture filed under a course; the lecture pill clears it', async ({ page, request }) => {
     const topBar = await openBoard(page, 'Evening Review')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
     await topBar.selectCourse('All courses')
-    await topBar.expectScope('All courses', null)
+    await topBar.expectScope('All courses', DNA)
     await expect(topBar.courseSelect).toHaveValue('')
-    await expect(topBar.lectureSelect).toHaveValue('')
+    await expect(topBar.lectureSelect).toHaveValue('lec-rec-bio-4')
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: 'lec-rec-bio-4' })
+    await page.reload()
+    await topBar.expectScope('All courses', DNA, { timeout: 10000 })
+    await topBar.selectLecture('No lecture')
+    await topBar.expectScope('All courses', null)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: null })
   })
 
-  test('on an "All courses" board, choosing a lecture brings its course and persists', async ({ page }) => {
+  test('on an "All courses" board, choosing a lecture keeps "All courses" and persists', async ({ page, request }) => {
     const topBar = await openBoard(page, 'Evening Review')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
     await topBar.selectCourse('All courses')
-    await topBar.expectScope('All courses', null)
+    await topBar.expectScope('All courses', DNA)
 
-    // Every lecture is listed; choosing Chemistry's brings its course.
+    // Every lecture is listed; choosing Chemistry's keeps "All courses".
     await topBar.selectLecture(ORGANIC)
-    await topBar.expectScope('Chemistry', ORGANIC)
-    // Only Chemistry's lectures are offered now.
-    await expect(topBar.lectureSelect.locator('option')).toHaveText(['No lecture', `${ORGANIC} · 9 Apr`])
+    await topBar.expectScope('All courses', ORGANIC)
+    // Every course's lectures are still offered.
+    await expect(topBar.lectureSelect.locator('option', { hasText: DNA })).toHaveCount(1)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: 'lec-rec-chem-1' })
 
-    // And back to a Biology one from "All courses".
-    await topBar.selectCourse('All courses')
+    // And a Biology one, still "All courses".
     await topBar.selectLecture(DNA)
-    await topBar.expectScope('Biology', DNA)
+    await topBar.expectScope('All courses', DNA)
 
     await page.reload()
-    await topBar.expectScope('Biology', DNA, { timeout: 10000 })
+    await topBar.expectScope('All courses', DNA, { timeout: 10000 })
+
+    // Choosing the lecture's own course keeps it; the board now has that course.
+    await topBar.selectCourse('Biology')
+    await topBar.expectScope('Biology', DNA)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: 'biology', lecture: 'lec-rec-bio-4' })
+  })
+
+  test('a lecture filed under no course offers "Choose a course"; filing it keeps the board "All courses"', async ({ page, request }) => {
+    const unfiled = await trpcMutation<{ id: string }>(request, 'lectures.create', { course: null, title: 'Guest talk' })
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: unfiled.id })
+    const topBar = await openBoard(page, 'Evening Review')
+    await topBar.expectScope('All courses', 'Guest talk', { timeout: 10000 })
+    const fileUnder = topBar.scopeGroup.getByRole('combobox', { name: 'File this lecture under a course' })
+    await expect(page.getByTestId('lecture-file-course').getByTestId('scope-pill-text')).toHaveText('Choose a course')
+
+    const saved = page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
+    await fileUnder.selectOption({ label: 'Physics' })
+    expect((await saved).ok()).toBe(true)
+    await expect(fileUnder).toHaveCount(0)
+    await topBar.expectScope('All courses', 'Guest talk')
+    expect((await trpcQuery<{ course: string | null }>(request, 'lectures.byId', unfiled.id)).course).toBe('physics')
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: unfiled.id })
+
+    await page.reload()
+    await topBar.expectScope('All courses', 'Guest talk', { timeout: 10000 })
+    await expect(fileUnder).toHaveCount(0)
   })
 
   test('renaming the lecture inline renames it in the pill and the Transcript', async ({ page }) => {

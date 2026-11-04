@@ -98,15 +98,23 @@ describe('classForCapture', () => {
     expect(match('2026-10-26T09:44:59Z')).toBeNull()
     expect(match('2026-10-26T12:00:01Z')).toBeNull()
     expect(match('2026-10-26T11:00:00Z', 'chemistry')).toBeNull()
-    expect(match('2026-10-26T11:00:00Z', null)).toBeNull()
   })
 
-  it('on "All courses" (no course) only a class with no course matches; a shift never does', () => {
+  it('on "All courses" (no course) a class on matches, whatever its course; a shift never does', () => {
     const talk = item({ id: 'talk', course: null, starts_at: '2026-10-21T17:00:00.000Z', ends_at: '2026-10-21T18:00:00.000Z' })
     const shift = item({ id: 'shift', subtype: 'shift', course: null, starts_at: '2026-10-21T16:00:00.000Z', ends_at: '2026-10-21T20:00:00.000Z' })
     const when = at('2026-10-21T17:30:00Z')
     expect(classForCapture(rowsAround([talk, shift], when), { course: null, at: when })?.id).toBe('talk')
     expect(classForCapture(rowsAround([shift], when), { course: null, at: when })).toBeNull()
+    const bioAt = at('2026-10-26T11:00:00Z')
+    expect(classForCapture(rowsAround([bio], bioAt), { course: null, at: bioAt })?.id).toBe('bio')
+  })
+
+  it('on "All courses", of several classes on at once the one that started last, as with a course', () => {
+    const when = at('2026-10-26T11:30:00Z')
+    const chem = item({ id: 'chem', course: 'chemistry', starts_at: '2026-10-26T11:15:00.000Z', ends_at: '2026-10-26T12:30:00.000Z' })
+    expect(classForCapture(rowsAround([bio, chem], when), { course: null, at: when })?.id).toBe('chem')
+    expect(classForCapture(rowsAround([bio, { ...chem, status: 'dismissed' }], when), { course: null, at: when })?.id).toBe('bio')
   })
 
   it('skips classes that are not open, and of overlapping ones takes the one that started last', () => {

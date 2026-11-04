@@ -69,7 +69,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   })
 
   describe('setBoardScope', () => {
-    it('selecting a lecture brings its course, in one write', async () => {
+    it('on a board with a course, selecting a lecture brings its course, in one write', async () => {
       const ws = await board('biology')
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })).toEqual({ courseTag: 'chemistry', lectureId: chem })
       expect(await storedScope(ws)).toEqual([['lecture', chem], ['tag', 'chemistry']])
@@ -79,6 +79,17 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       const ws = await board('biology')
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled })).toEqual({ courseTag: null, lectureId: unfiled })
       expect(await storedScope(ws)).toEqual([['lecture', unfiled]])
+    })
+
+    it('on an "All courses" board, selecting a lecture keeps "All courses"', async () => {
+      const ws = await board()
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })).toEqual({ courseTag: null, lectureId: chem })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })).toEqual({ courseTag: null, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
+      // Naming "All courses" with the lecture is the same, from any board.
+      const course = await board('physics')
+      expect(await api().workspaces.setBoardScope({ workspaceId: course, courseTag: null, lectureId: chem }))
+        .toEqual({ courseTag: null, lectureId: chem })
     })
 
     it('accepts a lecture with its own course, and rejects one with another course, writing nothing', async () => {
@@ -92,21 +103,25 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
     it('a course change keeps a lecture in it and clears one outside it', async () => {
       const ws = await board()
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'biology' })).toEqual({ courseTag: 'biology', lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'chemistry' })).toEqual({ courseTag: 'chemistry', lectureId: null })
       expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
     })
 
-    it('"All courses" clears a lecture that has a course and keeps one filed under none', async () => {
-      const ws = await board()
+    it('changing to "All courses" keeps the lecture, and so does staying "All courses"', async () => {
+      const ws = await board('biology')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
-      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: null })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: unfiled })
+      await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: chem })
     })
 
     it('clearing the lecture keeps the course; an empty patch changes nothing', async () => {
-      const ws = await board()
+      const ws = await board('biology')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws })).toEqual({ courseTag: 'biology', lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: null })).toEqual({ courseTag: 'biology', lectureId: null })
@@ -151,7 +166,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
         expect(types).toEqual([...new Set(types)])
         const lectureId = rows.find(([type]) => type === 'lecture')?.[1] ?? null
         const course = rows.find(([type]) => type === 'tag')?.[1] ?? null
-        if (lectureId) expect(course).toBe((await api().lectures.byId(lectureId))!.course)
+        // A board with a course shows only a lecture of it; "All courses" may show any.
+        if (lectureId && course) expect(course).toBe((await api().lectures.byId(lectureId))!.course)
       }
     })
 
@@ -171,7 +187,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
 
   describe('workspaces.scopes', () => {
     it('returns the stored course and lecture rows only (no recording row)', async () => {
-      const ws = await board()
+      const ws = await board('chemistry')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
       const rows = await api().workspaces.scopes(ws)
       expect(rows.map((r) => [r.scope_type, r.scope_value])).toEqual([['lecture', bio], ['tag', 'biology']])
@@ -221,26 +237,36 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       expect(await storedScope(ws)).toEqual([['lecture', lecture.id], ['tag', 'chemistry']])
     })
 
+    it('create on an "All courses" board selects the lecture and the board stays "All courses"', async () => {
+      const ws = await board()
+      const lecture = await api().lectures.create({ course: 'chemistry', title: 'Lab', workspaceId: ws })
+      expect(await storedScope(ws)).toEqual([['lecture', lecture.id]])
+    })
+
     it("create on another student's board is NOT_FOUND and creates nothing", async () => {
       const ws = await board()
       await expect(caller(bob).lectures.create({ course: null, title: 'Sneaky', workspaceId: ws })).rejects.toEqual(notFound)
       expect((await caller(bob).lectures.list()).map((l) => l.title)).not.toContain('Sneaky')
     })
 
-    it('update renames, and a course change re-scopes every board that has the lecture selected', async () => {
+    it('update renames, and a course change re-scopes every board with a course that has the lecture selected', async () => {
       const lecture = await api().lectures.create({ course: 'biology', title: 'Old name' })
-      const selected = await board()
+      const selected = await board('biology')
       const other = await board('biology')
+      const allCourses = await board()
       await api().workspaces.setBoardScope({ workspaceId: selected, lectureId: lecture.id })
+      await api().workspaces.setBoardScope({ workspaceId: allCourses, lectureId: lecture.id })
 
       expect(await api().lectures.update({ id: lecture.id, title: 'New name' })).toMatchObject({ title: 'New name', course: 'biology' })
       const moved = await api().lectures.update({ id: lecture.id, course: 'physics' })
       expect(moved).toMatchObject({ title: 'New name', course: 'physics' })
       expect(await storedScope(selected)).toEqual([['lecture', lecture.id], ['tag', 'physics']])
       expect(await storedScope(other)).toEqual([['tag', 'biology']])
+      expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])
 
       await api().lectures.update({ id: lecture.id, course: null })
       expect(await storedScope(selected)).toEqual([['lecture', lecture.id]])
+      expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])
     })
 
     it("update of another student's lecture is NOT_FOUND", async () => {

@@ -166,7 +166,9 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
         expect(ids.size).toBe(1)
         expect(results.filter((r) => r.created)).toHaveLength(1)
         expect((await lecturesOf(bioClass)).filter((l) => l.class_date === date)).toHaveLength(1)
-        for (const workspaceId of boards) expect(await storedScope(workspaceId)).toEqual([['lecture', [...ids][0]], ['tag', 'biology']])
+        // The course board takes the lecture's course; the "All courses" one stays so.
+        expect(await storedScope(boards[0])).toEqual([['lecture', [...ids][0]]])
+        expect(await storedScope(boards[1])).toEqual([['lecture', [...ids][0]], ['tag', 'biology']])
       }
     })
 
@@ -178,6 +180,14 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
       // Again: nothing changes, and before equals after.
       const again = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: '2026-11-09', workspaceId: ws })
       expect(again.board!.before).toEqual(again.board!.after)
+    })
+
+    it('on an "All courses" board, selects the lecture and the board stays "All courses"', async () => {
+      const ws = await board()
+      const { lecture, board: scope } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: '2026-11-16', workspaceId: ws })
+      expect(lecture.course).toBe('biology')
+      expect(scope).toEqual({ before: { courseTag: null, lectureId: null }, after: { courseTag: null, lectureId: lecture.id } })
+      expect(await storedScope(ws)).toEqual([['lecture', lecture.id]])
     })
 
     it('rejects a date the class is not on, and a commitment that is not a class', async () => {
@@ -243,17 +253,42 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
       const unmatched = await api().lectures.create({ course: 'biology', startsAt: new Date('2026-11-23T10:30:00Z') })
       expect(unmatched.class_item_id).toBeNull()
       // A shift is never a class, even on an "All courses" board.
-      const unfiled = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-11-23T12:30:00Z') })
+      const unfiled = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-11-23T13:30:00Z') })
       expect(unfiled.class_item_id).toBeNull()
     })
 
-    it('a lab with a course counts; on an "All courses" board only a class with no course does', async () => {
+    it('a lab with a course counts; on an "All courses" board a class on does, whatever its course', async () => {
       const lab = await api().lectures.create({ course: 'chemistry', matchClass: true, startsAt: new Date('2026-11-30T11:15:00Z') })
       expect(lab).toMatchObject({ class_item_id: chemLab, class_date: '2026-11-30' })
       const talk = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-10-21T17:30:00Z') })
       expect(talk).toMatchObject({ class_item_id: guestTalk, course: null })
-      const notBio = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-11-30T09:30:00Z') })
-      expect(notBio.class_item_id).toBeNull()
+      // Biology alone is on (the lab starts at 11:00): its lecture, under Biology.
+      const bio = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-11-30T10:30:00Z') })
+      expect(bio).toMatchObject({ class_item_id: bioClass, class_date: '2026-11-30', course: 'biology' })
+    })
+
+    it('on an "All courses" board: the class lecture is selected and the board stays "All courses"', async () => {
+      const ws = await board()
+      const lecture = await api().lectures.create({ course: null, matchClass: true, workspaceId: ws, startsAt: new Date('2026-12-07T10:30:00Z') })
+      expect(lecture).toMatchObject({ class_item_id: bioClass, class_date: '2026-12-07', course: 'biology', title: 'Biology lecture · Mon 7 Dec' })
+      expect(await storedScope(ws)).toEqual([['lecture', lecture.id]])
+      // The calendar finds the same lecture.
+      expect(await api().lectures.forClassOccurrence({ planItemId: bioClass, date: '2026-12-07' }))
+        .toMatchObject({ created: false, lecture: { id: lecture.id } })
+    })
+
+    it('on an "All courses" board at a changeover: the class that started last, as on a course board', async () => {
+      const ws = await board()
+      // 11:30: Biology (10:00-12:00) and the Chemistry lab (11:00-13:00) are both on.
+      const lecture = await api().lectures.create({ course: null, matchClass: true, workspaceId: ws, startsAt: new Date('2026-12-14T11:30:00Z') })
+      expect(lecture).toMatchObject({ class_item_id: chemLab, class_date: '2026-12-14', course: 'chemistry' })
+      expect(await storedScope(ws)).toEqual([['lecture', lecture.id]])
+      // 10:50: the lab's 15-minute lead has begun while Biology runs; the lab started last.
+      const early = await api().lectures.create({ course: null, matchClass: true, startsAt: new Date('2026-12-21T10:50:00Z') })
+      expect(early).toMatchObject({ class_item_id: chemLab, class_date: '2026-12-21' })
+      // A course board still takes only its own course's class.
+      const bioBoard = await api().lectures.create({ course: 'biology', matchClass: true, startsAt: new Date('2026-12-21T11:30:00Z') })
+      expect(bioBoard).toMatchObject({ class_item_id: bioClass, class_date: '2026-12-21' })
     })
 
     it('racing captures and calendar clicks for one occurrence make one lecture', async () => {
@@ -274,7 +309,7 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
 
   describe('lectures.create selectIfBoardShows (a create that lands late)', () => {
     it('still selects when the board shows what it did when the capture started', async () => {
-      const ws = await board()
+      const ws = await board('biology')
       const made = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: null })
       expect(await storedScope(ws)).toEqual([['lecture', made.id], ['tag', 'physics']])
       const next = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: made.id })
@@ -282,7 +317,7 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
 
     it('leaves a board an upload selected meanwhile alone, and still returns the lecture', async () => {
-      const ws = await board()
+      const ws = await board('biology')
       const uploaded = await upload(alice, { 'x-recording-course': 'physics', 'x-workspace-id': ws, 'x-select-on-board': '1' })
       expect(uploaded.body.selected).toBe(true)
       const late = await api().lectures.create({ course: 'physics', workspaceId: ws, selectIfBoardShows: null })
@@ -291,7 +326,7 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
 
     it('replaces a lecture that is gone', async () => {
-      const ws = await board()
+      const ws = await board('physics')
       const gone = await api().lectures.create({ course: 'chemistry', workspaceId: ws })
       await db.sql`DELETE FROM lectures WHERE id = ${gone.id}`
       const made = await api().lectures.create({ course: 'biology', workspaceId: ws, selectIfBoardShows: null })
@@ -311,14 +346,14 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     it('keeps a change made since, elsewhere, and writes nothing', async () => {
       const ws = await board('chemistry')
       const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(1), workspaceId: ws })
-      await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })
+      await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null, lectureId: null })
       expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
         .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
       expect(await storedScope(ws)).toEqual([])
     })
 
     it('brings back a lecture refiled under another course since, with its course now', async () => {
-      const ws = await board()
+      const ws = await board('physics')
       const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
       const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(2), workspaceId: ws })
       expect(change!.before).toEqual({ courseTag: 'physics', lectureId: earlier.id })
@@ -328,13 +363,32 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
 
     it('puts back just the course when the lecture it showed is gone', async () => {
-      const ws = await board()
+      const ws = await board('physics')
       const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
       const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(3), workspaceId: ws })
       await db.sql`DELETE FROM lectures WHERE id = ${earlier.id}`
       expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
         .toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: null } })
       expect(await storedScope(ws)).toEqual([['tag', 'physics']])
+    })
+
+    it('on an "All courses" board, puts back the lecture it showed and keeps "All courses"', async () => {
+      const ws = await board()
+      const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
+      const { lecture, board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(4), workspaceId: ws })
+      expect(change).toEqual({ before: { courseTag: null, lectureId: earlier.id }, after: { courseTag: null, lectureId: lecture.id } })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: null, lectureId: earlier.id } })
+      expect(await storedScope(ws)).toEqual([['lecture', earlier.id]])
+    })
+
+    it('puts a course board back exactly after a class with no course made it "All courses"', async () => {
+      const ws = await board('physics')
+      const earlier = await api().lectures.create({ course: 'physics', workspaceId: ws })
+      const { lecture, board: change } = await api().lectures.forClassOccurrence({ planItemId: guestTalk, date: '2026-10-21', workspaceId: ws })
+      expect(change).toEqual({ before: { courseTag: 'physics', lectureId: earlier.id }, after: { courseTag: null, lectureId: lecture.id } })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: earlier.id } })
     })
 
     it('refuses an unknown course, as setBoardScope does, and writes nothing', async () => {
@@ -365,7 +419,7 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     })
 
     it('leaves a board that shows another lecture alone, but replaces one that is gone', async () => {
-      const ws = await board()
+      const ws = await board('chemistry')
       const other = await api().lectures.create({ course: 'chemistry', workspaceId: ws })
       const kept = await upload(alice, { 'x-recording-course': 'biology', 'x-workspace-id': ws, 'x-select-on-board': '1' })
       expect(kept.body.selected).toBe(false)

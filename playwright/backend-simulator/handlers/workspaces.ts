@@ -144,8 +144,12 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
       return { restored: false, scope: current }
     }
-    const lectureThere = !!to.lectureId && db.lectures.some((l) => l.id === to.lectureId)
-    const patch = lectureThere ? { lectureId: to.lectureId } : { courseTag: to.courseTag, lectureId: null }
+    const lecture = to.lectureId ? db.lectures.find((l) => l.id === to.lectureId) : undefined
+    const patch = !lecture
+      ? { courseTag: to.courseTag, lectureId: null }
+      : to.courseTag === null
+        ? { courseTag: null, lectureId: lecture.id }
+        : { lectureId: lecture.id, courseFollowsLecture: true }
     return { restored: true, scope: writeBoardScope(db, workspaceId, patch) }
   })
 }

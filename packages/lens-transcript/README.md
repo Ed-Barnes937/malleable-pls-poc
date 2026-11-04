@@ -13,7 +13,7 @@ Lens for reviewing and annotating learning material transcripts.
 
 ## Scope
 
-`lectureId: 'target'` - shows the board's lecture one part at a time ("Part 1", "Part 2"; a moment opens the part it is in), or "No recording yet" when it has none. Without a lecture: "Pick a lecture", with the course's 5 latest lectures as one-click choices. `courseTag: 'filter'` - narrows that list; the board keeps its lecture inside its course (choosing a lecture brings its course, and a course change clears a lecture outside it).
+`lectureId: 'target'` - shows the board's lecture one part at a time ("Part 1", "Part 2"; a moment opens the part it is in), or "No recording yet" when it has none. Without a lecture: "Pick a lecture", with the course's 5 latest lectures as one-click choices. `courseTag: 'filter'` - narrows that list; the board keeps its lecture inside its course when it has one (choosing a lecture brings its course, and a course change clears a lecture outside it); an "All courses" board stays so whatever lecture is chosen.
 
 ## Moments
 

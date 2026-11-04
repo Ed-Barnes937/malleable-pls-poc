@@ -73,8 +73,8 @@ function courseName(course: string | null): string {
 
 /**
  * The shell side of `LensProps.onShowMoment`: select the moment's lecture on
- * a board (in one `setBoardScope`, so the board course becomes the lecture's
- * course) and publish the moment to widgets that declare `showsMoments`
+ * a board (in one `setBoardScope`, so a board with a course takes the
+ * lecture's course; an "All courses" board stays so) and publish the moment to widgets that declare `showsMoments`
  * (they read it as `LensProps.focusedMoment`, scroll to it and highlight it).
  *
  * Shown on the active board when it has a moment viewer. Otherwise it
@@ -82,7 +82,8 @@ function courseName(course: string | null): string {
  * so in a toast that offers the way back. Showing a moment from another
  * lecture than the board showed changes the board's lecture, and with it
  * maybe its course (a Chemistry moment on a Biology board makes it a
- * Chemistry board), so that says so too, with a way back to what it showed.
+ * Chemistry board; an "All courses" board keeps "All courses"), so that says
+ * so too, with a way back to what it showed.
  */
 export function useShowMoment(
   activeWorkspaceId: string | null,
@@ -188,11 +189,14 @@ export function useShowMoment(
 
       const leaving = previous.lectureId
       const course = previous.courseTag ?? null
-      // Nothing to say when the board showed no lecture and keeps its course.
-      if (!leaving && course === lectureCourse) return 'shown'
+      // Nothing to say when the board showed no lecture and keeps its course
+      // (an "All courses" board always does).
+      if (!leaving && (course === null || course === lectureCourse)) return 'shown'
       // The board's lecture (and maybe its course) changed under the student,
       // e.g. a weak topic from another lecture: say so, and offer what it
-      // showed. Going back to a lecture brings its course back with it.
+      // showed. Going back names both, so the board returns to exactly what it
+      // showed (a lecture refiled since can't go back: "Couldn't go back").
+      const backToLecture = (lecture: string) => ({ courseTag: course, lectureId: lecture })
       const [toTitle, fromTitle] = await Promise.all([
         lectureTitle(lectureId),
         leaving ? lectureTitle(leaving) : Promise.resolve(undefined),
@@ -207,7 +211,7 @@ export function useShowMoment(
           ? {
               label: fromTitle ? `Back to ${fromTitle}` : 'Back to the last lecture',
               icon: ChevronLeft,
-              onClick: goBack(workspaceId, { lectureId: leaving }),
+              onClick: goBack(workspaceId, backToLecture(leaving)),
             }
           : {
               label: `Back to ${courseName(course)}`,

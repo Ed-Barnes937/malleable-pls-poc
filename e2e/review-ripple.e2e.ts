@@ -49,7 +49,7 @@ async function demoLikeBoard(request: APIRequestContext, { calendar = true } = {
   for (const p of panels.filter((panel) => calendar || panel.lensType !== 'calendar')) {
     await trpcMutation(request, 'workspaces.addPanel', { workspaceId: board.id, slotName: p.lensType, ...p })
   }
-  // The lecture brings its course (Biology).
+  // The board shows the Biology lecture and stays "All courses".
   await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: board.id, lectureId: 'lec-rec-bio-4' })
 }
 

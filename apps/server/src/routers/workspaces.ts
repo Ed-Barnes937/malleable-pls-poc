@@ -234,8 +234,9 @@ export const workspacesRouter = router({
   /**
    * Sets the board's course and/or lecture in one transaction (absent =
    * unchanged, null = clear), enforcing the board scope invariants (see
-   * `writeBoardScope`): a selected lecture brings its course, and a course
-   * change clears a lecture outside it. Returns the board's scope after.
+   * `writeBoardScope`): on a board with a course a selected lecture brings
+   * its course (an "All courses" board stays so), and a course change
+   * clears a lecture outside it. Returns the board's scope after.
    */
   setBoardScope: publicProcedure
     .input(z.object({
