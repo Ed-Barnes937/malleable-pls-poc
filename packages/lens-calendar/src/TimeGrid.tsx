@@ -582,6 +582,15 @@ export function TimeGrid({
                     )
                   })}
 
+                  {isToday && (
+                    <div
+                      data-testid="calendar-now-line"
+                      aria-hidden
+                      className="pointer-events-none absolute inset-x-0 h-0.5 bg-confused"
+                      style={{ top: (wallMinutes(now) / 60) * hourPx - 1 }}
+                    />
+                  )}
+
                   {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
                     <GhostBlock
                       key={seg.key}
@@ -660,13 +669,13 @@ export function TimeGrid({
                   )}
 
                   {isToday && (
+                    // Only the dot sits over the blocks: the line is drawn under them (see calendar-now-line), so it never strikes through a title.
                     <div
                       data-testid="calendar-now"
                       className="pointer-events-none absolute inset-x-0 z-20 flex items-center"
                       style={{ top: (wallMinutes(now) / 60) * hourPx - 5 }}
                     >
                       <span className="-ml-[5px] h-2.5 w-2.5 shrink-0 rounded-full bg-confused" />
-                      <span className="h-0.5 flex-1 bg-confused" />
                     </div>
                   )}
                 </div>
