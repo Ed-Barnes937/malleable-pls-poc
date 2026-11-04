@@ -103,10 +103,37 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
   it('gives up on a job that does not finish, naming it, before it deletes anything', async () => {
     const runId = await claimReviewJob()
     await expect(reseed({ jobsSettleMs: 300 })).rejects.toThrow(
-      new RegExp(`job runs did not finish within 300ms: ${runId} \\(plan:review-task, running, retry 0, `),
+      new RegExp(`job runs did not finish within 300ms of being due: ${runId} \\(plan:review-task, running, retry 0, `),
     )
     expect(await count(sql`SELECT count(*)::int AS n FROM job_runs WHERE id = ${runId}`)).toBe(1)
     await sql`UPDATE job_runs SET status = 'failed', completed_at = now() WHERE id = ${runId}`
+  })
+
+  it('does not wait for a run not due until well after the wait, and deletes it', async () => {
+    // The week-later quiz a "confusing" tag queues (wfj-confused-quiz).
+    const [{ id: runId }] = await sql`
+      INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, run_after)
+      VALUES ('dev-user-1', 'wf-confused-search', 'wfj-confused-quiz', 'schedule:quiz', now() + interval '7 days')
+      RETURNING id
+    `
+    await expect(reseed({ jobsSettleMs: 300 })).resolves.toBeUndefined()
+    expect(await count(sql`SELECT count(*)::int AS n FROM job_runs WHERE id = ${runId}`)).toBe(0)
+  })
+
+  it('waits for a run that falls due during the wait', async () => {
+    const [{ id: runId }] = await sql`
+      INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, run_after)
+      VALUES ('dev-user-1', 'wf-confused-review', 'wfj-confused-review', 'plan:review-task', now() + interval '30 seconds')
+      RETURNING id
+    `
+    let settled = false
+    const reseeding = reseed({ jobsSettleMs: 60_000 }).finally(() => { settled = true })
+    await expect.poll(checkingJobs).toBeGreaterThan(0)
+    expect(settled).toBe(false)
+    expect(await count(sql`SELECT count(*)::int AS n FROM job_runs WHERE id = ${runId}`)).toBe(1)
+    // The runner claims it when due, and it finishes.
+    await sql`UPDATE job_runs SET status = 'completed', completed_at = now() WHERE id = ${runId}`
+    await expect(reseeding).resolves.toBeUndefined()
   })
 
   it('does not deadlock with a resource edit still saving', async () => {

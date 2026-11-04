@@ -101,27 +101,38 @@ export async function reseed({ now = Date.now(), jobsSettleMs = JOBS_SETTLE_MS }
 }
 
 /**
- * Waits until none of the student's job runs can still change (pending,
- * running, retrying). A run the last test started, such as the review job a
- * "confusing" tag queues, writes under rows reseed deletes, in its own lock
- * order: reseeding alongside it deadlocks, or leaves its writes in the fresh
- * seed. The e2e fixture (e2e/test.ts) lets the last test's requests finish
- * first, so no new runs are queued meanwhile. Fails, naming the runs, if they
- * have not finished after `timeoutMs`.
+ * Waits until none of the student's job runs can still change while reseed
+ * deletes them: none running, and none pending that is due or falls due
+ * within `settleMs` (the runner would claim it meanwhile). A run the last
+ * test started, such as the review job a "confusing" tag queues, writes
+ * under rows reseed deletes, in its own lock order: reseeding alongside it
+ * deadlocks, or leaves its writes in the fresh seed. Runs due later, such as
+ * the week-later quiz the same tag queues, are just deleted. The e2e fixture
+ * (e2e/test.ts) lets the last test's requests finish first, so no new runs
+ * are queued meanwhile.
+ *
+ * Each run gets `settleMs` from when it is due, or from now if it already
+ * is (so the wait is at most twice `settleMs`). Fails, naming the runs, if
+ * they have not finished by then.
  */
-async function untilJobsFinish(sql: Sql, timeoutMs: number) {
-  const deadline = Date.now() + timeoutMs
+async function untilJobsFinish(sql: Sql, settleMs: number) {
+  // On the database's clock, as run_after is.
+  const [{ started, windowEnd }] = await sql`
+    SELECT now() AS started, now() + ${settleMs + 'ms'}::interval AS "windowEnd"
+  `
   for (;;) {
     const unfinished = await sql`
-      SELECT id, job_type, status, retry_count, run_after FROM job_runs
+      SELECT id, job_type, status, retry_count, run_after, now() AS checked FROM job_runs
       WHERE user_id = 'dev-user-1' AND status NOT IN ('completed', 'failed')
+        AND (status <> 'pending' OR run_after <= ${windowEnd})
       ORDER BY created_at
     `
     if (unfinished.length === 0) return
-    if (Date.now() >= deadline) {
+    const due = Math.max((started as Date).getTime(), ...unfinished.map((run: Sql) => (run.run_after as Date).getTime()))
+    if ((unfinished[0].checked as Date).getTime() >= due + settleMs) {
       const runs = unfinished.map((run: Sql) =>
         `${run.id} (${run.job_type}, ${run.status}, retry ${run.retry_count}, run after ${(run.run_after as Date).toISOString()})`)
-      throw new Error(`reseed: the student's job runs did not finish within ${timeoutMs}ms: ${runs.join('; ')}`)
+      throw new Error(`reseed: the student's job runs did not finish within ${settleMs}ms of being due: ${runs.join('; ')}`)
     }
     // Checked again shortly: the job runner claims queued runs every 2s.
     await new Promise((resolve) => setTimeout(resolve, 100))
