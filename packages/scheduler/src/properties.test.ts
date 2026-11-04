@@ -229,4 +229,40 @@ describe('scheduler properties', () => {
     const plain = capacity(free, tasks, { now, existingPlacements: existing })
     expect(c.freeMin).toBeLessThanOrEqual(plain.freeMin)
   })
+  eachSeed('with split, every task is placed whole or in sessions that keep every rule, or not at all', (seed) => {
+    const { free, existing, tasks, now, prefs, alignMin } = scenario(seed)
+    const dailyBudget = { minutesPerDay: [30, 60, 120, 240][seed % 4], timeZone: prefs.timeZone }
+    const minSessionMin = [15, 30][seed % 2]
+    const gapMin = 10
+    const opts = { now, existingPlacements: existing, dailyBudget, gapMin, alignMin, split: { minSessionMin } }
+    const { placements, unplaced } = place(tasks, free, opts)
+    const fixedUsed = minutesByDay(existing, prefs.timeZone)
+    const newUsed = minutesByDay(placements, prefs.timeZone)
+    for (const [day, min] of newUsed) {
+      expect(min + (fixedUsed.get(day) ?? 0)).toBeLessThanOrEqual(Math.max(dailyBudget.minutesPerDay, fixedUsed.get(day) ?? 0) + 1e-9)
+    }
+    const g = gapMin * MINUTE_MS
+    for (const p of placements) {
+      const task = tasks.find((t) => t.id === p.taskId)!
+      expect(inside(p, free)).toBe(true)
+      expect(p.start).toBeGreaterThanOrEqual(Math.max(now, task.earliest ?? now))
+      expect(p.end).toBeLessThanOrEqual(task.latest ?? Infinity)
+      expect(minutesByDay([p], prefs.timeZone).size).toBe(1)
+      for (const e of existing) expect(overlaps(p, { start: e.start - g, end: e.end + g })).toBe(false)
+      for (const q of placements) if (q !== p) expect(overlaps(p, { start: q.start - g, end: q.end + g })).toBe(false)
+    }
+    const ids = new Set(placements.map((p) => p.taskId))
+    for (const id of ids) {
+      const task = tasks.find((t) => t.id === id)!
+      const sessions = placements.filter((p) => p.taskId === id)
+      // Adds up exactly; split only into sessions of at least the minimum.
+      expect(sessions.reduce((sum, p) => sum + (p.end - p.start), 0)).toBe(task.durationMin * MINUTE_MS)
+      if (sessions.length > 1) for (const p of sessions) expect(p.end - p.start).toBeGreaterThanOrEqual(minSessionMin * MINUTE_MS)
+      expect(sessions.map((p) => p.start)).toEqual([...sessions.map((p) => p.start)].sort((a, b) => a - b))
+      expect(unplaced.some((u) => u.taskId === id && u.reason !== 'duplicate-id')).toBe(false)
+    }
+    expect(unplaced.some((u) => u.reason === 'over-daily-budget')).toBe(false)
+    // Idempotent: its own result fed back changes nothing.
+    expect(place(tasks, free, { ...opts, existingPlacements: [...existing, ...placements] })).toEqual({ placements, unplaced })
+  })
 })
