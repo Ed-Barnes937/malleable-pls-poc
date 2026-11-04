@@ -18,8 +18,8 @@ export class TopBarPom {
   /** What the course and lecture pills read. */
   readonly coursePill: Locator
   readonly lecturePill: Locator
-  /** The pencil beside the lecture pill (only with a lecture selected). */
-  readonly renameLectureButton: Locator
+  /** The "..." beside the lecture pill (only with a lecture selected): Rename, Delete. */
+  readonly lectureMenuButton: Locator
   /** "Tuesday · Chemistry 14:00 · ...": today at a glance, on wide screens and (short) on a phone. */
   readonly todayLine: Locator
 
@@ -33,7 +33,7 @@ export class TopBarPom {
     this.lectureSelect = this.scopeGroup.getByRole('combobox', { name: 'Lecture' })
     this.coursePill = this.scopeGroup.getByTestId('scope-course').getByTestId('scope-pill-text')
     this.lecturePill = this.scopeGroup.getByTestId('scope-lecture').getByTestId('scope-pill-text')
-    this.renameLectureButton = this.scopeGroup.getByRole('button', { name: 'Rename lecture' })
+    this.lectureMenuButton = this.scopeGroup.getByRole('button', { name: 'Lecture options' })
     this.todayLine = this.root.getByTestId('today-line')
   }
 
@@ -63,9 +63,15 @@ export class TopBarPom {
     await this.saving(this.lectureSelect, () => this.lectureSelect.selectOption(value))
   }
 
-  /** Renames the board's lecture inline (the pencil beside the lecture pill), and waits for the server to have it. */
+  /** Chooses an item ("Rename this lecture...", "Delete this lecture...") from the lecture's menu. */
+  async chooseLectureAction(name: string) {
+    await this.lectureMenuButton.click()
+    await this.page.getByRole('menu', { name: 'Lecture options' }).getByRole('menuitem', { name }).click()
+  }
+
+  /** Renames the board's lecture inline (from the menu beside the lecture pill), and waits for the server to have it. */
   async renameLecture(title: string) {
-    await this.renameLectureButton.click()
+    await this.chooseLectureAction('Rename this lecture...')
     const field = this.scopeGroup.getByRole('textbox', { name: 'Lecture name' })
     await expect(field).toBeFocused()
     await field.fill(title)

@@ -96,7 +96,12 @@ export {
 export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
-export { defaultLectureTitle } from './lectures'
+export {
+  defaultLectureTitle,
+  isEmptyLectureDeletion,
+  lectureDeletionFingerprintSource,
+  type LectureDeletePreview,
+} from './lectures'
 export {
   CLASS_CAPTURE_LEAD_MIN,
   captureClassRange,

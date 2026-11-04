@@ -20,6 +20,8 @@ export {
   useLectures,
   useLecture,
   useUpdateLecture,
+  useLectureDeletePreview,
+  useDeleteLecture,
   usePlanItemList,
   usePreferences,
   useRecentJobs,

@@ -100,6 +100,16 @@ capture or file, the same on every try) makes a retry return the recording
 an earlier try saved instead of a second copy. DB-backed tests:
 `TEST_DATABASE_URL=... pnpm test class-lectures.db`.
 
+`deletePreview` / `delete` remove a lecture and everything only there
+because of it (`src/routers/_lecture-deletion.ts`): recordings, transcripts,
+the marks on them (polymorphic rows, deleted by `deleteRecordingData`, the
+one place to add a new target type), unfinished plan items made from its
+moments (finished ones stay, unlinked), resources and every board's
+selection of it. `delete` takes the preview's `fingerprint` and is CONFLICT
+if anything changed since; audio files go from disk after the commit
+(`src/uploaded-files.ts`). AI jobs whose recording is gone finish as quiet
+skips. Tests: `lecture-delete.db`.
+
 ## Preferences (`preferences.get`, `preferences.update`)
 
 The student's study rhythm, one row per user in `user_preferences` (migration 016, RLS like every table): `study_hours` (`{ mon..sun: { start, end } | null }`, local `HH:MM`, `24:00` allowed as an end, `null` = no study that day), `study_min_per_day` and `time_zone`. A NULL column means the default (09:00-22:00 every day, 2h a day, no zone: callers use their own). `get` returns it with the defaults filled in; `update` takes any subset (`preferencesUpdateInput` in `@pls/substrate`), `null` resetting a field. Every automatic placement reads it server-side (`src/preferences/store.ts`): Auto-fill, re-fit and the confusion automation. Manual create and drag ignore it. DB-backed tests: `TEST_DATABASE_URL=... pnpm test preferences.db`.

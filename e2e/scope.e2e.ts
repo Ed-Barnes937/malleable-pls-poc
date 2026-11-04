@@ -117,7 +117,7 @@ test.describe('Header scope pickers', () => {
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
 
-    await topBar.renameLectureButton.click()
+    await topBar.chooseLectureAction('Rename this lecture...')
     const name = topBar.scopeGroup.getByRole('textbox', { name: 'Lecture name' })
     await expect(name).toBeFocused()
     await expect(name).toHaveValue(DNA)
@@ -146,7 +146,7 @@ test.describe('Header scope pickers', () => {
       const tabs = await box(topBar.root.getByTestId('board-tabs'))
       const course = await box(topBar.scopeGroup.getByTestId('scope-course'))
       const lecture = await box(topBar.scopeGroup.getByTestId('scope-lecture'))
-      const rename = await box(topBar.renameLectureButton)
+      const rename = await box(topBar.lectureMenuButton)
       const activity = await box(page.getByTestId('activity-button'))
       const lastButton = await box(page.getByTestId('organize-button'))
 
