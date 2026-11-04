@@ -177,7 +177,7 @@ test.describe('Header scope pickers', () => {
   // From the phone layout's edge (640px) to a small laptop: the pills keep
   // their minimum and the tabs give way, so nothing sits on top of anything
   // (a tap on Activity must not open the Lecture picker).
-  for (const width of [640, 768, 1024]) {
+  for (const width of [640, 700, 768, 1024]) {
     test(`at ${width}px the header fits and nothing overlaps: tabs, both pills, the right-hand buttons`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       const topBar = await openBoard(page, 'In Lecture')
@@ -210,6 +210,13 @@ test.describe('Header scope pickers', () => {
       // the tabs keep a floor (7rem) so the active board's name stays readable.
       expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 80)
       expect(tabs.width).toBeGreaterThanOrEqual(112)
+      // The tabs give way first: the lecture is above its floor where there
+      // is room for it, and while its title is cut short the tabs are at
+      // theirs. (Shrinking is proportional, so the pill gives up a few px
+      // alongside the tabs: "cut short" is more than about two characters.)
+      if (width < 768) expect(lecture.width).toBeGreaterThan(80)
+      const titleCut = await topBar.lecturePill.evaluate((text) => text.scrollWidth - text.clientWidth > 16)
+      if (titleCut) expect(tabs.width).toBeLessThanOrEqual(112.5)
       // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
       expect(right(lastButton)).toBeLessThanOrEqual(width)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
