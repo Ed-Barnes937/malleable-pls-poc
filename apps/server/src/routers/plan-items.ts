@@ -10,6 +10,7 @@ import {
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
+  CLOSED_WITH_TODO,
   SESSION_SOURCE_TYPE,
   isSession,
 } from '@pls/substrate'
@@ -43,26 +44,41 @@ async function setStatus(tx: TransactionSql, userId: string, planItemId: string,
 
 /**
  * A to-do booked in sessions is ticked off (or dismissed) once: its sessions
- * follow. Done or dismissed takes its open sessions with it; reopening it
- * reopens the ones still ahead (past sessions stay as they were, so they
- * never come back as "didn't happen"). A new title or course (`course`, as
- * patched) carries over too. Sessions fire no events of their own.
+ * follow (see @pls/substrate sessions).
+ * - Done or dismissed closes its open sessions, marked `CLOSED_WITH_TODO`.
+ * - Reopening it reopens just those, and only the ones still ahead (a past
+ *   one would come back as "didn't happen"); one the student ticked on its
+ *   own stays ticked.
+ * - A new title, course (`course`, as patched) or due time carries over.
+ * - A session whose own status changes loses the mark: that is the
+ *   student's choice now.
+ * Cascaded changes fire no workflow events.
  */
 async function cascadeToSessions(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem, course?: string | null) {
-  if (after.kind !== 'task' || isSession(after)) return
+  if (after.kind !== 'task') return
+  if (isSession(after)) {
+    if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) {
+      await tx`UPDATE plan_items SET subtype = NULL WHERE id = ${after.id} AND user_id = ${userId}`
+    }
+    return
+  }
   const owned = tx`user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${after.id}`
   if (before.title !== after.title) await tx`UPDATE plan_items SET title = ${after.title}, updated_at = now() WHERE ${owned}`
+  if (before.due_at !== after.due_at) await tx`UPDATE plan_items SET due_at = ${after.due_at}, updated_at = now() WHERE ${owned}`
   if (course !== undefined) {
     for (const s of await tx`SELECT id FROM plan_items WHERE ${owned}`) await setCourse(tx, userId, s.id as string, course)
   }
   if (before.status === after.status) return
   if (after.status === 'open') {
     await tx`
-      UPDATE plan_items SET status = 'open', updated_at = now()
-      WHERE ${owned} AND status = ${before.status} AND ends_at > now()
+      UPDATE plan_items SET status = CASE WHEN ends_at > now() THEN 'open' ELSE status END, subtype = NULL, updated_at = now()
+      WHERE ${owned} AND subtype = ${CLOSED_WITH_TODO}
     `
   } else {
-    await tx`UPDATE plan_items SET status = ${after.status}, updated_at = now() WHERE ${owned} AND status = 'open'`
+    await tx`
+      UPDATE plan_items SET status = ${after.status}, subtype = ${CLOSED_WITH_TODO}, updated_at = now()
+      WHERE ${owned} AND status = 'open'
+    `
   }
 }
 

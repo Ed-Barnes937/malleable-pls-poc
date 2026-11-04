@@ -87,6 +87,17 @@ describe('place with split', () => {
     ])
   })
 
+  it('keeps the gap between two sessions even when their free gaps nearly touch', () => {
+    // Free 09:00-10:00 and 10:01-12:00 (say, a due time at 10:00): the second session starts 10 minutes clear.
+    const gaps = [{ start: at(0, 9), end: at(0, 10) }, { start: at(0, 10) + MINUTE_MS, end: at(0, 12) }]
+    const r = place([{ id: 'a', durationMin: 120 }], gaps, { now: MON, split, gapMin: 10, alignMin: 5, dailyBudget: { minutesPerDay: 240, timeZone: tz } })
+    expect(r.placements.map(span)).toEqual([[9, 10], [10 + 10 / 60, 11 + 10 / 60]])
+    // Touching pieces (a free stretch cut at midnight) keep it too.
+    const night = [{ start: at(0, 22), end: at(1, 2) }]
+    const n = place([{ id: 'b', durationMin: 180 }], night, { now: MON, split, gapMin: 10, dailyBudget: { minutesPerDay: 120, timeZone: tz } })
+    expect(n.placements.map(span)).toEqual([[22, 24], [24 + 0.25, 24 + 1.25]])
+  })
+
   it('is idempotent when its sessions are fed back in', () => {
     const tasks = [{ id: 'lab', durationMin: 180 }]
     const first = place(tasks, free, { now: MON, dailyBudget: budget, split })

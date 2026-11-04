@@ -262,12 +262,14 @@ const MAX_SPLIT_STEPS = 20_000
  * time order: for a given number of sessions the first set found is the one
  * whose gaps are earliest. Each session takes as much of its gap as it can,
  * leaving at least the minimum for each one after it, so earlier days fill
- * first.
+ * first. A session starts at least `gapMs` after the one before it, even
+ * when their free gaps nearly touch (or touch, cut at midnight).
  */
 function splitSessions(
   w: Window,
   avail: Availability,
   alignMs: number,
+  gapMs: number,
   split: SplitOptions,
 ): Interval[] | undefined {
   const minMs = split.minSessionMin * MINUTE_MS
@@ -297,21 +299,21 @@ function splitSessions(
     for (let i = from; i <= units.length - count; i++) {
       if (++steps > MAX_SPLIT_STEPS || suffix[i] < remaining) return undefined
       const u = units[i]
-      // Touching pieces (cut at midnight) would run two sessions back to back.
-      if (u.start <= prevEnd) continue
-      const room = Math.min(u.capMs, avail.budgetLeftMs(u.day) - used(u.day))
+      // Never closer than the gap to the session before it.
+      const start = Math.max(u.start, Math.ceil((prevEnd + gapMs) / alignMs) * alignMs)
+      const room = Math.min(u.end - start, u.capMs, avail.budgetLeftMs(u.day) - used(u.day))
       const after = count - 1
       if (after === 0) {
-        if (remaining <= room) return [{ start: u.start, end: u.start + remaining }]
+        if (remaining <= room) return [{ start, end: start + remaining }]
         continue
       }
       const take = Math.floor(Math.min(room, remaining - after * minMs) / alignMs) * alignMs
       if (take < minMs) continue
-      const end = u.start + take
+      const end = start + take
       if (u.day !== undefined) dayUsed.set(u.day, used(u.day) + take)
       const rest = search(i + 1, after, remaining - take, end)
       if (u.day !== undefined) dayUsed.set(u.day, used(u.day) - take)
-      if (rest) return [{ start: u.start, end }, ...rest]
+      if (rest) return [{ start, end }, ...rest]
     }
     return undefined
   }
@@ -388,7 +390,7 @@ export function place(
     }
     const blocks = start !== undefined
       ? [{ start, end: start + w.durMs }]
-      : opts.split && splitSessions(w, avail, alignMs, opts.split)
+      : opts.split && splitSessions(w, avail, alignMs, (opts.gapMin ?? 0) * MINUTE_MS, opts.split)
     if (!blocks) {
       unplaced.push({ taskId: task.id, reason: 'no-free-slot' })
       continue

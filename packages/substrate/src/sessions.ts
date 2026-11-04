@@ -5,13 +5,25 @@
  * `source_type = 'plan_item'`, `source_id = <to-do id>`. The to-do itself
  * stays unscheduled, keeps its total estimate (`duration_min`) and is ticked
  * off once; ticking it, dismissing it or deleting it does the same to its
- * sessions. A to-do's booked time is the sum of its sessions' lengths.
+ * open sessions (and a new title, course or due time carries over), while a
+ * session can still be ticked on its own. A to-do's booked time is the sum
+ * of its sessions' lengths. Each session fires its own plan-item workflow
+ * events when it is changed directly; changes cascaded from the to-do fire
+ * none.
  *
  * A to-do booked in one block is unchanged: its own row carries the time.
  */
 import type { NewPlanItem, PlanItem } from './types'
 
 export const SESSION_SOURCE_TYPE = 'plan_item'
+
+/**
+ * The `subtype` of a session that was closed because its to-do was ticked
+ * off or dismissed (not by the student ticking the session itself), so
+ * reopening the to-do reopens exactly those. Cleared when it reopens, or when
+ * the session's own status is changed directly.
+ */
+export const CLOSED_WITH_TODO = 'closed-with-to-do'
 
 /** Auto-fill never splits a to-do into sessions shorter than this. */
 export const MIN_SESSION_MIN = 30

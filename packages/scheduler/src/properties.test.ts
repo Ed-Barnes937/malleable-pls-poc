@@ -8,7 +8,7 @@ import { capacity } from './capacity'
 import { freeSlots, type DayWindow } from './free-slots'
 import { wallClock, zonedTimeToUtc } from './time'
 import { minutesByDay, splitByLocalDay } from './budget'
-import { MINUTE_MS, normalize, type Interval } from './intervals'
+import { MINUTE_MS, normalize, subtract, type Interval } from './intervals'
 import { place, suggestSlots, type ExistingPlacement, type SchedulerTask } from './place'
 
 /** mulberry32: tiny seeded PRNG. */
@@ -230,7 +230,13 @@ describe('scheduler properties', () => {
     expect(c.freeMin).toBeLessThanOrEqual(plain.freeMin)
   })
   eachSeed('with split, every task is placed whole or in sessions that keep every rule, or not at all', (seed) => {
-    const { free, existing, tasks, now, prefs, alignMin } = scenario(seed)
+    const { free: wholeFree, existing, tasks, now, prefs, alignMin } = scenario(seed)
+    // Half the seeds also cut one-minute holes (like due times) into the free time, so gaps nearly touch.
+    const holes = seed % 2 === 0 ? [] : wholeFree.flatMap((g) => {
+      const mid = g.start + Math.floor((g.end - g.start) / 2 / MINUTE_MS) * MINUTE_MS
+      return mid > g.start ? [{ start: mid, end: mid + MINUTE_MS }] : []
+    })
+    const free = subtract(wholeFree, holes)
     const dailyBudget = { minutesPerDay: [30, 60, 120, 240][seed % 4], timeZone: prefs.timeZone }
     const minSessionMin = [15, 30][seed % 2]
     const gapMin = 10

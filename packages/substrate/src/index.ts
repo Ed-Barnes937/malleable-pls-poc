@@ -68,6 +68,7 @@ export {
 } from './planning'
 
 export {
+  CLOSED_WITH_TODO,
   MIN_SESSION_MIN,
   SESSION_SOURCE_TYPE,
   bookedMinutes,

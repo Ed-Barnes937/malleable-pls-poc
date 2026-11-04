@@ -22,6 +22,7 @@ import {
   refitPreviewInput,
   refitRange,
   withDefaults,
+  CLOSED_WITH_TODO,
   bookedMinutes,
   isSession,
   sessionParentId,
@@ -126,16 +127,24 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
 
   const sessionsOf = (todoId: string) => db.planItems.filter((p) => sessionParentId(p) === todoId)
 
-  /** As the server's `cascadeToSessions`: a to-do's sessions follow its status, title and course. */
+  /** As the server's `cascadeToSessions`: a to-do's sessions follow its status, title, course and due time. */
   const cascadeToSessions = (before: StoredPlanItem, after: StoredPlanItem, course?: string | null) => {
-    if (after.kind !== 'task' || isSession(after)) return
+    if (after.kind !== 'task') return
+    if (isSession(after)) {
+      if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) after.subtype = null
+      return
+    }
     const at = new Date().toISOString()
     for (const s of sessionsOf(after.id)) {
       if (before.title !== after.title) Object.assign(s, { title: after.title, updated_at: at })
+      if (before.due_at !== after.due_at) Object.assign(s, { due_at: after.due_at, updated_at: at })
       if (course !== undefined) setCourse(s.id, course)
       if (before.status === after.status) continue
-      const reopen = after.status === 'open' && s.status === before.status && Date.parse(s.ends_at!) > clock()
-      if (reopen || (after.status !== 'open' && s.status === 'open')) Object.assign(s, { status: after.status, updated_at: at })
+      if (after.status === 'open' && s.subtype === CLOSED_WITH_TODO) {
+        Object.assign(s, { status: Date.parse(s.ends_at!) > clock() ? 'open' : s.status, subtype: null, updated_at: at })
+      } else if (after.status !== 'open' && s.status === 'open') {
+        Object.assign(s, { status: after.status, subtype: CLOSED_WITH_TODO, updated_at: at })
+      }
     }
   }
 
