@@ -244,9 +244,10 @@ describe('layoutGroup', () => {
     // The row would need shrinking (1160 + gaps > 1100); Audio Capture over Transcript | Resources fits at defaults.
     const view = { width: 1100, height: 700 }
     const [r, t, res] = layoutGroup(capture, view)
-    expect([r!.width, t!.width, res!.width]).toEqual([420, 420, 360])
+    // Audio Capture keeps its own 380 in the 420 column it shares with Transcript.
+    expect([r!.width, t!.width, res!.width]).toEqual([380, 420, 360])
     expect(t!.x).toBe(r!.x)
-    expect(res!.x).toBe(r!.x + r!.width + 20)
+    expect(res!.x).toBe(t!.x + t!.width + 20)
     expectTidy([r!, t!, res!], view)
   })
 
@@ -279,10 +280,11 @@ describe('layoutGroup', () => {
     const [r, t, res] = layoutGroup(capture, view)
     expect(r!.x).toBe(t!.x)
     expect(t!.y).toBe(r!.y + r!.height + 20)
-    expect(res!.x).toBe(r!.x + r!.width + 20)
+    expect(res!.x).toBe(t!.x + t!.width + 20)
     expect(res!.y).toBe(20)
-    // The column is as wide as its widest member; both share it.
-    expect(r!.width).toBe(t!.width)
+    // The column is as wide as its widest member (Transcript, shrunk to 396); Audio Capture keeps its 380.
+    expect(t!.width).toBe(396)
+    expect(r!.width).toBe(380)
     // Heights fill the view, shared in proportion to default heights (280 : 380).
     expect(t!.y + t!.height).toBeGreaterThanOrEqual(679)
     expect(res!.height).toBe(660)
@@ -332,6 +334,49 @@ describe('layoutGroup', () => {
     // No scroll, no change.
     const roomy = { width: 1440, height: 800 }
     expect(layoutGroup(capture, roomy, { scrollbarWidth: 30 })).toEqual(layoutGroup(capture, roomy))
+  })
+
+  describe('in a window too short for any layout', () => {
+    const calendar = { width: 900, height: 760, minWidth: 520, minHeight: 420 }
+    const todo = { width: 360, height: 440, minWidth: 280, minHeight: 220 }
+    const comingUp = { width: 360, height: 320, minWidth: 260, minHeight: 200 }
+
+    it('picks the layout that runs past the view least, not one long column', () => {
+      // 1280x327: only the Calendar's minimum (420) runs past the view; columns or one column would run further.
+      const view = { width: 1280, height: 327 }
+      const [cal, td, cu] = layoutGroup([calendar, todo, comingUp], view)
+      expect([cal!.y, td!.y, cu!.y]).toEqual([20, 20, 20])
+      expect(cal!.height).toBe(420)
+      // The others fit the view, capped to it.
+      expect(td!.y + td!.height).toBeLessThanOrEqual(view.height - 20)
+      expect(cu!.y + cu!.height).toBeLessThanOrEqual(view.height - 20)
+      expectTidy([cal!, td!, cu!], view, { scrolls: true })
+    })
+
+    it('runs the shortest column past the view when the row does not fit across', () => {
+      // 640x300: no row at minimum widths (940). Audio Capture over Transcript | Resources runs
+      // 210 past the view; Audio Capture | Transcript over Resources 250, one column 470.
+      const view = { width: 640, height: 300 }
+      const [r, t, res] = layoutGroup(capture, view)
+      expect(t!.x).toBe(r!.x)
+      expect(t!.y).toBeGreaterThan(r!.y + r!.height)
+      expect(res!.x).toBe(t!.x + t!.width + 20)
+      expect(res!.y).toBe(20)
+      expectTidy([r!, t!, res!], view, { scrolls: true })
+    })
+  })
+
+  it('never stretches a widget past its default width to match its column', () => {
+    // A tall portrait board: one column of all three wins (nothing shrinks in width), with To-do
+    // and Coming up at their own 360 under the 900 Calendar, at the column's left edge.
+    const calendar = { width: 900, height: 760, minWidth: 520, minHeight: 420 }
+    const todo = { width: 360, height: 440, minWidth: 280, minHeight: 220 }
+    const comingUp = { width: 360, height: 320, minWidth: 260, minHeight: 200 }
+    const view = { width: 1024, height: 1310 }
+    const boxes = layoutGroup([calendar, todo, comingUp], view)
+    expect(boxes.map((b) => b.x)).toEqual([20, 20, 20])
+    expect(boxes.map((b) => b.width)).toEqual([900, 360, 360])
+    expectTidy(boxes, view)
   })
 
   it('keeps heights within max constraints and widths within a member max', () => {
