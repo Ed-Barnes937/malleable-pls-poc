@@ -18,9 +18,18 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
   let processing = false
   const listeners = new Set<(event: RunnerEvent) => void>()
 
+  /**
+   * Tells every listener. A listener that throws is logged and skipped: by
+   * the time it hears of a run, what happened to the run is committed, and
+   * a listener's error never changes it.
+   */
   function emit(event: RunnerEvent) {
     for (const listener of listeners) {
-      listener(event)
+      try {
+        listener(event)
+      } catch (err) {
+        console.error(`job runner: a ${event.type} listener failed for run ${event.jobRun.id}:`, err)
+      }
     }
   }
 
@@ -55,6 +64,8 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
         const jobScope = scopeForJob(job)
         emit({ type: 'job:started', jobRun: runningJob })
 
+        // What the run came to, announced once it is committed (below).
+        let outcome: RunnerEvent
         try {
           const input = job.input ?? {}
           const result = await executors.execute(job.job_type, input, {
@@ -76,15 +87,11 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
             }
           })
 
-          // Announced once its follow-up jobs are queued, so a listener that
-          // re-reads on completion already sees them (e.g. a lecture's summary
-          // job after its transcript).
-          const completedJob = {
-            ...job,
-            status: 'completed' as const,
-            output: result.output,
+          outcome = {
+            type: 'job:completed',
+            jobRun: { ...job, status: 'completed' as const, output: result.output },
+            result,
           }
-          emit({ type: 'job:completed', jobRun: completedJob, result })
         } catch (err) {
           // The executor threw, or settling the run as completed did (that
           // rolled back, so the run is still claimed as running and none of
@@ -111,9 +118,13 @@ export function createJobRunner(config: JobRunnerConfig): JobRunner {
               })
             }
           })
-          const failedJob = { ...job, status: 'failed' as const, error: message }
-          emit({ type: 'job:failed', jobRun: failedJob, error: message })
+          outcome = { type: 'job:failed', jobRun: { ...job, status: 'failed' as const, error: message }, error: message }
         }
+        // Announced only now, outside the try: once completed, the follow-up
+        // jobs are already queued, so a listener that re-reads on completion
+        // sees them (e.g. a lecture's summary job after its transcript), and a
+        // listener's error cannot send a committed run down the failure path.
+        emit(outcome)
       }
     } finally {
       processing = false

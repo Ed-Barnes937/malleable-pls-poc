@@ -464,6 +464,32 @@ describe('job runner', () => {
       expect(memory.jobRuns.map((r) => [r.status, r.retry_count])).toEqual([['failed', 0], ['pending', 1]])
     })
 
+    it('a listener that throws on job:completed is logged and leaves the committed run as it is', async () => {
+      const memory = createMemoryAdapter({ workflows: [followUp] })
+      seedFirstRun(memory)
+      const executors = createExecutorRegistry()
+      executors.register('first:run', async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }), { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter: memory })
+      const runner = createJobRunner({ adapter: memory, executors, engine, scopeId: null, maxRetries: 1 })
+      const heard: string[] = []
+      runner.onEvent((e) => { if (e.type === 'job:completed') throw new Error('listener broke') })
+      runner.onEvent((e) => { heard.push(e.type) })
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await runner.processOnce()
+
+      // Completed once, its follow-up queued once: no failure, no retry.
+      expect(memory.jobRuns.map((r) => [r.job_type, r.status, r.retry_count])).toEqual([
+        ['first:run', 'completed', 0],
+        ['second:run', 'pending', 0],
+      ])
+      // The other listener still heard it.
+      expect(heard).toEqual(['job:started', 'job:completed'])
+      expect(logged).toHaveBeenCalledTimes(1)
+      expect(String(logged.mock.calls[0]![0])).toContain('a job:completed listener failed for run run-1')
+      logged.mockRestore()
+    })
+
     it('rolls the completion back when queuing a follow-up fails, then fails the run and retries it', async () => {
       const memory = createMemoryAdapter({ workflows: [followUp] })
       seedFirstRun(memory)
