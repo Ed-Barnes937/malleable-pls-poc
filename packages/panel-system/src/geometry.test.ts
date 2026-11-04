@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel } from './geometry'
+import { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel, layoutGroup, STACK_BREAKPOINT } from './geometry'
 
 const canvas = { width: 800, height: 600 }
 const panel = { width: 300, height: 200 }
@@ -206,5 +206,142 @@ describe('placeNewPanel', () => {
     const cal = { x: 0, y: 0, width: 900, height: 760 }
     expect(placeNewPanel([cal], { width: 360, height: 440, minHeight: 220 }, phone)).toEqual({ ...findFreeSpot([cal], { width: 360, height: 440 }, phone), height: 440 })
     expect(placeNewPanel([], { width: 900, height: 760, minHeight: 400 }, phone).height).toBe(760)
+  })
+})
+
+describe('layoutGroup', () => {
+  // The "Capture a lecture" starter's widgets: Audio Capture, Transcript, Resources.
+  const record = { width: 380, height: 280, minWidth: 280, minHeight: 200 }
+  const transcript = { width: 420, height: 380, minWidth: 300, minHeight: 250 }
+  const resources = { width: 360, height: 440, minWidth: 280, minHeight: 240 }
+  const capture = [record, transcript, resources]
+
+  type Box = { x: number; y: number; width: number; height: number }
+  const overlaps = (a: Box, b: Box) =>
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+  function expectTidy(boxes: Box[], view: { width: number; height: number }, opts: { scrolls?: boolean } = {}) {
+    for (const b of boxes) {
+      expect(b.x).toBeGreaterThanOrEqual(20)
+      expect(b.y).toBeGreaterThanOrEqual(20)
+      expect(b.x + b.width).toBeLessThanOrEqual(view.width - 20)
+      if (!opts.scrolls) expect(b.y + b.height).toBeLessThanOrEqual(view.height - 20)
+      for (const other of boxes) if (other !== b) expect(overlaps(b, other)).toBe(false)
+    }
+  }
+
+  it('puts the widgets in one row at default widths when they fit, heights filling the view', () => {
+    const view = { width: 1440, height: 800 }
+    const boxes = layoutGroup(capture, view)
+    expect(boxes).toEqual([
+      { x: 20, y: 20, width: 380, height: 760 },
+      { x: 420, y: 20, width: 420, height: 760 },
+      { x: 860, y: 20, width: 360, height: 760 },
+    ])
+    expectTidy(boxes, view)
+  })
+
+  it('shrinks the row towards minimum widths, by the same fraction for each, to fit across', () => {
+    // 1100 - 4 gaps = 1020 across; minimums 860, defaults 1160: 160 / 300 of the way.
+    const view = { width: 1100, height: 700 }
+    const boxes = layoutGroup(capture, view)
+    expect(boxes.map((b) => b.width)).toEqual([333, 364, 322])
+    expect(boxes.map((b) => b.y)).toEqual([20, 20, 20])
+    expectTidy(boxes, view)
+  })
+
+  it('goes to two columns when one row does not fit at minimum widths, keeping the order down then across', () => {
+    // Minimums need 940 across in one row. Two columns: Audio Capture and Transcript on the left
+    // (the split with the shorter tallest column), Resources on the right.
+    const view = { width: 800, height: 700 }
+    const [r, t, res] = layoutGroup(capture, view)
+    expect(r!.x).toBe(t!.x)
+    expect(t!.y).toBe(r!.y + r!.height + 20)
+    expect(res!.x).toBe(r!.x + r!.width + 20)
+    expect(res!.y).toBe(20)
+    // The column is as wide as its widest member; both share it.
+    expect(r!.width).toBe(t!.width)
+    // Heights fill the view, shared in proportion to default heights (280 : 380).
+    expect(t!.y + t!.height).toBeGreaterThanOrEqual(679)
+    expect(res!.height).toBe(660)
+    expect(Math.abs(r!.height / t!.height - 280 / 380)).toBeLessThan(0.01)
+    expectTidy([r!, t!, res!], view)
+  })
+
+  it('splits the "Plan my time" widgets as Calendar | To-do over Coming up when one row does not fit', () => {
+    const calendar = { width: 900, height: 760, minWidth: 520, minHeight: 420 }
+    const todo = { width: 360, height: 440, minWidth: 280, minHeight: 220 }
+    const comingUp = { width: 360, height: 320, minWidth: 260, minHeight: 200 }
+    const view = { width: 1024, height: 680 }
+    const [cal, td, cu] = layoutGroup([calendar, todo, comingUp], view)
+    expect(td!.x).toBe(cal!.x + cal!.width + 20)
+    expect(cu!.x).toBe(td!.x)
+    expect(cu!.y).toBe(td!.y + td!.height + 20)
+    expectTidy([cal!, td!, cu!], view)
+  })
+
+  it('falls back to one column when two do not fit across', () => {
+    const wide = { width: 500, height: 300, minWidth: 400, minHeight: 200 }
+    const view = { width: 700, height: 900 }
+    const boxes = layoutGroup([wide, wide], view)
+    expect(boxes.map((b) => b.x)).toEqual([20, 20])
+    expect(boxes.map((b) => b.width)).toEqual([500, 500])
+    expectTidy(boxes, view)
+  })
+
+  it('lets the board scroll down when even the minimum heights do not fit the view, never across', () => {
+    const view = { width: 800, height: 400 }
+    const [r, t, res] = layoutGroup(capture, view)
+    // The left column (min 200 + 250) can't fit 400: default heights, each capped to the view.
+    expect(r!.height).toBe(280)
+    expect(t!.height).toBe(360)
+    expect(t!.y).toBe(r!.y + r!.height + 20)
+    // The right column still fits and fills it.
+    expect(res!.height).toBe(360)
+    expectTidy([r!, t!, res!], view, { scrolls: true })
+  })
+
+  it('takes the scrollbar off the width when the layout scrolls', () => {
+    // 960 just fits the one row at minimum widths (940), and the view is too short for it.
+    const view = { width: 960, height: 200 }
+    const without = layoutGroup(capture, view)
+    expect(new Set(without.map((b) => b.y))).toEqual(new Set([20]))
+    const withBar = layoutGroup(capture, view, { scrollbarWidth: 30 })
+    expect(Math.max(...withBar.map((b) => b.x + b.width))).toBeLessThanOrEqual(930 - 20)
+    // No scroll, no change.
+    const roomy = { width: 1440, height: 800 }
+    expect(layoutGroup(capture, roomy, { scrollbarWidth: 30 })).toEqual(layoutGroup(capture, roomy))
+  })
+
+  it('keeps heights within max constraints and widths within a member max', () => {
+    const capped = { width: 300, height: 300, minWidth: 200, minHeight: 200, maxHeight: 400 }
+    const boxes = layoutGroup([capped, { width: 300, height: 300, minHeight: 200 }], { width: 1200, height: 900 })
+    expect(boxes[0]!.height).toBe(400)
+    expect(boxes[1]!.height).toBe(860)
+    // In a column with a wider widget, a widget with a smaller max width stops at it.
+    const narrow = { width: 200, height: 300, minHeight: 200, maxWidth: 200 }
+    const column = layoutGroup([{ width: 600, height: 300, minWidth: 600 }, narrow], { width: 700, height: 900 })
+    expect(column.map((b) => b.width)).toEqual([600, 200])
+  })
+
+  it('holds a widget at its minimum height when its share falls under it, sharing the rest', () => {
+    // One column; a small default next to a big one would get under its minimum in proportion.
+    const big = { width: 600, height: 1000, minWidth: 600, minHeight: 100 }
+    const small = { width: 600, height: 100, minWidth: 600, minHeight: 90 }
+    const boxes = layoutGroup([big, small], { width: 700, height: 700 })
+    expect(boxes[1]!.height).toBe(90)
+    expect(boxes[0]!.height).toBe(700 - 3 * 20 - 90)
+  })
+
+  it('stacks the widgets in the order given, at default sizes, on a narrow canvas', () => {
+    const boxes = layoutGroup(capture, { width: STACK_BREAKPOINT - 1, height: 800 })
+    expect(boxes).toEqual([
+      { x: 20, y: 20, width: 380, height: 280 },
+      { x: 20, y: 320, width: 420, height: 380 },
+      { x: 20, y: 720, width: 360, height: 440 },
+    ])
+  })
+
+  it('lays out nothing for no widgets', () => {
+    expect(layoutGroup([], { width: 1200, height: 800 })).toEqual([])
   })
 })

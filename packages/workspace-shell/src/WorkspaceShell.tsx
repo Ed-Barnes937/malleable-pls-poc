@@ -19,6 +19,7 @@ import {
   WorkspaceBackground,
   useCanvasStore,
   placeNewPanel,
+  layoutGroup,
   scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
@@ -243,17 +244,21 @@ export function WorkspaceShell() {
    * it goes in the first free area of the visible board, shortened (down to
    * its minimum height) when that keeps it in view next to the widgets already
    * there on the desktop layout (see placeNewPanel). A drop (`at`) keeps its
-   * default height. `quiet` skips the
-   * scroll into view and the toasts, for a caller adding a group of widgets
-   * to an empty board and announcing the outcome itself (`onSettled`).
+   * default size, unless `at` gives one (a starter's group layout). `quiet`
+   * skips the scroll into view and the toasts, for a caller adding a group of
+   * widgets to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+    (
+      lensType: string,
+      at?: { x: number; y: number; width?: number; height?: number },
+      opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {},
+    ) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
-      const width = m?.defaultWidth ?? 400
-      const height = m?.defaultHeight ?? 300
+      const width = at?.width ?? m?.defaultWidth ?? 400
+      const height = at?.height ?? m?.defaultHeight ?? 300
       const existing = useCanvasStore.getState().panels
       const pending = pendingAddsRef.current.filter((a) => a.workspaceId === activeWorkspaceId)
       const taken = [
@@ -262,7 +267,7 @@ export function WorkspaceShell() {
       ]
       const canvas = canvasRef.current
       // A click places it in view, on the desktop layout a little shorter if that is what fits (see placeNewPanel).
-      const spot = at ? { ...at, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
+      const spot = at ? { x: at.x, y: at.y, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
         width: canvas?.clientWidth ?? 0,
         height: canvas?.clientHeight ?? 0,
       })
@@ -308,10 +313,11 @@ export function WorkspaceShell() {
   )
 
   /**
-   * A first-run starter: its widgets, placed one after another by the same
-   * click-to-add placement (largest first), with one toast once all have
-   * settled: what was added, or what couldn't be (the adds share one request,
-   * so they usually fail together).
+   * A first-run starter: its widgets, laid out as a group to fit the visible
+   * board (see layoutGroup) and saved one by one through the same add path,
+   * with one toast once all have settled: what was added, or what couldn't be
+   * (the adds share one request, so they usually fail together). The layout
+   * is the student's from then on: nothing reflows it when the window resizes.
    */
   const addStarter = useCallback(
     (widgets: PanelManifest[]) => {
@@ -324,7 +330,20 @@ export function WorkspaceShell() {
         if (failed.length > 0) pushToast({ message: `Couldn't add ${names(failed)}. Try again.`, tone: 'error' })
         else pushToast({ message: `${names(added)} added`, tone: 'success', key: 'widget-added' })
       }
-      for (const w of widgets) addWidget(w.id, undefined, { quiet: true, onSettled: onSettled(w.label) })
+      const canvas = canvasRef.current
+      const boxes = layoutGroup(
+        widgets.map((w) => ({
+          width: w.defaultWidth ?? 400,
+          height: w.defaultHeight ?? 300,
+          minWidth: w.minWidth,
+          minHeight: w.minHeight,
+          maxWidth: w.maxWidth,
+          maxHeight: w.maxHeight,
+        })),
+        { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+        { scrollbarWidth: scrollbarWidth() },
+      )
+      widgets.forEach((w, i) => addWidget(w.id, boxes[i], { quiet: true, onSettled: onSettled(w.label) }))
     },
     [addWidget, pushToast],
   )
@@ -509,6 +528,16 @@ export function WorkspaceShell() {
       <ToastHost />
     </div>
   )
+}
+
+/** The width a vertical scrollbar takes from the board when it scrolls (0 with overlay scrollbars). */
+function scrollbarWidth(): number {
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:absolute;top:-9999px;width:100px;height:100px;overflow-y:scroll'
+  document.body.appendChild(probe)
+  const width = probe.offsetWidth - probe.clientWidth
+  probe.remove()
+  return width
 }
 
 function CanvasSkeleton() {
