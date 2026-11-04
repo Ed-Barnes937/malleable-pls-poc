@@ -152,13 +152,18 @@ export interface GroupMember {
  * in the order given (workflow order), laid out to fit the visible canvas:
  *
  * - Columns, filled in order: the first widgets go in the first column, top
- *   to bottom, then the next column. As many columns as fit side by side at
- *   the widgets' minimum widths, up to one per widget (one row). Of the ways
- *   to split the widgets into that many columns, the one whose tallest column
- *   is shortest (at default heights) wins; a tie goes to the first.
+ *   to bottom, then the next column; one column per widget is one row. For
+ *   each column count, the split (of those that fit across at minimum widths)
+ *   whose tallest column is shortest at default heights; a tie goes to the
+ *   first.
  * - Widths shrink from default towards minimum, by the same fraction in every
  *   column, until the columns fit across. A column is as wide as its widest
  *   member (a member with a smaller `maxWidth` stops there).
+ * - The column count is the one that keeps widgets closest to their designed
+ *   widths: least shrunk, by the widget shrunk most (as a share of its
+ *   default width). Ties go to the row (more columns), so widgets that fit
+ *   side by side at their default widths stay in one row. A count whose
+ *   minimum heights don't fit the view only wins when none does.
  * - Heights fill the visible height: a column's height is shared in
  *   proportion to its widgets' default heights, within their min and max.
  *   A column whose minimum heights don't fit stacks at default heights
@@ -218,15 +223,7 @@ function normalise(m: GroupMember): Size {
 
 function layoutColumns(sizes: Size[], canvas: { width: number; height: number }): Rect[] {
   const g = PLACEMENT_GAP
-  const columns = chooseColumns(sizes, canvas.width)
-  const colMin = columns.map((col) => Math.max(...col.map((s) => s.minWidth)))
-  const colDefault = columns.map((col) => Math.max(...col.map((s) => s.width)))
-  const room = canvas.width - (columns.length + 1) * g
-  const sumMin = sum(colMin)
-  const sumDefault = sum(colDefault)
-  const t = sumDefault <= room ? 1 : sumDefault === sumMin ? 0 : Math.max(0, (room - sumMin) / (sumDefault - sumMin))
-  const colWidth = columns.map((_, i) => Math.floor(colMin[i]! + t * (colDefault[i]! - colMin[i]!)))
-
+  const { columns, colWidth } = chooseColumns(sizes, canvas)
   const boxes: Rect[] = []
   let x = g
   columns.forEach((col, i) => {
@@ -241,24 +238,56 @@ function layoutColumns(sizes: Size[], canvas: { width: number; height: number })
   return boxes
 }
 
+interface Candidate {
+  columns: Size[][]
+  colWidth: number[]
+  /** The most any widget is shrunk, as a share of its default width. */
+  shrink: number
+  fitsHeight: boolean
+}
+
 /**
- * The widgets split into columns, in order: the most columns that fit across
- * at minimum widths (one column at the least), and of those splits the one
- * with the shortest tallest column at default heights.
+ * The widgets split into columns, and the columns' widths: for each column
+ * count, the split with the shortest tallest column among those that fit
+ * across at minimum widths (one column always counts); then the count that
+ * fits the view's height and shrinks widgets least, a tie going to more
+ * columns.
  */
-function chooseColumns(sizes: Size[], width: number): Size[][] {
+function chooseColumns(sizes: Size[], canvas: { width: number; height: number }): Candidate {
   const g = PLACEMENT_GAP
-  for (let count = sizes.length; count > 1; count--) {
+  const candidates: Candidate[] = []
+  for (let count = sizes.length; count >= 1; count--) {
     let best: { columns: Size[][]; tallest: number } | undefined
     for (const columns of splits(sizes, count)) {
       const across = sum(columns.map((col) => Math.max(...col.map((s) => s.minWidth)))) + (count + 1) * g
-      if (across > width) continue
+      if (across > canvas.width && count > 1) continue
       const tallest = Math.max(...columns.map((col) => sum(col.map((s) => s.height)) + (col.length - 1) * g))
       if (!best || tallest < best.tallest) best = { columns, tallest }
     }
-    if (best) return best.columns
+    if (best) candidates.push(sizeColumns(best.columns, canvas))
   }
-  return [sizes]
+  // Candidates run from most columns to fewest, so the first of equals is the one with more columns.
+  const SAME = 1e-9
+  return candidates.reduce((best, c) => {
+    if (c.fitsHeight !== best.fitsHeight) return c.fitsHeight ? c : best
+    return c.shrink < best.shrink - SAME ? c : best
+  })
+}
+
+/** Column widths shrunk by one fraction to fit across, and how the layout fares. */
+function sizeColumns(columns: Size[][], canvas: { width: number; height: number }): Candidate {
+  const g = PLACEMENT_GAP
+  const colMin = columns.map((col) => Math.max(...col.map((s) => s.minWidth)))
+  const colDefault = columns.map((col) => Math.max(...col.map((s) => s.width)))
+  const room = canvas.width - (columns.length + 1) * g
+  const sumMin = sum(colMin)
+  const sumDefault = sum(colDefault)
+  const t = sumDefault <= room ? 1 : sumDefault === sumMin ? 0 : Math.max(0, (room - sumMin) / (sumDefault - sumMin))
+  const exact = columns.map((_, i) => colMin[i]! + t * (colDefault[i]! - colMin[i]!))
+  const shrink = Math.max(...columns.flatMap((col, i) =>
+    col.map((s) => Math.max(0, (s.width - Math.min(exact[i]!, s.maxWidth)) / s.width))))
+  const fitsHeight = columns.every((col) => sum(col.map((s) => s.minHeight)) + (col.length + 1) * g <= canvas.height)
+  return { columns, colWidth: exact.map(Math.floor), shrink, fitsHeight }
 }
 
 /** Every way to cut `items` into `count` non-empty runs, keeping their order. */

@@ -240,11 +240,34 @@ describe('layoutGroup', () => {
     expectTidy(boxes, view)
   })
 
-  it('shrinks the row towards minimum widths, by the same fraction for each, to fit across', () => {
-    // 1100 - 4 gaps = 1020 across; minimums 860, defaults 1160: 160 / 300 of the way.
+  it('goes to two columns at default widths rather than shrink the row', () => {
+    // The row would need shrinking (1160 + gaps > 1100); Audio Capture over Transcript | Resources fits at defaults.
     const view = { width: 1100, height: 700 }
-    const boxes = layoutGroup(capture, view)
-    expect(boxes.map((b) => b.width)).toEqual([333, 364, 322])
+    const [r, t, res] = layoutGroup(capture, view)
+    expect([r!.width, t!.width, res!.width]).toEqual([420, 420, 360])
+    expect(t!.x).toBe(r!.x)
+    expect(res!.x).toBe(r!.x + r!.width + 20)
+    expectTidy([r!, t!, res!], view)
+  })
+
+  it('keeps "Plan my time" near its default widths: Calendar | To-do over Coming up, not a squeezed row', () => {
+    const calendar = { width: 900, height: 760, minWidth: 520, minHeight: 420 }
+    const todo = { width: 360, height: 440, minWidth: 280, minHeight: 220 }
+    const comingUp = { width: 360, height: 320, minWidth: 260, minHeight: 200 }
+    // 1280 wide: the row would squeeze the Calendar to 615; two columns keep it at 866.
+    const [cal, td, cu] = layoutGroup([calendar, todo, comingUp], { width: 1280, height: 670 })
+    expect(cal!.width).toBe(866)
+    expect(cu!.x).toBe(td!.x)
+    expect(td!.x).toBe(cal!.x + cal!.width + 20)
+  })
+
+  it('shrinks the row towards minimum widths, by the same fraction for each, when columns would not fit the view', () => {
+    // Stacked, two of these need 2 x 400 + gaps of height: more than the view. The row fits it, shrunk.
+    const tall = { width: 600, height: 500, minWidth: 300, minHeight: 400 }
+    const view = { width: 1400, height: 700 }
+    const boxes = layoutGroup([tall, tall, tall], view)
+    // 1400 - 4 gaps = 1320 across; minimums 900, defaults 1800: 420 / 900 of the way.
+    expect(boxes.map((b) => b.width)).toEqual([440, 440, 440])
     expect(boxes.map((b) => b.y)).toEqual([20, 20, 20])
     expectTidy(boxes, view)
   })
@@ -301,12 +324,11 @@ describe('layoutGroup', () => {
   })
 
   it('takes the scrollbar off the width when the layout scrolls', () => {
-    // 960 just fits the one row at minimum widths (940), and the view is too short for it.
+    // Too tall for the view: it scrolls, so the 900 wide widget gives up the scrollbar's 30.
+    const wide = { width: 900, height: 300, minWidth: 600 }
     const view = { width: 960, height: 200 }
-    const without = layoutGroup(capture, view)
-    expect(new Set(without.map((b) => b.y))).toEqual(new Set([20]))
-    const withBar = layoutGroup(capture, view, { scrollbarWidth: 30 })
-    expect(Math.max(...withBar.map((b) => b.x + b.width))).toBeLessThanOrEqual(930 - 20)
+    expect(layoutGroup([wide], view)[0]!.width).toBe(900)
+    expect(layoutGroup([wide], view, { scrollbarWidth: 30 })[0]!.width).toBe(890)
     // No scroll, no change.
     const roomy = { width: 1440, height: 800 }
     expect(layoutGroup(capture, roomy, { scrollbarWidth: 30 })).toEqual(layoutGroup(capture, roomy))

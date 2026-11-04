@@ -4,8 +4,8 @@ import { reseed } from './reseed'
 
 /**
  * A starter lays its widgets out as a group to fit the visible board
- * (`layoutGroup`): in one row, shrunk towards minimum widths if need be, else
- * in columns, heights filling the view. Every widget starts fully in view,
+ * (`layoutGroup`): in the columns (one row, or fewer) that keep widgets
+ * closest to their default widths, heights filling the view. Every widget starts fully in view,
  * none overlap, the board doesn't scroll, and the layout is saved as placed.
  * (The drawer is a modal overlay, so it never narrows the board.)
  */
@@ -89,6 +89,12 @@ test.describe('A starter fits its widgets to the visible board', () => {
           expect(below || b.x >= a.x + a.width).toBe(true)
         }
 
+        // Wide enough that no widget's title is cut off.
+        for (const label of starter.widgets) {
+          const title = grid.panelByLabel(label).getByTestId('panel-title')
+          expect(await title.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+        }
+
         // Saved as placed.
         await page.reload()
         await new TopBarPom(page).switchToWorkspace(name)
@@ -98,9 +104,9 @@ test.describe('A starter fits its widgets to the visible board', () => {
     }
   }
 
-  test('"Capture a lecture" puts Resources in a column of its own beside Audio Capture over Transcript when one row does not fit', async ({ page }) => {
-    // 900 wide: the row needs 940 at minimum widths.
-    await page.setViewportSize({ width: 900, height: 800 })
+  test('"Capture a lecture" puts Resources in a column of its own beside Audio Capture over Transcript rather than squeeze one row', async ({ page }) => {
+    // 1024 wide: the row would have to shrink; two columns fit at default widths.
+    await page.setViewportSize({ width: 1024, height: 768 })
     const grid = await newBoard(page, 'Lectures')
     await grid.starter('Capture a lecture').click()
     await grid.expectPanelCount(3)
@@ -112,6 +118,17 @@ test.describe('A starter fits its widgets to the visible board', () => {
     const board = await boardSize(grid)
     expect(board.scrollWidth).toBeLessThanOrEqual(board.clientWidth)
     expect(board.scrollHeight).toBeLessThanOrEqual(board.clientHeight)
+  })
+
+  test('"Plan my time" keeps the Calendar near its default width at 1280x800', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 })
+    const grid = await newBoard(page, 'My week')
+    await grid.starter('Plan my time').click()
+    await grid.expectPanelCount(3)
+    const [calendar, todo, comingUp] = await Promise.all(['Calendar', 'To-do', 'Coming up'].map((l) => layout(grid, l)))
+    // Default 900: Calendar | To-do over Coming up, not a row squeezing it to about 615.
+    expect(calendar!.width).toBeGreaterThan(850)
+    expect(comingUp!.x).toBe(todo!.x)
   })
 
   test('on a phone the starter stacks its widgets in starter order', async ({ page }) => {

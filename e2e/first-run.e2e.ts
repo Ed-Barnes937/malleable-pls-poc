@@ -55,12 +55,14 @@ test.describe('First run on an empty board', () => {
     await expect(grid.emptyState).toBeHidden()
     await expect(page.getByTestId('toast-host')).toContainText('Calendar, To-do and Coming up added')
 
-    // One row at 1440: Calendar, then To-do, then Coming up.
+    // Calendar on the left at its default width; To-do and Coming up stacked in the column beside it.
     const calendar = await box(grid, 'Calendar')
     const todo = await box(grid, 'To-do')
     const comingUp = await box(grid, 'Coming up')
+    expect(calendar.width).toBe(900)
     expect(todo.x).toBeGreaterThan(calendar.x + calendar.width)
-    expect(comingUp.x).toBeGreaterThan(todo.x + todo.width)
+    expect(comingUp.x).toBe(todo.x)
+    expect(comingUp.y).toBeGreaterThan(todo.y + todo.height)
     for (const [a, b] of [[calendar, todo], [calendar, comingUp], [todo, comingUp]]) expect(overlaps(a, b)).toBe(false)
     // Nothing starts off-screen on a laptop.
     for (const b of [calendar, todo, comingUp]) {
