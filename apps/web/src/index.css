@@ -283,3 +283,71 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-muted);
 }
+
+/* ── PROTOTYPE p3: flow audit feedback and motion (throwaway, never merged) ──
+ * Fill mode is backwards, never both: a finished enter must not pin opacity
+ * or transform (a dimmed block, a fading ticked row keep their own).
+ * html[data-p3] is set from ?p3= (packages/shared-ui/src/PROTOTYPE_p3.tsx).
+ * a: quiet, ~150ms fade. b: spatial, ~200ms scale-and-slide from the origin.
+ * c: the current app (no rules here apply).
+ */
+@keyframes p3a-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes p3b-in { from { opacity: 0; transform: translateY(6px) scale(0.94); } to { opacity: 1; transform: none; } }
+@keyframes p3b-pop { 0% { transform: scale(0.96); } 60% { transform: scale(1.03); } 100% { transform: none; } }
+@keyframes p3b-board-right { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes p3b-board-left { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes p3a-flash {
+  0% { box-shadow: var(--shadow-panel-focused), 0 0 0 2px var(--color-accent), 0 0 0 8px color-mix(in oklab, var(--color-accent) 25%, transparent); }
+  70% { box-shadow: var(--shadow-panel-focused), 0 0 0 2px var(--color-accent), 0 0 0 8px transparent; }
+  100% { box-shadow: var(--shadow-panel), 0 0 0 2px transparent; }
+}
+@keyframes p3-pending { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+
+/* Widgets move and resize on one clock per variant (fullscreen in and out, Tidy up, Undo). */
+html[data-p3="a"] { --transition-panel: 150ms ease-out; }
+html[data-p3="b"] { --transition-panel: 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* Switching board tabs. */
+html[data-p3="a"] [data-p3-board-in] { animation: p3a-in 150ms ease-out backwards; }
+html[data-p3="b"] [data-p3-board-in="right"] { animation: p3b-board-right 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+html[data-p3="b"] [data-p3-board-in="left"] { animation: p3b-board-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+/* A drag or resize in a: the moved widget rings once instead of a toast. */
+html[data-p3="a"] [data-panel-id][data-p3-flash] { animation: p3a-flash 900ms ease-out backwards; }
+
+/* Fullscreen: the other widgets step back while one fills the board (CanvasEngine, p3Behind). */
+
+/* Calendar blocks and Auto-fill ghosts arriving (and a ghost becoming a real block on Accept). */
+html[data-p3="a"] [data-testid="calendar-ghost"],
+html[data-p3="a"] [data-testid="calendar-block"] { animation: p3a-in 150ms ease-out backwards; }
+html[data-p3="b"] [data-testid="calendar-ghost"] { animation: p3b-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; transform-origin: 50% 0%; }
+html[data-p3="b"] [data-testid="calendar-block"] { animation: p3b-pop 260ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; }
+
+/* To-do rows: a new row, and a ticked one leaving. */
+html[data-p3="a"] [data-testid="todo-item"][data-fresh] { animation: p3a-in 150ms ease-out backwards; }
+html[data-p3="b"] [data-testid="todo-item"][data-fresh] { animation: p3b-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; transform-origin: 0% 50%; }
+html[data-p3="a"] [data-testid="todo-item"][data-just-done="fading"] { transition-duration: 150ms; }
+
+/* Chips: a review being planned, then the planned review in its place. */
+html[data-p3] [data-testid="review-chip-pending"] { animation: p3-pending 1.2s ease-in-out infinite; }
+html[data-p3="a"] [data-testid="review-chip"] { animation: p3a-in 150ms ease-out backwards; }
+html[data-p3="b"] [data-testid="review-chip"] { animation: p3b-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; transform-origin: 0% 50%; }
+
+/* The re-fit prompt over the Calendar's grid (it no longer pushes the grid). */
+html[data-p3="a"] [data-p3-overlay] > * { animation: p3a-in 150ms ease-out backwards; }
+html[data-p3="b"] [data-p3-overlay] > * { animation: p3b-in 200ms cubic-bezier(0.2, 0.8, 0.2, 1) backwards; transform-origin: 50% 0%; }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-p3] { --transition-panel: 0ms linear; }
+  html[data-p3] [data-p3-board-in],
+  html[data-p3] [data-testid="calendar-ghost"],
+  html[data-p3] [data-testid="calendar-block"],
+  html[data-p3] [data-testid="todo-item"][data-fresh],
+  html[data-p3] [data-testid="review-chip"],
+  html[data-p3] [data-testid="review-chip-pending"],
+  html[data-p3] [data-p3-overlay] > * { animation: p3a-in 120ms linear backwards; }
+}
+/* PROTOTYPE p3: b's tick confirmation is the toast, so the row drops its own Undo. */
+html[data-p3="b"] [data-testid="todo-item"] button[aria-label^="Undo:"],
+html[data-p3="b"] [data-testid="todo-item"] button[aria-label^="Undo:"] ~ *,
+html[data-p3="b"] [data-testid="todo-item"] span:has(+ button[aria-label^="Undo:"]) { display: none; }

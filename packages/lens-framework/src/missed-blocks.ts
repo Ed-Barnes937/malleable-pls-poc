@@ -125,8 +125,22 @@ export function movedPastThisWeek(
   return later ? { id: later.id, startsAt: later.startsAt, label: `Show ${weekName(Date.parse(later.startsAt), now)}` } : null
 }
 
+// PROTOTYPE p3 (flow audit, decision 4): in variants a and b an answer ("Not now")
+// is remembered across reloads (localStorage) until a further block is missed.
+// lens-framework has no shared-ui, so the variant is read here directly.
+const P3_REMEMBER = typeof window !== 'undefined' && ['a', 'b'].includes(new URLSearchParams(window.location.search).get('p3') ?? '')
+const P3_KEY = 'PROTOTYPE-p3-refit-answered'
+function p3Load(): ReadonlySet<string> {
+  if (!P3_REMEMBER) return new Set()
+  try {
+    return new Set(JSON.parse(localStorage.getItem(P3_KEY) ?? '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+
 // Answered blocks, shared by every widget until the page is reloaded.
-let handled: ReadonlySet<string> = new Set()
+let handled: ReadonlySet<string> = p3Load()
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
@@ -141,6 +155,13 @@ const notify = () => {
 export function markMissedBlocksHandled(ps: ReadonlyArray<RefitProposal>) {
   if (ps.every((p) => handled.has(missedBlockSignature(p)))) return
   handled = new Set([...handled, ...ps.map(missedBlockSignature)])
+  if (P3_REMEMBER) {
+    try {
+      localStorage.setItem(P3_KEY, JSON.stringify([...handled]))
+    } catch {
+      // PROTOTYPE p3: storage blocked, so it is remembered until a reload only.
+    }
+  }
   notify()
 }
 

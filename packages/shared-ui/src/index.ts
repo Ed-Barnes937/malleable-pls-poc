@@ -31,3 +31,5 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+// PROTOTYPE p3 (flow audit feedback and motion): throwaway, never merged.
+export { p3, p3Wants, p3Confirm, onP3Confirm, p3Batcher, p3MotionProps, p3Flash, useP3RegisterCalendar, useP3CalendarOnBoard, P3Switcher, P3_NAMES, type P3Variant, type P3Kind, type P3Confirmation } from './PROTOTYPE_p3'

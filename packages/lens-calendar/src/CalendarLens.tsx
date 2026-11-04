@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, typ
 import { DEFAULT_PREFERENCES, isClassBlock, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
+// PROTOTYPE p3 (flow audit feedback and motion): throwaway, never merged.
+import { p3, p3Batcher, p3Confirm, useP3RegisterCalendar } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -70,6 +72,11 @@ export default function CalendarLens({
   const updateItem = mutations.useUpdatePlanItem()
   const completeItem = mutations.useCompletePlanItem()
   const deleteItem = mutations.useDeletePlanItem()
+  // PROTOTYPE p3: the To-do leaves the re-fit prompt to a Calendar on the same board (decision 4).
+  useP3RegisterCalendar()
+  // PROTOTYPE p3: Accept (one or all) is a large change: one toast with one Undo per batch.
+  const p3AcceptedRef = useRef<ReturnType<typeof p3Batcher> | null>(null)
+  p3AcceptedRef.current ??= p3Batcher('large', 'p3-accepted', (n) => (n === 1 ? 'Block added to your plan' : `${n} blocks added to your plan`))
   // The student's study rhythm (one per user, not per board): study hours and
   // study time per day bound everything Help me plan places.
   const preferences = substrate.usePreferences()
@@ -285,7 +292,16 @@ export default function CalendarLens({
   // Each is checked against the calendar as it is now, so a ghost never
   // lands on something.
   const layer = useProposalLayer({
-    save: (p) => updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }),
+    save: async (p) => {
+      // PROTOTYPE p3: remember the to-do as it was, so Undo puts it back on the list unplanned.
+      const before = todos?.find((t) => t.id === p.taskId)
+      const saved = await updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
+      p3AcceptedRef.current?.(() => updateItem.mutateAsync({
+        id: p.taskId,
+        patch: { starts_at: null, ends_at: null, duration_min: before?.duration_min ?? null },
+      }))
+      return saved
+    },
     saveTogether: { [REFIT_SOURCE]: refit.save },
     onDismiss: refit.onDismiss,
     rows: items,
@@ -539,6 +555,22 @@ export default function CalendarLens({
   const phoneDay = narrow && view === 'day'
   const today = startOfDay(now)
   const showingToday = days.some((d) => d.getTime() === today.getTime())
+  // PROTOTYPE p3: the re-fit prompt and the Auto-fill draft tray, placed per variant.
+  const p3Prompts = (
+    <>
+  <RefitBanner
+        refit={refit}
+        layer={layer}
+        onReveal={(startsAt) => {
+          // Show the first new time: its week (or day).
+          const start = Date.parse(startsAt)
+          if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
+        }}
+      />
+      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+    </>
+  )
+
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
   const bounds = { width: rootRef.current?.clientWidth ?? 800, height: rootRef.current?.clientHeight ?? 600 }
 
@@ -685,16 +717,8 @@ export default function CalendarLens({
         </div>
       )}
 
-      <RefitBanner
-        refit={refit}
-        layer={layer}
-        onReveal={(startsAt) => {
-          // Show the first new time: its week (or day).
-          const start = Date.parse(startsAt)
-          if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
-        }}
-      />
-      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+      {/* PROTOTYPE p3: in a and b the re-fit prompt and the draft tray float over the grid's foot instead (below). */}
+      {p3 === 'c' && p3Prompts}
 
       <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
         <TimeGrid
@@ -788,6 +812,20 @@ export default function CalendarLens({
             />
           </div>
         )}
+        {/* PROTOTYPE p3: after the grid, so the plan panel's geometry (firstElementChild) still measures the grid. */}
+        {p3 !== 'c' && (
+            <div
+              data-p3-overlay
+              // Clear of the Help me plan panel while it is open.
+              style={planOpen && !planCollapsed && view === 'week' && !narrow
+                ? placement.side === 'left'
+                  ? { left: (placement.left ?? 0) + placement.width + 8 }
+                  : { right: placement.width + 8 }
+                : undefined}
+              className="pointer-events-none absolute inset-x-2 bottom-2 z-30 flex flex-col gap-1.5 [&>*]:pointer-events-auto [&>*]:shadow-pop [&>p]:rounded-item [&>p]:bg-surface-raised [&>p]:px-3 [&>p]:py-2">
+              {p3Prompts}
+            </div>
+          )}
       </div>
 
       {popover?.mode === 'create' && (
@@ -855,7 +893,22 @@ export default function CalendarLens({
             if (Object.keys(patch).length === 0) return closePopover()
             void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
-          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, async () => {
+            await deleteItem.mutateAsync(editing.id)
+            // PROTOTYPE p3: deleting is destructive, so a and b confirm it with Undo (one-off blocks only here).
+            if (!editing.recurrence) {
+              p3Confirm({
+                kind: 'destructive',
+                key: 'p3-deleted',
+                message: `Deleted "${editing.title}"`,
+                undo: () => createItem.mutateAsync({
+                  kind: editing.kind, title: editing.title, starts_at: editing.starts_at, ends_at: editing.ends_at,
+                  due_at: editing.due_at, duration_min: editing.duration_min, course: editing.course, subtype: editing.subtype,
+                  source_type: editing.source_type, source_id: editing.source_id, source_offset_ms: editing.source_offset_ms,
+                }),
+              })
+            }
+          })}
           // As children, so it isn't remounted when the board's scope changes under it.
           children={popover.lecture && (
             <ClassLectureSection

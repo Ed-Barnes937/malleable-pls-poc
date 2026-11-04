@@ -5,6 +5,9 @@ import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-f
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
+// PROTOTYPE p3 (flow audit feedback and motion): throwaway, never merged.
+import { p3 } from '@pls/shared-ui'
+import { Loader2 } from 'lucide-react'
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
 function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (chip: HTMLElement) => void }) {
@@ -476,12 +479,19 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // or the run failed), so say so and offer it.
   const untranscribed = !!recording && !!segments && segments.length === 0 && recording.status !== 'ready' && !recording.processing && !isCapture
 
+  // PROTOTYPE p3: moments marked confused whose review hasn't arrived yet.
+  const [p3Pending, setP3Pending] = useState<ReadonlySet<string>>(() => new Set())
   /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
   const markedAt = useRef<number | null>(null)
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
     markedAt.current = watchUserScroll()
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
+    // PROTOTYPE p3: a and b show the review being planned at once, until it resolves in place.
+    if (label === 'confused' && p3 !== 'c') {
+      const seg = selectedSegmentId
+      setP3Pending((prev) => new Set(prev).add(seg))
+    }
   }
 
   const handleAnnotation = () => {
@@ -692,6 +702,13 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
               {(segTags.length > 0 || review) && (
                 <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
                   {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                  {/* PROTOTYPE p3: pending, then the review chip takes its place. */}
+                  {!review && p3Pending.has(seg.id) && (
+                    <span data-testid="review-chip-pending" role="status" className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line bg-surface-raised px-2 py-0.5 text-meta font-semibold text-attn">
+                      <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+                      Planning a review...
+                    </span>
+                  )}
                   {review && (
                     <ReviewChip
                       review={review}

@@ -38,6 +38,9 @@ import { hasPlanItemViewer, useShowMoment } from './moments'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
+// PROTOTYPE p3 (flow audit feedback and motion): throwaway, never merged.
+import { Undo2 } from 'lucide-react'
+import { p3, p3Confirm, onP3Confirm, P3Switcher } from '@pls/shared-ui'
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -74,6 +77,13 @@ export function WorkspaceShell() {
   const canShowPlanItemRef = useRef(false)
   const activeBoardRef = useRef(activeWorkspaceId)
   activeBoardRef.current = activeWorkspaceId
+  // PROTOTYPE p3: a confirmation the variant asked for becomes a toast with Undo.
+  useEffect(() => onP3Confirm((c) => pushToast({
+    message: c.message,
+    tone: 'success',
+    key: c.key,
+    ...(c.undo ? { action: { label: 'Undo', icon: Undo2, onClick: () => void c.undo?.() } } : {}),
+  })), [pushToast])
   useServerEvents({
     onJobCompleted: (event) => {
       if (event.quiet) return
@@ -114,6 +124,17 @@ export function WorkspaceShell() {
 
   usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
+
+  // PROTOTYPE p3: which way the new board comes in from (b slides from the tab's side).
+  const boardDirection = useRef<'left' | 'right' | 'none'>('none')
+  const boardIndexRef = useRef<number>(-1)
+  {
+    const index = workspaces?.findIndex((w) => w.id === activeWorkspaceId) ?? -1
+    if (index !== boardIndexRef.current) {
+      boardDirection.current = boardIndexRef.current < 0 ? 'none' : index > boardIndexRef.current ? 'right' : 'left'
+      boardIndexRef.current = index
+    }
+  }
 
   // Workspace transition animation
   useEffect(() => {
@@ -295,7 +316,18 @@ export function WorkspaceShell() {
           if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
           opts.onSettled?.(true)
           // One toast for a run of adds, not a stack of them.
-          if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
+          // PROTOTYPE p3: b confirms with Undo; a is quiet (the widget arriving is the confirmation).
+          const addedId = add.panelId
+          const p3Took = !opts.quiet && p3Confirm({
+            kind: 'small',
+            key: 'widget-added',
+            message: `${m?.label ?? 'Widget'} added`,
+            undo: addedId ? () => {
+              useCanvasStore.getState().removePanel(addedId)
+              removePanel.mutate(addedId)
+            } : undefined,
+          })
+          if (!opts.quiet && !p3Took && p3 === 'c') pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
         () => {
           setPendingAdds(pendingAddsRef.current.filter((a) => a !== add))
@@ -304,7 +336,7 @@ export function WorkspaceShell() {
         },
       )
     },
-    [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
+    [activeWorkspaceId, addPanel, removePanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
   )
 
   /**
@@ -358,11 +390,35 @@ export function WorkspaceShell() {
   // Handle panel removal — remove from DB then let query invalidation update canvas store
   const handleRemovePanel = useCallback(
     (panelId: string) => {
+      // PROTOTYPE p3: removing a widget is destructive, so a and b confirm it with Undo
+      // (the widget comes back where it was, with its settings).
+      const row = (panels as unknown as { id: string; lens_type: string; slot_name: string; config: Record<string, unknown> }[] | undefined)
+        ?.find((p) => p.id === panelId)
+      const box = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+      const boardId = activeWorkspaceId
+      if (row && box && boardId) {
+        p3Confirm({
+          kind: 'destructive',
+          key: 'p3-removed',
+          message: `${manifests.find((m) => m.id === row.lens_type)?.label ?? 'Widget'} removed`,
+          undo: () => addPanel.mutateAsync({
+            workspaceId: boardId,
+            lensType: row.lens_type,
+            slotName: row.slot_name,
+            config: row.config,
+            pos_x: Math.round(box.pos_x),
+            pos_y: Math.round(box.pos_y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+            z_index: box.z_index,
+          }),
+        })
+      }
       // Also remove from canvas store immediately for snappy UX
       useCanvasStore.getState().removePanel(panelId)
       removePanel.mutate(panelId)
     },
-    [removePanel],
+    [removePanel, addPanel, panels, activeWorkspaceId, manifests],
   )
 
   // Render lens content for a given panel
@@ -452,7 +508,18 @@ export function WorkspaceShell() {
     const el = canvasRef.current
     if (!el) return
     const { organizePanels } = useCanvasStore.getState()
+    // PROTOTYPE p3: Tidy up moves everything, so a and b confirm it with Undo.
+    const before = useCanvasStore.getState().panels.map((p) => ({ ...p }))
     organizePanels(el.clientWidth, el.clientHeight)
+    p3Confirm({
+      kind: 'large',
+      key: 'p3-tidy',
+      message: 'Board tidied',
+      undo: () => {
+        const { resizePanel } = useCanvasStore.getState()
+        for (const p of before) resizePanel(p.id, p.pos_x, p.pos_y, p.width, p.height)
+      },
+    })
     // Persist the new layout to DB
     const updated = useCanvasStore.getState().panels
     handleLayoutChange(updated)
@@ -473,8 +540,11 @@ export function WorkspaceShell() {
           <CanvasSkeleton />
         ) : (
           <div
-            className="relative min-h-0 flex-1 transition-opacity duration-150"
-            style={{ opacity: transitioning ? 0 : 1 }}
+            // PROTOTYPE p3: a and b animate the new board in (CSS in index.css), c fades out and in.
+            key={p3 === 'c' ? undefined : activeWorkspaceId ?? undefined}
+            data-p3-board-in={p3 === 'c' ? undefined : boardDirection.current}
+            className={p3 === 'c' ? 'relative min-h-0 flex-1 transition-opacity duration-150' : 'relative min-h-0 flex-1'}
+            style={p3 === 'c' ? { opacity: transitioning ? 0 : 1 } : undefined}
           >
             <WorkspaceBackground />
             <CanvasEngine
@@ -507,6 +577,8 @@ export function WorkspaceShell() {
         <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
       )}
       <ToastHost />
+      {/* PROTOTYPE p3 */}
+      <P3Switcher />
     </div>
   )
 }

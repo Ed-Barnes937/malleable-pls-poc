@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { motion, useDragControls, useMotionValue } from 'motion/react'
+import { AnimatePresence, motion, useDragControls, useMotionValue } from 'motion/react'
+// PROTOTYPE p3: variant motion and Undo confirmations for widgets.
+import { p3, p3Confirm, p3Flash, p3MotionProps } from '@pls/shared-ui'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
@@ -84,6 +86,8 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       data-testid="canvas-container"
       data-canvas-scroll
       data-layout={narrow ? 'stack' : 'free'}
+      // PROTOTYPE p3: lets the variant CSS dim the other widgets while one is fullscreen.
+      data-p3-fullscreen={fullscreenPanelId ? '' : undefined}
       className={
         narrow
           ? 'relative z-[1] flex h-full w-full flex-col gap-3 overflow-y-auto p-3'
@@ -102,6 +106,8 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           breakpoint only restyles panels: widgets never remount (an
           in-progress recording survives). Stacked reading order comes from CSS
           `order`, not from re-sorting children. */}
+      {/* PROTOTYPE p3: a and b animate widgets in and out; c (current) has no exit. */}
+      <AnimatePresence initial={false}>
       {panels.map((panel) => (
         <DraggablePanel
           key={panel.id}
@@ -114,6 +120,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           isSelected={selectedPanelId === panel.id}
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
           isFullscreen={!narrow && fullscreenPanelId === panel.id}
+          p3Behind={!narrow && fullscreenPanelId !== null && fullscreenPanelId !== panel.id}
           canvasRef={canvasRef}
           onRemovePanel={onRemovePanel}
           renderPanel={renderPanel}
@@ -122,6 +129,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderHeaderActions={renderHeaderActions}
         />
       ))}
+      </AnimatePresence>
       {/* Air under the lowest widget once the free board scrolls. */}
       {!narrow && panels.length > 0 && (
         <div
@@ -228,9 +236,11 @@ interface ResizeHandleProps {
   panelId: string
   shiftRef: React.RefObject<boolean>
   onGestureChange: (active: boolean) => void
+  /** PROTOTYPE p3: names the widget in a resize confirmation. */
+  label: string
 }
 
-function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeHandleProps) {
+function ResizeHandle({ direction, panelId, shiftRef, onGestureChange, label }: ResizeHandleProps) {
   const resizePanel = useCanvasStore((s) => s.resizePanel)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const startRef = useRef<{
@@ -301,12 +311,24 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
     (e: React.PointerEvent) => {
       if (!startRef.current) return
       e.stopPropagation()
+      // PROTOTYPE p3: a resize gets an inline highlight (a) or an Undo toast (b).
+      const before = startRef.current
+      const now = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+      if (now && Math.abs(now.width - before.panelW) + Math.abs(now.height - before.panelH) > 4) {
+        p3Flash(document.querySelector(`[data-panel-id="${CSS.escape(panelId)}"]`))
+        p3Confirm({
+          kind: 'gesture',
+          key: 'p3-gesture',
+          message: `${now.title ?? label} resized`,
+          undo: () => useCanvasStore.getState().resizePanel(panelId, before.panelX, before.panelY, before.panelW, before.panelH),
+        })
+      }
       startRef.current = null
       onGestureChange(false)
       const target = e.currentTarget as HTMLElement
       target.releasePointerCapture(e.pointerId)
     },
-    [onGestureChange],
+    [onGestureChange, panelId, label],
   )
 
   return (
@@ -324,7 +346,7 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 
 function usePanelDrag(
   panel: PanelItem,
-  opts: { shiftRef: React.RefObject<boolean>; canvasRef: React.RefObject<HTMLDivElement | null>; isFullscreen: boolean },
+  opts: { shiftRef: React.RefObject<boolean>; canvasRef: React.RefObject<HTMLDivElement | null>; isFullscreen: boolean; label: string },
 ) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const dragControls = useDragControls()
@@ -394,9 +416,20 @@ function usePanelDrag(
       x.jump(0)
       y.jump(0)
       movePanel(panel.id, newX, newY)
+      // PROTOTYPE p3: a drag gets an inline highlight (a) or an Undo toast (b).
+      const from = { x: current.pos_x, y: current.pos_y }
+      if (Math.abs(from.x - newX) + Math.abs(from.y - newY) > 4) {
+        p3Flash(document.querySelector(`[data-panel-id="${CSS.escape(panel.id)}"]`))
+        p3Confirm({
+          kind: 'gesture',
+          key: 'p3-gesture',
+          message: `${opts.label} moved`,
+          undo: () => useCanvasStore.getState().movePanel(panel.id, from.x, from.y),
+        })
+      }
       requestAnimationFrame(() => setIsGesturing(false))
     },
-    [panel.id, movePanel, x, y, shiftRef, canvasRef],
+    [panel.id, movePanel, x, y, shiftRef, canvasRef, opts.label],
   )
 
   const onDragHandlePointerDown = useCallback(
@@ -426,6 +459,8 @@ interface DraggablePanelProps {
   isSelected?: boolean
   isDimmed?: boolean
   isFullscreen?: boolean
+  /** PROTOTYPE p3: another widget is fullscreen, so this one steps back. */
+  p3Behind?: boolean
   canvasRef?: React.RefObject<HTMLDivElement | null>
   onRemovePanel?: (panelId: string) => void
   renderPanel?: (panelId: string) => ReactNode
@@ -434,7 +469,7 @@ interface DraggablePanelProps {
   renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, p3Behind, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
   const stacked = stackOrder !== undefined
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
@@ -442,7 +477,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   const [isHovered, setIsHovered] = useState(false)
 
   const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
-    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
+    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false, label: panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Widget' })
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
@@ -474,7 +509,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   // No layout animation while gesturing or stacked (switching layouts should snap).
   const transitionStyle = isGesturing || stacked
     ? undefined
-    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
+    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel)' + (p3 === 'c' ? ', opacity var(--transition-panel)' : '')
 
   const icon = panel.lensType ? getIcon?.(panel.lensType) : undefined
   const label = panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
@@ -510,7 +545,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
             }),
         backgroundColor: 'var(--color-surface-raised)',
         boxShadow: shadow,
-        opacity: isDimmed ? 0.3 : 1,
+        ...(p3 === 'c' ? { opacity: isDimmed ? 0.3 : 1 } : { transformOrigin: '50% 0%' }),
         transition: transitionStyle,
         x,
         y,
@@ -522,9 +557,27 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-widget border border-border-subtle"
-      initial={{ scale: 0.95 }}
-      animate={{ scale: isGesturing ? 1.015 : 1 }}
-      transition={{ type: 'tween', duration: 0.2 }}
+      {...(p3 === 'c'
+        ? {
+            initial: { scale: 0.95 },
+            animate: { scale: isGesturing ? 1.015 : 1 },
+            transition: { type: 'tween' as const, duration: 0.2 },
+          }
+        : (() => {
+            // PROTOTYPE p3: one enter / exit motion for widgets (a fade, or b a scale
+            // from its top edge; y is the drag's, so b's slide is the scale's origin).
+            const m = p3MotionProps()
+            const from = p3 === 'b' ? { opacity: 0, scale: 0.9 } : m.initial
+            return {
+              initial: from,
+              exit: from,
+              transition: m.transition,
+              animate: {
+                opacity: p3Behind ? 0 : isDimmed ? 0.3 : 1,
+                scale: isGesturing ? 1.015 : p3Behind && p3 === 'b' ? 0.94 : 1,
+              },
+            }
+          })())}
     >
       <div
         style={{ pointerEvents: (isHovered && !isFullscreen && !stacked) ? 'auto' : 'none' }}
@@ -537,6 +590,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
             panelId={panel.id}
             shiftRef={shiftRef}
             onGestureChange={onGestureChange}
+            label={label}
           />
         ))}
       </div>

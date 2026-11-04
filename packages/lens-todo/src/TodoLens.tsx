@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'rea
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
+// PROTOTYPE p3 (flow audit feedback and motion): throwaway, never merged.
+import { p3, p3Confirm, useP3CalendarOnBoard } from '@pls/shared-ui'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
@@ -17,6 +19,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const reader = useSubstrate()
   const writer = useSubstrateMutations()
   const course = scope.courseTag
+  const calendarOnBoard = useP3CalendarOnBoard()
 
   const { data: items, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
   // Unfiltered counterpart, only to say what the course filter leaves out.
@@ -38,6 +41,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const tick = (id: string) => {
     justDone.add(id)
     status.setStatus(id, 'done')
+    // PROTOTYPE p3: b confirms a tick with an Undo toast (a and c keep the row's own "Done · Undo").
+    const title = items?.find((i) => i.id === id)?.title
+    p3Confirm({ kind: 'small', key: `p3-ticked`, message: `Ticked off "${title ?? 'to-do'}"`, undo: () => reopen(id) })
   }
   const reopen = (id: string) => {
     justDone.remove(id)
@@ -74,13 +80,16 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
     e.preventDefault()
     const trimmed = title.trim()
     if (!trimmed) return
-    create.mutate({
+    create.mutateAsync({
       kind: 'task',
       title: trimmed,
       duration_min: estimate ? Number(estimate) : null,
       // New to-dos inherit the board course.
       course: course ?? null,
-    })
+    }).then((item) => {
+      // PROTOTYPE p3: b confirms an add with Undo; a is quiet (the row arriving is the confirmation).
+      p3Confirm({ kind: 'small', key: 'p3-todo-added', message: `Added "${trimmed}"`, undo: () => dismiss.mutateAsync(item.id) })
+    }, () => {})
     setTitle('')
     setEstimate('')
   }
@@ -109,7 +118,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
         {hidden}
       </div>
 
-      <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
+      {/* PROTOTYPE p3: in a and b the re-fit prompt shows once per board, in the Calendar when there is one (decision 4). */}
+      {!(p3 !== 'c' && calendarOnBoard) && <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />}
 
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
@@ -124,7 +134,16 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               fresh={arrived.has(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
-              onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
+              onDismiss={stage ? undefined : () => {
+                dismiss.mutate(item.id)
+                // PROTOTYPE p3: removing a to-do is destructive: a and b confirm it with Undo.
+                p3Confirm({
+                  kind: 'destructive',
+                  key: 'p3-todo-removed',
+                  message: `Removed "${item.title}"`,
+                  undo: () => update.mutateAsync({ id: item.id, patch: { status: 'open' } }),
+                })
+              }}
               onScopeChange={onScopeChange}
               onShowMoment={onShowMoment}
             />
