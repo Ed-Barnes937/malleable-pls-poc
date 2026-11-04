@@ -74,7 +74,13 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
       {!connections.length ? (
         <EmptyState message="No connections found" action={hidden} />
       ) : (
-        <div className="-mx-3 min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
+        // Nothing in the list takes focus, so the list itself does: keyboard users can scroll it.
+        <div
+          role="region"
+          aria-label="Connections"
+          tabIndex={0}
+          className="-mx-3 min-h-0 flex-1 space-y-1 overflow-y-auto rounded-item px-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
           {connections.map((conn, i) => {
             const Icon = SOURCE_ICONS[conn.sourceType] ?? FileText
             const relLabel = RELATIONSHIP_LABELS[conn.relationship ?? ''] ?? conn.relationship

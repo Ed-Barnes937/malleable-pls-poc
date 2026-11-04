@@ -67,7 +67,7 @@ test.describe('Record makes its lecture as it starts', () => {
     page.on('request', (req) => { if (req.url().includes('workspaces.setBoardScope')) scopeWrites.push(req.url()) })
 
     await audio.getByRole('button', { name: 'Start recording' }).click()
-    await expect(audio.getByText('REC')).toBeVisible()
+    await expect(audio.getByText('REC', { exact: true })).toBeVisible()
 
     // Before any audio: the class's lecture, selected on the board by the server.
     await expect.poll(async () => (await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', ws))

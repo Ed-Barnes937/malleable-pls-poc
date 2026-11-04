@@ -106,6 +106,8 @@ const REVEAL_HALO_PX = 24
 
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
+/** Too short for the time line, but tall enough for a two-line title alone (an hour at the smallest hour height). */
+const TWO_LINE_TITLE_ONLY_PX = 30
 /** Tall enough for a free gap's "1h 30m free" label. */
 const FREE_LABEL_PX = 28
 /** A drafted block's accept and dismiss row, under its title and time. */
@@ -483,7 +485,7 @@ export function TimeGrid({
                       }}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
-                        '@container flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 text-left text-meta font-semibold transition-opacity',
+                        '@container flex min-h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 py-0.5 text-left text-meta font-semibold leading-tight transition-opacity',
                         tone.due,
                         opacityFor(isDimmed(m.item), m.item.status === 'done'),
                         isLinked(m.item) && 'ring-2 ring-accent',
@@ -491,7 +493,8 @@ export function TimeGrid({
                       )}
                     >
                       {done ? <Check className="h-3 w-3 shrink-0" /> : <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone.bar)} />}
-                      <span className={cn('truncate', done && 'line-through opacity-70')}>{m.item.title}</span>
+                      {/* Two lines before it cuts: 'Chemistry lab report' reads whole in a week column. */}
+                      <span className={cn('line-clamp-2 min-w-0', done && 'line-through opacity-70')}>{m.item.title}</span>
                       {!m.allDay && (
                         // The time gives way first in a narrow column; the title (and tooltip) stay.
                         <span className="ml-auto hidden shrink-0 font-normal tabular-nums opacity-85 @[6rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
@@ -716,7 +719,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   const fromMoment = item.source_type === 'recording' && item.source_id != null
   const kindLabel = isCommitment ? (item.subtype ?? 'Fixed') : 'Study time'
   const look = blockLook(item)
-  const twoLines = height >= TWO_LINE_TITLE_PX
+  const twoLines = height >= TWO_LINE_TITLE_PX || (!roomy && height >= TWO_LINE_TITLE_ONLY_PX)
 
   return (
     <div
@@ -881,7 +884,9 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
-  const iconButton = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+  // A 24px hit area (WCAG 2.2 target size) around the 16px circle; the negative margin keeps the circles where they sit.
+  const iconButton = 'group/ghost-action -m-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-none'
+  const iconCircle = 'flex h-4 w-4 items-center justify-center rounded-full transition-colors group-focus-visible/ghost-action:ring-2 group-focus-visible/ghost-action:ring-accent'
 
   return (
     <div
@@ -939,7 +944,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
           // Bottom right when there is room; over the title on hover / focus in a short block.
           <div
             className={cn(
-              'flex gap-1',
+              'flex gap-2',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
                 : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
@@ -951,9 +956,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
                 title="Accept"
                 onPointerDown={stop}
                 onClick={onAccept}
-                className={cn(iconButton, 'bg-accent text-accent-foreground hover:opacity-90')}
+                className={iconButton}
               >
-                <Check className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-accent text-accent-foreground group-hover/ghost-action:opacity-90')}>
+                  <Check className="h-2.5 w-2.5" />
+                </span>
               </button>
               <button
                 type="button"
@@ -961,9 +968,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
                 title="Dismiss"
                 onPointerDown={stop}
                 onClick={onDismiss}
-                className={cn(iconButton, 'bg-surface-raised text-text-secondary ring-1 ring-border hover:bg-surface-overlay hover:text-text-primary')}
+                className={iconButton}
               >
-                <X className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-surface-raised text-text-secondary ring-1 ring-border group-hover/ghost-action:bg-surface-overlay group-hover/ghost-action:text-text-primary')}>
+                  <X className="h-2.5 w-2.5" />
+                </span>
               </button>
           </div>
         )}
