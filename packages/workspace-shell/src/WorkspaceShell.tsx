@@ -116,7 +116,10 @@ export function WorkspaceShell() {
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  /** The board whose widgets the canvas holds (the last board's, until a new one's arrive). */
+  const canvasBoard = usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  const canvasBoardRef = useRef(canvasBoard)
+  canvasBoardRef.current = canvasBoard
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
 
   // Workspace transition animation
@@ -242,6 +245,15 @@ export function WorkspaceShell() {
     requestAnimationFrame(tryReveal)
   }, [])
 
+  /** Adds asked for while the board's widgets were still loading, made once they have reached the canvas. */
+  const [waitingAdds, setWaitingAdds] = useState<{ workspaceId: string; add: () => void }[]>([])
+  useEffect(() => {
+    if (!activeWorkspaceId || canvasBoard !== activeWorkspaceId || waitingAdds.length === 0) return
+    setWaitingAdds([])
+    // Adds for a board the student has since left are dropped.
+    for (const a of waitingAdds) if (a.workspaceId === activeWorkspaceId) a.add()
+  }, [activeWorkspaceId, canvasBoard, waitingAdds])
+
   /**
    * Adds a widget at its default size. Without a position (a palette click)
    * it goes in the first free area of the visible board, shortened (down to
@@ -259,6 +271,13 @@ export function WorkspaceShell() {
     ) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
+      // Placed among this board's widgets, never the last board's: an add asked
+      // for before they reach the canvas waits for them.
+      if (canvasBoardRef.current !== activeWorkspaceId) {
+        const workspaceId = activeWorkspaceId
+        setWaitingAdds((waiting) => [...waiting, { workspaceId, add: () => addWidgetRef.current(lensType, at, opts) }])
+        return
+      }
       const m = manifests.find((man) => man.id === lensType)
       const width = at?.width ?? m?.defaultWidth ?? 400
       const height = at?.height ?? m?.defaultHeight ?? 300
@@ -314,6 +333,8 @@ export function WorkspaceShell() {
     },
     [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
   )
+  const addWidgetRef = useRef(addWidget)
+  addWidgetRef.current = addWidget
 
   /**
    * A first-run starter: its widgets, laid out as a group to fit the visible
@@ -509,8 +530,9 @@ export function WorkspaceShell() {
               getLabel={getLabel}
               renderHeaderActions={renderHeaderActions}
             />
-            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
-            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
+            {/* No starters before the board's widgets are in, or while an add waits or is on its way: a starter could add a second Calendar. */}
+            {panels.length === 0 && canvasBoard === activeWorkspaceId && waitingAdds.length === 0
+              && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
               <div
                 data-testid="workspace-empty-state"
                 className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
