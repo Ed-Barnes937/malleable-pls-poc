@@ -3,6 +3,48 @@ import type { TxSql } from '@pls/db'
 import type { BoardScope } from '@pls/substrate'
 import { requireOwnLecture } from './_shared'
 
+/*
+ * Locking protocol for a board's scope rows (`workspace_scopes` 'tag' and
+ * 'lecture') and the lectures they name. It keeps I1 (a board with a course
+ * shows only a lecture of that course, see `writeBoardScope`) under
+ * concurrent scope writes, course changes and deletes, without deadlocks.
+ *
+ * Each path, with its locks in the order taken:
+ *
+ * - A scope write (`writeBoardScope`, `restoreBoardScope`, and the
+ *   procedures that select a lecture on a board: setBoardScope,
+ *   lectures.create and forClassOccurrence with a board, an upload that
+ *   selects its lecture): the board (`lockBoardScope`), then the lecture it
+ *   selects or keeps FOR SHARE, then the board's lecture row, then its course
+ *   row. It writes no scope row before that lecture read.
+ * - A course change (`lectures.update`): the lecture FOR NO KEY UPDATE before
+ *   anything else, then `refileLectureOnBoards`: the lecture rows naming it
+ *   (FOR UPDATE), then those boards' course rows. No board lock.
+ * - Deleting a lecture (`lectures.delete`): the lecture FOR UPDATE, its
+ *   recordings and derived plan items, then the lecture rows naming it
+ *   (DELETE). No board lock.
+ * - A recording or resource written into a lecture (uploads, resources) and
+ *   foreign key checks: the lecture FOR KEY SHARE, which conflicts only with
+ *   deleting it. An upload that then selects the lecture takes the board and
+ *   upgrades to FOR SHARE, which waits only for a course change or delete.
+ *
+ * Why I1 holds: FOR SHARE conflicts with NO KEY UPDATE, so a scope write
+ * and a course change of the same lecture run one after the other. A write
+ * that reads the lecture during a change waits, then reads the committed
+ * course; a change waits for writes that already read the lecture to
+ * commit, and only then lists the boards showing it, so it refiles every
+ * board they made show it, and none can start showing it until it commits.
+ *
+ * Why no deadlock: the course change and delete never wait for a board
+ * lock, and a scope write holds no scope row while it waits for a lecture.
+ * A board's rows are always locked lecture row first, then course row, and
+ * a scope write touches only its own board. So a scope write waits for a
+ * change only on the lecture, holding the board alone, and a change waits
+ * for a scope write only on a scope row, which that write took after its
+ * last lecture read: from then on it waits for nothing but its own board's
+ * rows, which the change only reaches after the lecture row the write holds.
+ */
+
 /**
  * A change to a board's scope: an absent field is unchanged, null clears it
  * ("All courses", no lecture).
@@ -36,8 +78,9 @@ export async function readBoardScope(tx: TxSql, userId: string, workspaceId: str
  * Takes the board's scope write lock until the transaction ends, so
  * concurrent scope writes to one board run one after another and each reads
  * the scope the previous one left. Every write to a board's
- * `workspace_scopes` takes it first. Throws NOT_FOUND unless the board is
- * the student's own.
+ * `workspace_scopes` takes it first, except a course change or delete of
+ * the lecture it shows, which hold that lecture instead (see the protocol
+ * above). Throws NOT_FOUND unless the board is the student's own.
  *
  * FOR NO KEY UPDATE rather than FOR UPDATE: it conflicts with itself but
  * not with the FOR KEY SHARE that `requireOwnBoard` and foreign key checks
@@ -93,9 +136,11 @@ export async function replaceScopeRow(
  *   (widening loses nothing; the student clears it from its pill).
  *
  * Takes the board's scope lock (`lockBoardScope`, which also checks the
- * board is the student's own) before it reads the current scope, and checks
- * the lecture (`requireOwnLecture`). Returns the board's scope after the
- * write.
+ * board is the student's own) before it reads the current scope, and reads
+ * the lecture it selects or keeps FOR SHARE (`requireOwnLecture`), so a
+ * course change under way is waited for and its course read as committed.
+ * Writes the lecture row, then the course row (the protocol above). Returns
+ * the board's scope after the write.
  */
 export async function writeBoardScope(
   tx: TxSql,
@@ -109,7 +154,7 @@ export async function writeBoardScope(
   let lectureId = patch.lectureId === undefined ? current.lectureId : patch.lectureId
 
   if (patch.lectureId) {
-    const lecture = await requireOwnLecture(tx, userId, patch.lectureId)
+    const lecture = await requireOwnLecture(tx, userId, patch.lectureId, { lock: 'share' })
     if (courseTag !== null || patch.courseFollowsLecture) {
       if (patch.courseTag !== undefined && patch.courseTag !== lecture.course) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: "A selected lecture's course is the board course" })
@@ -119,17 +164,60 @@ export async function writeBoardScope(
   } else if (lectureId) {
     // The lecture stays only while it is in the board course, and always on
     // "All courses". A lecture that is gone (deleted since) never stays. FOR
-    // KEY SHARE, as for a selected one: a lecture being deleted is waited
-    // for, then found gone, so this never writes back a selection
-    // `lectures.delete` has just removed.
-    const [lecture] = await tx`SELECT course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE`
+    // SHARE, as for a selected one: a lecture being deleted or refiled is
+    // waited for, then found gone or read with its new course, so this
+    // never writes back a selection `lectures.delete` has just removed, nor
+    // keeps one `lectures.update` has just moved out of the course.
+    const [lecture] = await tx`SELECT course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR SHARE`
     const stays = courseTag === null || ((lecture?.course as string | null | undefined) ?? null) === courseTag
     if (!lecture || !stays) lectureId = null
   }
 
-  await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.courseTag, courseTag)
+  // Lecture row first, as `refileLectureOnBoards` locks them.
   await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.lectureId, lectureId)
+  await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.courseTag, courseTag)
   return { courseTag, lectureId }
+}
+
+/**
+ * Refiles a lecture that has just moved to `course` (null: no course) on
+ * every board showing it, as `writeBoardScope` selecting it would (I1): a
+ * board with a course takes `course`, which makes it "All courses" when
+ * `course` is null (as selecting a lecture filed under no course does); an
+ * "All courses" board stays "All courses" and only keeps showing it.
+ *
+ * The caller holds the lecture FOR NO KEY UPDATE (or stronger) and has
+ * changed its course in this transaction, and takes no board lock: no scope
+ * write can make a board show the lecture until it commits (see the
+ * protocol above). Each board's lecture row is locked before its course row,
+ * so a scope write that has just moved a board off the lecture is waited
+ * for, and that board is then left alone.
+ */
+export async function refileLectureOnBoards(
+  tx: TxSql,
+  userId: string,
+  lectureId: string,
+  course: string | null,
+): Promise<void> {
+  const showing = await tx`
+    SELECT workspace_id FROM workspace_scopes
+    WHERE scope_type = ${SCOPE_TYPE.lectureId} AND scope_value = ${lectureId} AND user_id = ${userId}
+    ORDER BY workspace_id
+    FOR UPDATE
+  `
+  const boards = showing.map((r) => r.workspace_id as string)
+  if (boards.length === 0) return
+  if (course === null) {
+    await tx`
+      DELETE FROM workspace_scopes
+      WHERE workspace_id = ANY(${boards}::text[]) AND scope_type = ${SCOPE_TYPE.courseTag} AND user_id = ${userId}
+    `
+    return
+  }
+  await tx`
+    UPDATE workspace_scopes SET scope_value = ${course}
+    WHERE workspace_id = ANY(${boards}::text[]) AND scope_type = ${SCOPE_TYPE.courseTag} AND user_id = ${userId}
+  `
 }
 
 /** Whether two board scopes are the same course and lecture. */

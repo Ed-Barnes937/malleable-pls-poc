@@ -282,7 +282,10 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
     if (course !== undefined) lecture.course = course
     lecture.updated_at = new Date().toISOString()
     if (course !== undefined && course !== before) {
-      // Every board with it selected follows it to the new course.
+      // Every board with it selected follows it to the new course, as the
+      // server's `refileLectureOnBoards`: a board with a course takes the
+      // new one ("All courses" when it is none), an "All courses" board
+      // stays so. Selecting it again here applies that same rule.
       for (const row of db.workspaceScopes.filter((s) => s.scope_type === 'lecture' && s.scope_value === id)) {
         writeBoardScope(db, row.workspace_id, { lectureId: id })
       }

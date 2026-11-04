@@ -5,7 +5,7 @@ import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture, type
 import { router, publicProcedure } from '../trpc'
 import { studentTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
-import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
+import { lockBoardScope, readBoardScope, refileLectureOnBoards, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
 import { deleteRecordingData, lockDerivedPlanItems, planLectureDeletion } from './_lecture-deletion'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -199,7 +199,7 @@ export const lecturesRouter = router({
    * A course change re-scopes every board with a course that has it
    * selected to the new course in the same transaction, so a board's
    * lecture is always in the board course; an "All courses" board stays
-   * "All courses" (`writeBoardScope`).
+   * "All courses" (`refileLectureOnBoards`).
    */
   update: publicProcedure
     .input(z.object({
@@ -209,7 +209,11 @@ export const lecturesRouter = router({
     }))
     .mutation(async ({ ctx, input }): Promise<Lecture> => {
       return withUser(ctx.userId, async (tx) => {
-        const before = await requireOwnLecture(tx, ctx.userId, input.id)
+        // FOR NO KEY UPDATE before anything else: a board selecting the
+        // lecture (FOR SHARE) waits for this, then reads the new course, and
+        // one that already has is committed before this lists the boards
+        // (the protocol in _board-scope.ts).
+        const before = await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'no key update' })
         await tx`
           UPDATE lectures SET
             title = COALESCE(${input.title ?? null}, title),
@@ -218,19 +222,7 @@ export const lecturesRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (input.course !== undefined && input.course !== before.course) {
-          const boards = await tx`
-            SELECT workspace_id FROM workspace_scopes
-            WHERE scope_type = 'lecture' AND scope_value = ${input.id} AND user_id = ${ctx.userId}
-          `
-          for (const board of boards) {
-            const workspaceId = board.workspace_id as string
-            // Under the board's scope lock, only if it still has the lecture
-            // selected: a scope write since the select above may have
-            // cleared it, and that must not bring it back.
-            await lockBoardScope(tx, ctx.userId, workspaceId)
-            if ((await readBoardScope(tx, ctx.userId, workspaceId)).lectureId !== input.id) continue
-            await writeBoardScope(tx, ctx.userId, workspaceId, { lectureId: input.id })
-          }
+          await refileLectureOnBoards(tx, ctx.userId, input.id, input.course)
         }
         return (await lectureById(tx, ctx.userId, input.id))!
       })
@@ -267,11 +259,12 @@ export const lecturesRouter = router({
     .mutation(async ({ ctx, input }): Promise<DeletedLecture> => {
       const { deleted, files } = await withUser(ctx.userId, async (tx) => {
         // FOR UPDATE: an upload or a board selecting the lecture takes FOR
-        // KEY SHARE on it first (requireOwnLecture, writeBoardScope), so it
-        // waits for this and then finds it gone, and once this holds the
-        // lock every selection of it is committed and seen below. That is
-        // why the board rows can go without each board's scope lock.
-        const { id, title } = await requireOwnLecture(tx, ctx.userId, input.id, { forUpdate: true })
+        // KEY SHARE or FOR SHARE on it first (requireOwnLecture,
+        // writeBoardScope), so it waits for this and then finds it gone, and
+        // once this holds the lock every selection of it is committed and
+        // seen below. That is why the board rows can go without each board's
+        // scope lock (the protocol in _board-scope.ts).
+        const { id, title } = await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'update' })
         const lecture = { id, title }
         // And its recordings: an AI job writing to one (a transcript, the
         // summary, a study block) holds it FOR KEY SHARE while it does, so

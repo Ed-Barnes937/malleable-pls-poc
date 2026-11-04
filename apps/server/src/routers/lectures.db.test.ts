@@ -171,6 +171,139 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       }
     })
 
+    /**
+     * Holds the board (FOR NO KEY UPDATE) and its scope rows (FOR UPDATE), as
+     * a scope write on it under way does, in a transaction of its own until
+     * `release`. `pid` is its backend.
+     */
+    const holdBoard = async (workspaceId: string) => {
+      let pid = 0
+      let held!: () => void
+      const holding = new Promise<void>((done) => { held = done })
+      let release!: () => void
+      const released = new Promise<void>((done) => { release = done })
+      const done = db.sql.begin(async (tx) => {
+        pid = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
+        await tx`SELECT id FROM workspaces WHERE id = ${workspaceId} FOR NO KEY UPDATE`
+        await tx`SELECT id FROM workspace_scopes WHERE workspace_id = ${workspaceId} FOR UPDATE`
+        held()
+        await released
+      })
+      await holding
+      return { pid, release: async () => { release(); await done } }
+    }
+    /** How many backends wait on `pid`, and how many wait on one of those. */
+    const waiting = async (pid: number) => (await db.sql`
+      SELECT
+        (SELECT count(*)::int FROM pg_stat_activity a WHERE ${pid}::int = ANY(pg_blocking_pids(a.pid))) AS on_it,
+        (SELECT count(*)::int FROM pg_stat_activity a WHERE EXISTS (
+          SELECT 1 FROM pg_stat_activity b
+          WHERE ${pid}::int = ANY(pg_blocking_pids(b.pid)) AND b.pid = ANY(pg_blocking_pids(a.pid))
+        )) AS behind_those
+    `)[0] as { on_it: number; behind_those: number }
+    /**
+     * Starts `write` and waits until it has either finished or is waiting
+     * behind the transaction blocked on `pid` (the course change): what it
+     * would read before then is the question each race test asks. Returns
+     * the write's outcome, still to come.
+     */
+    const settledOrBehind = async <T>(pid: number, write: () => Promise<T>): Promise<{ outcome: Promise<T> }> => {
+      let settled = false
+      const outcome = write().finally(() => { settled = true })
+      // Not left unhandled while the poll runs; awaited by the caller.
+      outcome.catch(() => {})
+      await expect.poll(async () => settled || (await waiting(pid)).behind_those === 1).toBe(true)
+      return { outcome }
+    }
+
+    it('a lecture moving course while another board selects it leaves no board showing it under its old course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      const selecting = await board('physics')
+
+      // A scope write on the board already showing it is under way, so the
+      // course change waits partway, for that board.
+      const holder = await holdBoard(showing)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await waiting(holder.pid)).on_it).toBe(1)
+
+        // Meanwhile another board selects the lecture, and the change goes on.
+        const { outcome: selection } = await settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: selecting, lectureId: moving.id }))
+        await holder.release()
+        await Promise.all([update, selection])
+      } finally {
+        await holder.release()
+      }
+
+      for (const ws of [showing, selecting]) {
+        expect(await storedScope(ws)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+      }
+    })
+
+    it('a lecture moving course leaves alone a board that a scope write is moving off it', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving off' })
+      const leaving = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: leaving, lectureId: moving.id })
+
+      // A scope write clearing the lecture has written its rows, not yet committed.
+      let pid = 0
+      let wrote!: () => void
+      const written = new Promise<void>((done) => { wrote = done })
+      let commit!: () => void
+      const committing = new Promise<void>((done) => { commit = done })
+      const clearing = db.sql.begin(async (tx) => {
+        pid = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
+        await tx`SELECT id FROM workspaces WHERE id = ${leaving} FOR NO KEY UPDATE`
+        await tx`DELETE FROM workspace_scopes WHERE workspace_id = ${leaving} AND scope_type = 'lecture'`
+        wrote()
+        await committing
+      })
+      await written
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await waiting(pid)).on_it).toBe(1)
+        commit()
+        await Promise.all([clearing, update])
+      } finally {
+        commit()
+        await clearing
+      }
+
+      expect(await storedScope(leaving)).toEqual([['tag', 'physics']])
+    })
+
+    it('an Undo putting back a lecture while it moves course puts it back with its new course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving back' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      // The board showed the lecture, then a change cleared it: Undo puts it back.
+      const undoing = await board('physics')
+      const to = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: moving.id })
+      const ifBoardShows = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: null })
+
+      const holder = await holdBoard(showing)
+      let restored
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await waiting(holder.pid)).on_it).toBe(1)
+
+        const { outcome: undo } = await settledOrBehind(holder.pid, () =>
+          api().workspaces.restoreBoardScope({ workspaceId: undoing, to, ifBoardShows }))
+        await holder.release()
+        ;[, restored] = await Promise.all([update, undo])
+      } finally {
+        await holder.release()
+      }
+
+      expect(restored).toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: moving.id } })
+      for (const ws of [showing, undoing]) {
+        expect(await storedScope(ws)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+      }
+    })
+
     it('the database refuses a second row of one dimension', async () => {
       const ws = await board('biology')
       await expect(db.sql`
