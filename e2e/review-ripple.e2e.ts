@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'

@@ -1,5 +1,5 @@
 import path from 'path'
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import { PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation } from './api'

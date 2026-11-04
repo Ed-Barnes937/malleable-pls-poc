@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { expect, vi } from 'vitest'
+import { afterEach, beforeEach, expect, vi } from 'vitest'
 
 // Cost guardrail: no test may reach a real AI provider. Force the fakes even
 // if the shell exported live settings (see apps/server/src/ai/deps.ts).
@@ -15,3 +15,25 @@ delete process.env.OPENROUTER_API_KEY
 if (expect.getState().testPath?.endsWith('.db.test.ts')) {
   vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 })
 }
+
+// Any console.error fails the test, as in the Playwright suites
+// (playwright/console-guard.ts): React reports render loops, act() misuse and
+// bad props there and nowhere else. A test that causes one on purpose spies on
+// console.error itself (vi.spyOn(console, 'error').mockImplementation(...))
+// and asserts what it logged; that spy stands in for this guard.
+const realConsoleError = console.error
+let consoleErrors: unknown[][] = []
+beforeEach(() => {
+  consoleErrors = []
+  console.error = (...args: unknown[]) => {
+    consoleErrors.push(args)
+    realConsoleError(...args)
+  }
+})
+afterEach(() => {
+  console.error = realConsoleError
+  if (consoleErrors.length > 0) {
+    const logged = consoleErrors.map((args) => args.map(String).join(' ')).join('\n')
+    throw new Error(`The test logged ${consoleErrors.length} console.error(s):\n${logged}`)
+  }
+})

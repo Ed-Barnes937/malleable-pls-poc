@@ -1,8 +1,8 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
-import { watchConsole } from '../playwright/console-guard'
 
 /**
  * The Resources widget against the real server: links and markdown notes
@@ -44,15 +44,6 @@ async function slowSaves(page: Page, ms: number) {
     await route.continue()
   })
 }
-
-// Any React error (a render loop, a bad hook) fails the test.
-let consoleErrors: ReturnType<typeof watchConsole>
-test.beforeEach(({ page }) => {
-  consoleErrors = watchConsole(page)
-})
-test.afterEach(() => {
-  expect(consoleErrors.unexpected()).toEqual([])
-})
 
 /** Where each of dev-user-1's notes stands on the server. */
 async function noteNamed(request: APIRequestContext, title: string) {

@@ -583,7 +583,8 @@ test('the next and previous weeks are fetched by date range', async ({ mount, pa
   await expect(block(page, 'Field trip')).toHaveCount(0)
 })
 
-test('a move that does not save says so and puts the block back', async ({ mount, page, simulator }) => {
+test('a move that does not save says so and puts the block back', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   await expect(block(page, 'Revise respiration')).toBeVisible()

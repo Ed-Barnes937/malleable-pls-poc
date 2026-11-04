@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
@@ -156,7 +157,8 @@ test.describe('First run on an empty board', () => {
     await expectStillAtBottomAsToastLeaves(page, grid)
   })
 
-  test('a starter that fails says so once and comes back', async ({ page }) => {
+  test('a starter that fails says so once and comes back', async ({ page, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.addPanel')
     const { grid } = await newBoard(page)
     await page.route('**/workspaces.addPanel**', (route) => route.fulfill({ status: 500, body: 'down' }))
 

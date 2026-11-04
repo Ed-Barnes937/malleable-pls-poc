@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { classLectureTitle } from '../packages/substrate/src/class-occurrences'
 import { startOfLocalDay } from '../packages/scheduler/src'
@@ -365,7 +366,8 @@ test.describe('A calendar class on a phone', () => {
     await expect.poll(() => boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
   })
   for (const outcome of ['answered', 'failed'] as const) {
-    test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request }) => {
+    test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request, consoleErrors }) => {
+      if (outcome === 'failed') consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
       await board(request, 'Plan', ['calendar'], 'chemistry')
       await geneticsClass(request)
       let release: () => void = () => {}

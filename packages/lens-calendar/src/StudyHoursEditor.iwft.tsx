@@ -227,7 +227,8 @@ test('study hours saved while Auto-fill is drafting shape the draft it lands', a
   for (const ghost of await ghosts.all()) await expect(ghost).toHaveAttribute('aria-label', /, 10:00 - 12:00$/)
 })
 
-test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator }) => {
+test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('preferences.get')
   seed(simulator)
   await page.route('**/preferences.get**', (route) => route.fulfill({ status: 500, body: '{}' }))
   const sent: Record<string, unknown>[] = []
@@ -404,7 +405,8 @@ test('a change shows straight away while it saves, and two quick saves land in o
   await expect(page.getByTestId('plan-capacity')).toContainText('(3h a day)')
 })
 
-test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator }) => {
+test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('preferences.update')
   seed(simulator)
   await mount(<CalendarHarness />)
   await openPlan(page)

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { PanelChrome } from './PanelChrome'
 import { PanelChromeWithIcon } from './test-helpers'
 

@@ -176,7 +176,8 @@ test.describe('Record and Transcript on one board', () => {
     expect(uploads[0]['x-upload-id']).toMatch(/^[0-9a-f-]{36}$/)
   })
 
-  test('mic refused: the new lecture stays, empty, and nothing says it is recording', async ({ mount, page, simulator }) => {
+  test('mic refused: the new lecture stays, empty, and nothing says it is recording', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allow(/^mic error: Error: NotAllowedError/)
     await injectMocks(page, { denyMic: true })
     boardOn(simulator, 'chemistry')
     await mount(<CaptureBoardHarness />)
