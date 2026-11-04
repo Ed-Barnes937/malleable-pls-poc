@@ -485,7 +485,7 @@ export function TimeGrid({
                       }}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
-                        '@container flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 text-left text-meta font-semibold transition-opacity',
+                        '@container flex min-h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 py-0.5 text-left text-meta font-semibold leading-tight transition-opacity',
                         tone.due,
                         opacityFor(isDimmed(m.item), m.item.status === 'done'),
                         isLinked(m.item) && 'ring-2 ring-accent',
@@ -493,7 +493,8 @@ export function TimeGrid({
                       )}
                     >
                       {done ? <Check className="h-3 w-3 shrink-0" /> : <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone.bar)} />}
-                      <span className={cn('truncate', done && 'line-through opacity-70')}>{m.item.title}</span>
+                      {/* Two lines before it cuts: 'Chemistry lab report' reads whole in a week column. */}
+                      <span className={cn('line-clamp-2 min-w-0', done && 'line-through opacity-70')}>{m.item.title}</span>
                       {!m.allDay && (
                         // The time gives way first in a narrow column; the title (and tooltip) stay.
                         <span className="ml-auto hidden shrink-0 font-normal tabular-nums opacity-85 @[6rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
