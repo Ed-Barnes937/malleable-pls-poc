@@ -22,6 +22,9 @@ export function watchApiRequests(context: BrowserContext) {
   // and Playwright doesn't always report those as failed (a layout save sent
   // just before page.reload never finished). The app has no same-document
   // navigations, so a navigated frame's open requests are the old document's.
+  // The server may still be running a request dropped here (or one reported
+  // failed): reseed waits for the database sessions doing it (reseed.ts,
+  // sessionsChecker).
   context.on('page', (page) => page.on('framenavigated', (frame) => {
     for (const request of inFlight) if (request.frame() === frame) inFlight.delete(request)
   }))

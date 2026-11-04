@@ -5,8 +5,14 @@
  * migrated database). Only touches dev-user-1, which no other db test uses.
  * Each case replays the server's steps by hand, in its order, so the race is
  * deterministic.
+ *
+ * reseed waits for every other session on its database to finish what it is
+ * doing, and the other db test files share TEST_DATABASE_URL, running at the
+ * same time. So this file reseeds a database of its own, made (and migrated)
+ * next to that one and dropped when it is done.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest'
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import type { ReseedOptions } from './reseed'
@@ -17,21 +23,39 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
   // postgres is a dependency of @pls/db, not the root: untyped here, as in reseed.ts.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   type Sql = any
+  let pg: Sql
   let sql: Sql
   let reseed: (options?: ReseedOptions) => Promise<void>
+  const ownUrl = new URL(TEST_DATABASE_URL ?? 'postgres://unused/unused')
+  const ownDb = `${decodeURIComponent(ownUrl.pathname.slice(1))}_reseed`
+  ownUrl.pathname = `/${ownDb}`
+
+  /** Runs `fn` on a connection to TEST_DATABASE_URL (to create or drop this file's database). */
+  async function onSharedDb(fn: (admin: Sql) => Promise<unknown>) {
+    const admin = pg.default(TEST_DATABASE_URL!, { max: 1, onnotice: () => {} })
+    try { await fn(admin) } finally { await admin.end() }
+  }
 
   beforeAll(async () => {
-    process.env.DATABASE_URL = TEST_DATABASE_URL
-    const pg = await import(createRequire(resolve(__dirname, '../packages/db/package.json')).resolve('postgres'))
-    sql = pg.default(TEST_DATABASE_URL!, { max: 4, onnotice: () => {} })
+    pg = await import(createRequire(resolve(__dirname, '../packages/db/package.json')).resolve('postgres'))
+    await onSharedDb(async (admin) => {
+      await admin`DROP DATABASE IF EXISTS ${admin(ownDb)} WITH (FORCE)`
+      await admin`CREATE DATABASE ${admin(ownDb)}`
+    })
+    execFileSync(resolve(__dirname, '../packages/db/node_modules/.bin/tsx'), [resolve(__dirname, '../packages/db/src/migrate.ts')], {
+      env: { ...process.env, DATABASE_URL: ownUrl.href },
+      stdio: 'pipe',
+    })
+    process.env.DATABASE_URL = ownUrl.href
+    sql = pg.default(ownUrl.href, { max: 4, onnotice: () => {} })
     ;({ reseed } = await import('./reseed'))
-  })
+  }, 60_000)
 
   beforeEach(async () => { await reseed() })
 
   afterAll(async () => {
-    await reseed()
     await sql?.end()
+    if (pg) await onSharedDb((admin) => admin`DROP DATABASE IF EXISTS ${admin(ownDb)} WITH (FORCE)`)
   })
 
   const count = async (query: Sql) => (await query)[0].n as number
@@ -40,12 +64,14 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
   const waitingOn = (holder: number) =>
     count(sql`SELECT count(*)::int AS n FROM pg_stat_activity WHERE ${holder}::int = ANY(pg_blocking_pids(pid))`)
 
-  /** Whether reseed's connection is checking this database's job runs. */
-  const checkingJobs = () =>
+  /** Whether reseed's connection last checked (or is checking) `what`: 'job_runs' or 'pg_stat_activity'. */
+  const reseedChecking = (what: string) => () =>
     count(sql`
       SELECT count(*)::int AS n FROM pg_stat_activity
-      WHERE datname = current_database() AND application_name = 'reseed' AND query LIKE '%FROM job_runs%'
+      WHERE datname = current_database() AND application_name = 'reseed' AND query LIKE ${`%FROM ${what}%`}
     `)
+  const checkingJobs = reseedChecking('job_runs')
+  const checkingSessions = reseedChecking('pg_stat_activity')
 
   /** A transaction that runs `first`, then waits for the returned `go()` before running `then`. */
   function inTwoSteps(first: (tx: Sql) => Promise<unknown>, then: (tx: Sql) => Promise<unknown>) {
@@ -88,12 +114,15 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
     const holder = await job.started
 
     // The next test's reseed starts while the job is under way: it waits for
-    // the run (or, deleting first, for the job's recording)...
+    // the job's transaction (not blocked on its locks)...
     const reseeding = reseed()
-    await expect.poll(async () => (await checkingJobs()) + (await waitingOn(holder))).toBeGreaterThan(0)
-    // ...and the job goes on to its plan item, then the runner marks the run done.
+    await expect.poll(checkingSessions).toBeGreaterThan(0)
+    expect(await waitingOn(holder)).toBe(0)
+    // ...the job goes on to its plan item, and reseed waits for its run...
     job.go()
     await expect(job.done).resolves.toBe('committed')
+    await expect.poll(checkingJobs).toBeGreaterThan(0)
+    // ...until the runner marks it done.
     await sql`UPDATE job_runs SET status = 'completed', completed_at = now() WHERE id = ${runId}`
     await expect(reseeding).resolves.toBeUndefined()
     // The reseed ran after the job: what the job wrote is gone.
@@ -136,11 +165,11 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
     await expect(reseeding).resolves.toBeUndefined()
   })
 
-  it('does not deadlock with a resource edit still saving', async () => {
+  it('waits for a resource edit still saving, rather than deadlocking with it', async () => {
     // resources.update's order (routers/resources.ts): the resource FOR UPDATE,
     // then the lecture it is filed under FOR KEY SHARE (requireOwnLecture,
-    // then the row's foreign key). The e2e fixture lets requests finish before
-    // the next reseed; this checks reseed's own order doesn't fight it either.
+    // then the row's foreign key). No one order of reseed's deletes stays
+    // clear of every such path, so reseed lets it finish before deleting.
     const edit = inTwoSteps(
       (tx) => tx`SELECT 1 FROM resources WHERE id = 'res-mtdna-notes' FOR UPDATE`,
       async (tx) => {
@@ -151,10 +180,48 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
     const holder = await edit.started
 
     const reseeding = reseed()
-    await expect.poll(() => waitingOn(holder)).toBe(1)
+    await expect.poll(checkingSessions).toBeGreaterThan(0)
+    // Waiting for the edit, not blocked on its locks.
+    expect(await waitingOn(holder)).toBe(0)
     edit.go()
     await expect(edit.done).resolves.toBe('committed')
     await expect(reseeding).resolves.toBeUndefined()
     expect(await count(sql`SELECT count(*)::int AS n FROM resources WHERE title = 'An edit still saving'`)).toBe(0)
+  })
+
+  /** Renames the seeded note, so a test can tell whether reseed has run (it renames it back). */
+  const markNote = () => sql`UPDATE resources SET title = 'Not reseeded yet' WHERE id = 'res-mtdna-notes'`
+  const noteMarked = () => count(sql`SELECT count(*)::int AS n FROM resources WHERE title = 'Not reseeded yet'`)
+
+  it('waits for a transaction still open on the database, then goes ahead once it ends', async () => {
+    // Such as a request the browser gave up on that the server is still
+    // running: it need not have touched the student's rows yet.
+    await markNote()
+    const open = inTwoSteps((tx) => tx`SELECT 1`, async () => {})
+    await open.started
+    let settled = false
+    const reseeding = reseed().finally(() => { settled = true })
+
+    await expect.poll(checkingSessions).toBeGreaterThan(0)
+    expect(settled).toBe(false)
+    expect(await noteMarked()).toBe(1)
+
+    open.go()
+    await expect(open.done).resolves.toBe('committed')
+    await expect(reseeding).resolves.toBeUndefined()
+    expect(await noteMarked()).toBe(0)
+  })
+
+  it('gives up on a session that does not finish, naming its state and query, before it deletes anything', async () => {
+    await markNote()
+    const open = inTwoSteps((tx) => tx`SELECT 'still saving' AS step`, async () => {})
+    const holder = await open.started
+
+    await expect(reseed({ sessionsSettleMs: 300 })).rejects.toThrow(
+      `reseed: other sessions on the database did not finish within 300ms: pid ${holder} (idle in transaction, postgres.js): SELECT 'still saving' AS step`,
+    )
+    expect(await noteMarked()).toBe(1)
+    open.go()
+    await expect(open.done).resolves.toBe('committed')
   })
 })
