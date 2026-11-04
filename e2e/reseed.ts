@@ -27,11 +27,17 @@ const TABLES = [
 const ATTEMPT_MARGIN_MS = 1000
 
 /**
- * How long a due run can take to finish (see untilSettled), from the
- * server runner's own schedule: claimed within one poll interval, then each
- * automatic retry waits out its backoff and is claimed within another
- * interval, plus a margin for every attempt's work. With MAX_RETRIES 3,
- * backoffs of 2s, 4s and 8s and a 2s interval: 2 + (2+2) + (4+2) + (8+2) + 4 = 26s.
+ * How long one due run and all its automatic retries can take to finish
+ * (see untilSettled), from the server runner's own schedule: claimed within
+ * one poll interval, then each retry waits out its backoff and is claimed
+ * within another interval, plus a margin for every attempt's work. With
+ * MAX_RETRIES 3, backoffs of 2s, 4s and 8s and a 2s interval:
+ * 2 + (2+2) + (4+2) + (8+2) + 4 = 26s.
+ *
+ * Follow-up jobs are not counted: each hop (queued with no delay, claimed
+ * within an interval) takes about 2s when nothing fails, and the engine
+ * stops a chain after two hops (maxDepth 3; transcribe -> summary is one),
+ * so a chain fits in what a run that needs no retries leaves unused.
  */
 export const JOBS_SETTLE_MS = POLL_INTERVAL_MS
   + Array.from({ length: MAX_RETRIES }, (_, i) => retryBackoffMs(i + 1) + POLL_INTERVAL_MS).reduce((a, b) => a + b, 0)
