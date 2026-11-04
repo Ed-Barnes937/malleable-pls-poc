@@ -881,7 +881,9 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
-  const iconButton = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+  // A 24px hit area (WCAG 2.2 target size) around the 16px circle; the negative margin keeps the circles where they sit.
+  const iconButton = 'group/ghost-action -m-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-none'
+  const iconCircle = 'flex h-4 w-4 items-center justify-center rounded-full transition-colors group-focus-visible/ghost-action:ring-2 group-focus-visible/ghost-action:ring-accent'
 
   return (
     <div
@@ -939,7 +941,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
           // Bottom right when there is room; over the title on hover / focus in a short block.
           <div
             className={cn(
-              'flex gap-1',
+              'flex gap-2',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
                 : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
@@ -951,9 +953,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
                 title="Accept"
                 onPointerDown={stop}
                 onClick={onAccept}
-                className={cn(iconButton, 'bg-accent text-accent-foreground hover:opacity-90')}
+                className={iconButton}
               >
-                <Check className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-accent text-accent-foreground group-hover/ghost-action:opacity-90')}>
+                  <Check className="h-2.5 w-2.5" />
+                </span>
               </button>
               <button
                 type="button"
@@ -961,9 +965,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
                 title="Dismiss"
                 onPointerDown={stop}
                 onClick={onDismiss}
-                className={cn(iconButton, 'bg-surface-raised text-text-secondary ring-1 ring-border hover:bg-surface-overlay hover:text-text-primary')}
+                className={iconButton}
               >
-                <X className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-surface-raised text-text-secondary ring-1 ring-border group-hover/ghost-action:bg-surface-overlay group-hover/ghost-action:text-text-primary')}>
+                  <X className="h-2.5 w-2.5" />
+                </span>
               </button>
           </div>
         )}
