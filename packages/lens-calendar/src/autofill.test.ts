@@ -31,6 +31,11 @@ describe('buildAutofillDraft', () => {
     const trimmed = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, trims: new Map([['lab', 120]]), estimates: { cards: 60 } })
     const lab = trimmed.proposals.find((p) => p.taskId === 'lab')!
     expect(lab).toMatchObject({ id: 'lab', title: 'lab', startsAt: iso(1, 9), endsAt: iso(1, 11), note: 'Shrunk from 4h', course: 'chemistry' })
+
+    // Shrunk but still longer than a day: split, and each session carries the new total to save.
+    const split = buildAutofillDraft({ todos, layout, now: at(0, 0), advice, trims: new Map([['lab', 180]]), estimates: { cards: 60 } })
+    expect(split.proposals.filter((p) => p.taskId === 'lab').map((p) => p.session))
+      .toEqual([{ index: 1, count: 2, estimateMin: 180 }, { index: 2, count: 2, estimateMin: 180 }])
   })
 
   it('places dated to-dos first, soonest due first, whatever the advice says', () => {

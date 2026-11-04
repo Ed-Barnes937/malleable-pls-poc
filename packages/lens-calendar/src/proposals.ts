@@ -27,8 +27,9 @@ export interface Proposal {
    * Saved as a session of its to-do (a separate study block linked to it,
    * see @pls/substrate sessions) rather than as the to-do's own time: the
    * to-do was split, or already has sessions. `count` > 1 shows "(1 of 2)".
+   * `estimateMin`: the student shrank the to-do; its new total estimate.
    */
-  session?: { index: number; count: number }
+  session?: { index: number; count: number; estimateMin?: number }
 }
 
 export interface ProposalLayer {

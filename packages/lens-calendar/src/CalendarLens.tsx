@@ -297,6 +297,12 @@ export default function CalendarLens({
       if (!p.session) return updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
       const todo = todos?.find((t) => t.id === p.taskId)
       if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
+      // A Shrink is kept, as it is when a to-do is booked in one block.
+      const estimate = p.session.estimateMin
+      const stored = (unscheduledData as PlanItemOccurrence[] | undefined)?.find((t) => t.id === p.taskId)
+      if (estimate !== undefined && stored && stored.duration_min !== estimate) {
+        await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
+      }
       return createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
     },
     saveTogether: { [REFIT_SOURCE]: refit.save },

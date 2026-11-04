@@ -79,7 +79,12 @@ export function buildAutofillDraft(args: {
   })
   const all = [...pinned, ...placed].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
   return {
-    proposals: all.map((p) => numbered(p, all, byId.get(p.taskId)!.title, args.booked?.has(p.taskId) ?? false)),
+    proposals: all.map((p) => {
+      const trimmed = trims.get(p.taskId)
+      // A shrunk to-do's new total: what is booked already plus the shrunk rest.
+      const estimateMin = trimmed === undefined ? undefined : (args.booked?.get(p.taskId) ?? 0) + trimmed
+      return numbered(p, all, byId.get(p.taskId)!.title, args.booked?.has(p.taskId) ?? false, estimateMin)
+    }),
     unplaced: result.unplaced.map((u) => ({ ...u, task: byId.get(u.taskId)! })),
     tasks,
   }
@@ -89,15 +94,16 @@ export function buildAutofillDraft(args: {
  * A draft block with its session number: a to-do with more than one block
  * is split ("Lab report write-up (1 of 2)"); its blocks, and any block of a
  * to-do already booked in sessions, save as sessions. A lone block keeps the
- * to-do's id, so it saves as the to-do's own time as before.
+ * to-do's id, so it saves as the to-do's own time as before. `estimateMin`
+ * is the to-do's total after a Shrink, saved with its sessions.
  */
-function numbered(p: Proposal, all: ReadonlyArray<Proposal>, title: string, hasSessions: boolean): Proposal {
+function numbered(p: Proposal, all: ReadonlyArray<Proposal>, title: string, hasSessions: boolean, estimateMin?: number): Proposal {
   const mine = all.filter((q) => q.taskId === p.taskId)
   const base = { ...p, title, session: undefined }
   if (mine.length === 1 && !hasSessions) return { ...base, id: p.taskId }
   const index = mine.indexOf(p) + 1
   const count = mine.length
-  return { ...base, title: count > 1 ? `${title} (${index} of ${count})` : title, session: { index, count } }
+  return { ...base, title: count > 1 ? `${title} (${index} of ${count})` : title, session: { index, count, estimateMin } }
 }
 
 /**
