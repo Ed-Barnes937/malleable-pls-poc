@@ -111,7 +111,6 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
       <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
           const stage = justDone.stages.get(item.id)
@@ -152,19 +151,18 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           </li>
         )}
       </ul>
-      {/* Rows out of view below say so, so "9 to do" over two rows doesn't read as lost items. */}
+      {/* Rows out of view below say so, so "9 to do" over two rows doesn't read as lost items. Under the list, not over it: it never covers a row. */}
       {moreBelow > 0 && (
         <button
           type="button"
           data-testid="todo-more-below"
           onClick={() => listRef.current?.scrollBy({ top: listRef.current.clientHeight * 0.8, behavior: 'smooth' })}
-          className="absolute bottom-1 left-1/2 flex min-h-8 -translate-x-1/2 items-center gap-1 rounded-full bg-surface-overlay px-3 text-meta font-semibold text-text-secondary shadow-pop hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          className="-mt-1 flex min-h-8 shrink-0 items-center justify-center gap-1 self-center rounded-full px-3 text-meta font-semibold text-text-secondary hover:bg-surface-overlay hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
           {moreBelow} more
           <ChevronDown className="h-3 w-3" aria-hidden />
         </button>
       )}
-      </div>
 
       <form onSubmit={submit} className="flex items-center gap-2">
         <TextField
