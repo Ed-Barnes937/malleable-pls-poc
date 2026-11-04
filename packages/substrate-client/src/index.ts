@@ -22,6 +22,7 @@ export {
   useUpdateLecture,
   useLectureDeletePreview,
   useDeleteLecture,
+  usePlanItemLookup,
   usePlanItemList,
   usePreferences,
   useRecentJobs,

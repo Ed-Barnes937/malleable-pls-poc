@@ -377,6 +377,15 @@ export function useLectureDeletePreview() {
   return useCallback((lectureId: string) => utils.lectures.deletePreview.fetch(lectureId, { staleTime: 0 }), [utils])
 }
 
+/**
+ * Looks a plan item up afresh (`planItems.byId`): null once it is gone, e.g.
+ * before acting on a toast about it that may have outlived it.
+ */
+export function usePlanItemLookup() {
+  const utils = trpc.useUtils()
+  return useCallback((id: string) => utils.planItems.byId.fetch(id, { staleTime: 0 }), [utils])
+}
+
 /** `workspaces.scopes` queries (tRPC keys start with the procedure path). */
 const SCOPE_QUERIES = [['workspaces', 'scopes']]
 

@@ -36,6 +36,7 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { hasPlanItemViewer, useShowMoment } from './moments'
+import { useRevealPlanItem } from './reveal-plan-item'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
@@ -72,6 +73,8 @@ export function WorkspaceShell() {
   const pushToast = useToastStore((s) => s.push)
   // Read when a job finishes, so the toast offers "See it" only on a board that can show the block.
   const showPlanItemRef = useRef<(item: PlanItemRef) => boolean>(() => false)
+  // Only if the block is still there by the time "See it" is pressed.
+  const revealPlanItem = useRevealPlanItem(useCallback((item: PlanItemRef) => showPlanItemRef.current(item), []))
   const canShowPlanItemRef = useRef(false)
   const activeBoardRef = useRef(activeWorkspaceId)
   activeBoardRef.current = activeWorkspaceId
@@ -84,7 +87,7 @@ export function WorkspaceShell() {
         tone: 'success',
         // "See it" reveals the block on the board in view, so it goes if the student leaves it.
         ...(block && canShowPlanItemRef.current
-          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current ?? undefined }
+          ? { action: { label: 'See it', onClick: () => void revealPlanItem(block) }, board: activeBoardRef.current ?? undefined }
           : {}),
       })
     },
