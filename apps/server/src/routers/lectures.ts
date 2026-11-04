@@ -103,11 +103,14 @@ export const lecturesRouter = router({
    * A new lecture, e.g. from a widget before any audio exists (Record makes
    * one when capture starts). Named from its course and start time in the
    * student's zone unless `title` is given. With `workspaceId` it is also
-   * selected on that board, in the same transaction, bringing its course
-   * with it (see `writeBoardScope`).
+   * selected on that board, in the same transaction: a board with a course
+   * takes the lecture's course, an "All courses" board stays "All courses"
+   * (see `writeBoardScope`).
    *
-   * With `matchClass`, when a class of `course` is on at `startsAt` (see
-   * `classForCapture`), it is that class occurrence's lecture instead, found
+   * With `matchClass`, when a class of `course` is on at `startsAt` (with
+   * `course` null, as on an "All courses" board: a class of any course; at a
+   * changeover the one that starts last, counting the 15-minute lead-in; see `classForCapture`), it is that class
+   * occurrence's lecture instead, filed under the class's course and found
    * or made exactly as `forClassOccurrence` does (so "press Record during
    * Biology" and "open Tuesday's Biology class" land on one lecture), and
    * `title` is not used.
@@ -159,8 +162,9 @@ export const lecturesRouter = router({
    * YYYY-MM-DD in the series' zone, else the student's), made on first use:
    * exactly one per occurrence however many callers race. Past, current and
    * future occurrences all work. With `workspaceId` it is also selected on
-   * that board in the same transaction (course follows, per
-   * `writeBoardScope`), and the board's scope before and after is returned.
+   * that board in the same transaction (a board with a course takes the
+   * lecture's, an "All courses" board stays so, per `writeBoardScope`), and
+   * the board's scope before and after is returned.
    *
    * NOT_FOUND: the plan item or board isn't the student's. BAD_REQUEST: the
    * plan item isn't a class block, or isn't on `date`.
@@ -192,9 +196,10 @@ export const lecturesRouter = router({
 
   /**
    * Renames a lecture and/or refiles it under another course (null = none).
-   * A course change re-scopes every board that has it selected to the new
-   * course in the same transaction, so a board's lecture is always in the
-   * board course.
+   * A course change re-scopes every board with a course that has it
+   * selected to the new course in the same transaction, so a board's
+   * lecture is always in the board course; an "All courses" board stays
+   * "All courses" (`writeBoardScope`).
    */
   update: publicProcedure
     .input(z.object({

@@ -8,14 +8,16 @@ export interface BoardScopePatch {
 
 /**
  * The board scope `setBoardScope` will leave, for an optimistic update, by
- * the server's rules (`writeBoardScope`):
+ * the server's rules (`writeBoardScope`). A board's lecture belongs to its
+ * course, unless the board is "All courses" (null), which may show any:
  *
- * - I1: a selected lecture brings its course (`courseOf`, from what the
- *   client has cached; `undefined` when it doesn't know, and then the course
- *   is left for the server's answer to correct).
- * - I2: a course change clears the selected lecture. By I1 the current
- *   lecture is in the current course, so any other course (including "All
- *   courses", null) is outside it.
+ * - I1: on a board with a course, a selected lecture brings its course
+ *   (`courseOf`, from what the client has cached; `undefined` when it
+ *   doesn't know, and then the course is left for the server's answer to
+ *   correct). An "All courses" board stays "All courses".
+ * - I2: a course change clears the selected lecture unless it is in the new
+ *   course (by `courseOf`; unknown: cleared, for the server to correct). A
+ *   change to "All courses" keeps it.
  */
 export function predictBoardScope(
   current: BoardScope,
@@ -27,8 +29,8 @@ export function predictBoardScope(
 
   if (patch.lectureId) {
     const course = courseOf(patch.lectureId)
-    if (course !== undefined) courseTag = course
-  } else if (lectureId && courseTag !== current.courseTag) {
+    if (courseTag !== null && course !== undefined) courseTag = course
+  } else if (lectureId && courseTag !== null && courseTag !== current.courseTag && courseOf(lectureId) !== courseTag) {
     lectureId = null
   }
   return { courseTag, lectureId }

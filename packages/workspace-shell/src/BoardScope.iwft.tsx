@@ -86,17 +86,20 @@ test('choosing a course is one write, and clears a lecture outside it at once', 
   expect(writes.inputs).toHaveLength(1)
 })
 
-test('"All courses" sends null and clears the lecture', async ({ mount, page, simulator: _boards }) => {
+test('"All courses" sends null and keeps the lecture', async ({ mount, page, simulator }) => {
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
   const writes = await watch(page, 'workspaces.setBoardScope')
   await courseSelect(page).selectOption({ label: 'All courses' })
   await expect(coursePill(page)).toHaveText('All courses')
-  await expect(lecturePill(page)).toHaveText('No lecture')
+  await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
+  await expect.poll(() => simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value))
+    .toEqual(['lec-rec-bio-4'])
+  await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
   await expect.poll(() => writes.inputs).toEqual([{ workspaceId: 'ws-in-lecture', courseTag: null }])
 })
 
-test("choosing a lecture is one write, and the course follows it at once", async ({ mount, page, simulator }) => {
+test('on an "All courses" board, choosing a lecture is one write and the board stays "All courses"', async ({ mount, page, simulator }) => {
   clearScope(simulator, 'ws-in-lecture')
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await expect(coursePill(page)).toHaveText('All courses')
@@ -113,13 +116,118 @@ test("choosing a lecture is one write, and the course follows it at once", async
   const writes = await watch(page, 'workspaces.setBoardScope', { hold: true })
 
   await lectureSelect(page).selectOption({ label: 'Chemistry Lecture: Organic Reactions · 9 Apr' })
-  await expect(coursePill(page)).toHaveText('Chemistry')
   await expect(lecturePill(page)).toHaveText('Chemistry Lecture: Organic Reactions')
+  await expect(coursePill(page)).toHaveText('All courses')
   expect(writes.inputs).toEqual([{ workspaceId: 'ws-in-lecture', lectureId: 'lec-rec-chem-1' }])
   writes.release()
-  await expect.poll(() => simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value).sort())
-    .toEqual(['chemistry', 'lec-rec-chem-1'])
+  await expect.poll(() => simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value))
+    .toEqual(['lec-rec-chem-1'])
+  await expect(coursePill(page)).toHaveText('All courses')
+  // Every course's lectures are still offered.
+  await expect(lectureSelect(page).locator('option')).toHaveCount(6)
   expect(writes.inputs).toHaveLength(1)
+})
+
+test.describe('a lecture filed under no course', () => {
+  /** An unfiled lecture selected on "All courses" In Lecture. */
+  function selectUnfiled(simulator: BackendSimulator) {
+    simulator.db.lectures.push({
+      id: 'lec-unfiled', title: 'Guest talk', course: null, starts_at: '2026-04-20T10:00:00Z',
+      class_item_id: null, class_date: null, created_at: '2026-04-20T10:00:00Z', updated_at: '2026-04-20T10:00:00Z',
+    })
+    clearScope(simulator, 'ws-in-lecture')
+    simulator.db.workspaceScopes.push({ id: 'ws-scope-unfiled', workspace_id: 'ws-in-lecture', scope_type: 'lecture', scope_value: 'lec-unfiled' })
+  }
+  const fileSelect = (page: Page) => group(page).getByRole('combobox', { name: 'File this lecture under a course' })
+
+  test('"Choose a course" files it there; the board stays "All courses"', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    await expect(page.getByTestId('lecture-file-course').getByTestId('scope-pill-text')).toHaveText('Choose a course')
+    const writes = await watch(page, 'lectures.update', { hold: true })
+
+    await fileSelect(page).selectOption({ label: 'Physics' })
+    // At once (before the write is even sent): the lecture has its course, so the offer goes.
+    await expect(fileSelect(page)).toHaveCount(0)
+    await expect.poll(() => writes.inputs).toEqual([{ id: 'lec-unfiled', course: 'physics' }])
+    writes.release()
+    await expect.poll(() => simulator.db.lectures.find((l) => l.id === 'lec-unfiled')?.course).toBe('physics')
+    await expect(coursePill(page)).toHaveText('All courses')
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    expect(simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value)).toEqual(['lec-unfiled'])
+    expect(writes.inputs).toHaveLength(1)
+  })
+
+  test('filed by keyboard, focus lands on the lecture pill', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    const select = fileSelect(page)
+    await select.focus()
+    // A key choice as Windows and Linux fire it (the key, then `change`): a draft until Enter.
+    await select.evaluate((el: HTMLSelectElement) => {
+      el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+      el.value = 'biology'
+      el.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await page.keyboard.press('Enter')
+    await expect(fileSelect(page)).toHaveCount(0)
+    await expect(lectureSelect(page)).toBeFocused()
+    await expect.poll(() => simulator.db.lectures.find((l) => l.id === 'lec-unfiled')?.course).toBe('biology')
+  })
+
+  test('a failed filing offers it again and says so', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('lectures.update')
+    selectUnfiled(simulator)
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
+    await fileSelect(page).selectOption({ label: 'Physics' })
+    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't file the lecture - try again")
+    await expect(page.getByTestId('lecture-file-course').getByTestId('scope-pill-text')).toHaveText('Choose a course')
+  })
+
+  test('is not offered for a lecture with a course', async ({ mount, page, simulator: _boards }) => {
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
+    await expect(fileSelect(page)).toHaveCount(0)
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+  })
+
+  test('the lecture menu offers "Choose a course...": the courses in its place, one files it', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    const writes = await watch(page, 'lectures.update')
+    await menuButton(page).click()
+    await page.getByRole('menu', { name: 'Lecture options' }).getByRole('menuitem', { name: 'Choose a course...' }).click()
+    const courses = page.getByRole('menu', { name: 'File this lecture under' }).getByRole('menuitem')
+    await expect(courses).toHaveText(['Biology', 'Chemistry', 'Physics'])
+    // The first course has focus, for the keyboard; Escape would close the menu.
+    await expect(courses.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(menuButton(page)).toBeFocused()
+    await expect(fileSelect(page)).toHaveCount(0)
+    await expect.poll(() => writes.inputs).toEqual([{ id: 'lec-unfiled', course: 'physics' }])
+    await expect.poll(() => simulator.db.lectures.find((l) => l.id === 'lec-unfiled')?.course).toBe('physics')
+    await expect(coursePill(page)).toHaveText('All courses')
+    // Filed: the menu no longer offers it.
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+  })
+
+  test('on a phone the pill gives way to the menu', async ({ mount, page, simulator }) => {
+    selectUnfiled(simulator)
+    await page.setViewportSize({ width: 360, height: 740 })
+    await mount(<BoardScopeHarness workspaceId="ws-in-lecture" compact />)
+    await expect(lecturePill(page)).toHaveText('Guest talk')
+    await expect(page.getByTestId('lecture-file-course')).toBeHidden()
+    await menuButton(page).click()
+    await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toBeVisible()
+  })
 })
 
 test('the lecture list is the course\'s, with a lecture that has no audio yet saying so', async ({ mount, page, simulator }) => {

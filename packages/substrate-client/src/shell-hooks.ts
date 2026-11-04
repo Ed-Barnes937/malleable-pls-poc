@@ -169,8 +169,9 @@ export function useUpdateWorkspaceBackground() {
 /**
  * The one write for a board's course and lecture (`workspaces.setBoardScope`):
  * absent = unchanged, null = clear. The server applies the board rules in
- * the same transaction (a lecture brings its course; a course change clears
- * a lecture outside it), so one user action is one call.
+ * the same transaction (on a board with a course a lecture brings its
+ * course, an "All courses" board stays so; a course change clears a lecture
+ * outside it), so one user action is one call.
  *
  * Optimistic: the board shows the scope the server will leave (both
  * dimensions, by its rules) at once, so a picker never snaps back. Writes go
@@ -339,19 +340,21 @@ const LECTURE_QUERIES = [['lectures']]
 
 /**
  * Renames a lecture (`title`) and/or refiles it under another course
- * (`course`, null = none). A new title shows at once wherever the lecture is
- * cached (the header's lecture pill, Transcript), and comes back if the
- * write fails.
+ * (`course`, null = none). The new title and course show at once wherever
+ * the lecture is cached (the header's lecture pill, Transcript), and the old
+ * ones come back if the write fails. A course-narrowed list is put right by
+ * the refetch once it settles.
  */
 export function useUpdateLecture() {
   const utils = trpc.useUtils()
   const queryClient = useQueryClient()
   return trpc.lectures.update.useMutation({
-    onMutate: async ({ id, title }) => {
-      if (title === undefined) return { prev: [] }
+    onMutate: async ({ id, title, course }) => {
+      if (title === undefined && course === undefined) return { prev: [] }
       await queryClient.cancelQueries({ queryKey: LECTURE_QUERIES })
       const prev = queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })
-      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, title } : l)
+      const change = { ...(title !== undefined ? { title } : {}), ...(course !== undefined ? { course } : {}) }
+      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, ...change } : l)
       queryClient.setQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES }, (data) =>
         Array.isArray(data) ? data.map((l) => rename(l)!) : rename(data),
       )

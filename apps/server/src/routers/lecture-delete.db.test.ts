@@ -131,8 +131,8 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
       `
       return { lectureId, segA, segB, otherLecture, otherSeg, review, dismissed, done, unrelated, otherReview, classItem }
     })
-    const boardA = (await api().workspaces.create({ name: uid('Board') })).id as string
-    const boardB = (await api().workspaces.create({ name: uid('Board') })).id as string
+    const boardA = (await api().workspaces.create({ name: uid('Board'), courseTag: 'biology' })).id as string
+    const boardB = (await api().workspaces.create({ name: uid('Board'), courseTag: 'biology' })).id as string
     for (const workspaceId of [boardA, boardB]) await api().workspaces.setBoardScope({ workspaceId, lectureId: s.lectureId })
     return { ...s, recA, recB, otherRec, audio, boardA, boardB }
   }

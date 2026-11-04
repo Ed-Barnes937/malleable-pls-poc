@@ -315,9 +315,20 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(await scope('ws-evening-review')).toEqual([['lecture', 'lec-rec-bio-4'], ['tag', 'biology']])
     await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-chem-1', courseTag: 'biology' }))
       .rejects.toThrow("A selected lecture's course is the board course")
-    // "All courses" clears a lecture that has a course.
+    // Changing to "All courses" keeps the lecture; clearing it is the student's.
     await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null })
+    expect(await scope('ws-evening-review')).toEqual([['lecture', 'lec-rec-bio-4']])
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: null })
     expect(await scope('ws-evening-review')).toEqual([])
+    // An "All courses" board stays so whatever lecture it shows; a course keeps one in it.
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-chem-1' }))
+      .toEqual({ courseTag: null, lectureId: 'lec-rec-chem-1' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'chemistry' }))
+      .toEqual({ courseTag: 'chemistry', lectureId: 'lec-rec-chem-1' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: 'lec-rec-bio-4' }))
+      .toEqual({ courseTag: null, lectureId: 'lec-rec-bio-4' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'chemistry' })
+    expect(await scope('ws-evening-review')).toEqual([['tag', 'chemistry']])
     await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-missing' }))
       .rejects.toThrow('Lecture not found')
   })
@@ -620,7 +631,7 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'chemistry' })
     const { board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
     // Changed since: kept, and nothing written.
-    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null })
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null, lectureId: null })
     expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
       .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
     // Unchanged since: put back.
@@ -646,8 +657,28 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(otherCourse.class_item_id).toBeNull()
   })
 
-  it('lectures.create selectIfBoardShows: selects when the board is unchanged, leaves a board that moved on, replaces a gone lecture', async () => {
+  it('on an "All courses" board, Record joins the class on (the latest at a changeover) and a calendar click keeps "All courses", Undo included', async () => {
+    const { id } = await bioClass()
     await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    const during = await call('lectures.create', { course: null, matchClass: true, startsAt: '2026-11-16T10:30:00.000Z', workspaceId: 'ws-in-lecture' })
+    expect(during).toMatchObject({ class_item_id: id, class_date: '2026-11-16', course: 'biology' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', during.id]])
+    // Another class on at once (a changeover): the one that started last.
+    await call('planItems.create', {
+      kind: 'commitment', title: 'Chemistry lab', subtype: 'lab', course: 'chemistry',
+      starts_at: '2026-11-23T11:00:00.000Z', ends_at: '2026-11-23T13:00:00.000Z',
+    })
+    const both = await call('lectures.create', { course: null, matchClass: true, startsAt: '2026-11-23T11:30:00.000Z' })
+    expect(both).toMatchObject({ course: 'chemistry', title: 'Chemistry lab · Mon 23 Nov' })
+    // A calendar click selects the class lecture; Undo puts back exactly.
+    const { lecture, board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(board).toEqual({ before: { courseTag: null, lectureId: during.id }, after: { courseTag: null, lectureId: lecture.id } })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
+      .toEqual({ restored: true, scope: { courseTag: null, lectureId: during.id } })
+  })
+
+  it('lectures.create selectIfBoardShows: selects when the board is unchanged, leaves a board that moved on, replaces a gone lecture', async () => {
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: 'physics' })
     const first = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
     expect(await scope('ws-in-lecture')).toEqual([['lecture', first.id], ['tag', 'physics']])
     const next = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: first.id })

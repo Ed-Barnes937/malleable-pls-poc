@@ -60,14 +60,15 @@ function replaceScopeRow(db: InMemoryDb, workspaceId: string, scopeType: string,
 }
 
 /**
- * Twin of the server's `writeBoardScope`: a selected lecture brings its
- * course (I1; naming another course with it is BAD_REQUEST), and a course
- * change clears a lecture outside it (I2).
+ * Twin of the server's `writeBoardScope`: on a board with a course a
+ * selected lecture brings its course, while an "All courses" board stays so
+ * (I1; naming the lecture with a course it isn't in is BAD_REQUEST), and a
+ * course change clears a lecture outside it; "All courses" keeps any (I2).
  */
 export function writeBoardScope(
   db: InMemoryDb,
   workspaceId: string,
-  patch: { courseTag?: string | null; lectureId?: string | null },
+  patch: { courseTag?: string | null; lectureId?: string | null; courseFollowsLecture?: boolean },
 ): BoardScope {
   requireBoard(db, workspaceId)
   const current = readBoardScope(db, workspaceId)
@@ -75,13 +76,16 @@ export function writeBoardScope(
   let lectureId = patch.lectureId === undefined ? current.lectureId : patch.lectureId
   if (patch.lectureId) {
     const lecture = requireLecture(db, patch.lectureId)
-    if (patch.courseTag !== undefined && patch.courseTag !== lecture.course) {
-      throw new SimulatorError('BAD_REQUEST', "A selected lecture's course is the board course")
+    if (courseTag !== null || patch.courseFollowsLecture) {
+      if (patch.courseTag !== undefined && patch.courseTag !== lecture.course) {
+        throw new SimulatorError('BAD_REQUEST', "A selected lecture's course is the board course")
+      }
+      courseTag = lecture.course
     }
-    courseTag = lecture.course
   } else if (lectureId) {
     const lecture = db.lectures.find((l) => l.id === lectureId)
-    if (!lecture || lecture.course !== courseTag) lectureId = null
+    const stays = courseTag === null || lecture?.course === courseTag
+    if (!lecture || !stays) lectureId = null
   }
   replaceScopeRow(db, workspaceId, 'tag', courseTag)
   replaceScopeRow(db, workspaceId, 'lecture', lectureId)

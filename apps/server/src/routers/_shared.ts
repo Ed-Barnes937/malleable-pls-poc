@@ -14,8 +14,9 @@ export const courseTag = z.string().max(500).optional()
  * Scope accepted by list endpoints: the board's course and selected lecture,
  * and optionally one recording (not a board dimension: e.g. the recording a
  * study block came from). Every dimension given is applied. A board's
- * lecture is always in its course (see `writeBoardScope`), so course and
- * lecture never disagree; applying both is defence in depth.
+ * lecture is always in its course when it has one (see `writeBoardScope`;
+ * an "All courses" board has none), so course and lecture never disagree;
+ * applying both is defence in depth.
  */
 export const boardScope = z.object({
   courseTag,
