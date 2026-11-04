@@ -176,7 +176,8 @@ test.describe('a lecture filed under no course', () => {
     await expect.poll(() => simulator.db.lectures.find((l) => l.id === 'lec-unfiled')?.course).toBe('biology')
   })
 
-  test('a failed filing offers it again and says so', async ({ mount, page, simulator }) => {
+  test('a failed filing offers it again and says so', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('lectures.update')
     selectUnfiled(simulator)
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
