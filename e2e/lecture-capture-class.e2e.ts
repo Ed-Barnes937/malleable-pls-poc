@@ -42,13 +42,13 @@ test.describe('Record makes its lecture as it starts', () => {
 
   test('Record during a class: the class lecture is selected at once, the Transcript says Recording..., the Calendar rings the class', async ({ page, request }) => {
     // A Physics class on right now (one-off, so it is on whatever the day;
-    // no earlier than today's midnight, so it is in this week's Calendar
-    // even just after midnight on a Monday).
+    // within today, so it is one block in this week's Calendar even just
+    // after midnight on a Monday or late in the evening).
     const now = Date.now()
     const physicsClass = await trpcMutation<{ id: string }>(request, 'planItems.create', {
       kind: 'commitment', title: 'Physics lecture', subtype: 'class', course: 'physics',
       starts_at: new Date(Math.max(now - 30 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE))).toISOString(),
-      ends_at: new Date(now + 60 * 60_000).toISOString(),
+      ends_at: new Date(Math.min(now + 60 * 60_000, startOfLocalDay(now, SEED_TIME_ZONE, 1))).toISOString(),
     })
     const ws = await board(request, 'Physics class', ['audio-capture', 'transcript', 'calendar'], 'physics')
 
