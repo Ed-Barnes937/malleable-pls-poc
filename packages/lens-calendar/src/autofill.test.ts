@@ -123,6 +123,39 @@ describe('proposals', () => {
     expect(save).toHaveBeenCalledTimes(2)
   })
 
+  it('freezes accepted ghosts: one saving or waiting its turn cannot be moved, nudged, dismissed or accepted again', async () => {
+    let release!: () => void
+    const save = vi.fn((_p: Proposal) => new Promise<void>((resolve) => { release = resolve }))
+    const { result } = renderHook(() => useProposalLayer({ save, rows: [] }))
+    const g2: Proposal = { ...ghost, id: 'g2', taskId: 't2', title: 'Reading', startsAt: iso(1, 8), endsAt: iso(1, 9) }
+    act(() => result.current.propose('autofill', [ghost, g2]))
+    let batch!: Promise<void>
+    act(() => { batch = result.current.acceptAll() })
+    // g1 is saving, g2 is waiting its turn: both are frozen at once.
+    expect([...result.current.lockedIds].sort()).toEqual(['g1', 'g2'])
+    act(() => result.current.move('g2', iso(2, 8), iso(2, 9)))
+    act(() => result.current.nudge('g1', 15, 0))
+    act(() => result.current.dismiss('g2'))
+    await act(async () => { void result.current.accept('g1') })
+    expect(result.current.proposals.map((p) => [p.id, p.startsAt])).toEqual([['g1', iso(0, 8)], ['g2', iso(1, 8)]])
+    expect(save).toHaveBeenCalledTimes(1)
+    await act(async () => { release() })
+    await act(async () => { release() })
+    await act(() => batch)
+    // Each saved once, as drafted.
+    expect(save.mock.calls.map(([p]) => [p.id, p.startsAt])).toEqual([['g1', iso(0, 8)], ['g2', iso(1, 8)]])
+  })
+
+  it('a ghost whose save fails is unfrozen, still drafted', async () => {
+    const save = vi.fn(async () => { throw new Error('nope') })
+    const { result } = renderHook(() => useProposalLayer({ save, rows: [] }))
+    act(() => result.current.propose('autofill', [ghost]))
+    await act(() => result.current.acceptAll())
+    expect(result.current.lockedIds.size).toBe(0)
+    act(() => result.current.move('g1', iso(1, 8), iso(1, 9)))
+    expect(result.current.proposals[0]).toMatchObject({ startsAt: iso(1, 8) })
+  })
+
   it('re-checks each ghost: takes out ones that no longer hold and refuses bad moves', async () => {
     const save = vi.fn(async () => {})
     let blocked = new Set<string>()

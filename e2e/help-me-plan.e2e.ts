@@ -180,6 +180,53 @@ test.describe('Help me plan', () => {
     for (const minutes of perDay.values()) expect(minutes).toBeLessThanOrEqual(120)
   })
 
+  test('dragging a ghost straight after Accept draft never snaps back: the drag is refused or the move is saved', async ({ page, request, browserName }) => {
+    await seedTodos(request, [['Essay draft', 180], ['Reading', 60]])
+    // A slow device, so the saves are still in flight while the student drags.
+    if (browserName === 'chromium') {
+      const cdp = await page.context().newCDPSession(page)
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 })
+    }
+    const { calendar, panel } = await openPlanner(page)
+    await panel.getByTestId('autofill').click()
+    const ghosts = calendar.root.getByTestId('calendar-ghost')
+    await expect(ghosts).toHaveCount(3, { timeout: 15000 })
+    // ...and a slow network: each saved block takes a while to come back.
+    await page.route(/\/trpc\/planItems\.(create|update)/, async (route) => {
+      await new Promise((r) => setTimeout(r, 800))
+      await route.continue()
+    })
+    const hourPx = (await calendar.grid.boundingBox())!.height / 24
+    const titles = ['Essay draft (2 of 2)', 'Reading']
+    const before = await Promise.all(titles.map(async (title) => (await ghosts.filter({ hasText: title }).boundingBox())!))
+
+    await panel.getByRole('button', { name: 'Accept draft' }).click()
+    // Straight away, each a quarter of an hour later: the last block (still
+    // waiting its turn), then the first (saving, or saved and not yet back).
+    for (const box of before) {
+      await page.mouse.move(box.x + box.width / 2, box.y + 8)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2, box.y + 8 + hourPx / 4, { steps: 4 })
+      await page.mouse.up()
+    }
+    // What the student sees right after the drags.
+    const label = (title: string) => calendar.root.locator('[data-testid="calendar-ghost"], [data-testid="calendar-block"]')
+      .filter({ hasText: title }).evaluateAll((els) => els.map((el) => /\d\d:\d\d - \d\d:\d\d/.exec(el.getAttribute('aria-label') ?? '')?.[0]).sort())
+    const shown = { reading: await label('Reading'), essay: await label('Essay draft') }
+
+    // Once every save has landed (and longer than a ghost ever waits for its block)...
+    await expect(ghosts).toHaveCount(0, { timeout: 15000 })
+    await page.waitForTimeout(5000)
+    // ...the calendar still shows what it showed, and that is what was saved.
+    expect(await label('Reading')).toEqual(shown.reading)
+    expect(await label('Essay draft')).toEqual(shown.essay)
+    const rows = await tasks(request)
+    const hhmm = (iso: string) => new Date(iso).toTimeString().slice(0, 5)
+    const saved = (match: (t: Row) => boolean) => rows.filter((t) => t.starts_at && match(t)).map((t) => `${hhmm(t.starts_at!)} - ${hhmm(t.ends_at!)}`).sort()
+    expect(saved((t) => t.title === 'Reading')).toEqual(shown.reading)
+    expect(saved((t) => t.title === 'Essay draft')).toEqual(shown.essay)
+  })
+
   test('Keep my plan leaves the calendar unchanged', async ({ page, request }) => {
     await seedWeek(request)
     const before = await trpcQuery<Row[]>(request, 'planItems.list')

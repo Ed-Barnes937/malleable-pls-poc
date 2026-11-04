@@ -291,17 +291,21 @@ export default function CalendarLens({
   // written together by `planItems.refit`, which refuses a stale preview.
   // Each is checked against the calendar as it is now, so a ghost never
   // lands on something.
+  /** Shrinks already saved with a split to-do's sessions (`taskId:minutes`). */
+  const shrunkRef = useRef(new Set<string>())
   const layer = useProposalLayer({
     // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
     save: async (p) => {
       if (!p.session) return updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
       const todo = todos?.find((t) => t.id === p.taskId)
       if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
-      // A Shrink is kept, as it is when a to-do is booked in one block.
+      // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
       const estimate = p.session.estimateMin
       const stored = (unscheduledData as PlanItemOccurrence[] | undefined)?.find((t) => t.id === p.taskId)
-      if (estimate !== undefined && stored && stored.duration_min !== estimate) {
+      const key = `${p.taskId}:${estimate}`
+      if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
         await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
+        shrunkRef.current.add(key)
       }
       return createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
     },
@@ -733,7 +737,7 @@ export default function CalendarLens({
           onOpen={handleOpen}
           onMove={handleMove}
           proposals={layer.proposals}
-          savedProposalIds={layer.savedIds}
+          savedProposalIds={layer.lockedIds}
           onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
           onProposalNudge={layer.nudge}
           onProposalAccept={(id) => void layer.accept(id)}
