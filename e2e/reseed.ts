@@ -11,6 +11,7 @@ import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 import { SEED_LECTURES, withoutSeedRecordings } from './seed-lectures'
+import { MAX_RETRIES, POLL_INTERVAL_MS, retryBackoffMs } from '../apps/server/src/workflows/retry-policy'
 
 const DATABASE_URL = resolveDatabaseUrl()
 
@@ -22,8 +23,19 @@ const TABLES = [
   'transcript_segments', 'resources', 'recordings', 'lectures',
 ]
 
-/** How long reseed waits for the student's job runs to finish (see untilJobsFinish). */
-const JOBS_SETTLE_MS = 15_000
+/** Allowance for one attempt's own work (the e2e server's executors are mocks: no real AI). */
+const ATTEMPT_MARGIN_MS = 1000
+
+/**
+ * How long a due run can take to finish (see untilJobsFinish), from the
+ * server runner's own schedule: claimed within one poll interval, then each
+ * automatic retry waits out its backoff and is claimed within another
+ * interval, plus a margin for every attempt's work. With MAX_RETRIES 3,
+ * backoffs of 2s, 4s and 8s and a 2s interval: 2 + (2+2) + (4+2) + (8+2) + 4 = 26s.
+ */
+export const JOBS_SETTLE_MS = POLL_INTERVAL_MS
+  + Array.from({ length: MAX_RETRIES }, (_, i) => retryBackoffMs(i + 1) + POLL_INTERVAL_MS).reduce((a, b) => a + b, 0)
+  + (MAX_RETRIES + 1) * ATTEMPT_MARGIN_MS
 
 /** Where reseed writes, as "host:port/database" (never the credentials). */
 export function reseedTarget(): string {
@@ -38,7 +50,7 @@ export interface ReseedOptions {
    * rehearsals can pin it.
    */
   now?: number
-  /** How long to wait for the student's unfinished job runs before failing (default 15s). */
+  /** How long a due job run may take to finish before reseed fails (default JOBS_SETTLE_MS). */
   jobsSettleMs?: number
 }
 

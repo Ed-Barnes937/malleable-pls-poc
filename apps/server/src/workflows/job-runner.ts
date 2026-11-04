@@ -2,19 +2,14 @@ import { sql } from '@pls/db'
 import { createJobRunner, createWorkflowEngine, type ExecutorRegistry, type JobRun, type RunnerEvent } from '@pls/workflows'
 import { createPgAdapter } from './pg-adapter'
 import { emitEvent } from '../routers/events'
+import { MAX_RETRIES, POLL_INTERVAL_MS } from './retry-policy'
 
-/**
- * Automatic retries after a failed attempt; a run that exhausts them can be
- * retried by hand. Executors that call a paid AI provider opt out via
- * `ExecutorMeta.maxRetries: 0` (see executors.ts).
- */
-export const MAX_RETRIES = 3
+export { MAX_RETRIES }
 
 /** Automatic retries allowed for a job type: its executor's own limit, else MAX_RETRIES. */
 export function retryLimitFor(executors: ExecutorRegistry, jobType: string): number {
   return executors.getMeta(jobType)?.maxRetries ?? MAX_RETRIES
 }
-const POLL_INTERVAL_MS = 2000
 
 /**
  * Translate a core RunnerEvent into the server's ServerEvent shape (adding

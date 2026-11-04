@@ -8,6 +8,7 @@ import type {
   WorkflowWithJobs,
 } from '@pls/workflows'
 import { workflowJobsJson } from './sql'
+import { retryBackoffMs } from './retry-policy'
 
 /**
  * Per-operation StorageAdapter for the postgres server runtime.
@@ -78,10 +79,10 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
       return withDb(async (tx) => {
         const retryCount = args.retryCount ?? 0
         // Backoff lives here (the core owns only the retry DECISION via maxRetries):
-        // run_after = now() + (2 ^ retryCount) * 1000ms, capped at 60s. The first
-        // attempt waits for the workflow job's configured delay instead.
+        // see retryBackoffMs. The first attempt waits for the workflow job's
+        // configured delay instead.
         const runAfterMs = retryCount > 0
-          ? Math.min(2 ** retryCount * 1000, 60000)
+          ? retryBackoffMs(retryCount)
           : Math.max(args.delayMs ?? 0, 0)
         // Persist the owning user in the input so executors (which open their own
         // RLS-scoped tx via withUser) can recover it when the job is claimed.
