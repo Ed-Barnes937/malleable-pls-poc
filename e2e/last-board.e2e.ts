@@ -47,6 +47,8 @@ test.describe('Reopening the board the student last had open', () => {
 
   test('a board deleted here: the next reload opens the default board, with no error', async ({ page }) => {
     const topBar = new TopBarPom(page)
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
     await page.goto('/')
     await topBar.openCreateWorkspaceDialog()
     await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
@@ -58,7 +60,10 @@ test.describe('Reopening the board the student last had open', () => {
     await page.reload()
     await expect(topBar.workspaceTab('My week')).toHaveCount(0)
     await topBar.expectActiveWorkspace('Evening Review')
+    // Settled: the board's widgets are up, so a late toast would have shown by now.
+    await new PanelGridPom(page).expectPanelCount(4)
     await expect(page.getByTestId('toast-host')).not.toContainText(/couldn't|try again/i)
+    expect(errors).toEqual([])
   })
 
   test('a remembered board deleted elsewhere: the reload opens the default board, with no error', async ({ page, request }) => {

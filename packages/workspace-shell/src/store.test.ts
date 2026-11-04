@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { lastBoardKey } from './lastBoard'
+import { resolveActiveBoard } from './activeBoard'
 
 const USER = 'dev-user-1'
 
@@ -34,5 +35,19 @@ describe('the chosen board and the device', () => {
     store.getState().setActiveWorkspaceId('ws-b')
     store.getState().setActiveWorkspaceId(null)
     expect(localStorage.getItem(lastBoardKey(USER))).toBeNull()
+  })
+
+  it('opens the remembered board while the student still has it', async () => {
+    localStorage.setItem(lastBoardKey(USER), 'ws-b')
+    const store = await freshStore()
+    const boards = [{ id: 'ws-a' }, { id: 'ws-b' }]
+    expect(resolveActiveBoard(boards, store.getState().activeWorkspaceId)).toBe('ws-b')
+  })
+
+  it('falls back to the first board in tab order when the remembered one is gone', async () => {
+    localStorage.setItem(lastBoardKey(USER), 'ws-deleted')
+    const store = await freshStore()
+    const boards = [{ id: 'ws-a' }, { id: 'ws-b' }]
+    expect(resolveActiveBoard(boards, store.getState().activeWorkspaceId)).toBe('ws-a')
   })
 })

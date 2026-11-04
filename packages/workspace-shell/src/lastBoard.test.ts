@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import { lastBoardKey, readLastBoard, writeLastBoard } from './lastBoard'
-import { resolveActiveBoard } from './activeBoard'
 
 function fakeStorage(initial: Record<string, string> = {}): Storage {
   const data = new Map(Object.entries(initial))
@@ -54,19 +53,5 @@ describe('last open board, per device and per user', () => {
     expect(readLastBoard('alice', throwing)).toBeNull()
     expect(() => writeLastBoard('ws-a', 'alice', throwing)).not.toThrow()
     expect(() => writeLastBoard(null, 'alice', throwing)).not.toThrow()
-  })
-
-  it('falls back to the default board when the remembered one is gone', () => {
-    const storage = fakeStorage()
-    writeLastBoard('ws-deleted', 'alice', storage)
-    const boards = [{ id: 'ws-a' }, { id: 'ws-b' }]
-    expect(resolveActiveBoard(boards, readLastBoard('alice', storage))).toBe('ws-a')
-  })
-
-  it('reopens the remembered board while the student still has it', () => {
-    const storage = fakeStorage()
-    writeLastBoard('ws-b', 'alice', storage)
-    const boards = [{ id: 'ws-a' }, { id: 'ws-b' }]
-    expect(resolveActiveBoard(boards, readLastBoard('alice', storage))).toBe('ws-b')
   })
 })
