@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { apiPort, apiUrl, webPort } from './e2e/ports'
+import { E2E_SPECS } from './playwright/spec-files'
 
 // Cost guardrail: test runs never reach a real AI provider. Forced here so
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
@@ -12,8 +13,7 @@ process.env.TZ = 'Europe/London'
 const baseURL = `http://localhost:${webPort}`
 
 export default defineConfig({
-  testDir: 'e2e',
-  testMatch: '**/*.e2e.ts',
+  ...E2E_SPECS,
   outputDir: 'test-results/e2e',
   globalSetup: './e2e/global-setup.ts',
   timeout: 30_000,

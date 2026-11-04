@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
@@ -224,7 +225,8 @@ test.describe('A board selects a lecture', () => {
     await topBar.expectScope('Biology', null, { timeout: 10000 })
   })
 
-  test('"Back to ..." says so when the board could not be changed back', async ({ page, request }) => {
+  test('"Back to ..." says so when the board could not be changed back', async ({ page, request, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.setBoardScope')
     await board(request, 'Biology week', ['calendar', 'transcript'], 'biology')
     await trpcMutation(request, 'planItems.create', {
       kind: 'task', title: 'Review: SN1 mechanism', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,

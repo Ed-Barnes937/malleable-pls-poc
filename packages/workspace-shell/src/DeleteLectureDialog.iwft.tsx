@@ -2,7 +2,6 @@ import type { Page } from '@playwright/test'
 import { test, expect } from '../../../playwright/fixtures'
 import { BoardScopeHarness } from '../../../playwright/board-scope-harness'
 import { seedPlanItem } from '../../../playwright/plan-items'
-import { watchConsole } from '../../../playwright/console-guard'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 
 // Deleting the board's lecture from the header (simulator board In Lecture).
@@ -48,7 +47,6 @@ function seedLecture(simulator: BackendSimulator, { recordings = 1, reviews = 0,
 }
 
 test('lists only what the lecture has, plan items by title and time, and focuses Cancel', async ({ mount, page, simulator }) => {
-  const console = watchConsole(page)
   seedLecture(simulator, { recordings: 2, reviews: 7, finished: 2 })
   simulator.db.tags.push({ id: 'tag-mark', target_type: 'recording', target_id: 'rec-photo-1', label: 'important', created_at: '2026-04-20T11:00:00Z' })
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
@@ -80,11 +78,9 @@ test('lists only what the lecture has, plan items by title and time, and focuses
   // Back where it came from, for the keyboard.
   await expect(group(page).getByRole('button', { name: 'Lecture options' })).toBeFocused()
   expect(simulator.db.lectures.some((l) => l.id === 'lec-photosynthesis')).toBe(true)
-  expect(console.unexpected()).toEqual([])
 })
 
 test('deleting clears the board lecture, keeps finished items and names it in a toast', async ({ mount, page, simulator }) => {
-  const console = watchConsole(page)
   seedLecture(simulator, { reviews: 1, finished: 1 })
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await deleteButton(page).click()
@@ -98,13 +94,9 @@ test('deleting clears the board lecture, keeps finished items and names it in a 
   expect(simulator.db.planItems.find((p) => p.id === 'review-done-0')).toMatchObject({ source_type: null, source_id: null })
   // The board keeps its course.
   expect(simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-in-lecture').map((s) => s.scope_value)).toEqual(['biology'])
-  expect(console.unexpected()).toEqual([])
 })
 
 test('a lecture changed since the list was shown is listed again, and only then deleted', async ({ mount, page, simulator }) => {
-  const console = watchConsole(page)
-  // The refused delete (409) is the point of this test.
-  console.allow(/409/)
   seedLecture(simulator, { reviews: 1 })
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await deleteButton(page).click()
@@ -125,11 +117,9 @@ test('a lecture changed since the list was shown is listed again, and only then 
   await expect(dialog(page)).toHaveCount(0)
   await expect(lecturePill(page)).toHaveText('No lecture')
   expect(simulator.db.planItems.some((p) => p.id === 'review-late')).toBe(false)
-  expect(console.unexpected()).toEqual([])
 })
 
 test('an empty lecture is deleted at once, with no dialog', async ({ mount, page, simulator }) => {
-  const console = watchConsole(page)
   seedLecture(simulator, { recordings: 0 })
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await expect(lecturePill(page)).toHaveText('Photosynthesis')
@@ -141,11 +131,9 @@ test('an empty lecture is deleted at once, with no dialog', async ({ mount, page
   expect(simulator.db.lectures.some((l) => l.id === 'lec-photosynthesis')).toBe(false)
   // The menu went with the lecture: focus is on the pill, not lost.
   await expect(group(page).getByRole('combobox', { name: 'Lecture' })).toBeFocused()
-  expect(console.unexpected()).toEqual([])
 })
 
 test('once Delete is pressed the dialog stays until the answer: no Cancel, Escape or backdrop', async ({ mount, page, simulator }) => {
-  const console = watchConsole(page)
   seedLecture(simulator, { reviews: 1 })
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   let release!: () => void
@@ -174,7 +162,6 @@ test('once Delete is pressed the dialog stays until the answer: no Cancel, Escap
   await expect(page.getByTestId('toast')).toHaveText('Deleted Photosynthesis')
   await expect(lecturePill(page)).toHaveText('No lecture')
   await expect(group(page).getByRole('combobox', { name: 'Lecture' })).toBeFocused()
-  expect(console.unexpected()).toEqual([])
 })
 
 test('on a phone the dialog fits the screen and its buttons stay in reach', async ({ mount, page, simulator }) => {

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom } from './pom'
 import { reseed } from './reseed'
 

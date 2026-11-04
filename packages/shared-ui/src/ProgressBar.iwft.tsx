@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { ProgressBar } from './ProgressBar'
 
 test('renders inner bar with correct width', async ({ mount, page }) => {

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, DeleteWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
@@ -62,7 +63,8 @@ test.describe('Reloading after deleting a board', () => {
     await grid.expectPanelCount(3)
   })
 
-  test('a board deleted in another tab: adding to it fails, then the app moves to a board that still exists', async ({ page, request }) => {
+  test('a board deleted in another tab: adding to it fails, then the app moves to a board that still exists', async ({ page, request, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.addPanel')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await page.goto('/')

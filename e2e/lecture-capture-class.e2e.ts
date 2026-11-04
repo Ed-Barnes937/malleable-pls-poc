@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { deleteClassesOf, trpcMutation, trpcQuery } from './api'

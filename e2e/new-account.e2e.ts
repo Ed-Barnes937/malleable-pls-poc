@@ -1,5 +1,6 @@
 import path from 'path'
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { AudioCapturePom, CreateWorkspaceDialogPom, PanelGridPom, TopBarPom } from './pom'
 import { apiUrl } from './ports'
 import { trpcMutation, trpcQuery } from './api'

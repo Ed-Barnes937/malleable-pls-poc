@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation } from './api'
@@ -124,7 +125,8 @@ for (const viewport of CLASS_VIEWPORTS) {
 
     for (const outcome of CLASS_OUTCOMES) {
       for (const hour of HOURS) {
-        test(`${hour}:00 class: its buttons stay where they are while ${outcome.name}`, async ({ page, request }) => {
+        test(`${hour}:00 class: its buttons stay where they are while ${outcome.name}`, async ({ page, request, consoleErrors }) => {
+          if (outcome.fails) consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
           const start = startOfLocalDay(Date.now(), SEED_TIME_ZONE) + hour * 3_600_000
           await trpcMutation(request, 'planItems.create', {
             kind: 'commitment', title: 'Tap then wait', subtype: 'class', course: 'biology',

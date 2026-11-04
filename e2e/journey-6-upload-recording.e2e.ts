@@ -1,5 +1,6 @@
 import path from 'path'
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { AudioCapturePom, PanelGridPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'

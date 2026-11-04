@@ -144,7 +144,8 @@ test('the lecture list is the course\'s, with a lecture that has no audio yet sa
   ])
 })
 
-test('a failed write puts both pills back and says so', async ({ mount, page, simulator: _boards }) => {
+test('a failed write puts both pills back and says so', async ({ mount, page, simulator: _boards, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('workspaces.setBoardScope')
   await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
   await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
   let release!: () => void
@@ -222,7 +223,8 @@ test.describe('renaming the lecture inline', () => {
     expect(simulator.db.lectures.find((l) => l.id === 'lec-rec-bio-4')?.title).toBe('Biology Lecture: Mitochondrial DNA')
   })
 
-  test('a failed rename brings the old name back and says so', async ({ mount, page, simulator: _boards }) => {
+  test('a failed rename brings the old name back and says so', async ({ mount, page, simulator: _boards, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('lectures.update')
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
     await startRename(page)
@@ -379,7 +381,8 @@ test.describe('two quick changes', () => {
     expectSettledOnce(await states(), `Biology > ${DNA}`, `Chemistry > ${ORGANIC}`)
   })
 
-  test('the first failing takes back only the first: the second still shows, and is what the server is asked', async ({ mount, page, simulator }) => {
+  test('the first failing takes back only the first: the second still shows, and is what the server is asked', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.setBoardScope')
     await mount(<BoardScopeHarness workspaceId="ws-exam-prep" />)
     await expect(coursePill(page)).toHaveText('All courses')
     const writes = await holdEach(page, 'workspaces.setBoardScope')
@@ -401,7 +404,8 @@ test.describe('two quick changes', () => {
     expectSettledOnce(await states(), 'All courses > -', 'Biology > -')
   })
 
-  test('the second failing goes back to what the first left, not to before both', async ({ mount, page, simulator }) => {
+  test('the second failing goes back to what the first left, not to before both', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.setBoardScope')
     await mount(<BoardScopeHarness workspaceId="ws-exam-prep" />)
     await expect(coursePill(page)).toHaveText('All courses')
     const writes = await holdEach(page, 'workspaces.setBoardScope')
