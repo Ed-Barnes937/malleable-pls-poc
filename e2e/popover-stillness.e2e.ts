@@ -2,6 +2,7 @@ import { test, expect } from './test'
 import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { untilFontsLoaded } from './fonts'
 import { trpcMutation } from './api'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import { SEED_TIME_ZONE } from './seed-week'
@@ -25,8 +26,12 @@ const VIEWPORTS = [
   { name: 'desktop', size: { width: 1280, height: 800 }, touch: false },
 ]
 
-/** Where an element is once it has stopped moving (the grid is still scrolling it into view just after). */
+/**
+ * Where an element is once it has stopped moving (the grid is still
+ * scrolling it into view just after), in the web font (see ./fonts.ts).
+ */
 async function settledBox(page: Page, el: Locator) {
+  await untilFontsLoaded(page)
   let last = ''
   await expect.poll(async () => {
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -85,6 +90,7 @@ for (const viewport of VIEWPORTS) {
           const markDone = calendar.popover.getByRole('button', { name: 'Mark done' })
           await expect(markDone).toBeVisible()
           await expect(calendar.popover.getByTestId('calendar-moment-quote')).toBeVisible()
+          await untilFontsLoaded(page)
           const before = (await markDone.boundingBox())!
 
           release()

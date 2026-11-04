@@ -9,6 +9,7 @@ import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { trpcMutation, trpcQuery } from './api'
 import { apiUrl } from './ports'
 import { reseed } from './reseed'
+import { untilFontsLoaded } from './fonts'
 import { SEED_TIME_ZONE } from './seed-week'
 
 /**
@@ -432,6 +433,8 @@ test.describe('A calendar class on a phone', () => {
       await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
       const section = calendar.popover.getByTestId('class-lecture')
       await expect(section.getByText('Finding this lecture...')).toBeVisible()
+      // Measured in the web font: its late swap moves text, not this popover's doing.
+      await untilFontsLoaded(page)
       const boxes = async () => ({
         board: await section.getByRole('button', { name: 'In Lecture' }).boundingBox(),
         save: await calendar.popover.getByRole('button', { name: 'Save' }).boundingBox(),
