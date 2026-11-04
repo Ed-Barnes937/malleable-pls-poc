@@ -153,6 +153,17 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  // PROTOTYPE (flow audit p2): tags toggle, so they can be removed.
+  useDeleteTag() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.tags.delete.useMutation({
+      onSuccess: () => {
+        utils.tags.invalidate()
+        utils.aggregates.invalidate()
+      },
+    }))
+  },
+
   useCreateAnnotation() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.annotations.create.useMutation({

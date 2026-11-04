@@ -179,6 +179,8 @@ export function isNotFoundError(err: unknown): boolean {
 
 export interface SubstrateWriter extends SubstrateReader {
   useCreateTag: () => MutationHandle<NewTag>
+  /** PROTOTYPE (flow audit p2): removes a tag by id (a toggle turned off, or un-sorting). */
+  useDeleteTag: () => MutationHandle<string, void>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   /**

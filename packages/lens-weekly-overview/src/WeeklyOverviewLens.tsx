@@ -1,6 +1,6 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { EmptyState, HiddenElsewhere, ProgressBar, courseTone } from '@pls/shared-ui'
-import { CircleHelp, TrendingUp } from 'lucide-react'
+import { EmptyState, HiddenElsewhere, ProgressBar, courseTone, useP2Variant, startP2FocusRun } from '@pls/shared-ui'
+import { CircleHelp, Play, TrendingUp } from 'lucide-react'
 
 /** "Your progress": how sure you feel about each course's lecture moments, all time. */
 export default function WeeklyOverviewLens({ scope }: LensProps) {
@@ -8,6 +8,9 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
   const { data: overview } = substrate.useWeeklyOverview(scope)
   // Unfiltered counterpart, only to say what the course filter leaves out.
   const { data: allCourses } = substrate.useWeeklyOverview({})
+  // PROTOTYPE (flow audit p2, variant C): the chip starts a focused Test Me run.
+  const p2 = useP2Variant()
+  const { data: reviewMoments } = substrate.useWeakestTopics(scope, 100)
   const hidden = (
     <HiddenElsewhere scopedCount={overview?.length ?? 0} unscopedCount={allCourses?.length ?? 0} />
   )
@@ -21,11 +24,23 @@ export default function WeeklyOverviewLens({ scope }: LensProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-2">
-        {totalToReview > 0 && (
-          <span className="flex items-center gap-1 rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn">
+        {totalToReview > 0 && p2 !== 'c' && (
+          <span data-testid="progress-to-review" className="flex items-center gap-1 rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn">
             <CircleHelp className="h-3.5 w-3.5" />
             {totalToReview} moment{totalToReview !== 1 ? 's' : ''} to review
           </span>
+        )}
+        {totalToReview > 0 && p2 === 'c' && (
+          <button
+            type="button"
+            data-testid="progress-to-review"
+            onClick={() => startP2FocusRun(reviewMoments ?? [])}
+            title="Go through them in Test Me"
+            className="flex items-center gap-1 rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn ring-attn/40 transition hover:ring-2"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Review {totalToReview} moment{totalToReview !== 1 ? 's' : ''}
+          </button>
         )}
         <span className="ml-auto">{hidden}</span>
       </div>

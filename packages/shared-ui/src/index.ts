@@ -31,3 +31,5 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+// PROTOTYPE (flow audit p2): throwaway, proto/p2-sorted branch only.
+export { P2Switcher, useP2Variant, useP2FocusRun, startP2FocusRun, endP2FocusRun, type P2Variant, type P2RunItem } from './prototype-p2'

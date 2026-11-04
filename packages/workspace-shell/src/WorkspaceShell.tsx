@@ -1,3 +1,5 @@
+// PROTOTYPE (flow audit p2): the variant switcher.
+import { P2Switcher } from '@pls/shared-ui'
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
 import {
   useWorkspaces,
@@ -507,6 +509,8 @@ export function WorkspaceShell() {
         <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
       )}
       <ToastHost />
+      {/* PROTOTYPE (flow audit p2): variant switcher, bottom-left. */}
+      <P2Switcher />
     </div>
   )
 }

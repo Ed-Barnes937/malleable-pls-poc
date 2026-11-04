@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
-import { ArrowUpRight, CircleHelp } from 'lucide-react'
+import { cn, courseTone, EmptyState, HiddenElsewhere, formatTime, useP2Variant, startP2FocusRun } from '@pls/shared-ui'
+import { ArrowUpRight, CircleHelp, Play } from 'lucide-react'
 
 const LIMIT = 8
 
@@ -21,6 +21,9 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   // Your Progress and All courses show, so the three always agree.
   const { data: progress } = substrate.useWeeklyOverview(scope)
   const { data: allProgress } = substrate.useWeeklyOverview({})
+  // PROTOTYPE (flow audit p2, variant C): the count starts a focused Test Me run.
+  const p2 = useP2Variant()
+  const { data: reviewMoments } = substrate.useWeakestTopics(scope, 100)
   const toReview = (rows: typeof progress) => (rows ?? []).reduce((sum, c) => sum + c.reviewMoments, 0)
   const total = Math.max(toReview(progress), topics?.length ?? 0)
   const hidden = <HiddenElsewhere scopedCount={toReview(progress)} unscopedCount={toReview(allProgress)} />
@@ -48,9 +51,19 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-x-2">
-        <span className="text-meta font-semibold text-text-muted">
+        <span data-testid="weakest-total" className="text-meta font-semibold text-text-muted">
           {total > topics.length ? `Weakest ${topics.length} of ${total} to review` : `${total} to review`}
         </span>
+        {p2 === 'c' && (
+          <button
+            type="button"
+            onClick={() => startP2FocusRun(reviewMoments ?? [])}
+            className="flex items-center gap-1 rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn ring-attn/40 transition hover:ring-2"
+          >
+            <Play className="h-3.5 w-3.5" />
+            Review them
+          </button>
+        )}
         {hidden}
       </div>
 

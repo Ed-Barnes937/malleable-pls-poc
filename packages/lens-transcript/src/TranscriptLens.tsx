@@ -2,8 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
-import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, useP2Variant, watchUserScroll } from '@pls/shared-ui'
+import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, Check, ChevronRight, CircleCheck, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
@@ -251,7 +251,34 @@ const TAG_LEGEND = [
   { label: 'confused', text: 'Confused' },
   { label: 'key-point', text: 'Key point' },
   { label: 'question', text: 'Question' },
+  // PROTOTYPE (flow audit p2)
+  { label: 'sorted', text: 'Sorted' },
 ]
+
+/**
+ * PROTOTYPE (flow audit p2): a tag button that toggles, with a pressed state.
+ * Pressed, it is filled with the tag's colour and shows a tick.
+ */
+function TagToggle({ label, text, pressed, onClick }: { label: string; text?: string; pressed: boolean; onClick: () => void }) {
+  const style = TAG_STYLES[label]
+  const Icon = pressed ? Check : style.icon
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      data-testid={`tag-toggle-${label}`}
+      title={pressed ? `Remove ${text ?? label}` : `Mark this moment as ${text ?? label}`}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all active:scale-95',
+        pressed ? cn('border-transparent text-white', style.mark) : cn(style.bg, style.text, 'hover:scale-105'),
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {text ?? label}
+    </button>
+  )
+}
 
 /** How many recent lectures "Pick a lecture" offers as one-click choices. */
 const RECENT_LECTURES = 5
@@ -352,6 +379,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     recordingId ? { sourceType: 'recording', sourceId: recordingId, kinds: ['task'], statuses: ['open', 'done'] } : undefined,
   )
   const createTag = mutations.useCreateTag()
+  // PROTOTYPE (flow audit p2)
+  const deleteTag = mutations.useDeleteTag()
+  const p2 = useP2Variant()
   const createAnnotation = mutations.useCreateAnnotation()
   const transcribe = mutations.useTranscribeRecording()
 
@@ -478,11 +508,35 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
   /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
   const markedAt = useRef<number | null>(null)
+  // PROTOTYPE (flow audit p2): tags toggle. Turning confused off also drops a
+  // sorted mark (nothing left to be sorted); Sorted on keeps confused as history.
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
-    markedAt.current = watchUserScroll()
+    const segTags = tagsBySegment.get(selectedSegmentId) ?? []
+    const existing = segTags.filter((t) => t.label === label)
+    if (existing.length > 0) {
+      const drop = label === 'confused' ? segTags.filter((t) => t.label === 'confused' || t.label === 'sorted') : existing
+      for (const t of drop) deleteTag.mutate(t.id)
+      return
+    }
+    if (label === 'confused') markedAt.current = watchUserScroll()
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
   }
+  const selectedLabels = new Set((selectedSegmentId ? tagsBySegment.get(selectedSegmentId) ?? [] : []).map((t) => t.label))
+  /** PROTOTYPE (flow audit p2): the tag buttons, plus Sorted on a confused moment in variants A and C. */
+  const tagButtons = (
+    <>
+      {(['confused', 'key-point', 'question'] as const).map((label) => (
+        <TagToggle key={label} label={label} pressed={selectedLabels.has(label)} onClick={() => handleTag(label)} />
+      ))}
+      {p2 !== 'b' && selectedLabels.has('confused') && (
+        <>
+          <span aria-hidden className="mx-0.5 h-5 w-px bg-border-subtle" />
+          <TagToggle label="sorted" text={selectedLabels.has('sorted') ? 'Sorted' : 'Mark sorted'} pressed={selectedLabels.has('sorted')} onClick={() => handleTag('sorted')} />
+        </>
+      )}
+    </>
+  )
 
   const handleAnnotation = () => {
     if (!selectedSegmentId || !annotationDraft.trim()) return
@@ -551,7 +605,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
       {railMarks.length > 0 && (
         <ul aria-label="Tag colours" data-testid="tag-legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-secondary">
-          {TAG_LEGEND.map(({ label, text }) => (
+          {TAG_LEGEND.filter(({ label }) => label !== 'sorted' || railMarks.some((m) => m.label === 'sorted')).map(({ label, text }) => (
             <li key={label} className="inline-flex items-center gap-1.5">
               <span aria-hidden className={cn('h-1 w-3 rounded-full', TAG_STYLES[label].mark)} />
               {text}
@@ -691,7 +745,19 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
               {(segTags.length > 0 || review) && (
                 <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
-                  {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                  {/* PROTOTYPE (flow audit p2): a sorted moment shows Sorted, with confused kept as quiet history. */}
+                  {segTags.some((t) => t.label === 'sorted') ? (
+                    <>
+                      <span data-testid="sorted-pill" className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold', TAG_STYLES.sorted.bg, TAG_STYLES.sorted.text)}>
+                        <CircleCheck className="h-3 w-3" />
+                        Sorted
+                      </span>
+                      <span className="text-meta text-text-muted">was confusing</span>
+                      {segTags.filter((t) => t.label !== 'sorted' && t.label !== 'confused').map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                    </>
+                  ) : (
+                    segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)
+                  )}
                   {review && (
                     <ReviewChip
                       review={review}
@@ -714,23 +780,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
               )}
 
               {isSelected && isCapture && (
-                <div className="ml-[4.375rem] flex items-center gap-1 py-1.5">
-                  {(['confused', 'key-point', 'question'] as const).map((label) => {
-                    const style = TAG_STYLES[label]
-                    const Icon = style.icon
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => handleTag(label)}
-                        title={`Mark this moment as ${label}`}
-                        className={cn('inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
-                      >
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                      </button>
-                    )
-                  })}
+                <div className="ml-[4.375rem] flex flex-wrap items-center gap-1 py-1.5">
+                  {tagButtons}
                 </div>
               )}
             </div>
@@ -742,24 +793,12 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
       {selectedSegmentId && !isCapture && (
         <div className="flex flex-col gap-2 border-t border-border-subtle pt-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-meta font-semibold text-text-muted">Tag:</span>
-            {(['confused', 'key-point', 'question'] as const).map((label) => {
-              const style = TAG_STYLES[label]
-              const Icon = style.icon
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => handleTag(label)}
-                  title={`Mark this moment as ${label}`}
-                  className={cn('inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              )
-            })}
+            {tagButtons}
+            {p2 === 'b' && selectedLabels.has('sorted') && (
+              <span className="text-meta text-text-muted">Sorted in Test Me</span>
+            )}
           </div>
           <div className="flex gap-1.5">
             <input

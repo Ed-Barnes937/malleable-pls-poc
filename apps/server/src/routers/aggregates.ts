@@ -25,7 +25,9 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       latest.score AS latest_score,
       marked.confused_at,
       still.confused,
+      -- PROTOTYPE (flow audit p2): a sorted moment counts as solid and never as one to review.
       CASE
+        WHEN sorted.yes THEN 'solid'
         WHEN latest.score < ${WEAK_BELOW} OR still.confused THEN 'review'
         WHEN latest.score >= ${SOLID_FROM} THEN 'solid'
         ELSE 'learning'
@@ -44,6 +46,14 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       WHERE c.user_id = ${userId} AND c.target_type = 'transcript_segment' AND c.target_id = ts.id
         AND c.label = 'confused'
     ) marked ON true
+    -- PROTOTYPE (flow audit p2): marked sorted (a 'sorted' tag, the confused one kept as history).
+    LEFT JOIN LATERAL (
+      SELECT EXISTS (
+        SELECT 1 FROM tags s
+        WHERE s.user_id = ${userId} AND s.target_type = 'transcript_segment' AND s.target_id = ts.id
+          AND s.label = 'sorted'
+      ) AS yes
+    ) sorted ON true
     -- Marked confusing and not felt sure about since.
     CROSS JOIN LATERAL (
       SELECT marked.confused_at IS NOT NULL
