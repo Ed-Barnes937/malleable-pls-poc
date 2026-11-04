@@ -22,6 +22,9 @@ const TABLES = [
   'transcript_segments', 'resources', 'recordings', 'lectures',
 ]
 
+/** How long reseed waits for the student's job runs to finish (see untilJobsFinish). */
+const JOBS_SETTLE_MS = 15_000
+
 /** Where reseed writes, as "host:port/database" (never the credentials). */
 export function reseedTarget(): string {
   const url = new URL(DATABASE_URL)
@@ -35,15 +38,19 @@ export interface ReseedOptions {
    * rehearsals can pin it.
    */
   now?: number
+  /** How long to wait for the student's unfinished job runs before failing (default 15s). */
+  jobsSettleMs?: number
 }
 
-export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
+export async function reseed({ now = Date.now(), jobsSettleMs = JOBS_SETTLE_MS }: ReseedOptions = {}) {
   // postgres is a dependency of @pls/db, not the root — resolve it from there.
   const requireFromDb = createRequire(resolve(__dirname, '../packages/db/package.json'))
   const pg = await import(requireFromDb.resolve('postgres'))
-  const sql = pg.default(DATABASE_URL, { max: 1 })
+  // Named, so the Postgres log (a lock report, a deadlock) says it was reseed.
+  const sql = pg.default(DATABASE_URL, { max: 1, connection: { application_name: 'reseed' } })
 
   try {
+    await untilJobsFinish(sql, jobsSettleMs)
     // One transaction: the server never sees a half-seeded student. Data
     // only (no DDL), so it takes no table locks the running server waits on.
     await sql.begin(async (tx: Sql) => {
@@ -78,6 +85,34 @@ export async function reseed({ now = Date.now() }: ReseedOptions = {}) {
     })
   } finally {
     await sql.end()
+  }
+}
+
+/**
+ * Waits until none of the student's job runs can still change (pending,
+ * running, retrying). A run the last test started, such as the review job a
+ * "confusing" tag queues, writes under rows reseed deletes, in its own lock
+ * order: reseeding alongside it deadlocks, or leaves its writes in the fresh
+ * seed. The e2e fixture (e2e/test.ts) lets the last test's requests finish
+ * first, so no new runs are queued meanwhile. Fails, naming the runs, if they
+ * have not finished after `timeoutMs`.
+ */
+async function untilJobsFinish(sql: Sql, timeoutMs: number) {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const unfinished = await sql`
+      SELECT id, job_type, status, retry_count, run_after FROM job_runs
+      WHERE user_id = 'dev-user-1' AND status NOT IN ('completed', 'failed')
+      ORDER BY created_at
+    `
+    if (unfinished.length === 0) return
+    if (Date.now() >= deadline) {
+      const runs = unfinished.map((run: Sql) =>
+        `${run.id} (${run.job_type}, ${run.status}, retry ${run.retry_count}, run after ${(run.run_after as Date).toISOString()})`)
+      throw new Error(`reseed: the student's job runs did not finish within ${timeoutMs}ms: ${runs.join('; ')}`)
+    }
+    // Checked again shortly: the job runner claims queued runs every 2s.
+    await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }
 
