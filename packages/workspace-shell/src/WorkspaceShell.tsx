@@ -1,3 +1,7 @@
+// PROTOTYPE (flow audit p4): the week peek and its variant switcher.
+import { P4Switcher, closeP4Peek } from '@pls/shared-ui'
+import { trpc } from '@pls/substrate-client'
+import { WeekPeek, requestP4Plan } from './prototype-p4-peek'
 import { useEffect, useRef, useMemo, useCallback, useState } from 'react'
 import {
   useWorkspaces,
@@ -458,6 +462,53 @@ export function WorkspaceShell() {
     handleLayoutChange(updated)
   }, [handleLayoutChange])
 
+  // PROTOTYPE (flow audit p4): what the week peek needs from the shell.
+  const p4Utils = trpc.useUtils()
+  const p4SetBoard = useWorkspaceStore((s) => s.setActiveWorkspaceId)
+  const boardHasCalendar = activeLensTypes.includes('calendar')
+  const p4AddCalendar = () => {
+    closeP4Peek()
+    addWidget('calendar')
+  }
+  const p4PlanWeek = async () => {
+    if (boardHasCalendar) return requestP4Plan()
+    const boards = (await p4Utils.workspaces.list.fetch()) as unknown as { id: string; name: string }[]
+    for (const b of boards) {
+      const rows = (await p4Utils.workspaces.panels.fetch(b.id)) as unknown as { lens_type: string }[]
+      if (rows.some((r) => r.lens_type === 'calendar')) {
+        p4SetBoard(b.id)
+        pushToast({ message: `Help me plan, on ${b.name}`, tone: 'success', key: 'p4-plan' })
+        return requestP4Plan()
+      }
+    }
+    addWidget('calendar')
+    requestP4Plan()
+  }
+  const p4RenderCalendar = () => {
+    if (!activeWorkspaceId) return null
+    const Calendar = getLensComponent('calendar', lensRegistry)
+    const manifest = manifests.find((m) => m.id === 'calendar')
+    const panelScope = splitScope(scope, manifest?.scope)
+    return (
+      <PanelContainer lensType="calendar" boardId={activeWorkspaceId}>
+        <Calendar
+          panelId={`${activeWorkspaceId}-p4-week-peek`}
+          scope={panelScope.scope}
+          highlight={panelScope.highlight}
+          config={{ lensType: 'calendar', view: 'week' }}
+          onScopeChange={handleScopeChange}
+          onShowMoment={handleShowMoment}
+          onFocusClass={handleFocusClass}
+          onUndoFocusClass={handleUndoFocusClass}
+          lectureBoards={lectureBoards}
+          boardShowsLectures={boardShowsLectures}
+          onOpenLectureOn={handleOpenLectureOn}
+          onEditAutomation={setAutomationId}
+        />
+      </PanelContainer>
+    )
+  }
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
@@ -467,6 +518,8 @@ export function WorkspaceShell() {
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* PROTOTYPE (flow audit p4): variant switcher, top-centre under the top bar. */}
+        <P4Switcher />
         {workspaces?.length === 0 ? (
           <NoBoards />
         ) : !panels ? (
@@ -507,6 +560,13 @@ export function WorkspaceShell() {
         <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
       )}
       <ToastHost />
+      {/* PROTOTYPE (flow audit p4) */}
+      <WeekPeek
+        renderCalendar={p4RenderCalendar}
+        boardHasCalendar={boardHasCalendar}
+        onAddCalendar={p4AddCalendar}
+        onPlanWeek={() => void p4PlanWeek()}
+      />
     </div>
   )
 }

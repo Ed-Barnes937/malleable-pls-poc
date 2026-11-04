@@ -31,3 +31,5 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+// PROTOTYPE (flow audit p4): throwaway, proto/p4-week-peek branch only.
+export { P4Switcher, useP4, toggleP4Peek, closeP4Peek, requestP4Plan, takeP4PlanRequest, type P4Variant } from './prototype-p4'

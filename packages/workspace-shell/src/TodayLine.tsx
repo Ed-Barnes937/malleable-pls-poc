@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { flushSync } from 'react-dom'
-import { cn } from '@pls/shared-ui'
+import { cn, toggleP4Peek, useP4 } from '@pls/shared-ui'
 import { formatMinutes, localDayRange, type PlanItemOccurrence } from '@pls/substrate'
 import { shortLineOptions, todayLine, todayStudyOptions } from './today-line'
 
@@ -43,18 +43,20 @@ export function TodayLine({ short = false }: { short?: boolean }) {
     () => (data && counting ? todayLine(data as PlanItemOccurrence[], { now, ...counting }) : null),
     [data, now, counting],
   )
-  if (!line) return null
+  // PROTOTYPE (flow audit p4): with no today line there is nothing to press,
+  // so the prototype offers a plain "Your week" instead.
+  if (!line) return <P4Fallback />
 
   const study = line.studyLeftMin > 0 ? `${formatMinutes(line.studyLeftMin)} to study` : null
   if (short) {
     const options = shortLineOptions(line.short, study)
-    if (options.length === 0) return null
+    if (options.length === 0) return <P4Fallback />
     // At least 40% of the row: when the scope pills leave less, the row wraps
     // and the line goes under them, so neither is cut short.
     return <TodayLineText options={options} strong={study} className="min-w-[40%] flex-1 basis-0" textClassName="text-meta" />
   }
   // Nothing left of the day to mention: like the phone, say nothing.
-  if (line.events.length === 0 && !study) return null
+  if (line.events.length === 0 && !study) return <P4Fallback />
   // The whole line, else without the weekday, which the student knows anyway.
   const full = [line.weekday, ...line.events, ...(study ? [study] : [])]
   return (
@@ -144,6 +146,43 @@ function TodayLineText({ options, strong, className, textClassName }: {
   )
 }
 
+/** PROTOTYPE (flow audit p4): opens the week peek when the day has no "to study". */
+function P4Fallback() {
+  const { open } = useP4()
+  return (
+    <button
+      type="button"
+      data-testid="p4-trigger"
+      aria-expanded={open}
+      onClick={(e) => toggleP4Peek(e.currentTarget)}
+      className="rounded-control px-2 py-1 text-body font-semibold text-text-primary hover:bg-surface-overlay"
+    >
+      Your week
+    </button>
+  )
+}
+
+/** PROTOTYPE (flow audit p4): "Xh to study", pressable, opens the week peek. */
+function P4Trigger({ children }: { children: React.ReactNode }) {
+  const { open } = useP4()
+  return (
+    <button
+      type="button"
+      data-testid="p4-trigger"
+      aria-expanded={open}
+      aria-haspopup="dialog"
+      title="See your week"
+      onClick={(e) => toggleP4Peek(e.currentTarget)}
+      className={cn(
+        'pointer-events-auto -mx-1 rounded-control px-1 font-semibold text-text-primary underline decoration-dotted decoration-text-muted underline-offset-4 hover:bg-surface-overlay',
+        open && 'bg-surface-overlay',
+      )}
+    >
+      {children}
+    </button>
+  )
+}
+
 function LineText({ parts, strong, className, children, ...rest }: {
   parts: string[]
   strong: string | null
@@ -162,7 +201,9 @@ function LineText({ parts, strong, className, children, ...rest }: {
               <span className="sr-only">, </span>
             </>
           )}
-          {part === strong ? <span className="font-semibold text-text-primary">{part}</span> : part}
+          {part === strong
+            ? (rest['aria-hidden'] ? <span className="font-semibold text-text-primary">{part}</span> : <P4Trigger>{part}</P4Trigger>)
+            : part}
         </Fragment>
       ))}
     </p>

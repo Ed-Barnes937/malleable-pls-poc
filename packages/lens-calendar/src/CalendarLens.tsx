@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, isClassBlock, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
+import { COURSES, cn, courseTone, useNarrowScreen, useP4, takeP4PlanRequest } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -162,6 +162,17 @@ export default function CalendarLens({
     setViewState(narrow ? 'day' : savedView)
     if (narrow) setPlanOpen(false)
   }, [narrow, savedView])
+
+  // PROTOTYPE (flow audit p4): the week peek's "Plan my week" opens Help me
+  // plan here, in week view on this week.
+  const { planRequest } = useP4()
+  useEffect(() => {
+    if (!takeP4PlanRequest()) return
+    setViewState('week')
+    setAnchorDay(startOfDay(new Date()))
+    setPlanOpen(true)
+    rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [planRequest])
 
   const days = useMemo(() => {
     if (view === 'day') return [anchorDay]
