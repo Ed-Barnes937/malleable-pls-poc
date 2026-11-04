@@ -10,6 +10,9 @@ import {
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
+  CLOSED_WITH_TODO,
+  SESSION_SOURCE_TYPE,
+  isSession,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -37,6 +40,46 @@ async function setStatus(tx: TransactionSql, userId: string, planItemId: string,
     WHERE id = ${planItemId} AND user_id = ${userId}
   `
   return { before, item: await fetchOne(tx, userId, planItemId) }
+}
+
+/**
+ * A to-do booked in sessions is ticked off (or dismissed) once: its sessions
+ * follow (see @pls/substrate sessions).
+ * - Done or dismissed closes its open sessions, marked `CLOSED_WITH_TODO`.
+ * - Reopening it reopens just those, and only the ones still ahead (a past
+ *   one would come back as "didn't happen"); one the student ticked on its
+ *   own stays ticked.
+ * - A new title, course (`course`, as patched) or due time carries over.
+ * - A session whose own status changes loses the mark: that is the
+ *   student's choice now.
+ * Cascaded changes fire no workflow events.
+ */
+async function cascadeToSessions(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem, course?: string | null) {
+  if (after.kind !== 'task') return
+  if (isSession(after)) {
+    if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) {
+      await tx`UPDATE plan_items SET subtype = NULL WHERE id = ${after.id} AND user_id = ${userId}`
+    }
+    return
+  }
+  const owned = tx`user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${after.id}`
+  if (before.title !== after.title) await tx`UPDATE plan_items SET title = ${after.title}, updated_at = now() WHERE ${owned}`
+  if (before.due_at !== after.due_at) await tx`UPDATE plan_items SET due_at = ${after.due_at}, updated_at = now() WHERE ${owned}`
+  if (course !== undefined) {
+    for (const s of await tx`SELECT id FROM plan_items WHERE ${owned}`) await setCourse(tx, userId, s.id as string, course)
+  }
+  if (before.status === after.status) return
+  if (after.status === 'open') {
+    await tx`
+      UPDATE plan_items SET status = CASE WHEN ends_at > now() THEN 'open' ELSE status END, subtype = NULL, updated_at = now()
+      WHERE ${owned} AND subtype = ${CLOSED_WITH_TODO}
+    `
+  } else {
+    await tx`
+      UPDATE plan_items SET status = ${after.status}, subtype = ${CLOSED_WITH_TODO}, updated_at = now()
+      WHERE ${owned} AND status = 'open'
+    `
+  }
 }
 
 /**
@@ -119,6 +162,7 @@ export const planItemsRouter = router({
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
         const item = await fetchOne(tx, ctx.userId, input.id)
+        await cascadeToSessions(tx, ctx.userId, current, item, course)
         await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
         return item
       })
@@ -129,6 +173,7 @@ export const planItemsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const { before, item } = await setStatus(tx, ctx.userId, input.id, 'done')
+        await cascadeToSessions(tx, ctx.userId, before, item)
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
@@ -139,6 +184,7 @@ export const planItemsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const { before, item } = await setStatus(tx, ctx.userId, input.id, 'dismissed')
+        await cascadeToSessions(tx, ctx.userId, before, item)
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
@@ -170,7 +216,10 @@ export const planItemsRouter = router({
       }))
     }),
 
-  /** Hard delete (no workflow event). NOT_FOUND for a missing or another user's id. */
+  /**
+   * Hard delete (no workflow event), with the to-do's sessions if it has
+   * any. NOT_FOUND for a missing or another user's id.
+   */
   delete: publicProcedure
     .input(id)
     .mutation(async ({ ctx, input }) => {
@@ -178,6 +227,12 @@ export const planItemsRouter = router({
         const rows = await tx`DELETE FROM plan_items WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id`
         if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
         await setCourse(tx, ctx.userId, input, null)
+        const sessions = await tx`
+          DELETE FROM plan_items
+          WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${input}
+          RETURNING id
+        `
+        for (const s of sessions) await setCourse(tx, ctx.userId, s.id as string, null)
       })
     }),
 })

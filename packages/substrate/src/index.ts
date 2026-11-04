@@ -40,7 +40,8 @@ export {
   leftoverStudyTime,
   noSlotCause,
   type Leftover,
-  longestBlockMin,
+  autofillOrder,
+  dueTimes,
   noteWithoutAmounts,
   draftPlan,
   formatMinutes,
@@ -65,6 +66,17 @@ export {
   type Placement,
   type Unplaced,
 } from './planning'
+
+export {
+  CLOSED_WITH_TODO,
+  MIN_SESSION_MIN,
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
+  isSession,
+  newSession,
+  sessionParentId,
+  todosToPlan,
+} from './sessions'
 
 export {
   applyPreferencesUpdate,

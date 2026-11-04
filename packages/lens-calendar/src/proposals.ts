@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PlanItemOccurrence } from '@pls/substrate'
+import { sessionParentId, type PlanItemOccurrence } from '@pls/substrate'
 
 /**
  * Proposals ("ghost blocks"): study time drafted for a to-do but not saved.
@@ -23,6 +23,13 @@ export interface Proposal {
   note?: string
   /** The student dragged or resized it: re-drafting keeps it where it is. */
   adjusted?: boolean
+  /**
+   * Saved as a session of its to-do (a separate study block linked to it,
+   * see @pls/substrate sessions) rather than as the to-do's own time: the
+   * to-do was split, or already has sessions. `count` > 1 shows "(1 of 2)".
+   * `estimateMin`: the student shrank the to-do; its new total estimate.
+   */
+  session?: { index: number; count: number; estimateMin?: number }
 }
 
 export interface ProposalLayer {
@@ -30,6 +37,12 @@ export interface ProposalLayer {
   proposals: Proposal[]
   /** Accepted and saved, waiting for the real block to replace the ghost. */
   savedIds: ReadonlySet<string>
+  /**
+   * Accepted: waiting their turn in a batch, saving, or saved and waiting for
+   * their block. Frozen: `move`, `nudge`, `dismiss` and `accept` ignore them,
+   * so nothing can change a write that is queued or already gone.
+   */
+  lockedIds: ReadonlySet<string>
   /** Who proposed them (e.g. 'autofill'), or null when there are none. */
   source: string | null
   /** A save is in flight. */
@@ -110,7 +123,7 @@ export function useProposalLayer({
    * it no longer holds: that is not the student's answer.
    */
   onDismiss?: (proposals: Proposal[], source: string) => void
-  rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at'>>
+  rows: ReadonlyArray<Pick<PlanItemOccurrence, 'id' | 'starts_at' | 'kind' | 'source_type' | 'source_id'>>
   validate?: ProposalValidator
 }): ProposalLayer {
   const [proposals, setProposals] = useState<Proposal[]>([])
@@ -119,6 +132,19 @@ export function useProposalLayer({
   const [saving, setSaving] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // Read synchronously (a drag can land between a click and the next render), mirrored in state to draw.
+  const lockedRef = useRef<Set<string>>(new Set())
+  const [lockedIds, setLockedIds] = useState<ReadonlySet<string>>(new Set())
+  const setLocked = useCallback((ids: Iterable<string>, locked: boolean) => {
+    const next = new Set(lockedRef.current)
+    for (const id of ids) {
+      if (locked) next.add(id)
+      else next.delete(id)
+    }
+    lockedRef.current = next
+    setLockedIds(next)
+  }, [])
+  const isLocked = useCallback((id: string) => lockedRef.current.has(id), [])
   const generationRef = useRef(0)
   const latest = useRef(proposals)
   latest.current = proposals
@@ -129,6 +155,7 @@ export function useProposalLayer({
   const check = useCallback((p: Proposal) => validateRef.current?.(p, sourceRef.current ?? '') ?? null, [])
 
   const drop = useCallback((ids: ReadonlySet<string>) => {
+    setLocked(ids, false)
     setProposals((prev) => {
       const next = prev.filter((p) => !ids.has(p.id))
       if (next.length === 0) setSource(null)
@@ -139,22 +166,25 @@ export function useProposalLayer({
       for (const id of ids) next.delete(id)
       return next
     })
-  }, [])
+  }, [setLocked])
 
   // Accepted ghosts whose real block has arrived.
   const landed = useMemo(() => {
     const ids = new Set<string>()
     for (const [id] of saved) {
       const p = proposals.find((x) => x.id === id)
-      const row = p && rows.find((r) => r.id === p.taskId)
-      if (!p || (row?.starts_at && Date.parse(row.starts_at) === Date.parse(p.startsAt))) ids.add(id)
+      // The to-do's own block, or (for a session) a session of it at that time.
+      const row = p && rows.find((r) =>
+        (p.session ? sessionParentId(r) === p.taskId : r.id === p.taskId)
+        && r.starts_at && Date.parse(r.starts_at) === Date.parse(p.startsAt))
+      if (!p || row) ids.add(id)
     }
     return ids
   }, [saved, proposals, rows])
 
   // Ghosts that no longer hold (their to-do got a time, a commitment landed on them).
   const invalid = proposals
-    .filter((p) => !saved.has(p.id))
+    .filter((p) => !saved.has(p.id) && !lockedIds.has(p.id))
     .map((p) => ({ p, reason: check(p) }))
     .filter((x): x is { p: Proposal; reason: string } => x.reason !== null)
   // Bumped by `propose`: a draft proposed since this render (e.g. by a child
@@ -182,10 +212,11 @@ export function useProposalLayer({
     generationRef.current++
     setError(null)
     setNotice(null)
+    setLocked([...lockedRef.current], false)
     setSaved(new Map())
     setProposals(next)
     setSource(next.length > 0 ? from : null)
-  }, [])
+  }, [setLocked])
 
   /** Why `next` (a moved version of proposal `id`) can't go there, or null. */
   const moveProblem = useCallback((id: string, next: Proposal) => {
@@ -200,7 +231,7 @@ export function useProposalLayer({
 
   const move = useCallback((id: string, startsAt: string, endsAt: string) => {
     const current = latest.current.find((p) => p.id === id)
-    if (!current) return
+    if (!current || isLocked(id)) return
     const next = { ...current, startsAt, endsAt, adjusted: true }
     const reason = moveProblem(id, next)
     if (reason) {
@@ -208,11 +239,11 @@ export function useProposalLayer({
       return
     }
     place(id, next)
-  }, [moveProblem, place])
+  }, [moveProblem, place, isLocked])
 
   const nudge = useCallback((id: string, minutes: number, days: number) => {
     const current = latest.current.find((p) => p.id === id)
-    if (!current) return
+    if (!current || isLocked(id)) return
     const shifted = (steps: number) => {
       const [start, end] = [new Date(current.startsAt), new Date(current.endsAt)]
       for (const d of [start, end]) {
@@ -232,7 +263,7 @@ export function useProposalLayer({
       firstReason ??= reason
     }
     if (firstReason) setNotice(`Can't move "${current.title}" there: ${firstReason}.`)
-  }, [moveProblem, place])
+  }, [moveProblem, place, isLocked])
 
   const onDismissRef = useRef(onDismiss)
   onDismissRef.current = onDismiss
@@ -241,17 +272,20 @@ export function useProposalLayer({
     if (open.length > 0) onDismissRef.current?.(open, sourceRef.current ?? '')
   }, [saved])
   const dismiss = useCallback((id: string) => {
+    if (isLocked(id)) return
     dismissed(latest.current.filter((p) => p.id === id))
     drop(new Set([id]))
-  }, [drop, dismissed])
+  }, [drop, dismissed, isLocked])
   const dismissAll = useCallback(() => {
     dismissed(latest.current)
     propose('', [])
   }, [propose, dismissed])
 
   const acceptMany = useCallback(async (ids: string[]) => {
-    const targets = latest.current.filter((p) => ids.includes(p.id) && !saved.has(p.id))
+    const targets = latest.current.filter((p) => ids.includes(p.id) && !saved.has(p.id) && !isLocked(p.id)).map((p) => p.id)
     if (targets.length === 0) return
+    // Frozen from now until saved (or back to drafted if the save fails).
+    setLocked(targets, true)
     setError(null)
     setNotice(null)
     setSaving((n) => n + 1)
@@ -264,7 +298,13 @@ export function useProposalLayer({
       // the blocks accepted just before it in this batch.
       const together = sourceRef.current ? saveTogether?.[sourceRef.current] : undefined
       const ready: Proposal[] = []
-      for (const p of targets) {
+      for (const id of targets) {
+        // As it is now: never a copy from before the batch started.
+        const p = latest.current.find((x) => x.id === id)
+        if (!p) {
+          setLocked([id], false)
+          continue
+        }
         const earlier = (together ? ready : accepted).find((a) => overlaps(a, p))
         const reason = check(p) ?? (earlier ? `that time overlaps "${earlier.title}"` : null)
         if (reason) {
@@ -281,6 +321,7 @@ export function useProposalLayer({
           accepted.push(p)
           setSaved((prev) => new Map(prev).set(p.id, Date.now()))
         } catch {
+          setLocked([p.id], false)
           failed.push(p.title)
         }
       }
@@ -294,6 +335,7 @@ export function useProposalLayer({
             return next
           })
         } catch {
+          setLocked(ready.map((p) => p.id), false)
           failed.push(...ready.map((p) => p.title))
         }
       }
@@ -304,7 +346,7 @@ export function useProposalLayer({
     if (failed.length > 0) {
       setError(`Couldn't save ${failed.map((t) => `"${t}"`).join(', ')}. Still drafted - try again?`)
     }
-  }, [save, saveTogether, saved, check, drop])
+  }, [save, saveTogether, saved, check, drop, isLocked, setLocked])
 
   const savedIds = useMemo(() => new Set(saved.keys()), [saved])
   const accept = useCallback((id: string) => acceptMany([id]), [acceptMany])
@@ -313,6 +355,7 @@ export function useProposalLayer({
   return {
     proposals: landed.size > 0 ? proposals.filter((p) => !landed.has(p.id)) : proposals,
     savedIds,
+    lockedIds,
     source,
     saving: saving > 0,
     error,

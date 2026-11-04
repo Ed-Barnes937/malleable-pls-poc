@@ -22,6 +22,11 @@ import {
   refitPreviewInput,
   refitRange,
   withDefaults,
+  CLOSED_WITH_TODO,
+  bookedMinutes,
+  isSession,
+  sessionParentId,
+  todosToPlan,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -113,14 +118,41 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const { course, ...fields } = patch
     const merged = { ...row, ...fields }
     assertValid(merged)
+    const before = { ...row }
     Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: new Date().toISOString() })
     if (course !== undefined) setCourse(id, course)
+    cascadeToSessions(before, row, course)
     return withCourse(row)
   })
 
+  const sessionsOf = (todoId: string) => db.planItems.filter((p) => sessionParentId(p) === todoId)
+
+  /** As the server's `cascadeToSessions`: a to-do's sessions follow its status, title, course and due time. */
+  const cascadeToSessions = (before: StoredPlanItem, after: StoredPlanItem, course?: string | null) => {
+    if (after.kind !== 'task') return
+    if (isSession(after)) {
+      if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) after.subtype = null
+      return
+    }
+    const at = new Date().toISOString()
+    for (const s of sessionsOf(after.id)) {
+      if (before.title !== after.title) Object.assign(s, { title: after.title, updated_at: at })
+      if (before.due_at !== after.due_at) Object.assign(s, { due_at: after.due_at, updated_at: at })
+      if (course !== undefined) setCourse(s.id, course)
+      if (before.status === after.status) continue
+      if (after.status === 'open' && s.subtype === CLOSED_WITH_TODO) {
+        Object.assign(s, { status: Date.parse(s.ends_at!) > clock() ? 'open' : s.status, subtype: null, updated_at: at })
+      } else if (after.status !== 'open' && s.status === 'open') {
+        Object.assign(s, { status: after.status, subtype: CLOSED_WITH_TODO, updated_at: at })
+      }
+    }
+  }
+
   const setStatus = (id: string, status: StoredPlanItem['status']) => {
     const row = find(id)
+    const before = { ...row }
     if (row.status !== status) Object.assign(row, { status, updated_at: new Date().toISOString() })
+    cascadeToSessions(before, row)
     return withCourse(row)
   }
 
@@ -131,6 +163,10 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const id = parse(planItemIdInput, input)
     if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
+    for (const s of sessionsOf(id)) {
+      db.remove(db.planItems, s.id)
+      setCourse(s.id, null)
+    }
     // As the server's ON DELETE SET NULL: its lectures keep their date.
     for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
   })
@@ -149,13 +185,14 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
     const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
-    const todos = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
+    const unscheduled = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
+    const todos = todosToPlan(unscheduled, bookedMinutes(all))
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)
     const cap = planCapacity(weekLayout(rows, week, placement), tasks, now)
     const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: placement.studyMinPerDay, weakTopics: [], timeZone: placement.timeZone })
-    return sanitizeAdvice(raw, tasks, cap, placement.studyMinPerDay)
+    return sanitizeAdvice(raw, tasks, cap)
   })
 
   // Re-fit, as apps/server/src/planning/refit.ts: same rules (@pls/substrate

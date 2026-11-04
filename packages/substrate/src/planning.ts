@@ -32,6 +32,7 @@ import {
 import type { PlanItem, PlanItemOccurrence } from './types'
 import { DEFAULT_STUDY_HOURS, DEFAULT_STUDY_MIN_PER_DAY, studyDayWindows, type StudyHours } from './preferences'
 import { REVIEW_SUBTYPE } from './workflows/review-automation'
+import { MIN_SESSION_MIN } from './sessions'
 
 const MINUTE_MS = 60_000
 
@@ -65,7 +66,21 @@ export const ESTIMATE_OPTIONS = [30, 60, 120] as const
 // The week's shape: free time and what is already busy
 // ---------------------------------------------------------------------------
 
-type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype'>
+type Row = Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'subtype'> & Partial<Pick<PlanItem, 'due_at'>>
+
+/**
+ * Due times on the calendar (a quiz at 10:00, a to-do's do-by), each as a
+ * one-minute busy block: nothing automatic is placed across one, and a block
+ * may end at a due time but not start on it.
+ */
+export function dueTimes(items: ReadonlyArray<Row>): Interval[] {
+  return items
+    .filter((item) => item.due_at && item.status !== 'dismissed')
+    .map((item) => {
+      const at = Date.parse(item.due_at!)
+      return { start: at, end: at + MINUTE_MS }
+    })
+}
 
 /**
  * The calendar's fixed time, from the items of a range (`listPlanItems` with
@@ -102,6 +117,8 @@ export interface WeekLayout {
   timeZone: string
   /** Study-day time around every commitment (all courses), before `now` included. */
   free: Interval[]
+  /** Due times (`dueTimes`): busy for automatic placement only, so free time still reads in whole minutes. */
+  dues: Interval[]
   /** Scheduled study time (open or done): fixed, busy, and spent from its day's budget. */
   busy: ExistingPlacement[]
   /** Study time per local day. */
@@ -123,7 +140,12 @@ export function weekLayout(
   const { commitments, busy } = busyTime(rows, opts.except ?? new Set(), { padReviews: false })
   const free = freeSlots(commitments, week, studyDayPrefs(opts.timeZone, opts.studyHours))
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
-  return { week, timeZone: opts.timeZone, free, busy, budget }
+  return { week, timeZone: opts.timeZone, free, dues: dueTimes(rows), busy, budget }
+}
+
+/** Where automatic placement may go: free time minus due times. */
+function placeable(layout: WeekLayout): Interval[] {
+  return subtract(layout.free, layout.dues)
 }
 
 /** The local day (in `timeZone`) containing `instant`, as [start, end): DST-safe. */
@@ -257,9 +279,13 @@ export interface DraftResult {
 }
 
 /**
- * Places `tasks` in the order given (an AI ranking, or `rankForPlan`),
- * earliest-fit around everything busy, within each day's study budget and
- * with a gap between blocks. `pinned` are blocks to keep where they are
+ * Places `tasks` in the order given (see `autofillOrder`), earliest-fit
+ * around everything busy, within each day's study budget and with a gap
+ * between blocks, each ending by its `latest`. A to-do that fits in no
+ * single block (or is longer than a day's study time) is split into
+ * sessions of at least `MIN_SESSION_MIN` across days, before it is due:
+ * the fewest sessions, then the earliest. Its placements are then next to
+ * each other, earliest first. `pinned` are blocks to keep where they are
  * (e.g. ghosts the student dragged); they count as busy and spent.
  */
 export function draftPlan(
@@ -270,13 +296,24 @@ export function draftPlan(
   const pinned = (opts.pinned ?? []).map((p) => ({ start: p.start, end: p.end, taskId: `pinned:${p.taskId}` }))
   return place(
     tasks.map((t) => ({ id: t.id, durationMin: t.durationMin, latest: t.latest })),
-    layout.free,
+    placeable(layout),
     { now: opts.now, existingPlacements: [...layout.busy, ...pinned], ...placeRules(layout) },
   )
 }
 
 function placeRules(layout: WeekLayout) {
-  return { policy: 'priority' as const, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget }
+  return { policy: 'priority' as const, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget, split: { minSessionMin: MIN_SESSION_MIN } }
+}
+
+/**
+ * Auto-fill's order: dated to-dos first, soonest due first, then the rest.
+ * The advice `order` (an AI ranking, or `rankForPlan`) breaks ties and
+ * orders the undated ones; ids it leaves out go last, in their given order.
+ */
+export function autofillOrder<T extends Pick<PlanTask, 'id' | 'dueAt'>>(tasks: ReadonlyArray<T>, order: ReadonlyArray<string>): T[] {
+  const rank = new Map(order.map((id, i) => [id, i]))
+  const due = (t: T) => (t.dueAt ? Date.parse(t.dueAt) : Infinity)
+  return [...tasks].sort((a, b) => due(a) - due(b) || (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity))
 }
 
 /** Up to `n` slots for assigning one to-do by hand, each in a different free gap. */
@@ -287,7 +324,7 @@ export function suggestTaskSlots(
 ): Placement[] {
   return suggestSlots(
     { id: task.id, durationMin: task.durationMin, latest: task.latest },
-    layout.free,
+    placeable(layout),
     opts.n ?? 3,
     { now: opts.now, existingPlacements: layout.busy, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget },
   )
@@ -314,8 +351,8 @@ export type ReviewSlot = { start: number; end: number } | { reason: UnplacedReas
 /**
  * Where the confusion automation puts each review: the earliest free time in
  * its window, at least `REVIEW_LEAD_MIN` after the mark, inside the student's
- * study hours (`studyHours`), around every commitment (all courses) and every
- * other block, `STUDY_BLOCK_GAP_MIN` clear of other study blocks, on a day with
+ * study hours (`studyHours`), around every commitment (all courses), due time
+ * (`dueTimes`) and every other block, `STUDY_BLOCK_GAP_MIN` clear of other study blocks, on a day with
  * study time left (`studyMinPerDay`, the daily budget). Only when no day in the window
  * has any left does it go over the budget, still in the earliest free slot;
  * it stays unscheduled only when the window has no free slot at all.
@@ -334,7 +371,7 @@ export function placeReviews(
   if (reviews.length === 0) return slots
   // Unpadded: `gapMin` keeps the gap, and the budget counts real minutes.
   const { commitments, busy } = busyTime(items, new Set(reviews.map((r) => r.id)), { padReviews: false })
-  const free = freeSlots(commitments, range, studyDayPrefs(opts.timeZone, opts.studyHours))
+  const free = subtract(freeSlots(commitments, range, studyDayPrefs(opts.timeZone, opts.studyHours)), dueTimes(items))
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
   const tasks = reviews.map((r) => ({ id: r.id, durationMin: r.durationMin, earliest: r.markedAt + REVIEW_LEAD_MIN * MINUTE_MS, latest: r.latest }))
   const result = placeEachOverBudgetIfNeeded(tasks, free, busy, { now: opts.now, budget })
@@ -414,78 +451,46 @@ export interface PlanAdvice {
 }
 
 const ceil15 = (min: number) => Math.ceil(min / 15) * 15
-const floor15 = (min: number) => Math.floor(min / 15) * 15
-/** Trims that only help an over-capacity week (to-dos that could fit as they are). */
+/** At most this many trims: they only help an over-capacity week. */
 const MAX_CAPACITY_TRIMS = 2
 
-/** The longest a single block can be on one day: the budget, rounded down to 15 minutes. */
-export function longestBlockMin(minutesPerDay: number): number {
-  return Math.max(15, floor15(minutesPerDay))
-}
-
-function overBudgetTrim(task: PlanTask, perDay: number): PlanTrim {
-  return {
-    taskId: task.id,
-    durationMin: perDay,
-    reason: `Longer than your ${formatMinutes(perDay)} a day - a focused first pass fits, and you can finish it later.`,
-  }
-}
-
 /**
- * The default trims: every to-do longer than a day's study time gets one
- * (it can never fit as it is), and when the week is short the longest other
- * to-do (an hour or more) shrinks towards the shortfall, never below half
- * its length or 30 minutes.
+ * The default trims: only when the week is short, the longest to-do (an
+ * hour or more) shrinks towards the shortfall, never below half its length
+ * or 30 minutes. A to-do longer than a day's study time needs no trim:
+ * `draftPlan` splits it into sessions across days.
  */
-export function defaultTrims(tasks: ReadonlyArray<PlanTask>, shortfallMin: number, minutesPerDay: number): PlanTrim[] {
-  const perDay = longestBlockMin(minutesPerDay)
+export function defaultTrims(tasks: ReadonlyArray<PlanTask>, shortfallMin: number): PlanTrim[] {
+  if (shortfallMin <= 0) return []
   const longest = [...tasks].sort((a, b) => b.durationMin - a.durationMin || a.title.localeCompare(b.title))
-  const trims = longest.filter((t) => t.durationMin > perDay).map((t) => overBudgetTrim(t, perDay))
-  if (shortfallMin > 0 && trims.length === 0) {
-    const task = longest.find((t) => t.durationMin >= 60)
-    if (task) {
-      const durationMin = Math.max(ceil15(task.durationMin - shortfallMin), ceil15(task.durationMin / 2), 30)
-      if (durationMin < task.durationMin) {
-        trims.push({ taskId: task.id, durationMin, reason: 'A focused first pass fits the time you have; finish it once the week frees up.' })
-      }
-    }
-  }
-  return trims
+  const task = longest.find((t) => t.durationMin >= 60)
+  if (!task) return []
+  const durationMin = Math.max(ceil15(task.durationMin - shortfallMin), ceil15(task.durationMin / 2), 30)
+  return durationMin < task.durationMin
+    ? [{ taskId: task.id, durationMin, reason: 'A focused first pass fits the time you have; finish it once the week frees up.' }]
+    : []
 }
 
 /**
- * Makes a set of trims safe for this budget: rounded to 15 minutes; a
- * to-do longer than a day's study time is offered exactly that (whatever the
- * advice said, which may predate a budget change); dropped unless shorter
- * than now and at least 15 minutes; and every such to-do is guaranteed one
- * (so none is left with no way forward). Trims for to-dos that could fit as
- * they are only count when over capacity, at most two.
+ * Makes a set of trims safe to offer: only when over capacity, at most two,
+ * rounded to 15 minutes, and dropped unless shorter than now and at least
+ * 15 minutes.
  */
 export function completeTrims(
   trims: ReadonlyArray<PlanTrim>,
   tasks: ReadonlyArray<PlanTask>,
-  opts: { overCapacity: boolean; minutesPerDay: number },
+  opts: { overCapacity: boolean },
 ): PlanTrim[] {
-  const perDay = longestBlockMin(opts.minutesPerDay)
+  if (!opts.overCapacity) return []
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const out: PlanTrim[] = []
-  let capacityTrims = 0
   for (const trim of trims) {
     const task = byId.get(trim.taskId)
     if (!task || out.some((t) => t.taskId === task.id)) continue
-    const tooLong = task.durationMin > perDay
-    // A to-do longer than a day shrinks to a day's study time, at the budget
-    // in force now (so a new study time per day offers its own length).
-    const durationMin = tooLong ? perDay : Math.round(trim.durationMin / 15) * 15
+    const durationMin = Math.round(trim.durationMin / 15) * 15
     if (!(durationMin >= 15 && durationMin < task.durationMin)) continue
-    if (!tooLong && (!opts.overCapacity || capacityTrims === MAX_CAPACITY_TRIMS)) continue
-    if (!tooLong) capacityTrims++
-    // A too-long to-do's reason names the budget in force now, in code's words.
-    const reason = tooLong ? overBudgetTrim(task, perDay).reason : clip(trim.reason, MAX_REASON_CHARS)
-    out.push({ taskId: task.id, durationMin, reason })
-  }
-  for (const task of tasks) {
-    if (task.durationMin > perDay && !out.some((t) => t.taskId === task.id)) out.push(overBudgetTrim(task, perDay))
+    out.push({ taskId: task.id, durationMin, reason: clip(trim.reason, MAX_REASON_CHARS) })
+    if (out.length === MAX_CAPACITY_TRIMS) break
   }
   return out
 }
@@ -517,14 +522,13 @@ export function sanitizeAdvice(
   raw: PlanAdvice,
   tasks: ReadonlyArray<PlanTask>,
   cap: Capacity,
-  minutesPerDay: number,
 ): PlanAdvice {
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const order: string[] = []
   for (const id of [...raw.order, ...rankForPlan(tasks)]) {
     if (byId.has(id) && !order.includes(id)) order.push(id)
   }
-  const trims = completeTrims(raw.trims, tasks, { overCapacity: !cap.fits, minutesPerDay })
+  const trims = completeTrims(raw.trims, tasks, { overCapacity: !cap.fits })
   const note = raw.note ? clip(noteWithoutAmounts(raw.note), MAX_NOTE_CHARS) : ''
   return { order, trims, note: note || null }
 }
@@ -651,8 +655,8 @@ const NO_LEFTOVER: Leftover = { gapMin: 0, dayMin: 0 }
  * are short too), or else a day whose free gaps, 10 minutes clear of study
  * blocks, are all shorter than it (`gapMin`). So short gaps are never blamed
  * for the daily budget.
- * Only when every one of them simply found no slot: any other reason (too
- * long for a day, due too soon) is named on its own line instead, so both
+ * Only when every one of them simply found no slot: any other reason (due
+ * too soon, no estimate) is named on its own line instead, so both
  * are 0. Time neither explains (a day with a long enough gap and budget
  * left that the to-dos still couldn't use) is not blamed on anything and
  * goes unnamed, as does a part under 15 minutes (`draftCopy`): there the
@@ -695,7 +699,7 @@ export function noSlotCause(layout: WeekLayout, now: number, drafted: ReadonlyAr
 function roomByDay(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>) {
   const after: WeekLayout = { ...layout, busy: [...layout.busy, ...drafted] }
   const used = minutesByDay(after.busy, layout.timeZone)
-  const open = subtract(layout.free, [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
+  const open = subtract(placeable(layout), [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
   const longest = new Map<number, number>()
   for (const p of splitByLocalDay(open, layout.timeZone)) {
     longest.set(p.day, Math.max(longest.get(p.day) ?? 0, (p.end - p.start) / MINUTE_MS))
@@ -781,7 +785,7 @@ export function planRefit(
       durationMin: item.duration_min ?? (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
       latest: latestFor(item, opts.now) ?? range.end,
     })),
-    layout.free,
+    placeable(layout),
     layout.busy,
     { now: opts.now, budget: layout.budget },
   )

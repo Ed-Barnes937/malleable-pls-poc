@@ -6,7 +6,6 @@ import {
   completeTrims,
   draftCopy,
   formatMinutes,
-  longestBlockMin,
   openTime,
   planCapacity,
   planTasks,
@@ -78,6 +77,8 @@ export interface HelpMePlanPanelProps {
   layer: ProposalLayer
   /** Open to-dos with no time yet (null while loading). */
   todos: PlanItemOccurrence[] | null
+  /** To-do id -> minutes already booked in sessions (their `todos` row holds what is left). */
+  booked: ReadonlyMap<string, number>
   /** Auto-fill's state, owned by the Calendar so it survives closing the panel. */
   autofill: AutofillState
   onAutofillChange: (next: AutofillState) => void
@@ -109,7 +110,7 @@ const SOURCE = 'autofill'
  * the student accepts them.
  */
 export function HelpMePlanPanel({
-  layout, weekLabel, now, layer, todos: loaded, autofill, onAutofillChange: setAutofill,
+  layout, weekLabel, now, layer, todos: loaded, booked, autofill, onAutofillChange: setAutofill,
   onClose, onCollapse, onSchedule, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
@@ -140,7 +141,7 @@ export function HelpMePlanPanel({
   /** Re-draft (after a trim, or new study hours or study time per day), keeping ghosts the student dragged. */
   const redraft = (from: Drafted, trims: Map<string, number>, keepAdjusted = true) => {
     const pinned = keepAdjusted ? layer.proposals.filter((p) => p.adjusted && !trims.has(p.taskId) && !layer.savedIds.has(p.id)) : []
-    const draft = buildAutofillDraft({ todos, layout, now, advice: from.advice, trims, estimates: from.estimates, pinned })
+    const draft = buildAutofillDraft({ todos, layout, now, advice: from.advice, trims, estimates: from.estimates, pinned, booked })
     layer.propose(SOURCE, draft.proposals)
     setAutofill({ ...from, minutesPerDay: layout.budget.minutesPerDay, trims, draft })
   }
@@ -148,7 +149,7 @@ export function HelpMePlanPanel({
   // Changing study hours, study time per day or the zone they are read in
   // during a draft re-drafts it inside the new rhythm (blocks the student
   // dragged are placed again too: they may now be outside it); applied trims
-  // that no longer fit in a day are dropped.
+  // stay (a to-do longer than a day is split into sessions).
   const rhythm = useRef({ perDay: layout.budget.minutesPerDay, hours: studyHours, zone: layout.timeZone })
   useEffect(() => {
     const perDay = layout.budget.minutesPerDay
@@ -156,8 +157,7 @@ export function HelpMePlanPanel({
     if (was.perDay === perDay && was.zone === layout.timeZone && sameStudyHours(was.hours, studyHours)) return
     rhythm.current = { perDay, hours: studyHours, zone: layout.timeZone }
     if (!drafted || !draftHere) return
-    const trims = new Map([...drafted.trims].filter(([, min]) => min <= perDay))
-    redraft(drafted, trims, false)
+    redraft(drafted, drafted.trims, false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout.budget.minutesPerDay, layout.timeZone, studyHours])
 
@@ -181,7 +181,7 @@ export function HelpMePlanPanel({
       const sameWeek = current.layout.week.start === asked.week.start
       const at = sameWeek ? current : { layout: asked, todos, now }
       const trims = new Map<string, number>()
-      const draft = buildAutofillDraft({ todos: at.todos, layout: at.layout, now: at.now, advice, trims, estimates })
+      const draft = buildAutofillDraft({ todos: at.todos, layout: at.layout, now: at.now, advice, trims, estimates, booked })
       layer.propose(SOURCE, draft.proposals)
       setAutofill({ state: 'drafted', week: at.layout.week.start, minutesPerDay: at.layout.budget.minutesPerDay, advice, estimates, trims, draft })
     } catch {
@@ -475,8 +475,8 @@ function CapacityBar({ freeMin, neededMin, copy, assumed }: { freeMin: number; n
 }
 
 /**
- * Auto-fill's draft: its note, a Shrink offer for anything too long (no
- * splitting: one to-do is one block), the drafted blocks in time order, and
+ * Auto-fill's draft: its note, Shrink offers when the week is short, the
+ * drafted blocks in time order (a to-do split into sessions shows "(1 of 2)"), and
  * what didn't fit, each with "Pick a time". Accept draft and Keep my plan
  * sit in the panel's footer.
  */
@@ -538,15 +538,13 @@ function DraftSummary({
   const title = (id: string) => draft.tasks.find((t) => t.id === id)?.title ?? 'a to-do'
   const assumed = Object.keys(estimates).map(title)
   const blocks = layer.proposals.filter((p) => !layer.savedIds.has(p.id))
-  // Every to-do too long for one day gets a trim offer, at the current budget.
   // With no study time left nothing can fit, however short: no Shrink offers.
-  const offers = freeMin > 0 ? completeTrims(advice.trims, originalTasks, { overCapacity, minutesPerDay }) : []
+  const offers = freeMin > 0 ? completeTrims(advice.trims, originalTasks, { overCapacity }) : []
   const shown = [
     ...offers,
     // Applied trims stay listed (with Undo) even if the offer moved on.
     ...[...trims].filter(([id]) => !offers.some((t) => t.taskId === id)).map(([taskId, durationMin]) => ({ taskId, durationMin, reason: '' })),
   ]
-  const longest = longestBlockMin(minutesPerDay)
   const unplaced = draft.unplaced.filter((u) => todos.some((t) => t.id === u.taskId))
   // The numbers come from the draft itself, so they always match the ghosts.
   const unplacedMin = unplaced.reduce((sum, u) => sum + u.task.durationMin, 0)
@@ -564,7 +562,6 @@ function DraftSummary({
       {shown.map((trim) => {
         const applied = trims.has(trim.taskId)
         const task = originalTasks.find((t) => t.id === trim.taskId)
-        const tooLong = !!task && task.durationMin > longest
         return (
           <div key={trim.taskId} data-testid="autofill-trim" className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-3 @max-[17rem]:gap-2 @max-[17rem]:px-3 @max-[17rem]:py-2.5">
             {applied ? (
@@ -587,9 +584,9 @@ function DraftSummary({
                 <p className="text-body text-text-primary">
                   <span className="font-semibold">{title(trim.taskId)}</span>
                   {task && ` (${formatMinutes(task.durationMin)})`}
-                  {tooLong ? ' is too long for one day.' : ' could be shorter, so more fits.'}
+                  {' could be shorter, so more fits.'}
                 </p>
-                {!tooLong && trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
+                {trim.reason && <p className="text-meta font-medium text-attn">{trim.reason}</p>}
                 <button type="button" data-trim-action="shrink" data-task-id={trim.taskId} onClick={() => trimTask(trim.taskId, trim.durationMin)} className={cn(quietButton, 'self-start')}>
                   <Scissors className="h-3.5 w-3.5" />
                   Shrink to {formatMinutes(trim.durationMin)}

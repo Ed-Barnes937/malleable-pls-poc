@@ -1,7 +1,7 @@
 import { MINUTE_MS, subtract, type Interval } from './intervals'
 import { checkBudget, minutesByDay, splitByLocalDay, type DailyBudget } from './budget'
 
-/** Something that needs a contiguous block of time. */
+/** Something that needs a block of time (or, with `PlaceOptions.split`, a few sessions). */
 export interface SchedulerTask {
   id: string
   durationMin: number
@@ -34,7 +34,10 @@ export type UnplacedReason =
   | 'no-free-slot'
   /** Another task with the same `id` was considered first and placed or reported. */
   | 'duplicate-id'
-  /** Longer than `dailyBudget.minutesPerDay`: it can never fit in one day's study time. */
+  /**
+   * Longer than `dailyBudget.minutesPerDay`: it can never fit in one day's
+   * study time. Never given with `split`, which tries sessions instead.
+   */
   | 'over-daily-budget'
 
 export interface Unplaced {
@@ -82,10 +85,34 @@ export interface PlaceOptions {
    * today is spent). With a budget, a block never crosses local midnight.
    */
   dailyBudget?: DailyBudget
+  /**
+   * Lets a task that fits in no single block (no free gap is long enough,
+   * or it is longer than a day's budget) be split into sessions instead.
+   * See `SplitOptions`. Only with `anchor: 'earliest'`.
+   */
+  split?: SplitOptions
+}
+
+/**
+ * How `place` splits a task into sessions: the fewest sessions that fit,
+ * then the earliest ones. Each session is in a different free gap (so
+ * sessions are `gapMin` apart like any two blocks), inside the task's
+ * window, within each day's budget. Every session but the last is a multiple
+ * of `alignMin` long; together they add up to the task's duration exactly.
+ * A task that can't be fully placed this way is unplaced, never part-placed.
+ */
+export interface SplitOptions {
+  /** The shortest session in minutes (a task shorter than this is never split). */
+  minSessionMin: number
+  /** At most this many sessions per task. Default 8. */
+  maxSessions?: number
 }
 
 export interface PlaceResult {
-  /** In the order tasks were considered (see `policy`). */
+  /**
+   * In the order tasks were considered (see `policy`); a split task's
+   * sessions are next to each other, earliest first.
+   */
   placements: Placement[]
   /** In the order tasks were considered (see `policy`). */
   unplaced: Unplaced[]
@@ -108,8 +135,20 @@ function checkOptions(opts: PlaceOptions): number {
     throw new RangeError(`gapMin must be a finite number >= 0, got ${gapMin}`)
   }
   checkBudget(opts.dailyBudget)
+  if (opts.split) {
+    const { minSessionMin, maxSessions = DEFAULT_MAX_SESSIONS } = opts.split
+    if (!(minSessionMin > 0) || !Number.isFinite(minSessionMin)) {
+      throw new RangeError(`split.minSessionMin must be a finite number > 0, got ${minSessionMin}`)
+    }
+    if (!Number.isInteger(maxSessions) || maxSessions < 1) {
+      throw new RangeError(`split.maxSessions must be an integer >= 1, got ${maxSessions}`)
+    }
+    if ((opts.anchor ?? 'earliest') !== 'earliest') throw new RangeError(`split needs anchor 'earliest'`)
+  }
   return alignMin * MINUTE_MS
 }
+
+const DEFAULT_MAX_SESSIONS = 8
 
 function resolveWindow(task: SchedulerTask, now: number): Window | UnplacedReason {
   if (!(task.durationMin > 0) || !Number.isFinite(task.durationMin)) return 'invalid-duration'
@@ -154,11 +193,25 @@ class Availability {
 
   /** Free gaps a block of `durMs` may use: whole gaps, or per-day pieces with budget left. */
   gaps(durMs: number): Interval[] {
+    return this.pieces().filter((p) => this.budgetLeftMs(p.day) >= durMs)
+  }
+
+  /** Free gaps, cut at local midnight with a budget (`day` is then that local day). */
+  private pieces(): (Interval & { day?: number })[] {
     const budget = this.opts.dailyBudget
-    if (!budget) return this.avail
-    return splitByLocalDay(this.avail, budget.timeZone).filter(
-      (p) => budget.minutesPerDay - (this.used.get(p.day) ?? 0) >= durMs / MINUTE_MS,
-    )
+    return budget ? splitByLocalDay(this.avail, budget.timeZone) : this.avail
+  }
+
+  /** Study time left on `day` (unlimited without a budget). */
+  budgetLeftMs(day: number | undefined): number {
+    const budget = this.opts.dailyBudget
+    if (!budget || day === undefined) return Infinity
+    return (budget.minutesPerDay - (this.used.get(day) ?? 0)) * MINUTE_MS
+  }
+
+  /** Gaps a session of at least `minMs` could use, with their day. */
+  sessionGaps(minMs: number): (Interval & { day?: number })[] {
+    return this.pieces().filter((p) => this.budgetLeftMs(p.day) >= minMs)
   }
 
   take(block: Interval): void {
@@ -194,6 +247,83 @@ function byAnchor(slots: Interval[], anchor: Anchor): Interval[] {
   return anchor === 'latest' ? [...slots].reverse() : slots
 }
 
+interface Unit extends Interval {
+  day?: number
+  /** Most of the unit one session may take: its length, capped by its day's budget left. */
+  capMs: number
+}
+
+/** Search steps one task's split may take, so a hopeless week stays fast. */
+const MAX_SPLIT_STEPS = 20_000
+
+/**
+ * The fewest sessions (then the earliest) that add up to the task's
+ * duration, or undefined. See `SplitOptions`. Depth-first over free gaps in
+ * time order: for a given number of sessions the first set found is the one
+ * whose gaps are earliest. Each session takes as much of its gap as it can,
+ * leaving at least the minimum for each one after it, so earlier days fill
+ * first. A session starts at least `gapMs` after the one before it, even
+ * when their free gaps nearly touch (or touch, cut at midnight).
+ */
+function splitSessions(
+  w: Window,
+  avail: Availability,
+  alignMs: number,
+  gapMs: number,
+  split: SplitOptions,
+): Interval[] | undefined {
+  const minMs = split.minSessionMin * MINUTE_MS
+  if (w.durMs < 2 * minMs) return undefined
+  const units: Unit[] = []
+  for (const p of avail.sessionGaps(minMs)) {
+    const start = Math.ceil(Math.max(p.start, w.lo) / alignMs) * alignMs
+    const end = Math.min(p.end, w.hi)
+    const capMs = Math.min(end - start, avail.budgetLeftMs(p.day))
+    if (Number.isFinite(start) && capMs >= minMs) units.push({ start, end, day: p.day, capMs })
+  }
+  // Upper bound on what units i.. can hold, for pruning.
+  const suffix = new Array<number>(units.length + 1).fill(0)
+  for (let i = units.length - 1; i >= 0; i--) suffix[i] = suffix[i + 1] + units[i].capMs
+  if (suffix[0] < w.durMs) return undefined
+
+  // No fewer sessions than the largest units could hold.
+  const caps = units.map((u) => u.capMs).sort((a, b) => b - a)
+  let fewest = 0
+  for (let sum = 0; sum < w.durMs; fewest++) sum += caps[fewest]
+  const most = Math.min(split.maxSessions ?? DEFAULT_MAX_SESSIONS, units.length)
+
+  let steps = 0
+  const dayUsed = new Map<number, number>()
+  const used = (day: number | undefined) => (day === undefined ? 0 : dayUsed.get(day) ?? 0)
+  const search = (from: number, count: number, remaining: number, prevEnd: number): Interval[] | undefined => {
+    for (let i = from; i <= units.length - count; i++) {
+      if (++steps > MAX_SPLIT_STEPS || suffix[i] < remaining) return undefined
+      const u = units[i]
+      // Never closer than the gap to the session before it.
+      const start = Math.max(u.start, Math.ceil((prevEnd + gapMs) / alignMs) * alignMs)
+      const room = Math.min(u.end - start, u.capMs, avail.budgetLeftMs(u.day) - used(u.day))
+      const after = count - 1
+      if (after === 0) {
+        if (remaining <= room) return [{ start, end: start + remaining }]
+        continue
+      }
+      const take = Math.floor(Math.min(room, remaining - after * minMs) / alignMs) * alignMs
+      if (take < minMs) continue
+      const end = start + take
+      if (u.day !== undefined) dayUsed.set(u.day, used(u.day) + take)
+      const rest = search(i + 1, after, remaining - take, end)
+      if (u.day !== undefined) dayUsed.set(u.day, used(u.day) - take)
+      if (rest) return [{ start, end }, ...rest]
+    }
+    return undefined
+  }
+  for (let count = Math.max(2, fewest); count <= most; count++) {
+    const found = search(0, count, w.durMs, -Infinity)
+    if (found || steps > MAX_SPLIT_STEPS) return found
+  }
+  return undefined
+}
+
 function ordered(tasks: ReadonlyArray<SchedulerTask>, policy: PlaceOptions['policy']) {
   const list = [...tasks]
   if (policy === 'deadline') {
@@ -205,7 +335,8 @@ function ordered(tasks: ReadonlyArray<SchedulerTask>, policy: PlaceOptions['poli
 
 /**
  * Fit tasks into free time, one contiguous block each, earliest-fit by
- * default (latest-fit with `anchor: 'latest'`).
+ * default (latest-fit with `anchor: 'latest'`). With `split`, a task that
+ * fits in no single block is placed as a few sessions instead.
  *
  * Guarantees: every placement lies inside `freeSlots` (so never overlaps a
  * commitment), never overlaps a fixed existing placement or another new
@@ -245,22 +376,30 @@ export function place(
       unplaced.push({ taskId: task.id, reason: w })
       continue
     }
-    if (overBudget(task, opts.dailyBudget)) {
+    const tooLong = overBudget(task, opts.dailyBudget)
+    if (tooLong && !opts.split) {
       unplaced.push({ taskId: task.id, reason: 'over-daily-budget' })
       continue
     }
     let start: number | undefined
-    for (const slot of byAnchor(avail.gaps(w.durMs), anchor)) {
-      start = fitIn(slot, w, alignMs, anchor)
-      if (start !== undefined) break
+    if (!tooLong) {
+      for (const slot of byAnchor(avail.gaps(w.durMs), anchor)) {
+        start = fitIn(slot, w, alignMs, anchor)
+        if (start !== undefined) break
+      }
     }
-    if (start === undefined) {
+    const blocks = start !== undefined
+      ? [{ start, end: start + w.durMs }]
+      : opts.split && splitSessions(w, avail, alignMs, (opts.gapMin ?? 0) * MINUTE_MS, opts.split)
+    if (!blocks) {
       unplaced.push({ taskId: task.id, reason: 'no-free-slot' })
       continue
     }
-    const block = { taskId: task.id, start, end: start + w.durMs }
-    placements.push(block)
-    avail.take(block)
+    for (const b of blocks) {
+      const block = { taskId: task.id, start: b.start, end: b.end }
+      placements.push(block)
+      avail.take(block)
+    }
   }
   return { placements, unplaced }
 }
@@ -278,7 +417,7 @@ export function suggestSlots(
   task: SchedulerTask,
   freeSlots: ReadonlyArray<Interval>,
   n: number,
-  opts: Omit<PlaceOptions, 'policy'>,
+  opts: Omit<PlaceOptions, 'policy' | 'split'>,
 ): Placement[] {
   const alignMs = checkOptions(opts)
   const w = resolveWindow(task, opts.now)

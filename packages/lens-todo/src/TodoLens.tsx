@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { isSession } from '@pls/substrate'
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
@@ -18,9 +19,12 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const writer = useSubstrateMutations()
   const course = scope.courseTag
 
-  const { data: items, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
+  // Sessions (study blocks of a to-do split by Auto-fill) are its time, not to-dos of their own.
+  const { data: taskRows, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
+  const items = useMemo(() => taskRows?.filter((item) => !isSession(item)), [taskRows])
   // Unfiltered counterpart, only to say what the course filter leaves out.
-  const { data: allOpen } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
+  const { data: allTaskRows } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
+  const allOpen = useMemo(() => allTaskRows?.filter((item) => !isSession(item)), [allTaskRows])
 
   const create = writer.useCreatePlanItem()
   const complete = writer.useCompletePlanItem()
