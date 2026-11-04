@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
+import { ProcedureRouter, SimulatorError, handleTrpcRequest } from './trpc-protocol'
 import { InMemoryDb, type SeedData } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
@@ -54,6 +54,15 @@ export class BackendSimulator {
    */
   freezeNow(at: Date): void {
     this.frozenNow = at.getTime()
+  }
+
+  /**
+   * Makes `path` answer with a server error from now on, inside whatever
+   * batch it is sent in (the other calls still answer), as the server does.
+   * Unlike failing the request in a route, nothing batched with it fails.
+   */
+  failProcedure(path: string): void {
+    this.router.register(path, () => { throw new SimulatorError('INTERNAL_SERVER_ERROR', `${path} failed (simulated)`) })
   }
 
   async handleNetworking(page: Page): Promise<void> {

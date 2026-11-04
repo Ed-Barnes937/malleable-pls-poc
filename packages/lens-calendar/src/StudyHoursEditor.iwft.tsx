@@ -227,10 +227,9 @@ test('study hours saved while Auto-fill is drafting shape the draft it lands', a
   for (const ghost of await ghosts.all()) await expect(ghost).toHaveAttribute('aria-label', /, 10:00 - 12:00$/)
 })
 
-test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator, consoleErrors }) => {
-  consoleErrors.allowFailedRequest('preferences.get')
+test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator }) => {
   seed(simulator)
-  await page.route('**/preferences.get**', (route) => route.fulfill({ status: 500, body: '{}' }))
+  simulator.failProcedure('preferences.get')
   const sent: Record<string, unknown>[] = []
   await page.route('**/preferences.update**', async (route) => {
     sent.push(JSON.parse(route.request().postData() ?? 'null'))
