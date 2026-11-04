@@ -27,7 +27,7 @@ const TABLES = [
 const ATTEMPT_MARGIN_MS = 1000
 
 /**
- * How long a due run can take to finish (see jobsChecker), from the
+ * How long a due run can take to finish (see untilSettled), from the
  * server runner's own schedule: claimed within one poll interval, then each
  * automatic retry waits out its backoff and is claimed within another
  * interval, plus a margin for every attempt's work. With MAX_RETRIES 3,
@@ -39,7 +39,7 @@ export const JOBS_SETTLE_MS = POLL_INTERVAL_MS
 
 /**
  * How long one other session may stay mid-way through its work before
- * reseed fails (see sessionsChecker): as long as the e2e fixture lets a
+ * reseed fails (see untilSettled): as long as the e2e fixture lets a
  * request run (api-requests.ts, settle).
  */
 export const SESSIONS_SETTLE_MS = 10_000
@@ -57,9 +57,9 @@ export interface ReseedOptions {
    * rehearsals can pin it.
    */
   now?: number
-  /** How long a due job run may take to finish before reseed fails (default JOBS_SETTLE_MS). */
+  /** The job runs' part of the overall wait (default JOBS_SETTLE_MS; the cap is this plus `sessionsSettleMs`). */
   jobsSettleMs?: number
-  /** How long another session may stay busy before reseed fails (default SESSIONS_SETTLE_MS). */
+  /** How long one other session may stay busy before reseed fails (default SESSIONS_SETTLE_MS). */
   sessionsSettleMs?: number
 }
 
@@ -115,94 +115,93 @@ export async function reseed({
 
 /**
  * Waits until nothing left over from the last test can still write while
- * reseed deletes: no other session on the database mid-way through its work
- * (see sessionsChecker), and none of the student's job runs about to change
- * (see jobsChecker). Each pass checks the sessions first, and the jobs once
- * no session is busy: a session that commits a new run before the jobs are
- * checked is then seen there. Gives up, naming what is still going, once a
- * session or a run outlasts its allowance.
+ * reseed deletes:
+ *
+ * - No other session on the database is mid-way through its work. A request
+ *   the browser gave up on (a page navigating away) may still be running on
+ *   the server, out of the e2e fixture's sight: its transaction holds the
+ *   student's rows in its own lock order. Pool connections waiting idle, and
+ *   reseed's own, don't count (see busySessions).
+ * - None of the student's job runs is running, or pending and due before the
+ *   deadline (the runner would claim it meanwhile). A run the last test
+ *   started, such as the review job a "confusing" tag queues, writes under
+ *   rows reseed deletes, in its own lock order: reseeding alongside it
+ *   deadlocks, or leaves its writes in the fresh seed. Runs due later, such
+ *   as the week-later quiz the same tag queues, are just deleted. The e2e
+ *   fixture (e2e/test.ts) lets the last test's requests finish first, so no
+ *   new runs are queued meanwhile.
+ *
+ * Each pass checks the sessions first, and the runs once no session is
+ * busy: a session that commits a new run before the runs are checked is
+ * then seen there. One deadline covers the whole wait, `jobsSettleMs +
+ * sessionsSettleMs` from now (26s + 10s = 36s by default): a run may need
+ * its whole settle time after the session that queued it took up to its
+ * own. A single session busy for `sessionsSettleMs` fails sooner. Either way
+ * it fails naming what is still going.
  */
 async function untilSettled(sql: Sql, jobsSettleMs: number, sessionsSettleMs: number) {
-  const sessionsQuiet = sessionsChecker(sql, sessionsSettleMs)
-  const jobsFinished = await jobsChecker(sql, jobsSettleMs)
+  const capMs = jobsSettleMs + sessionsSettleMs
+  // On the database's clock, as run_after is.
+  const [{ deadline }] = await sql`SELECT now() + ${capMs + 'ms'}::interval AS deadline`
+  const giveUpAt = Date.now() + capMs
+  const firstSeen = new Map<string, number>()
   for (;;) {
-    if ((await sessionsQuiet()) && (await jobsFinished())) return
+    const busy = await busySessions(sql)
+    const now = Date.now()
+    const stuck = busy.filter((session: Sql) => {
+      // The same transaction, or the same statement outside one.
+      const key = `${session.pid}@${(session.since as Date | null)?.toISOString()}`
+      if (!firstSeen.has(key)) firstSeen.set(key, now)
+      return now - firstSeen.get(key)! >= sessionsSettleMs
+    })
+    if (stuck.length > 0) {
+      throw new Error(`reseed: other sessions on the database did not finish within ${sessionsSettleMs}ms: ${describeSessions(stuck)}`)
+    }
+    const runs = busy.length === 0 || now >= giveUpAt ? await unfinishedRuns(sql, deadline) : null
+    if (busy.length === 0 && runs!.length === 0) return
+    if (now >= giveUpAt) {
+      const open = [
+        ...(busy.length > 0 ? [`sessions still busy: ${describeSessions(busy)}`] : []),
+        ...(runs!.length > 0 ? [`the student's job runs still unfinished: ${describeRuns(runs!)}`] : []),
+      ]
+      throw new Error(`reseed: the database did not settle within ${capMs}ms: ${open.join('; ')}`)
+    }
     // Checked again shortly: the job runner claims queued runs every 2s.
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }
 
-/**
- * Whether any other session connected to this database is mid-way through
- * its work (running a statement, or inside a transaction). A request the
- * browser gave up on (a page navigating away) may still be running on the
- * server, out of the e2e fixture's sight: its transaction holds the
- * student's rows in its own lock order. Pool connections waiting idle, and
- * reseed's own, don't count. Throws, naming the session's state and query,
- * if one session stays busy (the same transaction, or the same statement
- * outside one) for `settleMs`.
- */
-function sessionsChecker(sql: Sql, settleMs: number) {
-  const firstSeen = new Map<string, number>()
-  return async function sessionsQuiet(): Promise<boolean> {
-    const busy = await sql`
-      SELECT pid, state, application_name, query, coalesce(xact_start, query_start) AS since
-      FROM pg_stat_activity
-      WHERE datname = current_database() AND backend_type = 'client backend'
-        AND pid <> pg_backend_pid() AND application_name <> 'reseed' AND state <> 'idle'
-      ORDER BY pid
-    `
-    const now = Date.now()
-    const stuck = busy.filter((session: Sql) => {
-      const key = `${session.pid}@${(session.since as Date | null)?.toISOString()}`
-      if (!firstSeen.has(key)) firstSeen.set(key, now)
-      return now - firstSeen.get(key)! >= settleMs
-    })
-    if (stuck.length > 0) {
-      const sessions = stuck.map((session: Sql) =>
-        `pid ${session.pid} (${session.state}${session.application_name ? `, ${session.application_name}` : ''}): ${String(session.query).replace(/\s+/g, ' ').trim().slice(0, 200)}`)
-      throw new Error(`reseed: other sessions on the database did not finish within ${settleMs}ms: ${sessions.join('; ')}`)
-    }
-    return busy.length === 0
-  }
+/** Other sessions on this database running a statement or inside a transaction. */
+function busySessions(sql: Sql) {
+  return sql`
+    SELECT pid, state, application_name, query, coalesce(xact_start, query_start) AS since
+    FROM pg_stat_activity
+    WHERE datname = current_database() AND backend_type = 'client backend'
+      AND pid <> pg_backend_pid() AND application_name <> 'reseed' AND state <> 'idle'
+    ORDER BY pid
+  `
 }
 
-/**
- * Whether none of the student's job runs can still change while reseed
- * deletes them: none running, and none pending that is due or falls due
- * within `settleMs` (the runner would claim it meanwhile). A run the last
- * test started, such as the review job a "confusing" tag queues, writes
- * under rows reseed deletes, in its own lock order: reseeding alongside it
- * deadlocks, or leaves its writes in the fresh seed. Runs due later, such as
- * the week-later quiz the same tag queues, are just deleted. The e2e fixture
- * (e2e/test.ts) lets the last test's requests finish first, so no new runs
- * are queued meanwhile.
- *
- * Each run gets `settleMs` from when it is due, or from the first check if
- * it already is (so the wait is at most twice `settleMs`). Throws, naming
- * the runs, if they have not finished by then.
- */
-async function jobsChecker(sql: Sql, settleMs: number) {
-  // On the database's clock, as run_after is.
-  const [{ started, windowEnd }] = await sql`
-    SELECT now() AS started, now() + ${settleMs + 'ms'}::interval AS "windowEnd"
+function describeSessions(sessions: Sql[]): string {
+  return sessions.map((session: Sql) =>
+    `pid ${session.pid} (${session.state}${session.application_name ? `, ${session.application_name}` : ''}): ${String(session.query).replace(/\s+/g, ' ').trim().slice(0, 200)}`,
+  ).join('; ')
+}
+
+/** The student's job runs that are running, or pending and due by `deadline`. */
+function unfinishedRuns(sql: Sql, deadline: Date) {
+  return sql`
+    SELECT id, job_type, status, retry_count, run_after FROM job_runs
+    WHERE user_id = 'dev-user-1' AND status NOT IN ('completed', 'failed')
+      AND (status <> 'pending' OR run_after <= ${deadline})
+    ORDER BY created_at
   `
-  return async function jobsFinished(): Promise<boolean> {
-    const unfinished = await sql`
-      SELECT id, job_type, status, retry_count, run_after, now() AS checked FROM job_runs
-      WHERE user_id = 'dev-user-1' AND status NOT IN ('completed', 'failed')
-        AND (status <> 'pending' OR run_after <= ${windowEnd})
-      ORDER BY created_at
-    `
-    if (unfinished.length === 0) return true
-    const due = Math.max((started as Date).getTime(), ...unfinished.map((run: Sql) => (run.run_after as Date).getTime()))
-    if ((unfinished[0].checked as Date).getTime() >= due + settleMs) {
-      const runs = unfinished.map((run: Sql) =>
-        `${run.id} (${run.job_type}, ${run.status}, retry ${run.retry_count}, run after ${(run.run_after as Date).toISOString()})`)
-      throw new Error(`reseed: the student's job runs did not finish within ${settleMs}ms of being due: ${runs.join('; ')}`)
-    }
-    return false
-  }
+}
+
+function describeRuns(runs: Sql[]): string {
+  return runs.map((run: Sql) =>
+    `${run.id} (${run.job_type}, ${run.status}, retry ${run.retry_count}, run after ${(run.run_after as Date).toISOString()})`,
+  ).join('; ')
 }
 
 // `postgres` is resolved at runtime from @pls/db (see above), so its types

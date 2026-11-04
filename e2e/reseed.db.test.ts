@@ -131,10 +131,22 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
 
   it('gives up on a job that does not finish, naming it, before it deletes anything', async () => {
     const runId = await claimReviewJob()
-    await expect(reseed({ jobsSettleMs: 300 })).rejects.toThrow(
-      new RegExp(`job runs did not finish within 300ms of being due: ${runId} \\(plan:review-task, running, retry 0, `),
+    await expect(reseed({ jobsSettleMs: 300, sessionsSettleMs: 200 })).rejects.toThrow(
+      new RegExp(`the database did not settle within 500ms: the student's job runs still unfinished: ${runId} \\(plan:review-task, running, retry 0, `),
     )
     expect(await count(sql`SELECT count(*)::int AS n FROM job_runs WHERE id = ${runId}`)).toBe(1)
+    await sql`UPDATE job_runs SET status = 'failed', completed_at = now() WHERE id = ${runId}`
+  })
+
+  it('gives up on a run that falls due during the wait at the one deadline, not a settle time after it is due', async () => {
+    const [{ id: runId }] = await sql`
+      INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, run_after)
+      VALUES ('dev-user-1', 'wf-confused-review', 'wfj-confused-review', 'plan:review-task', now() + interval '400 milliseconds')
+      RETURNING id
+    `
+    await expect(reseed({ jobsSettleMs: 300, sessionsSettleMs: 200 })).rejects.toThrow(
+      new RegExp(`the database did not settle within 500ms: the student's job runs still unfinished: ${runId} \\(plan:review-task, pending, `),
+    )
     await sql`UPDATE job_runs SET status = 'failed', completed_at = now() WHERE id = ${runId}`
   })
 
