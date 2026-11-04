@@ -40,7 +40,7 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
     }) as Promise<T>
   }
 
-  return {
+  const adapter: StorageAdapter = {
     /**
      * Returns workflows matching `triggerEvent` with override resolution:
      * when both a default (workspace_id IS NULL) and a workspace override exist
@@ -140,5 +140,18 @@ export function createPgAdapter(opts: PgAdapterOpts): StorageAdapter {
         }
       })
     },
+
+    /**
+     * `{ sql }` mode: one `sql.begin` (with the user set) for all of `fn`'s
+     * calls. `{ tx }` mode is inside the caller's transaction already.
+     */
+    async transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
+      if ('tx' in opts) return fn(adapter)
+      return opts.sql.begin(async (tx) => {
+        await tx`SELECT set_config('app.current_user_id', ${userId}, true)`
+        return fn(createPgAdapter({ tx, userId }))
+      }) as Promise<T>
+    },
   }
+  return adapter
 }

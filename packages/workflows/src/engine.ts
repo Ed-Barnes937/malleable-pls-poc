@@ -67,5 +67,9 @@ export function createWorkflowEngine(config: WorkflowEngineConfig): WorkflowEngi
     return { enqueuedJobIds }
   }
 
-  return { dispatch, matchesCondition }
+  return {
+    dispatch,
+    matchesCondition,
+    withAdapter: (other) => createWorkflowEngine({ ...config, adapter: other }),
+  }
 }

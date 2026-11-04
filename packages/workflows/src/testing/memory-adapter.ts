@@ -85,6 +85,19 @@ export function createMemoryAdapter(seed: MemoryAdapterSeed = {}): MemoryAdapter
         run.completed_at = new Date().toISOString()
       }
     },
+
+    /** All or nothing, like a database transaction: a throw restores the runs as they were. */
+    async transaction<T>(fn: (tx: StorageAdapter) => Promise<T>): Promise<T> {
+      const before = structuredClone(runs)
+      const idsBefore = idCounter
+      try {
+        return await fn(adapter)
+      } catch (err) {
+        runs.splice(0, runs.length, ...before)
+        idCounter = idsBefore
+        throw err
+      }
+    },
   }
 
   return adapter
