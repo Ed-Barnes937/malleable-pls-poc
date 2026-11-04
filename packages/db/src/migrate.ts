@@ -1,7 +1,8 @@
-import { readdir, readFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sql } from './pool'
+import { assertSchemaMatches, availableMigrations } from './schema-guard'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const migrationsDir = join(__dirname, 'migrations')
@@ -22,12 +23,13 @@ async function getApplied(): Promise<Set<string>> {
 }
 
 async function migrate() {
+  // Before anything else (even creating _migrations): a database another
+  // branch migrated is not ours to touch. Pending migrations are what we apply.
+  await assertSchemaMatches(sql, { action: 'migrate', allowPending: true, migrationsDir })
   await ensureMigrationTable()
   const applied = await getApplied()
 
-  const files = (await readdir(migrationsDir))
-    .filter((f) => f.endsWith('.sql'))
-    .sort()
+  const files = await availableMigrations(migrationsDir)
 
   for (const file of files) {
     if (applied.has(file)) {
@@ -46,7 +48,8 @@ async function migrate() {
   await sql.end()
 }
 
-migrate().catch((err) => {
+migrate().catch(async (err) => {
   console.error('migration failed:', err)
+  await sql.end()
   process.exit(1)
 })

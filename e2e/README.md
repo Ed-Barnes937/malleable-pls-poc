@@ -27,7 +27,7 @@ Every checkout and worktree shares the one Postgres container (`docker-compose.y
 
 Those scripts resolve the URL in one place (`e2e/db-url.mts`, applied by `scripts/with-db-url.mts`): an exported `DATABASE_URL` is honoured as-is, otherwise it is `postgres://pls:pls@localhost:$PG_PORT/$PG_DB`. Check `echo $DATABASE_URL` if a script seems to hit the wrong database.
 
-The default `malleable_pls` database is Ed's dev data: never reseed or migrate it from a ticket branch. For ticket `T<N>` use database `malleable_pls_t<N>` and ports `31<NN>` (API) / `52<NN>` (web) / `33<NN>` (CT), NN = two-digit ticket number, so T5 is 3105 / 5205 / 3305:
+The default `malleable_pls` database is Ed's dev data: never reseed or migrate it from a ticket branch. As a backstop, migrate and reseed (`packages/db/src/schema-guard.ts`) refuse a database with migrations this checkout does not have, i.e. one another branch migrated; reseed also refuses one with pending migrations (migrate it first), and runs in one transaction, so a failure leaves the data as it was. For ticket `T<N>` use database `malleable_pls_t<N>` and ports `31<NN>` (API) / `52<NN>` (web) / `33<NN>` (CT), NN = two-digit ticket number, so T5 is 3105 / 5205 / 3305:
 
 ```sh
 docker exec malleable-plc-poc-postgres-1 createdb -U pls malleable_pls_t5
