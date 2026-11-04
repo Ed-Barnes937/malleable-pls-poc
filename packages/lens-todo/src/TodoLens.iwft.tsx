@@ -556,3 +556,38 @@ test.describe('blocks that did not happen', () => {
     await expect(page.getByTestId('refit-note').getByRole('button')).toHaveCount(0)
   })
 })
+
+test('a list too long for the panel says how many rows are below, and the count follows the scroll', async ({ mount, page, simulator }) => {
+  for (let i = 1; i <= 8; i++) seedPlanItem(simulator, { id: `todo-${i}`, kind: 'task', title: `Task number ${i}` })
+
+  await mount(
+    <TestProviders>
+      <div style={{ height: 320, display: 'flex', flexDirection: 'column' }}>
+        <TodoLens {...defaultProps} />
+      </div>
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Task number 1', { exact: true })).toBeVisible()
+  const more = page.getByTestId('todo-more-below')
+  await expect(more).toHaveText(/^\d+ more$/)
+  const before = Number((await more.textContent())!.split(' ')[0])
+  expect(before).toBeGreaterThan(0)
+
+  // It scrolls the list on: fewer below, and none at the end.
+  await more.click()
+  await expect.poll(async () => (await more.count()) ? Number((await more.textContent())!.split(' ')[0]) : 0).toBeLessThan(before)
+  await page.getByRole('list', { name: 'To-dos' }).evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await expect(more).toHaveCount(0)
+})
+
+test('a list that fits says nothing about more', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Only task' })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  await expect(page.getByText('Only task')).toBeVisible()
+  await expect(page.getByTestId('todo-more-below')).toHaveCount(0)
+})

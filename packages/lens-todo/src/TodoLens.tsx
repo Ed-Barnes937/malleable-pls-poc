@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
@@ -96,6 +96,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
     />
   )
 
+  const listRef = useRef<HTMLUListElement>(null)
+  const moreBelow = useMoreBelow(listRef, listed.length + done.length)
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex min-h-4 items-center justify-between gap-2">
@@ -108,7 +111,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
       <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
 
-      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
+      <div className="relative flex min-h-0 flex-1 flex-col">
+      <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
           const stage = justDone.stages.get(item.id)
           return (
@@ -148,6 +152,19 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           </li>
         )}
       </ul>
+      {/* Rows out of view below say so, so "9 to do" over two rows doesn't read as lost items. */}
+      {moreBelow > 0 && (
+        <button
+          type="button"
+          data-testid="todo-more-below"
+          onClick={() => listRef.current?.scrollBy({ top: listRef.current.clientHeight * 0.8, behavior: 'smooth' })}
+          className="absolute bottom-1 left-1/2 flex min-h-8 -translate-x-1/2 items-center gap-1 rounded-full bg-surface-overlay px-3 text-meta font-semibold text-text-secondary shadow-pop hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {moreBelow} more
+          <ChevronDown className="h-3 w-3" aria-hidden />
+        </button>
+      )}
+      </div>
 
       <form onSubmit={submit} className="flex items-center gap-2">
         <TextField
@@ -184,4 +201,26 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
       </form>
     </div>
   )
+}
+
+/** How many of the list's rows are wholly out of view below it; follows scrolling, resizing and the row count. */
+function useMoreBelow(ref: RefObject<HTMLElement | null>, rows: number): number {
+  const [more, setMore] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const bottom = el.getBoundingClientRect().bottom
+      setMore([...el.children].filter((row) => row.tagName === 'LI' && row.getBoundingClientRect().top >= bottom - 1).length)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const resize = new ResizeObserver(update)
+    resize.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      resize.disconnect()
+    }
+  }, [ref, rows])
+  return more
 }
