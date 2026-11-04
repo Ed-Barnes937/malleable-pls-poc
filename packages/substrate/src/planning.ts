@@ -115,8 +115,10 @@ export function busyTime(
 export interface WeekLayout {
   week: Interval
   timeZone: string
-  /** Study-day time around every commitment (all courses) and due time, before `now` included. */
+  /** Study-day time around every commitment (all courses), before `now` included. */
   free: Interval[]
+  /** Due times (`dueTimes`): busy for automatic placement only, so free time still reads in whole minutes. */
+  dues: Interval[]
   /** Scheduled study time (open or done): fixed, busy, and spent from its day's budget. */
   busy: ExistingPlacement[]
   /** Study time per local day. */
@@ -136,9 +138,14 @@ export function weekLayout(
 ): WeekLayout {
   // Unpadded: drafts keep their gap with `gapMin`, and the budget counts real minutes.
   const { commitments, busy } = busyTime(rows, opts.except ?? new Set(), { padReviews: false })
-  const free = subtract(freeSlots(commitments, week, studyDayPrefs(opts.timeZone, opts.studyHours)), dueTimes(rows))
+  const free = freeSlots(commitments, week, studyDayPrefs(opts.timeZone, opts.studyHours))
   const budget = { minutesPerDay: opts.studyMinPerDay ?? DEFAULT_STUDY_MIN_PER_DAY, timeZone: opts.timeZone }
-  return { week, timeZone: opts.timeZone, free, busy, budget }
+  return { week, timeZone: opts.timeZone, free, dues: dueTimes(rows), busy, budget }
+}
+
+/** Where automatic placement may go: free time minus due times. */
+function placeable(layout: WeekLayout): Interval[] {
+  return subtract(layout.free, layout.dues)
 }
 
 /** The local day (in `timeZone`) containing `instant`, as [start, end): DST-safe. */
@@ -289,7 +296,7 @@ export function draftPlan(
   const pinned = (opts.pinned ?? []).map((p) => ({ start: p.start, end: p.end, taskId: `pinned:${p.taskId}` }))
   return place(
     tasks.map((t) => ({ id: t.id, durationMin: t.durationMin, latest: t.latest })),
-    layout.free,
+    placeable(layout),
     { now: opts.now, existingPlacements: [...layout.busy, ...pinned], ...placeRules(layout) },
   )
 }
@@ -317,7 +324,7 @@ export function suggestTaskSlots(
 ): Placement[] {
   return suggestSlots(
     { id: task.id, durationMin: task.durationMin, latest: task.latest },
-    layout.free,
+    placeable(layout),
     opts.n ?? 3,
     { now: opts.now, existingPlacements: layout.busy, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget },
   )
@@ -692,7 +699,7 @@ export function noSlotCause(layout: WeekLayout, now: number, drafted: ReadonlyAr
 function roomByDay(layout: WeekLayout, now: number, drafted: ReadonlyArray<Interval>) {
   const after: WeekLayout = { ...layout, busy: [...layout.busy, ...drafted] }
   const used = minutesByDay(after.busy, layout.timeZone)
-  const open = subtract(layout.free, [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
+  const open = subtract(placeable(layout), [...after.busy.map((b) => padded(b, STUDY_BLOCK_GAP_MIN)), { start: -Infinity, end: now }])
   const longest = new Map<number, number>()
   for (const p of splitByLocalDay(open, layout.timeZone)) {
     longest.set(p.day, Math.max(longest.get(p.day) ?? 0, (p.end - p.start) / MINUTE_MS))
@@ -778,7 +785,7 @@ export function planRefit(
       durationMin: item.duration_min ?? (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
       latest: latestFor(item, opts.now) ?? range.end,
     })),
-    layout.free,
+    placeable(layout),
     layout.busy,
     { now: opts.now, budget: layout.budget },
   )
