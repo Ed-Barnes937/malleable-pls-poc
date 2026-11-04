@@ -710,7 +710,7 @@ function TodoRow({
         <GripVertical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-text-muted" aria-hidden />
         <span className={cn('mt-1.5 h-2 w-2 shrink-0 rounded-full', tone.bar)} aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-body font-semibold text-text-primary" title={todo.title}>{todo.title}</p>
+          <p className="line-clamp-2 text-body font-semibold text-text-primary" title={todo.title}>{todo.title}</p>
           <p className="text-meta text-text-muted">
             {todo.due_at ? doByLabel(todo.due_at, now) : 'No due date'}
             {task.weakTopic && ' · from a confusing moment'}
