@@ -7,6 +7,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
+    // With TEST_DATABASE_URL: the database lectures-migration.db.test.ts clones.
+    globalSetup: ['./apps/server/src/test-support/pre-lectures-template.global-setup.ts'],
     // Date and DST tests assume the demo's zone, whatever the host's (e.g. a UTC CI box).
     env: { TZ: 'Europe/London' },
     include: [
