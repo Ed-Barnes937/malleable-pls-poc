@@ -394,7 +394,7 @@ test.describe('Phone top bar', () => {
 })
 
 /** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, no study planned yet. */
-const TUESDAY = new Date('2026-10-27T09:00:00Z')
+const TUESDAY = Date.parse('2026-10-27T09:00:00Z')
 
 test.describe('Phone today line', () => {
   test.use({ viewport: { width: 400, height: 860 } })
@@ -410,7 +410,7 @@ test.describe('Phone today line', () => {
     await expect(topBar.todayLine).toBeVisible()
     await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
 
-    const notClipped = () => topBar.todayLine.evaluate((el) => el.offsetWidth <= el.parentElement!.clientWidth)
+    const notClipped = () => topBar.todayLine.evaluate((el: HTMLElement) => el.offsetWidth <= el.parentElement!.clientWidth)
     for (const width of [400, 360]) {
       await page.setViewportSize({ width, height: 800 })
       // Drops parts (the weekday, then later blocks) rather than cutting one off.

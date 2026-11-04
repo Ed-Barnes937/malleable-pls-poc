@@ -85,7 +85,7 @@ async function selectMomentHalfScrolled(page: Page, { withCalendar = true } = {}
   await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight })
   await settledScrollTop(grid.root)
   const moment = transcript.locator('[data-segment-id]').filter({ hasText: MOMENT })
-  const list = await moment.evaluate((el) => {
+  const list = await moment.evaluate((el: HTMLElement) => {
     const l = el.parentElement!
     l.scrollTop = el.offsetTop + 20
     const r = l.getBoundingClientRect()
