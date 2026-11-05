@@ -68,3 +68,4 @@ export {
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
+export { requestHelpMePlan, takeHelpMePlanRequest, useHelpMePlanRequest, PLAN_REQUEST_TTL_MS } from './plan-request'

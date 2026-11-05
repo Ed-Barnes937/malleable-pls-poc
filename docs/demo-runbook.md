@@ -18,7 +18,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 ## The script
 
 **1. Build a board live**
-- The top bar shows today at a glance: "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study" (classes that have ended drop off).
+- The top bar's Up next names the next item in the calendar: "Up next: Chemistry 14:00" ("now" while it is on, "Plan your week" with nothing booked). Click it for the next five items, what is due this week, and Plan my week.
 - Click **+** (New board) in the top bar, name it "My week", **Create board**. The empty board offers three starters ("Plan my time" would add the next three widgets in one click); use the board menu instead.
 - Open the board menu (top-left), click **Calendar**, **To-do**, **Coming up** (the menu stays open), then Escape. All three are in view, headers included (Coming up comes in a little shorter so it fits under To-do).
 - Calendar shows the week with lectures and both shifts as fixed blocks, the planned weekend study, and yesterday's two blocks. Coming up: Biology quiz (Thu), Chemistry lab report (Fri). To-do (and the Calendar) already ask "2 blocks didn't happen. Re-fit them?": **leave it for step 6, don't click Not now** (if you do, reload the tab to bring it back).

@@ -20,8 +20,9 @@ export class TopBarPom {
   readonly lecturePill: Locator
   /** The pencil beside the lecture pill (only with a lecture selected). */
   readonly renameLectureButton: Locator
-  /** "Tuesday · Chemistry 14:00 · ...": today at a glance, on wide screens and (short) on a phone. */
-  readonly todayLine: Locator
+  /** "Up next: Chemistry 14:00": the next item in the calendar, at every width. Opens `upNextPopover`. */
+  readonly upNext: Locator
+  readonly upNextPopover: Locator
 
   constructor(private page: Page) {
     this.root = page.getByTestId('top-bar')
@@ -34,7 +35,9 @@ export class TopBarPom {
     this.coursePill = this.scopeGroup.getByTestId('scope-course').getByTestId('scope-pill-text')
     this.lecturePill = this.scopeGroup.getByTestId('scope-lecture').getByTestId('scope-pill-text')
     this.renameLectureButton = this.scopeGroup.getByRole('button', { name: 'Rename lecture' })
-    this.todayLine = this.root.getByTestId('today-line')
+    this.upNext = this.root.getByTestId('up-next')
+    // Rendered in a portal, so not inside the top bar.
+    this.upNextPopover = page.getByTestId('up-next-popover')
   }
 
   /**
