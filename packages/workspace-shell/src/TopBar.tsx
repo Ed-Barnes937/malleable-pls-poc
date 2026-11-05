@@ -66,7 +66,8 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
         {/* One line, never wrapping: its height is the same on every board. */}
         <div data-testid="top-bar-row-2" className="flex h-10 items-center gap-2">
           {scope}
-          {upNext('min-w-24 flex-1 basis-0 justify-end')}
+          {/* A width of its own, so pills coming or going never move it. */}
+          {upNext('ml-auto w-28 shrink-0 justify-end')}
         </div>
       </header>
     )

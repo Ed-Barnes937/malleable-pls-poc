@@ -89,6 +89,10 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   // To-dos that arrive while the list is open (e.g. a review just added) slide in.
   const arrived = useArrivals(items?.map((i) => i.id), course ?? '')
   const entering = useEnterOnce(arrived)
+  // A to-do ticked here drops into "Done today" (and the heading, the first
+  // time) with the same motion; what was done before the list opened doesn't.
+  const doneArrived = useArrivals(items && [...done.map((i) => i.occurrence_key), ...(done.length ? [DONE_HEADING] : [])], course ?? '')
+  const doneEntering = useEnterOnce(doneArrived)
 
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
@@ -164,7 +168,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           )
         })}
         {done.length > 0 && (
-          <li className="pb-1 pt-4 text-meta font-semibold text-text-muted">Done today</li>
+          <DoneHeading enter={doneEntering(DONE_HEADING)} />
         )}
         {done.map((item) => (
           <TodoRow
@@ -173,6 +177,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
             now={now}
             showCourse={!course}
             highlighted={false}
+            enter={doneEntering(item.occurrence_key)}
             onToggle={() => reopen(item.id)}
             onScopeChange={onScopeChange}
             onShowMoment={onShowMoment}
@@ -254,4 +259,17 @@ function useMoreBelow(ref: RefObject<HTMLElement | null>, rows: number): number 
     }
   }, [ref, rows])
   return more
+}
+
+/** The key "Done today" arrives under (see `doneArrived`). */
+const DONE_HEADING = 'done-today-heading'
+
+function DoneHeading({ enter }: { enter: boolean }) {
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(enter)
+  return (
+    <li data-testid="todo-done-heading" className={entering ? 'origin-top pb-1 pt-4 text-meta font-semibold text-text-muted motion-safe:animate-enter' : 'pb-1 pt-4 text-meta font-semibold text-text-muted'}>
+      Done today
+    </li>
+  )
 }

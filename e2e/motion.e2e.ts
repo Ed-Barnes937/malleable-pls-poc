@@ -112,6 +112,17 @@ test.describe('Motion', () => {
     await topBar.switchToWorkspace(second)
     await topBar.expectActiveWorkspace(second)
     expect(await widths()).toEqual(before)
+    // Every tab's name sits in its middle, open or not, and its delete button is a 24px target.
+    const sides = await tabs.evaluateAll((els) => els.map((el) => {
+      const tab = el.getBoundingClientRect()
+      const name = el.querySelector('[data-tab-name]')!.getBoundingClientRect()
+      return Math.abs((name.left - tab.left) - (tab.right - name.right))
+    }))
+    for (const gap of sides) expect(gap).toBeLessThanOrEqual(1)
+    await motionSettled(topBar.root.getByRole('button', { name: `Delete ${second}` }))
+    const del = (await topBar.root.getByRole('button', { name: `Delete ${second}` }).boundingBox())!
+    expect(del.width).toBeGreaterThanOrEqual(24)
+    expect(del.height).toBeGreaterThanOrEqual(24)
     // The delete button arrives; no tab moves.
     await expect(topBar.root.getByRole('button', { name: `Delete ${second}` })).toHaveCSS('animation-name', 'enter')
     expect((await animated(page)).filter((a) => a.testid === 'workspace-tab')).toEqual([])
@@ -144,6 +155,10 @@ test.describe('Motion', () => {
     await expect.poll(async () => (await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-plan-item-id')))).indexOf(first), { timeout: 10_000 }).toBeGreaterThan(0)
     await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'todo-item').map((a) => a.keyframes))
       .toContainEqual(expect.stringMatching(/translateY\(\d+(\.\d+)?px\)/))
+    // It and the "Done today" heading arrive there with the shared motion.
+    const doneRow = todo.locator(`[data-testid="todo-item"][data-plan-item-id="${first}"]`)
+    await expect(doneRow).toHaveCSS('animation-name', 'enter')
+    await expect(todo.getByTestId('todo-done-heading')).toHaveCSS('animation-name', 'enter')
   })
 
   test('fullscreen and back puts the board\'s scroll and every widget back where they were, even scrolled to the end', async ({ page }) => {
@@ -330,10 +345,12 @@ test.describe('No layout jumps', () => {
     const topBar = new TopBarPom(page)
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     const canvasTop = async () => Math.round((await page.getByTestId('canvas-container').boundingBox())!.y)
+    const upNextBox = async () => JSON.stringify(await topBar.upNext.boundingBox())
     const names = await tabNames(page)
     await topBar.switchToWorkspace(names[0])
     await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
     const top = await canvasTop()
+    const upNext = await upNextBox()
     // Boards whose pills differ (and while each one's pills load): the board stays put.
     const watch = () => page.evaluate(() => {
       const tops = new Set<number>()
@@ -357,16 +374,23 @@ test.describe('No layout jumps', () => {
       await expect(page.locator('[data-panel-id]').first()).toBeVisible()
     }
     expect(await watched()).toEqual([top])
+    // Up next keeps its own width, whatever pills the board shows.
+    expect(await upNextBox()).toBe(upNext)
 
     await topBar.openCreateWorkspaceDialog()
     await new CreateWorkspaceDialogPom(page).createWorkspace('Phone board')
     await topBar.expectActiveWorkspace('Phone board')
     expect(await canvasTop()).toBe(top)
+    // A board with no pills: Up next stays where and as wide as it was.
+    await expect(topBar.root.getByTestId('board-scope')).toHaveCount(0)
+    expect(await upNextBox()).toBe(upNext)
     await watch()
     await topBar.openDrawer()
     await new SidebarPom(page).addWidget('Calendar')
     await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
     expect(await watched()).toEqual([top])
+    // Up next keeps its own width, whatever pills the board shows.
+    expect(await upNextBox()).toBe(upNext)
   })
 
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {
