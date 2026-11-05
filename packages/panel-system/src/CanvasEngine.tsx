@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { AnimatePresence, animate, motion, useDragControls, useIsPresent, useMotionValue, useTransform, type MotionValue } from 'motion/react'
+import { AnimatePresence, animate, frame as nextFrame, motion, useDragControls, useIsPresent, useMotionValue, useTransform, type MotionValue } from 'motion/react'
 import { ENTER_FROM, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, boardSlideKeyframes, useReducedMotion } from '@pls/shared-ui'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
@@ -222,10 +222,13 @@ interface Glider {
   scaleY: MotionValue<number>
   /** The panel's content (header and widget), apart from its card. */
   content: MotionValue<number>
+  /** How far the content is drawn at its own size rather than scaled with the card (0 to 1). */
+  unscale: MotionValue<number>
 }
 
-/** How far through a resize glide the content takes to fade in (see `glide`). */
-const CONTENT_FADE_UNTIL = 0.3
+/** How far through a resize glide the content is hidden, then shown (see `glide`). */
+const CONTENT_HIDDEN_UNTIL = 0.2
+const CONTENT_SHOWN_BY = 0.5
 
 /** Panels scale from their top edge's middle (enter, leave, step back, glide). */
 const ORIGIN = { x: 0.5, y: 0 }
@@ -237,11 +240,11 @@ const PANEL_ORIGIN = `${ORIGIN.x * 100}% ${ORIGIN.y * 100}%`
  * (`before`) back to that box: a transform only, so nothing on the page is
  * laid out again while it glides. A panel whose box didn't change still
  * glides if the board's scroll moved under it. A panel changing size lays its
- * content out afresh for the new size at once: the content is drawn at that
- * size throughout (it is scaled against the card's scale, so it never
- * stretches with it), clipped by the card, and fades in over the glide's
- * first moments so the new layout never appears with a jump. Motion/react
- * owns these values (one engine per element).
+ * content out afresh for the new size at once, so it is hidden for the
+ * glide's first frames (while it is laid out, and nothing is seen to jump),
+ * then fades in by halfway, drawn at its own size (scaled against the card,
+ * so it never stretches with it) and clipped by the card. Motion/react owns
+ * these values (one engine per element).
  */
 function glide(
   canvas: HTMLElement,
@@ -267,7 +270,9 @@ function glide(
       animate(g.y, [was.top - top - ORIGIN.y * panel.height * (1 - sy), 0], options)
       animate(g.scaleX, [sx, 1], options)
       animate(g.scaleY, [sy, 1], options)
-      animate(g.content, [0, 1], { duration: (MOTION_MS / 1000) * CONTENT_FADE_UNTIL, ease: 'easeOut' })
+      animate(g.content, [0, 0, 1, 1], { duration: MOTION_MS / 1000, times: [0, CONTENT_HIDDEN_UNTIL, CONTENT_SHOWN_BY, 1], ease: 'easeOut' })
+      g.unscale.jump(0)
+      nextFrame.render(() => nextFrame.render(() => g.unscale.set(1)))
       continue
     }
     // Same size: only moved (or the board scrolled under it). Measured by the
@@ -601,6 +606,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   const scaleX = useMotionValue(1)
   const scaleY = useMotionValue(1)
   const content = useMotionValue(1)
+  const unscale = useMotionValue(1)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
@@ -612,19 +618,20 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
     scaleX.jump(1)
     scaleY.jump(1)
     content.jump(1)
-  }, [scaleX, scaleY, content])
+    unscale.jump(1)
+  }, [scaleX, scaleY, content, unscale])
   const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
     usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false, onSettle: settle })
   // The content against the card's scale, so it is drawn at its own size as the card glides.
-  const contentScaleX = useTransform(scaleX, (s) => 1 / s)
-  const contentScaleY = useTransform(scaleY, (s) => 1 / s)
+  const contentScaleX = useTransform(() => 1 + (1 / scaleX.get() - 1) * unscale.get())
+  const contentScaleY = useTransform(() => 1 + (1 / scaleY.get() - 1) * unscale.get())
 
   useLayoutEffect(() => {
     const el = elRef.current
     if (!gliders || !el || !present) return
-    gliders.set(panel.id, { el, x, y, scaleX, scaleY, content })
+    gliders.set(panel.id, { el, x, y, scaleX, scaleY, content, unscale })
     return () => { gliders.delete(panel.id) }
-  }, [gliders, panel.id, present, x, y, scaleX, scaleY, content])
+  }, [gliders, panel.id, present, x, y, scaleX, scaleY, content, unscale])
 
   // What it showed last while on the board, kept for its exit (its data may already be gone).
   const lastContent = useRef<ReactNode>(null)
