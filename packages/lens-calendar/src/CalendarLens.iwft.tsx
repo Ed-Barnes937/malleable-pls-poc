@@ -582,6 +582,8 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
     id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(16, 21, 15), ends_at: iso(16, 21, 35),
     duration_min: 20, subtype: 'review', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 78000, course: 'biology',
   }])
+  // The glow's timers wait for the test, however slowly the machine runs.
+  await page.clock.install()
   await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(16, 21, 15) }]} />)
   await expect(block(page, 'Biology lecture')).toBeVisible()
 
@@ -598,7 +600,8 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
   // It glows once, in its course colour.
   await expect(target).toHaveCSS('animation-name', 'glow-once')
   // Then settles.
-  await expect(target).not.toHaveAttribute('data-revealed', 'true', { timeout: 6000 })
+  await page.clock.runFor(4000)
+  await expect(target).not.toHaveAttribute('data-revealed', 'true')
   await expect(callout).toHaveCount(0)
 })
 
