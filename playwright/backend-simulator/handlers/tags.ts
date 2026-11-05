@@ -29,6 +29,7 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
     if (target_type === 'recording' && ['biology', 'chemistry', 'physics'].includes(label)) {
       throw new SimulatorError('BAD_REQUEST', "A recording's course is its lecture's")
     }
+    if (label === 'sorted') throw new SimulatorError('BAD_REQUEST', 'Mark a moment sorted with tags.sort')
     // As the server: once per (target, label).
     const existing = db.tags.find((t) => t.target_type === target_type && t.target_id === target_id && t.label === label)
     if (existing) return existing
@@ -69,6 +70,36 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
     }
     for (const p of open) Object.assign(p, { status: 'dismissed', updated_at: new Date().toISOString() })
     return { tag, dismissed: open.map((p) => p.id) }
+  })
+
+  const momentTags = (segmentId: string, label: string) =>
+    db.tags.filter((t) => t.target_type === 'transcript_segment' && t.target_id === segmentId && t.label === label)
+  const dropTags = (segmentId: string, label: string) => {
+    for (let i = db.tags.length - 1; i >= 0; i--) {
+      const t = db.tags[i]
+      if (t.target_type === 'transcript_segment' && t.target_id === segmentId && t.label === label) db.tags.splice(i, 1)
+    }
+  }
+
+  router.register('tags.unmarkConfused', (input) => {
+    const { segmentId } = input as { segmentId: string }
+    const open = reviewsOf(segmentId, 'open')
+    if (momentTags(segmentId, 'sorted').length > 0) throw new SimulatorError('CONFLICT', 'A sorted moment keeps its confusing mark')
+    const [confused] = momentTags(segmentId, 'confused').sort((a, b) => a.created_at.localeCompare(b.created_at))
+    if (!confused) return { confusedAt: null, dismissed: [] }
+    dropTags(segmentId, 'confused')
+    for (const p of open) Object.assign(p, { status: 'dismissed', updated_at: new Date().toISOString() })
+    return { confusedAt: confused.created_at, dismissed: open.map((p) => p.id) }
+  })
+
+  router.register('tags.remarkConfused', (input) => {
+    const { segmentId, confusedAt, restore } = input as { segmentId: string; confusedAt: string; restore?: string[] }
+    const dismissed = reviewsOf(segmentId, 'dismissed').filter((p) => restore?.includes(p.id))
+    if (momentTags(segmentId, 'confused').length === 0) {
+      db.tags.push({ id: `tag-${crypto.randomUUID().slice(0, 8)}`, target_type: 'transcript_segment', target_id: segmentId, label: 'confused', created_at: confusedAt })
+    }
+    for (const p of dismissed) Object.assign(p, { status: 'open', updated_at: new Date().toISOString() })
+    return { restored: dismissed.map((p) => p.id) }
   })
 
   router.register('tags.unsort', (input) => {

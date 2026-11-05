@@ -369,7 +369,7 @@ export function WorkspaceShell() {
   const clearReview = useWorkspaceStore((s) => s.clearReview)
   const reviewRun = useWorkspaceStore((s) => s.reviewRun)
   const handleNotify = useCallback(
-    (notice: LensNotice) => pushToast({ ...notice, tone: 'success' }),
+    (notice: LensNotice) => pushToast({ ...notice, tone: notice.tone ?? 'success' }),
     [pushToast],
   )
   /**
@@ -384,7 +384,7 @@ export function WorkspaceShell() {
       const reviewer = useCanvasStore.getState().panels
         .find((p) => manifests.find((m) => m.id === p.lensType)?.runsReviews)
       if (reviewer) {
-        startReview(moments)
+        startReview(moments, reviewer.id)
         revealPanel(reviewer.id)
         return
       }
@@ -398,13 +398,14 @@ export function WorkspaceShell() {
             pushToast({ message: `Couldn't add ${label}. Try again.`, tone: 'error' })
             return
           }
-          startReview(moments)
-          if (panelId) revealPanel(panelId)
+          if (!panelId) return
+          startReview(moments, panelId)
+          revealPanel(panelId)
           pushToast({
             message: `${label} added to review your moments`,
             tone: 'success',
             key: 'widget-added',
-            ...(panelId ? { action: { label: 'Undo', onClick: () => handleRemovePanel(panelId) } } : {}),
+            action: { label: 'Undo', onClick: () => handleRemovePanel(panelId) },
           })
         },
       })
@@ -443,7 +444,8 @@ export function WorkspaceShell() {
             onEditAutomation={setAutomationId}
             onNotify={handleNotify}
             onStartReview={handleStartReview}
-            reviewRun={manifest?.runsReviews ? reviewRun ?? undefined : undefined}
+            // Only the widget the run was handed to takes it (the first on the canvas).
+            reviewRun={manifest?.runsReviews && reviewRun && reviewRun.panelId === panel.id ? reviewRun : undefined}
             onReviewStarted={manifest?.runsReviews ? clearReview : undefined}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {

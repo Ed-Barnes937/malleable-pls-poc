@@ -41,7 +41,7 @@ test.describe('Sorted moments', () => {
     const moment = transcript.locator(`[data-segment-id="${NINE}"]`)
     await expect(moment.getByTestId('review-chip')).toBeVisible()
     await moment.locator('> button').click()
-    await expect(transcript.getByRole('button', { name: 'confused', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(transcript.getByRole('button', { name: 'Confused', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await transcript.getByRole('button', { name: 'Mark sorted' }).click()
 
     // Sorted: shown on the moment, out of both counts, its review dismissed.
@@ -66,7 +66,7 @@ test.describe('Sorted moments', () => {
     expect(await tagsOn(request, NINE)).toEqual(['confused', 'key-point'])
   })
 
-  test('clicking confused twice never makes two tags or two reviews', async ({ page, request }) => {
+  test('clicking confused twice never makes two tags or two reviews: the second click takes the mark and its review off, with Undo', async ({ page, request }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -77,27 +77,35 @@ test.describe('Sorted moments', () => {
     // seg-bio4-01, untagged.
     const moment = transcript.locator('[data-segment-id="seg-bio4-01"]')
     await moment.locator('> button').click()
-    const confused = transcript.getByRole('button', { name: 'confused', exact: true })
+    const confused = transcript.getByRole('button', { name: 'Confused', exact: true })
     await confused.click()
     await expect(confused).toHaveAttribute('aria-pressed', 'true')
     await expect(moment.getByTestId('review-chip')).toBeVisible({ timeout: 20000 })
 
-    // A second click takes the mark off; a third puts it back: still one tag, one review.
+    const [review] = (await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', {
+      sourceType: 'recording', sourceId: 'rec-bio-4', kinds: ['task'], statuses: ['open'],
+    })).filter((r) => r.source_offset_ms === 0)
+    expect(review).toBeTruthy()
+    expect(await tagsOn(request, 'seg-bio4-01')).toEqual(['confused'])
+
+    // A second click takes the mark off, and its review off the plan, with Undo.
     await confused.click()
     await expect(confused).toHaveAttribute('aria-pressed', 'false')
+    await expect(moment.getByTestId('review-chip')).toHaveCount(0)
     await expect.poll(() => tagsOn(request, 'seg-bio4-01')).toEqual([])
-    await confused.click()
+    await expect.poll(() => statusOf(request, review.id)).toBe('dismissed')
+    const toast = page.getByTestId('toast-host').getByTestId('toast').filter({ hasText: 'No longer marked confusing' })
+    await toast.getByRole('button', { name: 'Undo' }).click()
+
+    // Undo: the one mark and the one review are back, and nothing new was made.
     await expect(confused).toHaveAttribute('aria-pressed', 'true')
-    await expect.poll(() => tagsOn(request, 'seg-bio4-01')).toEqual(['confused'])
-    // Let the second mark's automation run finish before counting.
-    type Run = { job_type: string; status: string; input: { target_id?: string }; output: { deduplicated?: boolean } | null }
-    await expect.poll(async () => (await trpcQuery<Run[]>(request, 'jobs.recent', 50))
-      .filter((j) => j.job_type === 'plan:review-task' && j.input.target_id === 'seg-bio4-01' && j.status === 'completed')
-      .map((j) => !!j.output?.deduplicated).sort(), { timeout: 20000 }).toEqual([false, true])
+    await expect(moment.getByTestId('review-chip')).toBeVisible()
+    await expect.poll(() => statusOf(request, review.id)).toBe('open')
+    expect(await tagsOn(request, 'seg-bio4-01')).toEqual(['confused'])
     const reviews = (await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', {
       sourceType: 'recording', sourceId: 'rec-bio-4', kinds: ['task'], statuses: ['open', 'done', 'dismissed'],
     })).filter((r) => r.source_offset_ms === 0)
-    expect(reviews).toHaveLength(1)
+    expect(reviews.map((r) => r.id)).toEqual([review.id])
   })
 
   test('the to-review chip starts a focused Test Me review of just those moments', async ({ page }) => {
@@ -111,6 +119,20 @@ test.describe('Sorted moments', () => {
     await expect(testMe.getByTestId('review-run-header')).toHaveText('Moments to review · 1 of 5')
     await testMe.getByRole('button', { name: 'End review' }).click()
     await expect(testMe.getByTestId('review-run-header')).toHaveCount(0)
+  })
+
+  test('with two Test Me widgets, only the first takes the review', async ({ page }) => {
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Test Me')
+    await page.keyboard.press('Escape')
+    await expect(grid.panelByLabel('Test Me')).toHaveCount(2)
+    await grid.panelByLabel('Your Progress').getByRole('button', { name: '5 moments to review' }).click()
+    await expect(grid.panelByLabel('Test Me').first().getByTestId('review-run-header')).toHaveText('Moments to review · 1 of 5')
+    await expect(page.getByTestId('review-run-header')).toHaveCount(1)
   })
 
   test('on a board without Test Me, the chip adds one for the review, with Undo', async ({ page }) => {

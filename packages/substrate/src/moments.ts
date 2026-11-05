@@ -10,6 +10,8 @@
  * alongside the `confused` tag, which stays as history.
  */
 export const SORTED_TAG = 'sorted'
+/** The tag that marks a moment confusing. */
+export const CONFUSED_TAG = 'confused'
 
 /** Felt less sure than this (percent): the moment needs another look. */
 export const WEAK_BELOW = 50

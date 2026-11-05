@@ -191,6 +191,14 @@ export interface SubstrateWriter extends SubstrateReader {
   useSortMoment: () => MutationHandle<{ segmentId: string }, { dismissed: string[] }>
   /** Un-sorts a moment; `restore` (from `useSortMoment`) reopens those reviews. */
   useUnsortMoment: () => MutationHandle<{ segmentId: string; restore?: string[] }, { restored: string[] }>
+  /**
+   * Turns a moment's confusing mark off and dismisses its open review
+   * to-dos. `confusedAt` and `dismissed` are what `useRemarkConfused` puts
+   * back, for an Undo. A sorted moment keeps its mark (the server refuses).
+   */
+  useUnmarkConfused: () => MutationHandle<{ segmentId: string }, { confusedAt: string | null; dismissed: string[] }>
+  /** Undo for `useUnmarkConfused`: the mark as it was, and `restore` reopens those reviews. */
+  useRemarkConfused: () => MutationHandle<{ segmentId: string; confusedAt: string; restore?: string[] }, { restored: string[] }>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   /**

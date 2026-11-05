@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { QUESTIONS, SORTED_TAG, type Question } from '@pls/substrate'
-import { type LensProps, type ReviewMoment, useMarkSorted, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { CONFUSED_TAG, QUESTIONS, SOLID_FROM, SORTED_TAG, type Question } from '@pls/substrate'
+import { type LensProps, type ReviewMoment, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { Badge, type BadgeProps, cn, EmptyState, HiddenElsewhere, formatTime, TAG_STYLES } from '@pls/shared-ui'
 import { ArrowUpRight, Check, CircleCheck, X, Eye, Timer } from 'lucide-react'
 
@@ -17,7 +17,7 @@ interface FocusedRun {
 export default function TestMeLens({ scope, config, onNotify, onShowMoment, reviewRun, onReviewStarted }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
-  const markSorted = useMarkSorted(onNotify)
+  const marks = useMomentMarks(onNotify)
 
   const mode = (config.mode as string) ?? 'review'
   const timerSeconds = (config.timerSeconds as number) ?? 120
@@ -27,7 +27,14 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
   const { data: confidence } = substrate.useConfidence(scope)
   const recordConfidence = mutations.useRecordConfidence()
 
-  const [currentIndex, setCurrentIndex] = useState(0)
+  /**
+   * The question on screen, by id: answering can reorder the queue (a mark
+   * changes its priority), and the next question must stay the one that was
+   * next when the student moved on.
+   */
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  /** Bumped per card, so the exam timer restarts on each one. */
+  const [turn, setTurn] = useState(0)
   const [answer, setAnswer] = useState('')
   const [revealed, setRevealed] = useState(false)
   const [timeLeft, setTimeLeft] = useState(timerSeconds)
@@ -42,6 +49,7 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
     setAnswer('')
     setRevealed(false)
     setAsking(false)
+    setTurn((t) => t + 1)
     onReviewStarted?.(reviewRun.id)
   }, [reviewRun, onReviewStarted])
 
@@ -57,7 +65,7 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
   const confusedSegmentIds = useMemo(() => {
     const ids = new Set<string>()
     for (const tag of tags ?? []) {
-      if (tag.label === 'confused' && tag.target_type === 'transcript_segment' && !sortedSegmentIds.has(tag.target_id)) {
+      if (tag.label === CONFUSED_TAG && tag.target_type === 'transcript_segment' && !sortedSegmentIds.has(tag.target_id)) {
         ids.add(tag.target_id)
       }
     }
@@ -87,12 +95,13 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
     const scored = courseQuestions.map((q) => {
       const isConfused = confusedSegmentIds.has(q.segmentId)
       const conf = confidenceBySegment.get(q.segmentId) ?? 50
-      const priority = (isConfused ? 0 : 1000) + conf
+      // A sorted moment counts as solid whatever its rating (momentStatus).
+      const priority = (isConfused ? 0 : 1000) + (sortedSegmentIds.has(q.segmentId) ? Math.max(conf, SOLID_FROM) : conf)
       return { ...q, priority, conf }
     })
     scored.sort((a, b) => a.priority - b.priority)
     return scored
-  }, [courseQuestions, confusedSegmentIds, confidenceBySegment])
+  }, [courseQuestions, confusedSegmentIds, sortedSegmentIds, confidenceBySegment])
 
   // A focused run's cards, in the order the chip listed the moments.
   const runCards = useMemo((): Card[] => (run?.moments ?? []).map((moment) => {
@@ -112,10 +121,9 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
     }
   }), [run?.moments, confidenceBySegment])
 
-  // The course can change under us; never index past the filtered list.
-  const currentQuestion: Card | undefined = run
-    ? runCards[run.index]
-    : sortedQuestions[sortedQuestions.length > 0 ? currentIndex % sortedQuestions.length : 0]
+  // The course can change under us: a question no longer listed falls back to the first.
+  const position = Math.max(0, sortedQuestions.findIndex((q) => q.id === currentId))
+  const currentQuestion: Card | undefined = run ? runCards[run.index] : sortedQuestions[position]
   const currentConfused = !!currentQuestion && confusedSegmentIds.has(currentQuestion.segmentId)
   const currentSorted = !!currentQuestion && sortedSegmentIds.has(currentQuestion.segmentId)
 
@@ -132,15 +140,16 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [isExam, timerSeconds, currentIndex])
+  }, [isExam, timerSeconds, turn])
 
   const next = useCallback(() => {
     setAsking(false)
     setAnswer('')
     setRevealed(false)
+    setTurn((t) => t + 1)
     if (run) setRun((r) => r && { ...r, index: r.index + 1 })
-    else setCurrentIndex((i) => (i + 1) % sortedQuestions.length)
-  }, [run, sortedQuestions.length])
+    else if (sortedQuestions.length > 0) setCurrentId(sortedQuestions[(position + 1) % sortedQuestions.length].id)
+  }, [run, sortedQuestions, position])
 
   const handleResult = useCallback((gotIt: boolean) => {
     if (!currentQuestion) return
@@ -158,17 +167,16 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
     // Got it on a moment still marked confusing: ask before moving on.
     if (gotIt && currentConfused) return setAsking(true)
     // Didn't get it on a sorted one: it is one to review again.
-    if (!gotIt && currentSorted) {
-      void markSorted.unsort(currentQuestion.segmentId)
-      onNotify?.({ message: 'Back on your moments to review', key: `sorted-${currentQuestion.segmentId}` })
-    }
+    if (!gotIt && currentSorted) void marks.unsort(currentQuestion.segmentId)
     next()
-  }, [currentQuestion, recordConfidence, currentConfused, currentSorted, markSorted, onNotify, next])
+  }, [currentQuestion, recordConfidence, currentConfused, currentSorted, marks, next])
 
   const answerAsk = (sort: boolean) => {
     if (sort && currentQuestion) {
-      void markSorted.sort(currentQuestion.segmentId)
-      setRun((r) => r && { ...r, sorted: r.sorted + 1 })
+      // Counted for the run's "sorted N" only once it has happened.
+      void marks.sort(currentQuestion.segmentId).then((ok) => {
+        if (ok) setRun((r) => r && { ...r, sorted: r.sorted + 1 })
+      })
     }
     next()
   }
@@ -236,7 +244,7 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
             <span className="flex items-center gap-2">
               {hidden}
               <span className="text-meta tabular-nums text-text-muted">
-                {(currentIndex % sortedQuestions.length) + 1}/{sortedQuestions.length}
+                {position + 1}/{sortedQuestions.length}
               </span>
             </span>
           </>
@@ -297,7 +305,9 @@ export default function TestMeLens({ scope, config, onNotify, onShowMoment, revi
           </>
         ) : (
           <>
-            {!currentQuestion.lookAgain && (
+            {currentQuestion.lookAgain ? (
+              <p data-testid="look-again-hint" className="text-body text-text-secondary">Open it, then say how it went.</p>
+            ) : (
               <div className="flex flex-col gap-1 rounded-item bg-good-soft p-3">
                 <p className="text-meta font-semibold text-good">Answer</p>
                 <p className="text-body text-text-primary">{currentQuestion.answer}</p>

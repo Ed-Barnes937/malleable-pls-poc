@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import type { TransactionSql } from 'postgres'
-import { boardIdInput, REVIEW_SUBTYPE, SORTED_TAG } from '@pls/substrate'
+import { boardIdInput, CONFUSED_TAG, REVIEW_SUBTYPE, SORTED_TAG } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -80,6 +80,10 @@ export const tagsRouter = router({
       if (input.target_type === 'recording' && isCourse(input.label)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: "A recording's course is its lecture's: set it on the lecture" })
       }
+      // Sorting also dismisses the moment's reviews: only tags.sort does it.
+      if (input.label === SORTED_TAG) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: 'Mark a moment sorted with tags.sort' })
+      }
       return withUser(ctx.userId, async (tx) => {
         // Idempotent per (target, label): a moment is confusing or it isn't,
         // so a second click (or a racing one, hence the lock) returns the tag
@@ -108,6 +112,69 @@ export const tagsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         await tx`DELETE FROM tags WHERE id = ${input} AND user_id = ${ctx.userId}`
+      })
+    }),
+
+  /**
+   * Turns a moment's confusing mark off: removes its `confused` tag and
+   * dismisses its open review to-dos, as sorting does. `confusedAt` and
+   * `dismissed` are what `remarkConfused` puts back, for an Undo. A sorted
+   * moment keeps its confusing mark (it is history): CONFLICT.
+   */
+  unmarkConfused: publicProcedure
+    .input(momentInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const moment = await lockMoment(tx, ctx.userId, input.segmentId)
+        const labels = await tx`
+          SELECT label, created_at FROM tags
+          WHERE user_id = ${ctx.userId} AND target_type = 'transcript_segment' AND target_id = ${input.segmentId}
+            AND label IN (${CONFUSED_TAG}, ${SORTED_TAG})
+          ORDER BY created_at ASC
+        `
+        if (labels.some((t) => t.label === SORTED_TAG)) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'A sorted moment keeps its confusing mark' })
+        }
+        const confused = labels.find((t) => t.label === CONFUSED_TAG)
+        if (!confused) return { confusedAt: null, dismissed: [] }
+        await tx`
+          DELETE FROM tags
+          WHERE user_id = ${ctx.userId} AND target_type = 'transcript_segment' AND target_id = ${input.segmentId}
+            AND label = ${CONFUSED_TAG}
+        `
+        const dismissed = await momentReviews(tx, ctx.userId, moment, 'open')
+        for (const id of dismissed) await changeStatus(tx, ctx.userId, id, 'dismissed', input.workspaceId ?? null)
+        return { confusedAt: new Date(confused.created_at as string | Date).toISOString(), dismissed }
+      })
+    }),
+
+  /**
+   * Undo for `unmarkConfused`: the confusing mark comes back as it was (when
+   * it was made, so the moment's status is what it was), without running the
+   * confusion automation again, and `restore` reopens those of its reviews
+   * still dismissed; any other id is ignored.
+   */
+  remarkConfused: publicProcedure
+    .input(momentInput.extend({ confusedAt: z.string().datetime(), restore: z.array(z.string().max(255)).max(100).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const moment = await lockMoment(tx, ctx.userId, input.segmentId)
+        const [existing] = await tx`
+          SELECT 1 FROM tags
+          WHERE user_id = ${ctx.userId} AND target_type = 'transcript_segment' AND target_id = ${input.segmentId}
+            AND label = ${CONFUSED_TAG}
+          LIMIT 1
+        `
+        if (!existing) {
+          await tx`
+            INSERT INTO tags (user_id, target_type, target_id, label, created_at)
+            VALUES (${ctx.userId}, 'transcript_segment', ${input.segmentId}, ${CONFUSED_TAG}, ${input.confusedAt})
+          `
+        }
+        const wanted = new Set(input.restore ?? [])
+        const restored = (await momentReviews(tx, ctx.userId, moment, 'dismissed')).filter((id) => wanted.has(id))
+        for (const id of restored) await changeStatus(tx, ctx.userId, id, 'open', input.workspaceId ?? null)
+        return { restored }
       })
     }),
 

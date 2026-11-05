@@ -361,7 +361,7 @@ test("a lecture's own tags and notes show under its course, and new tags appear"
   await expect(page.getByText('SN1 vs SN2 still confusing')).toBeVisible()
 
   await page.getByText(/Good afternoon. Today we begin organic reactions/).click()
-  const confusedButton = page.getByRole('button', { name: 'confused', exact: true })
+  const confusedButton = page.getByRole('button', { name: 'Confused', exact: true })
   await expect(confusedButton).toBeVisible()
   const before = await page.locator('text=confused').count()
   await confusedButton.click()
@@ -572,7 +572,7 @@ test('tags toggle: pressed shows aria-pressed, and a second click takes the tag 
   )
   // seg-bio4-02 has no tags in the seed.
   await page.locator('[data-segment-id="seg-bio4-02"] > button').click()
-  const question = page.getByRole('button', { name: 'question', exact: true })
+  const question = page.getByRole('button', { name: 'Question', exact: true })
   await expect(question).toHaveAttribute('aria-pressed', 'false')
   await question.click()
   await expect(question).toHaveAttribute('aria-pressed', 'true')
@@ -603,7 +603,7 @@ test('a confusing moment can be marked sorted, keeps confused as history, and un
   await expect(moment.getByTestId('review-chip')).toBeVisible()
   // seg-bio4-04 is seeded as confused.
   await moment.locator('> button').click()
-  const confused = page.getByRole('button', { name: 'confused', exact: true })
+  const confused = page.getByRole('button', { name: 'Confused', exact: true })
   await expect(confused).toHaveAttribute('aria-pressed', 'true')
   const sort = page.getByRole('button', { name: 'Mark sorted' })
   await expect(sort).toHaveAttribute('aria-pressed', 'false')
@@ -630,4 +630,30 @@ test('a confusing moment can be marked sorted, keeps confused as history, and un
   await expect(page.getByRole('button', { name: 'Mark sorted' })).toHaveAttribute('aria-pressed', 'false')
   await expect(moment.getByTestId('sorted-pill')).toHaveCount(0)
   await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-bio4-04').map((t) => t.label).sort()).toEqual(['confused', 'key-point'])
+  // Quietly said, with no Undo: it is the student's own small change.
+  await expect.poll(() => notices.at(-1)).toEqual({ message: 'Back on your moments to review', key: 'marks-seg-bio4-04' })
+})
+
+test('turning confused off takes its open review off the plan, with Undo that brings both back', async ({ mount, page, simulator }) => {
+  simulator.db.planItems.push({
+    id: 'pi-review', kind: 'task', title: 'Review: maternal inheritance',
+    starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
+    duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
+    created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
+  })
+  const notices: { message: string; action?: { label: string; onClick: () => void } }[] = []
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} onNotify={(n) => { notices.push(n) }} />
+    </TestProviders>,
+  )
+  const moment = page.locator('[data-segment-id="seg-bio4-04"]')
+  await moment.locator('> button').click()
+  const confused = page.getByRole('button', { name: 'Confused', exact: true })
+  await confused.click()
+  await expect(confused).toHaveAttribute('aria-pressed', 'false')
+  await expect(moment.getByTestId('review-chip')).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'pi-review')?.status).toBe('dismissed')
+  await expect.poll(() => notices.map((n) => [n.message, n.action?.label])).toEqual([['No longer marked confusing. Its review is off your plan', 'Undo']])
 })

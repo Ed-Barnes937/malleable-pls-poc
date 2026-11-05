@@ -105,6 +105,8 @@ export interface ReviewRun {
 /** A short confirmation in the shell's notification bar, optionally with one action (e.g. Undo). */
 export interface LensNotice {
   message: string
+  /** `error`: something the student asked for didn't happen. Default `success`. */
+  tone?: 'success' | 'error'
   /** Notices sharing a key replace each other instead of stacking. */
   key?: string
   action?: { label: string; onClick: () => void }

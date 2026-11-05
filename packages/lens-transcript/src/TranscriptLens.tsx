@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
-import { type LensProps, useMarkSorted, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, Check, ChevronRight, CircleCheck, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
@@ -285,7 +285,7 @@ function TagToggle({ label, text, pressed, locked, onClick }: {
       aria-disabled={locked || undefined}
       onClick={locked ? undefined : onClick}
       data-testid={`tag-toggle-${label}`}
-      title={locked ? 'Kept: you found this moment confusing before you sorted it' : pressed ? `Remove ${text}` : `Mark this moment as ${text}`}
+      title={locked ? 'Kept: you found this moment confusing before you sorted it' : pressed ? `Remove ${text}` : `Mark this moment as ${text.toLowerCase()}`}
       className={cn(
         'inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all',
         pressed ? cn('border-transparent text-accent-foreground', style.mark) : cn(style.bg, style.text, 'hover:scale-105'),
@@ -398,7 +398,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   )
   const createTag = mutations.useCreateTag()
   const deleteTag = mutations.useDeleteTag()
-  const markSorted = useMarkSorted(onNotify)
+  const marks = useMomentMarks(onNotify)
   const createAnnotation = mutations.useCreateAnnotation()
   const transcribe = mutations.useTranscribeRecording()
 
@@ -533,8 +533,12 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     if (!selectedSegmentId) return
     const existing = selectedTags.filter((t) => t.label === label)
     if (existing.length > 0) {
-      // A sorted moment keeps its confusing mark (the button is locked too).
-      if (label === 'confused' && selectedSorted) return
+      if (label === 'confused') {
+        // A sorted moment keeps its confusing mark (the button is locked too);
+        // otherwise its review comes off the plan with it, with Undo.
+        if (!selectedSorted && !marks.isPending) void marks.unmarkConfused(selectedSegmentId)
+        return
+      }
       for (const t of existing) deleteTag.mutate(t.id)
       return
     }
@@ -542,9 +546,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
   }
   const handleSorted = () => {
-    if (!selectedSegmentId || markSorted.isPending) return
-    if (selectedSorted) void markSorted.unsort(selectedSegmentId)
-    else void markSorted.sort(selectedSegmentId)
+    if (!selectedSegmentId || marks.isPending) return
+    if (selectedSorted) void marks.unsort(selectedSegmentId)
+    else void marks.sort(selectedSegmentId)
   }
   /** The tag bar: the tag toggles and, on a confusing moment, Sorted. */
   const tagButtons = (
@@ -553,7 +557,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         <TagToggle
           key={label}
           label={label}
-          text={label}
+          text={TAG_LEGEND.find((t) => t.label === label)?.text ?? label}
           pressed={selectedLabels.has(label)}
           locked={label === 'confused' && selectedSorted}
           onClick={() => handleTag(label)}

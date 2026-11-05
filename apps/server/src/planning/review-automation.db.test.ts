@@ -29,6 +29,8 @@ function atLocal(dayStart: number, hour: number): number {
 describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automation (Postgres)', () => {
   let db: typeof import('@pls/db')
   let executors: ExecutorRegistry
+  let ai: ReturnType<typeof import('../ai/deps').createAiDeps>
+  let makeExecutors: typeof import('../workflows/executors').createServerExecutors
   let caller: (userId: string) => ReturnType<typeof import('../router').appRouter.createCaller>
   const alice = `test-alice-${randomUUID().slice(0, 8)}`
   const dave = `test-dave-${randomUUID().slice(0, 8)}`
@@ -48,7 +50,8 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     // delay: three tests transcribe, and the delay alone made them time out
     // when the machine was loaded.
     const instantTranscriber = { name: 'mock', transcribe: async () => mockTranscriptSegments.map((s) => ({ ...s })) }
-    const ai = { ...createAiDeps(), transcriber: instantTranscriber }
+    ai = { ...createAiDeps(), transcriber: instantTranscriber }
+    makeExecutors = createServerExecutors
     executors = createServerExecutors(ai)
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
@@ -90,10 +93,10 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   })
 
   /** Runs the review job for a moment as the runner would, and records the run. */
-  async function markConfused(segmentId: string) {
+  async function markConfused(segmentId: string, using: ExecutorRegistry = executors) {
     const input = { target_type: 'transcript_segment', target_id: segmentId, label: 'confused', _userId: alice }
     const jobRun = { id: randomUUID(), workflow_id: workflowId, workflow_job_id: workflowJobId } as JobRun
-    const result = await executors.execute(REVIEW_TASK_JOB, input, { scopeId: null, depth: 1, jobRun })
+    const result = await using.execute(REVIEW_TASK_JOB, input, { scopeId: null, depth: 1, jobRun })
     await db.withUser(alice, (tx) => tx`
       INSERT INTO job_runs (user_id, workflow_id, workflow_job_id, job_type, status, input, output)
       VALUES (${alice}, ${workflowId}, ${workflowJobId}, ${REVIEW_TASK_JOB}, 'completed', ${tx.json(input)}, ${tx.json(result.output as never)})
@@ -447,10 +450,14 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   describe('a moment marked sorted', () => {
     const sortedSeg = seg(9)
     beforeAll(async () => {
-      await db.withUser(alice, (tx) => tx`
-        INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
-        VALUES (${sortedSeg}, ${alice}, ${rec}, 540000, 600000, 'Mitochondrial DNA mutates faster than nuclear DNA.', 'Prof')
-      `)
+      await db.withUser(alice, async (tx) => {
+        for (const [id, at] of [[sortedSeg, 540000], [seg(10), 3000000], [seg(11), 3060000]] as const) {
+          await tx`
+            INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
+            VALUES (${id}, ${alice}, ${rec}, ${at}, ${at + 60000}, 'Mitochondrial DNA mutates faster than nuclear DNA.', 'Prof')
+          `
+        }
+      })
     })
     const tagsOn = async () => (await caller(alice).tags.forTarget({ targetType: 'transcript_segment', targetId: sortedSeg })).map((t) => t.label).sort()
     const reviewsOf = async () => (await caller(alice).planItems.list({ sourceId: rec, statuses: ['open', 'done', 'dismissed'] }))
@@ -508,6 +515,68 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       await api.tags.unsort({ segmentId: sortedSeg, restore: [other.id] })
       expect(await api.planItems.byId(other.id)).toMatchObject({ status: 'dismissed' })
       await api.planItems.delete(other.id)
+    })
+
+    it('is sorted only by tags.sort, never by creating the tag', async () => {
+      await expect(caller(alice).tags.create({ target_type: 'transcript_segment', target_id: sortedSeg, label: 'sorted' }))
+        .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    })
+
+    it("can't be sorted or un-sorted by another user, and restore ignores their reviews", async () => {
+      await expect(caller(dave).tags.sort({ segmentId: sortedSeg })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      await expect(caller(dave).tags.unsort({ segmentId: sortedSeg })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      const api = caller(alice)
+      await api.tags.create({ target_type: 'transcript_segment', target_id: seg(11), label: 'confused' })
+      const reviewId = (await markConfused(seg(11))).output.plan_item_id as string
+      const { dismissed } = await api.tags.sort({ segmentId: seg(11) })
+      expect(dismissed).toEqual([reviewId])
+      // Dave asking to restore Alice's review on his own moment changes nothing.
+      await expect(caller(dave).tags.unsort({ segmentId: seg(11), restore: [reviewId] })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'dismissed' })
+      await api.tags.unsort({ segmentId: seg(11), restore: dismissed })
+    })
+
+    it('a sort landing while its review is being made: no review is made', async () => {
+      const api = caller(alice)
+      await api.tags.create({ target_type: 'transcript_segment', target_id: seg(10), label: 'confused' })
+      // The student sorts it while the model is still naming the review.
+      const slowLlm = {
+        name: 'sorts-mid-run',
+        run: async <I, O>(task: Parameters<typeof ai.llm.run<I, O>>[0], input: I): Promise<O> => {
+          await api.tags.sort({ segmentId: seg(10) })
+          return ai.llm.run(task, input)
+        },
+      }
+      const result = await markConfused(seg(10), makeExecutors({ ...ai, llm: slowLlm }))
+      expect(result.output, JSON.stringify(result.output)).toMatchObject({ skipped: 'moment sorted', quiet: true })
+      const reviews = (await api.planItems.list({ sourceId: rec, statuses: ['open', 'done', 'dismissed'] })).filter((r) => r.source_offset_ms === 3000000)
+      expect(reviews).toEqual([])
+    })
+
+    it('turning confused off dismisses its open review, and Undo brings back the mark as it was and the review', async () => {
+      const api = caller(alice)
+      const segId = seg(11)
+      const tagsOf = async () => await api.tags.forTarget({ targetType: 'transcript_segment', targetId: segId })
+      expect((await tagsOf()).map((t) => t.label)).toEqual(['confused'])
+      const markedAt = new Date((await tagsOf())[0].created_at as string).toISOString()
+      const reviewId = (await api.planItems.list({ sourceId: rec, statuses: ['open'] })).find((r) => r.source_offset_ms === 3060000)!.id
+
+      const off = await api.tags.unmarkConfused({ segmentId: segId })
+      expect(off).toEqual({ confusedAt: markedAt, dismissed: [reviewId] })
+      expect(await tagsOf()).toEqual([])
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'dismissed' })
+
+      const runsBefore = await db.withUser(alice, (tx) => tx`SELECT count(*)::int AS n FROM job_runs WHERE user_id = ${alice}`)
+      expect(await api.tags.remarkConfused({ segmentId: segId, confusedAt: off.confusedAt!, restore: off.dismissed })).toEqual({ restored: [reviewId] })
+      const back = await tagsOf()
+      expect(back.map((t) => [t.label, new Date(t.created_at as string).toISOString()])).toEqual([['confused', markedAt]])
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'open' })
+      // The mark comes back without running the automation again.
+      expect(await db.withUser(alice, (tx) => tx`SELECT count(*)::int AS n FROM job_runs WHERE user_id = ${alice}`)).toEqual(runsBefore)
+
+      // A sorted moment keeps its confusing mark.
+      await api.tags.sort({ segmentId: segId })
+      await expect(api.tags.unmarkConfused({ segmentId: segId })).rejects.toMatchObject({ code: 'CONFLICT' })
     })
   })
 })

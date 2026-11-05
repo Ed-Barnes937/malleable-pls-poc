@@ -92,7 +92,7 @@ async function selectMomentHalfScrolled(page: Page, { withCalendar = true } = {}
     return { top: r.top, left: r.left, width: r.width }
   })
   await page.mouse.click(list.left + list.width / 2, list.top + 10)
-  await expect(transcript.getByRole('button', { name: 'confused', exact: true })).toBeVisible()
+  await expect(transcript.getByRole('button', { name: 'Confused', exact: true })).toBeVisible()
   return { transcript, moment, calendar, grid }
 }
 
@@ -193,7 +193,7 @@ test.describe('The confused-to-calendar ripple', () => {
     const moment = transcript.locator('[data-segment-id]').filter({ hasText: /Today we're continuing our discussion/ })
     await moment.getByText(/Today we're continuing our discussion/).click()
     const markedFrom = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const chip = moment.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned · ', { timeout: 20000 })
     const markedTo = Date.now()
@@ -237,7 +237,7 @@ test.describe('The confused-to-calendar ripple', () => {
     const boardBefore = await grid.root.evaluate((el) => el.scrollTop)
 
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const review = await newReview(request, markedAt)
     const chip = moment.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned · ')
@@ -290,7 +290,7 @@ test.describe('The confused-to-calendar ripple', () => {
       }, { capture: true })
     })
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     // As soon as the board starts gliding up to the block, the student scrolls it up further, past it.
     await expect.poll(() => page.evaluate(() => (window as unknown as { glide: unknown[] }).glide.length), { intervals: [5], timeout: 15000 }).toBeGreaterThan(0)
     await page.mouse.move(1380, 600)
@@ -336,7 +336,7 @@ test.describe('The confused-to-calendar ripple', () => {
       })
     })
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     // In place before the glide, so the wheel follows its stop by one round trip.
     await page.mouse.move(1380, 600)
     // The board has followed the review and stopped; straight away the student scrolls it down 100px.
@@ -359,7 +359,7 @@ test.describe('The confused-to-calendar ripple', () => {
     await demoLikeBoard(request)
     const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const review = await newReview(request, markedAt)
     const block = calendar.root.locator(`[data-plan-item-id="${review.id}"]`)
     await expect(block).toHaveAttribute('data-revealed', 'true')
@@ -379,7 +379,7 @@ test.describe('The confused-to-calendar ripple', () => {
     const { transcript, grid } = await selectMomentHalfScrolled(page, { withCalendar: false })
     await recordCard(page)
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const review = await newReview(request, markedAt)
     const row = grid.panelByLabel('To-do').locator(`[data-plan-item-id="${review.id}"]`)
     await expect(row).toBeVisible()
@@ -400,7 +400,7 @@ test.describe('The confused-to-calendar ripple', () => {
     const scrolled = new Promise<void>((resolve) => { release = resolve })
     await page.route((url) => url.pathname.includes('planItems.list'), async (route) => { await scrolled; await route.continue() })
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     // The student scrolls the board up to the top straight away: the Transcript goes off screen, and the board stays there.
     await page.mouse.move(1380, 600)
     await page.mouse.wheel(0, -2000)
@@ -423,7 +423,7 @@ test.describe('The confused-to-calendar ripple', () => {
     await demoLikeBoard(request)
     const { transcript, moment, calendar } = await selectMomentHalfScrolled(page)
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const review = await newReview(request, markedAt)
     const block = calendar.root.locator(`[data-plan-item-id="${review.id}"]`)
     await expect(block).toHaveAttribute('data-revealed', 'true')
@@ -438,7 +438,7 @@ test.describe('The confused-to-calendar ripple', () => {
     const { transcript, moment, calendar, grid } = await selectMomentHalfScrolled(page)
     await recordAppearances(page.locator('body'), 'review-lift-off')
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const review = await newReview(request, markedAt)
     const block = calendar.root.locator(`[data-plan-item-id="${review.id}"]`)
     // Revealed straight away (no card on its way), with a still ring.
@@ -457,7 +457,7 @@ test.describe('The confused-to-calendar ripple', () => {
     await demoLikeBoard(request)
     const { transcript, moment, calendar, grid } = await selectMomentHalfScrolled(page)
     const markedAt = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     // Straight away, the student scrolls the board up a little themselves, over empty board.
     await page.mouse.move(1380, 600)
     await page.mouse.wheel(0, -60)
@@ -538,7 +538,7 @@ test.describe('The confused-to-calendar ripple', () => {
     })
     const moment = transcript.locator('[data-segment-id]').filter({ hasText: /Today we're continuing our discussion/ })
     await moment.getByText(/Today we're continuing our discussion/).click()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
 
     const chip = moment.getByTestId('review-chip')
     await expect(chip).toContainText('Review on your to-do list', { timeout: 20000 })

@@ -11,6 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { draftPlan, planTasks, weekLayout } from '@pls/substrate'
 import type { FakeLlmClient } from '../ai/fake-llm'
+import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -40,7 +41,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'tags', 'plan_items']) {
+    for (const table of ['job_runs', 'tags', 'plan_items', 'transcript_segments', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [[alice, bob]])
     }
     await db.sql.end()
@@ -78,6 +79,32 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
     expect(call.prompt).not.toContain('Scheduled')
     // 3h30m of study time left (2h Mon minus the 30m block, 2h Tue); 6h30m needed.
     expect(call.input).toMatchObject({ freeMin: 210, neededMin: 390, minutesPerDay: 120 })
+  })
+
+  it('gives the model the weak topics, leaving out a confusing moment the student has sorted', async () => {
+    const carol = `test-carol-${randomUUID().slice(0, 8)}`
+    const rec = `rec-${carol}`
+    try {
+      await db.withUser(carol, async (tx) => {
+        await insertRecording(tx, { id: rec, userId: carol, title: 'Genetics', course: 'biology' })
+        for (const [i, text] of ['Still confusing: heteroplasmy.', 'Sorted now: maternal inheritance.'].entries()) {
+          await tx`
+            INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text)
+            VALUES (${`${rec}-${i}`}, ${carol}, ${rec}, ${i * 60000}, ${(i + 1) * 60000}, ${text})
+          `
+          await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${carol}, 'transcript_segment', ${`${rec}-${i}`}, 'confused')`
+        }
+      })
+      const api = caller(carol)
+      await api.tags.sort({ segmentId: `${rec}-1` })
+      await api.planItems.create({ kind: 'task', title: 'Revise genetics', duration_min: 30 })
+      await api.planning.autofill({ ...week })
+      expect((llm.calls.at(-1)!.input as { weakTopics: string[] }).weakTopics).toEqual(['Still confusing: heteroplasmy.'])
+    } finally {
+      for (const table of ['tags', 'plan_items', 'transcript_segments', 'recordings', 'lectures']) {
+        await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [carol])
+      }
+    }
   })
 
   it('returns empty advice without calling the model when nothing needs planning', async () => {

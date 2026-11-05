@@ -135,7 +135,7 @@ export {
 } from './planning'
 export { refitPreviewInput, refitAcceptInput, type RefitPreview, type RefitAccept, type RefitResult } from './refit-schemas'
 export { segmentAtOffset } from './segments'
-export { momentStatus, stillConfused, SORTED_TAG, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
+export { momentStatus, stillConfused, SORTED_TAG, CONFUSED_TAG, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
 
 export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
 export {

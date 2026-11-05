@@ -26,13 +26,14 @@ export default function WeeklyOverviewLens({ scope, onStartReview }: LensProps) 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex min-h-5 flex-wrap items-center justify-between gap-2">
-        {totalToReview > 0 && (onStartReview && toReview?.length ? (
+        {totalToReview > 0 && (onStartReview ? (
           // Starts a focused Test Me review of just these moments.
           <button
             type="button"
             data-testid="progress-to-review"
             title="Go through them in Test Me"
-            onClick={() => onStartReview(toReview.map(({ segmentId, recordingId, recordingTitle, offsetMs, label }) => ({ segmentId, recordingId, recordingTitle, offsetMs, label })))}
+            // The list loads with the counts; a click before it lands does nothing.
+            onClick={() => toReview?.length && onStartReview(toReview.map(({ segmentId, recordingId, recordingTitle, offsetMs, label }) => ({ segmentId, recordingId, recordingTitle, offsetMs, label })))}
             className="flex min-h-6 items-center gap-1 rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn ring-attn/40 transition hover:ring-2 focus-visible:outline-none focus-visible:ring-2"
           >
             <Play className="h-3.5 w-3.5" />

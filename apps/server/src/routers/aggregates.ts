@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser, type TxSql } from '@pls/db'
-import { REVIEW_SUBTYPE, SOLID_FROM, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
+import { CONFUSED_TAG, REVIEW_SUBTYPE, SOLID_FROM, SORTED_TAG, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
 import { andInCourse, courseTag } from './_shared'
 
 /**
@@ -44,11 +44,11 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
     -- (which keeps the confusing mark as history).
     LEFT JOIN LATERAL (
       SELECT
-        MAX(c.created_at) FILTER (WHERE c.label = 'confused') AS confused_at,
-        COALESCE(BOOL_OR(c.label = 'sorted'), false) AS sorted
+        MAX(c.created_at) FILTER (WHERE c.label = ${CONFUSED_TAG}) AS confused_at,
+        COALESCE(BOOL_OR(c.label = ${SORTED_TAG}), false) AS sorted
       FROM tags c
       WHERE c.user_id = ${userId} AND c.target_type = 'transcript_segment' AND c.target_id = ts.id
-        AND c.label IN ('confused', 'sorted')
+        AND c.label IN (${CONFUSED_TAG}, ${SORTED_TAG})
     ) marked ON true
     -- Marked confusing, not sorted, and not felt sure about since.
     CROSS JOIN LATERAL (
