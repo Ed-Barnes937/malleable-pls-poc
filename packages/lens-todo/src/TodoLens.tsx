@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations, useUndoToast } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals, useEnterOnce, useListGlide } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
@@ -87,6 +87,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
   // To-dos that arrive while the list is open (e.g. a review just added) slide in.
   const arrived = useArrivals(items?.map((i) => i.id), course ?? '')
+  const entering = useEnterOnce(arrived)
 
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
@@ -118,6 +119,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   )
 
   const listRef = useRef<HTMLUListElement>(null)
+  useListGlide(listRef)
   const moreBelow = useMoreBelow(listRef, listed.length + done.length)
 
   return (
@@ -145,6 +147,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               showCourse={!course}
               highlighted={!stage && fromLecture(item)}
               fresh={arrived.has(item.id)}
+              enter={entering(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => removeTodo(item)}

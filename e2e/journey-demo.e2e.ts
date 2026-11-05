@@ -129,12 +129,6 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await plan.getByRole('button', { name: 'Accept draft' }).click()
     await expect(calendar.block('Lab report write-up')).toHaveCount(1)
     await plan.getByRole('button', { name: /close/i }).first().click()
-    // With the panel closed, the suggested-blocks tray (and the re-fit
-    // banner's "one draft at a time" line) show until the last drafted block
-    // lands, then go, moving the grid up: drag only after that reflow, or the
-    // press lands on the wrong hour.
-    await expect(calendar.root.getByTestId('proposal-tray')).toHaveCount(0)
-    await expect(calendar.root.getByText('Accept or keep the suggested blocks first - one draft at a time.')).toHaveCount(0)
 
     // ...and drag one accepted block to a new slot: Saturday 15:00, always free.
     const firstAccepted = async () => (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))

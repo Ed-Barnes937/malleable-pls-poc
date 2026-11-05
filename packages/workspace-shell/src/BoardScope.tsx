@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, Pencil } from 'lucide-react'
 import {
   decodeScope,
@@ -49,19 +49,21 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
     [workspaceId, mutateAsync, pushToast],
   )
 
-  if (!rows || dims.size === 0) return null
+  // Shown once already: when it shows again (another board, or the first
+  // widget that uses it) it arrives with the shared motion; not as the app
+  // first opens.
+  const visible = !!rows && dims.size > 0
+  const shownBefore = useRef(false)
+  useLayoutEffect(() => {
+    if (visible) shownBefore.current = true
+  })
+
+  if (!visible) return null
   const showCourse = dims.has('courseTag')
   const showLecture = dims.has('lectureId')
 
   return (
-    <div
-      role="group"
-      aria-label="What this board shows"
-      data-testid="board-scope"
-      // Never narrower than its pills can go (the course whole, a few words
-      // of the lecture): the tabs and the today line give way first.
-      className={cn('flex items-center gap-1.5', compact ? 'max-w-full' : 'shrink')}
-    >
+    <ScopeGroup compact={compact} arrive={shownBefore.current}>
       {/* Only where the bar has room for it; the pills say enough without. */}
       {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary lg:inline">Showing</span>}
       {showCourse && (
@@ -75,7 +77,7 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
           onChange={(value) => write({ lectureId: value || null })}
         />
       )}
-    </div>
+    </ScopeGroup>
   )
 }
 
@@ -102,11 +104,37 @@ function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; on
   )
 }
 
+/** Whether a pill mounting now joins pills already on screen (so it should arrive with the shared motion). */
+const JoinsShown = createContext(false)
+
+function ScopeGroup({ compact, arrive, children }: { compact: boolean; arrive: boolean; children: ReactNode }) {
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(arrive)
+  const mounted = useRef(false)
+  useLayoutEffect(() => {
+    mounted.current = true
+  }, [])
+  return (
+    <div
+      role="group"
+      aria-label="What this board shows"
+      data-testid="board-scope"
+      // Never narrower than its pills can go (the course whole, a few words
+      // of the lecture): the tabs and the today line give way first.
+      className={cn('flex origin-left items-center gap-1.5', compact ? 'max-w-full' : 'shrink', entering && 'motion-safe:animate-enter')}
+    >
+      <JoinsShown.Provider value={mounted.current}>{children}</JoinsShown.Provider>
+    </div>
+  )
+}
+
 function LecturePill({ courseTag, lectureId, onChange }: {
   courseTag: string | undefined
   lectureId: string | undefined
   onChange: (value: string) => void
 }) {
+  // A widget starting to use lectures: the pill arrives with the shared motion.
+  const [entering] = useState(useContext(JoinsShown))
   // The course's lectures, newest first (every lecture on "All courses").
   const { data: courseLectures } = useLectures(courseTag)
   // The selected lecture is always in the course, but the list may not have
@@ -156,7 +184,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         describe={describe}
         // A title is cut short before anything else in the bar, but always
         // keeps a few words; "No lecture" is short and never cut.
-        className={current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0'}
+        className={cn(current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}

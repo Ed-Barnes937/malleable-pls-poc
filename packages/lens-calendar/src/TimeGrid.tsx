@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
+import { cn, courseTone, prefersReducedMotion, showOnBoard, useArrivals, useEnterOnce } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -62,6 +62,15 @@ export interface TimeGridProps {
   reveal?: Reveal | null
   /** A popover is open: a reveal callout gives way to it. */
   popoverOpen?: boolean
+  /** The week's rows are still loading: nothing on the grid counts as arriving yet. */
+  loading?: boolean
+  /**
+   * Under the hours, inside the grid (e.g. the calendar's prompts). The hours
+   * are fitted to the room with or without it, so as it comes, goes or grows
+   * it only covers or uncovers the last hours shown: nothing on the grid
+   * moves or re-sizes.
+   */
+  footer?: ReactNode
 }
 
 /** A block to show: scrolled to in the grid and on the board, then glowing once. */
@@ -143,9 +152,10 @@ type Drag =
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
-  reveal, popoverOpen,
+  reveal, popoverOpen, loading, footer,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
@@ -174,8 +184,10 @@ export function TimeGrid({
     if (!el) return
     let fitted = 0
     const fit = () => {
-      // A little headroom so the 08:00 and 22:00 labels are not clipped.
-      const px = Math.max(MIN_HOUR_PX, (el.clientHeight - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
+      // A little headroom so the 08:00 and 22:00 labels are not clipped. The
+      // footer's room counts as the grid's, so the hours never re-fit as it changes.
+      const room = el.clientHeight + (footerRef.current?.offsetHeight ?? 0)
+      const px = Math.max(MIN_HOUR_PX, (room - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
       // The hour to keep at the top: the day's start until the student (or a
       // block shown) scrolls, then whatever is there, as the hours resize.
       const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
@@ -214,6 +226,14 @@ export function TimeGrid({
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // Blocks and ghosts that arrive while the student watches (a booking, an
+  // Auto-fill draft, the block an accepted ghost becomes, an Undo) come in
+  // with the shared motion; the week's first render, or another week, don't.
+  const arrived = useArrivals(
+    loading ? undefined : segments.flatMap((day) => day.map((seg) => seg.item.occurrence_key)),
+    `${days[0]?.toISOString()}:${days.length}`,
+  )
+  const entering = useEnterOnce(arrived)
   // Short blocks' title captions, per day (see captionSides).
   const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
@@ -596,6 +616,7 @@ export function TimeGrid({
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
                       onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
+                      enter={entering(seg.item.occurrence_key)}
                     />
                   ) : (
                     <Block
@@ -608,6 +629,7 @@ export function TimeGrid({
                       active={activeKey === seg.item.occurrence_key}
                       lifted={draggingKey === seg.item.occurrence_key}
                       glow={revealed?.key === seg.key}
+                      enter={entering(seg.item.occurrence_key)}
                       onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
                     />
@@ -678,6 +700,7 @@ export function TimeGrid({
           </div>
         </div>
       </div>
+      {footer && <div ref={footerRef} className="shrink-0">{footer}</div>}
     </div>
   )
 }
@@ -696,12 +719,16 @@ interface BlockProps {
   glow?: boolean
   /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
+  /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
+  enter?: boolean
   onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onKeyOpen?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, enter, onPointerDown, onKeyOpen }: BlockProps) {
   const { item } = seg
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(!!enter)
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
   const movable = isMovable(item)
@@ -757,6 +784,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
         active && 'ring-2 ring-accent',
         lifted && 'opacity-30',
         preview && 'pointer-events-none z-30 shadow-pop ring-2 ring-accent',
+        // Grows down from its start time; a glow (its own animation) wins.
+        entering && !glow && 'origin-top motion-safe:animate-enter',
         glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
       style={{
@@ -866,13 +895,16 @@ interface GhostBlockProps {
   onDismiss: () => void
   /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
   onNudge: (minutes: number, days: number) => void
+  /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
+  enter?: boolean
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge, enter }: GhostBlockProps) {
   const { item } = seg
+  const [entering] = useState(!!enter)
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
@@ -925,6 +957,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
         seg.continuesBefore && 'rounded-t-none',
         seg.continuesAfter && 'rounded-b-none',
         lifted && 'opacity-30',
+        entering && 'origin-top motion-safe:animate-enter',
       )}
       style={{
         top: top + 1,

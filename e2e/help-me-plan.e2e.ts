@@ -261,4 +261,32 @@ test.describe('Help me plan', () => {
     await expect(calendar.grid).toBeVisible()
     expect(await trpcQuery<Row[]>(request, 'planItems.list')).toEqual(before)
   })
+
+  test('a draft ending with the panel closed leaves the grid where it is (decision 13)', async ({ page, request }) => {
+    await seedWeek(request)
+    const { calendar, panel } = await openPlanner(page)
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    await expect(calendar.root.getByTestId('calendar-ghost').first()).toBeVisible()
+    await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+
+    // The suggested-blocks tray floats over the grid's foot: the grid and its
+    // hours stay put as it comes and goes.
+    const tray = calendar.root.getByTestId('proposal-tray')
+    const acceptAll = tray.getByRole('button', { name: 'Accept all' })
+    // In view first, so the click itself scrolls nothing.
+    await acceptAll.scrollIntoViewIfNeeded()
+    const placement = calendar.block('Lab placement').first()
+    let last = ''
+    await expect.poll(async () => {
+      const boxes = JSON.stringify([await calendar.grid.boundingBox(), await placement.boundingBox()])
+      const settled = boxes === last
+      last = boxes
+      return settled
+    }, { intervals: [100] }).toBe(true)
+    await acceptAll.click()
+    await expect(tray).toHaveCount(0)
+    await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
+    expect(JSON.stringify([await calendar.grid.boundingBox(), await placement.boundingBox()])).toBe(last)
+  })
 })

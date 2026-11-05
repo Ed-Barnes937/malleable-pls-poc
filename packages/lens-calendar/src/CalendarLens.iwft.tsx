@@ -99,8 +99,10 @@ test('renders the week: fixed commitments, study time and what is due', async ({
 })
 
 // The hour rows are the same whichever day it is, with or without the re-fit
-// banner above the grid (which appears once study blocks have passed): 24
-// equal rows, 08:00 at the top, and 22:00 within the window or one scroll away.
+// banner at the grid's foot (which appears once study blocks have passed): 24
+// equal rows, 08:00 at the top, and 22:00 within the window or one scroll
+// away. The rows are fitted to the grid's room with the banner's, so the
+// banner only covers the last hours shown, never re-sizes them.
 const FROZEN_DAYS: [string, Date, number, number][] = [
   ['Mon', FROZEN_MONDAY, 9, 0], ['Tue', addDays(FROZEN_MONDAY, 1), 12, 0], ['Wed', addDays(FROZEN_MONDAY, 2), 21, 0],
   ['Thu', addDays(FROZEN_MONDAY, 3), 10, 0], ['Fri', addDays(FROZEN_MONDAY, 4), 23, 30],
@@ -120,6 +122,8 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     await point(page, 0, 12) // waits for the grid to stop re-fitting
     const scroll = (await page.getByTestId('calendar-scroll').boundingBox())!
     const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+    const prompts = (await page.getByTestId('calendar-prompts').boundingBox())?.height ?? 0
+    const room = scroll.height + prompts
     // 24 rows of one height, never cramped below 32px.
     const hourPx = grid.height / 24
     expect(hourPx).toBeGreaterThanOrEqual(32 - 0.5)
@@ -127,9 +131,9 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     expect(grid.y - scroll.y + (8 / 24) * grid.height).toBeCloseTo(8, 0)
     // The whole working day fits when the window is tall enough for it, else
     // the bottom of the grid is a scroll away: never a short grid.
-    const fits = scroll.height >= 14 * 32 + 16
+    const fits = room >= 14 * 32 + 16
     if (fits) {
-      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + room)
     } else {
       expect(hourPx).toBeCloseTo(32, 0)
       await page.getByTestId('calendar-scroll').evaluate((el) => { el.scrollTop = el.scrollHeight })

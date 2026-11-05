@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
@@ -345,7 +345,7 @@ describe('CanvasEngine', () => {
   })
 
   describe('focus mode', () => {
-    it('dims non-focused panels to 0.3 opacity when focus mode is active', () => {
+    it('dims non-focused panels to 0.3 opacity when focus mode is active', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -357,12 +357,14 @@ describe('CanvasEngine', () => {
       const bluePanel = screen.getByTestId('panel-blue')
       const greenPanel = screen.getByTestId('panel-green')
 
-      expect(redPanel.style.opacity).toBe('0.3')
-      expect(bluePanel.style.opacity).toBe('0.3')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('0.3')
+        expect(bluePanel.style.opacity).toBe('0.3')
+      })
       expect(greenPanel.style.opacity).toBe('1')
     })
 
-    it('restores full opacity when focus mode is exited', () => {
+    it('restores full opacity when focus mode is exited', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -377,8 +379,10 @@ describe('CanvasEngine', () => {
       const redPanel = screen.getByTestId('panel-red')
       const bluePanel = screen.getByTestId('panel-blue')
 
-      expect(redPanel.style.opacity).toBe('1')
-      expect(bluePanel.style.opacity).toBe('1')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('1')
+        expect(bluePanel.style.opacity).toBe('1')
+      })
     })
 
     it('clicking canvas background exits focus mode', () => {
@@ -398,13 +402,13 @@ describe('CanvasEngine', () => {
       expect(useCanvasStore.getState().focusModePanelId).toBeNull()
     })
 
-    it('opacity transition is included in transition style', () => {
+    it('fades with motion/react alone: no CSS transition on its opacity or box', () => {
       seedPanels()
       render(<CanvasEngine />)
 
-      const redPanel = screen.getByTestId('panel-red')
-      const transition = redPanel.style.transition
-      expect(transition).toContain('opacity')
+      // One engine per element, so a dim, an arrival and a glide never fight.
+      const transition = screen.getByTestId('panel-red').style.transition
+      expect(transition).not.toMatch(/opacity|left|top|width|height/)
     })
   })
 

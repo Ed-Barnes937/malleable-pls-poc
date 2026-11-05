@@ -150,7 +150,7 @@ export function RefitBanner({ course, onShowPlanItem }: {
     <section
       data-testid="refit-banner"
       aria-label="Blocks that didn't happen"
-      className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3 py-2.5"
+      className="flex flex-col gap-2.5 rounded-item border border-attn-line bg-attn-soft px-3 py-2.5 motion-safe:animate-enter"
     >
       <div className="flex items-start gap-2">
         <RotateCcw className="mt-0.5 h-4 w-4 shrink-0 text-attn" />

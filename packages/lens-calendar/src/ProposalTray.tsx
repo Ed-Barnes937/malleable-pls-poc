@@ -14,7 +14,7 @@ export function ProposalTray({ layer, label = 'suggested blocks' }: { layer: Pro
       role="region"
       aria-label="Suggested blocks"
       data-testid="proposal-tray"
-      className="flex shrink-0 flex-wrap items-center gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3.5 py-2"
+      className="flex shrink-0 flex-wrap items-center gap-2.5 rounded-item border border-accent-line bg-accent-soft px-3.5 py-2 motion-safe:animate-enter"
     >
       <Sparkles className="h-4 w-4 shrink-0 text-accent" />
       <span className="text-body text-text-primary">

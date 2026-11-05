@@ -68,13 +68,25 @@
  *              rounded-toast. No bare rounded, rounded-md or
  *              rounded-[Npx]: design-tokens.test.ts fails on them.
  *   Shadow     shadow-panel (widgets), shadow-pop (popovers, toasts)
- *   Motion     One signature motion: the confused-to-calendar ripple.
- *              The review card that flies from the moment to its block is
+ *   Motion     One shared language (flow audit decision 19): what arrives
+ *              or leaves scales and slides from where it is, 200ms on
+ *              ease-motion, and nothing moves under reduced motion (the
+ *              change still happens, at once). CSS: motion-safe:animate-enter
+ *              on what arrives while the student watches (a new block, ghost,
+ *              to-do row, chip or toast), never on a list's first render.
+ *              Script: packages/shared-ui/src/motion.ts (the same duration,
+ *              curve and keyframes, and useReducedMotion). One engine per
+ *              element: widgets are motion/react's alone (enter, leave,
+ *              dimming, fullscreen), so give them no CSS opacity or
+ *              transform motion. Enter fill mode is backwards, never both,
+ *              and keyframes leave out their end, so an arrival lands on the
+ *              element's own look (a dimmed block stays dimmed).
+ *              The signature motion: the confused-to-calendar ripple. The
+ *              review card that flies from the moment to its block is
  *              driven from script (it follows the board as it scrolls; see
  *              Ripple in TranscriptLens), never under reduced motion.
- *              motion-safe:animate-slide-in
- *              (a new To-do row), animate-glow-once (a revealed block, in
- *              --glow, its course colour; a still ring under reduced motion).
+ *              animate-glow-once (a revealed block, in --glow, its course
+ *              colour; a still ring under reduced motion).
  *              Always gate movement with motion-safe:.
  */
 @theme {
@@ -177,15 +189,15 @@
   --shadow-panel-focused: 0 2px 4px rgba(70, 45, 20, 0.06), 0 12px 36px rgba(70, 45, 20, 0.1);
   --shadow-pop: 0 2px 6px rgba(70, 45, 20, 0.08), 0 18px 48px rgba(70, 45, 20, 0.16);
 
-  --transition-panel: 200ms ease-out;
-
-  /* ── Motion (see the comment above) ── */
-  --animate-slide-in: slide-in 420ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  /* ── Motion (see the comment above; motion.ts in shared-ui has the same values) ── */
+  --ease-motion: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-panel: 200ms var(--ease-motion);
+  --animate-enter: enter 200ms var(--ease-motion) backwards;
   --animate-glow-once: glow-once 1800ms ease-out 1;
 
-  @keyframes slide-in {
-    from { opacity: 0; transform: translateY(-8px); }
-    to { opacity: 1; transform: none; }
+  /* No `to`: it ends on the element's own opacity and transform. */
+  @keyframes enter {
+    from { opacity: 0; transform: translateY(6px) scale(0.94); }
   }
   @keyframes glow-once {
     0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--glow) 70%, transparent); }

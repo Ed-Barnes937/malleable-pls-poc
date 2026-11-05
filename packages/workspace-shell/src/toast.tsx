@@ -241,7 +241,8 @@ export function ToastHost() {
                 if (!e.currentTarget.contains(e.relatedTarget as Node | null)) release(toast.id)
               }}
               className={cn(
-                'flex min-w-0 items-center gap-3 rounded-toast bg-inverse text-inverse-foreground',
+                // Each toast (and each one replacing another of its kind) arrives with the shared motion.
+                'flex min-w-0 items-center gap-3 rounded-toast bg-inverse text-inverse-foreground motion-safe:animate-enter',
                 // One row whatever the width: on a phone it fills the bar and
                 // the message takes two lines at most.
                 narrow ? 'h-14 flex-1 pr-2 pl-3.5' : 'h-11 pr-3 pl-4 shadow-pop',

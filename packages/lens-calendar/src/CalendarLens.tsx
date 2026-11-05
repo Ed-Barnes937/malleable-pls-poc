@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemsRevert } from '@pls/substrate'
 import { DRAFT_ACCEPTED_KEY, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations, useUndoToast } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
@@ -44,6 +44,11 @@ interface PendingMove {
   /** The row's `updated_at` when dragged: newer data supersedes the override. */
   basis: string
 }
+
+/** Air between the grid's prompts (re-fit, suggested blocks) and a Help me plan panel over the grid. */
+const PROMPTS_GAP_PX = 8
+/** Beside Show plan (at the grid's bottom corner) while the Help me plan panel is tucked away. */
+const SHOW_PLAN_ROOM_PX = 12 + 128 + PROMPTS_GAP_PX
 
 function useNow(): Date {
   const [now, setNow] = useState(() => new Date())
@@ -201,6 +206,10 @@ export default function CalendarLens({
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
+  // The grid shows once the first week is in (see below); after that it stays.
+  const weekLoaded = useRef(false)
+  if (data) weekLoaded.current = true
+  const weekShown = weekLoaded.current
   // Open to-dos with time still to book: what Help me plan offers, and what
   // an Auto-fill ghost's to-do must still be when it is accepted. A to-do
   // booked in part (its own block, or sessions) offers only the time not
@@ -718,6 +727,15 @@ export default function CalendarLens({
   const showingToday = days.some((d) => d.getTime() === today.getTime())
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
   const bounds = { width: rootRef.current?.clientWidth ?? 800, height: rootRef.current?.clientHeight ?? 600 }
+  // The prompts' place at the grid's foot: clear of the open Help me plan
+  // panel, and above Show plan while the panel is tucked away.
+  const promptsInset: CSSProperties = {}
+  if (planLayout && planCollapsed) promptsInset[placement.side === 'left' ? 'paddingLeft' : 'paddingRight'] = SHOW_PLAN_ROOM_PX
+  if (planLayout && !planCollapsed) {
+    // Docked, the panel sits beside the grid and covers none of it.
+    if (placement.side === 'left') promptsInset.paddingLeft = placement.left + placement.width + PROMPTS_GAP_PX
+    else if (placement.side === 'right') promptsInset.paddingRight = placement.width + PROMPTS_GAP_PX
+  }
 
   /** Keyboard (and pointer) way to add: an hour from the next half hour today, or 09:00 on the first day shown. */
   const handleAddButton = (e: MouseEvent<HTMLButtonElement>) => {
@@ -742,6 +760,53 @@ export default function CalendarLens({
       </button>
     )
   }
+
+  // The calendar's prompts (a lost save, the re-fit banner, the suggested
+  // blocks tray) sit at the grid's foot, inside it: the grid fits its hours
+  // to the room it has with them or without them (see TimeGrid's footer), so
+  // it never moves or re-sizes its hours as they come and go (a drag at that
+  // moment would land on the wrong hour; decision 13), and they never lie over
+  // a block. Clear of the Help me plan panel and its Show plan button.
+  const prompts = (
+    <div
+      data-testid="calendar-prompts"
+      className="flex flex-col gap-1.5 border-t border-border-subtle p-2 empty:hidden"
+      style={promptsInset}
+    >
+      {lostSave && (
+        <div
+          role="alert"
+          data-testid="calendar-lost-save"
+          className="flex shrink-0 items-center gap-2 rounded-item border border-confused-line bg-confused-soft py-1.5 pr-1.5 pl-3 text-body text-confused motion-safe:animate-enter"
+        >
+          <span className="min-w-0 flex-1">{lostSave}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            title="Dismiss"
+            onClick={() => setLostSave(null)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item transition-colors hover:bg-surface-raised"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* A board asks once: in its first Calendar (decision 4). */}
+      {asksAboutMissedBlocks !== false && (
+        <RefitBanner
+          refit={refit}
+          layer={layer}
+          onReveal={(startsAt) => {
+            // Show the first new time: its week (or day).
+            const start = Date.parse(startsAt)
+            if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
+          }}
+        />
+      )}
+      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+    </div>
+  )
 
   return (
     <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway}>
@@ -843,70 +908,46 @@ export default function CalendarLens({
         </div>
       </header>
 
-      {lostSave && (
-        <div
-          role="alert"
-          data-testid="calendar-lost-save"
-          className="flex shrink-0 items-center gap-2 rounded-item border border-confused-line bg-confused-soft py-1.5 pr-1.5 pl-3 text-body text-confused"
-        >
-          <span className="min-w-0 flex-1">{lostSave}</span>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            title="Dismiss"
-            onClick={() => setLostSave(null)}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item transition-colors hover:bg-surface-raised"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      {/* A board asks once: in its first Calendar (decision 4). */}
-      {asksAboutMissedBlocks !== false && (
-        <RefitBanner
-          refit={refit}
-          layer={layer}
-          onReveal={(startsAt) => {
-            // Show the first new time: its week (or day).
-            const start = Date.parse(startsAt)
-            if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
-          }}
-        />
-      )}
-      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
       <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
-        <TimeGrid
-          days={days}
-          items={items}
-          now={now}
-          isDimmed={isDimmed}
-          isLinked={isLinked}
-          activeKey={popover?.mode === 'edit' ? popover.key : undefined}
-          popoverOpen={!!popover}
-          onCreate={handleCreate}
-          onOpen={handleOpen}
-          onMove={handleMove}
-          proposals={layer.proposals}
-          savedProposalIds={layer.lockedIds}
-          onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
-          onProposalNudge={layer.nudge}
-          onProposalAccept={(id) => void layer.accept(id)}
-          onProposalDismiss={layer.dismiss}
-          freeTime={freeTime}
-          outsideStudyHours={offStudyHours}
-          reveal={reveal}
-          incoming={incoming}
-          onDropIncoming={(start) => {
-            const todo = incoming
-            setIncoming(null)
-            if (!todo) return
-            scheduleTodo(todo, start, todo.durationMin).catch((e: unknown) =>
-              setNotice(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar - try again?`),
-            )
-          }}
-        />
+        {weekShown ? (
+          <TimeGrid
+            days={days}
+            items={items}
+            loading={!data}
+          footer={prompts}
+            now={now}
+            isDimmed={isDimmed}
+            isLinked={isLinked}
+            activeKey={popover?.mode === 'edit' ? popover.key : undefined}
+            popoverOpen={!!popover}
+            onCreate={handleCreate}
+            onOpen={handleOpen}
+            onMove={handleMove}
+            proposals={layer.proposals}
+            savedProposalIds={layer.lockedIds}
+            onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
+            onProposalNudge={layer.nudge}
+            onProposalAccept={(id) => void layer.accept(id)}
+            onProposalDismiss={layer.dismiss}
+            freeTime={freeTime}
+            outsideStudyHours={offStudyHours}
+            reveal={reveal}
+            incoming={incoming}
+            onDropIncoming={(start) => {
+              const todo = incoming
+              setIncoming(null)
+              if (!todo) return
+              scheduleTodo(todo, start, todo.durationMin).catch((e: unknown) =>
+                setNotice(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar - try again?`),
+              )
+            }}
+          />
+        ) : (
+          // Until the week first loads: the grid comes with its blocks (and its
+          // row of due to-dos) rather than resizing under them as they land.
+          <div aria-busy className="min-h-0 flex-1" />
+        )}
         {planLayout && planCollapsed && (
           // Bottom corner, clear of the day headers.
           // Takes focus when Hide tucks the panel away (it only appears then).

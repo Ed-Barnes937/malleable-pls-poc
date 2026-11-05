@@ -2,7 +2,7 @@ import type { LensProps } from '@pls/lens-framework'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, dayAndTime, doByLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
 import { CalendarClock, Check, Clock, Hourglass, Sparkles, Undo2, X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { slippedAt } from './todo-items'
 import { SourceLink } from './SourceLink'
 
@@ -15,8 +15,10 @@ export interface TodoRowProps {
   highlighted: boolean
   /** Ticked a moment ago: shown done in place, with "Done · Undo", until it fades. */
   justDone?: { fading: boolean; onUndo: () => void }
-  /** Arrived while the list was on screen (e.g. a review just added): it slides in. */
+  /** Arrived while the list was on screen (e.g. a review just added). */
   fresh?: boolean
+  /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
+  enter?: boolean
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
@@ -30,23 +32,28 @@ export interface TodoRowProps {
   onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, onToggle, onDismiss, booking, onBookRest, children, onScopeChange, onShowMoment }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, enter, onToggle, onDismiss, booking, onBookRest, children, onScopeChange, onShowMoment }: TodoRowProps) {
   // A just-ticked row is done straight away, before the save comes back.
   const done = item.status === 'done' || !!justDone
   const slipped = done ? null : slippedAt(item, now)
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(!!enter)
 
   return (
     <li
       data-testid="todo-item"
       data-plan-item-id={item.id}
+      // Glides to a new place when the list re-sorts (see useListGlide).
+      data-glide-key={item.occurrence_key}
       data-highlighted={highlighted || undefined}
       data-just-done={justDone ? (justDone.fading ? 'fading' : 'shown') : undefined}
       data-fresh={fresh || undefined}
       className={cn(
-        'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-[background-color,opacity] duration-300 last:border-b-0 hover:bg-surface-inset motion-reduce:transition-none',
-        fresh && 'motion-safe:animate-slide-in',
+        'group flex items-start gap-3 border-b border-border-subtle px-1 py-3 transition-[background-color,opacity,scale] duration-300 ease-motion last:border-b-0 hover:bg-surface-inset motion-reduce:transition-none',
+        entering && 'origin-top motion-safe:animate-enter',
         highlighted && 'rounded-item bg-accent-soft ring-1 ring-accent-line',
-        justDone?.fading && 'opacity-0',
+        // Leaving: the arrival's motion in reverse (see JUST_DONE_FADE_MS).
+        justDone?.fading && 'opacity-0 motion-safe:scale-[0.97]',
       )}
     >
       <button

@@ -167,7 +167,7 @@ export function RefitBanner({
 
   const asking = missed.proposals
   if (!previewing && asking.length === 0) {
-    return note ? <p role="status" data-testid="refit-note" className="shrink-0 text-meta text-text-secondary">{note}</p> : null
+    return note ? <p role="status" data-testid="refit-note" className="shrink-0 px-1 text-meta text-text-secondary motion-safe:animate-enter">{note}</p> : null
   }
 
   // The times shown come from a preview fetched now, never one that may lag
@@ -212,7 +212,7 @@ export function RefitBanner({
     <section
       data-testid="refit-banner"
       aria-label="Blocks that didn't happen"
-      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5"
+      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5 motion-safe:animate-enter"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <RotateCcw className="h-4 w-4 shrink-0 text-attn" aria-hidden />

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { motion, useDragControls, useMotionValue } from 'motion/react'
+import { AnimatePresence, animate, motion, useDragControls, useIsPresent, useMotionValue, type MotionValue } from 'motion/react'
+import { ENTER_FROM, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, boardSlideKeyframes, useReducedMotion } from '@pls/shared-ui'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
@@ -21,10 +22,17 @@ export interface CanvasEngineProps {
   getLabel?: (lensType: string) => string | undefined
   /** Render extra header actions (e.g. per-lens config buttons) inside PanelChrome. */
   renderHeaderActions?: (panelId: string) => ReactNode
+  /**
+   * The side a new set of panels (another board) slides in from, in the
+   * direction of travel; null shows it in place (the first load).
+   */
+  slideFrom?: 'left' | 'right' | null
 }
 
-export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: CanvasEngineProps) {
+export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions, slideFrom }: CanvasEngineProps) {
   const panels = useCanvasStore((s) => s.panels)
+  const panelSet = useCanvasStore((s) => s.panelSet)
+  const arranged = useCanvasStore((s) => s.arranged)
   const focusModePanelId = useCanvasStore((s) => s.focusModePanelId)
   const fullscreenPanelId = useCanvasStore((s) => s.fullscreenPanelId)
   const selectedPanelId = useCanvasStore((s) => s.selectedPanelId)
@@ -50,9 +58,40 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     }
   }, [panels, onLayoutChange])
 
-  // A fullscreen panel fills the canvas from its top-left, so show the top;
-  // leaving fullscreen puts the board back where it was scrolled to.
+  const reducedMotion = useReducedMotion()
+
+  // Another board's widgets slide in together (the board's background stays
+  // put), before the browser paints them where they end up.
+  const slidFor = useRef(panelSet)
+  useLayoutEffect(() => {
+    if (slidFor.current === panelSet) return
+    slidFor.current = panelSet
+    if (slideFrom && !reducedMotion) canvasRef.current?.animate(boardSlideKeyframes(slideFrom), MOTION_TIMING)
+  }, [panelSet, slideFrom, reducedMotion])
+
+  /** Each panel's element and motion values, for gliding it (see `glide`). */
+  const gliders = useRef(new Map<string, Glider>())
+  /** Where every panel was on screen just before the last arranging change. */
+  const beforeArranged = useRef<ArrangedBefore | null>(null)
+  /** The board's scroll as a panel went fullscreen, to put back as it leaves. */
   const scrollBeforeFullscreen = useRef<number | null>(null)
+  // Read the old places as the change is made, before React redraws, and
+  // the board's scroll before a panel goes fullscreen (once it has, the board
+  // may be too short to keep it).
+  useLayoutEffect(() => useCanvasStore.subscribe((state, prev) => {
+    if (state.fullscreenPanelId && !prev.fullscreenPanelId && canvasRef.current) {
+      scrollBeforeFullscreen.current = canvasRef.current.scrollTop
+    }
+    if (state.arranged === prev.arranged) return
+    const boxes = new Map<string, DOMRect>()
+    for (const [id, g] of gliders.current) boxes.set(id, g.el.getBoundingClientRect())
+    beforeArranged.current = { boxes, sizes: new Map(prev.panels.map((p) => [p.id, { width: p.width, height: p.height }])) }
+  }), [])
+
+  // A fullscreen panel fills the canvas from its top-left, so show the top;
+  // leaving fullscreen puts the board back where it was scrolled to. Then
+  // every panel glides from where it was on screen, the board's scroll
+  // included, so nothing jumps (and nothing moves under reduced motion).
   useLayoutEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -63,7 +102,10 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       canvas.scrollTop = scrollBeforeFullscreen.current
       scrollBeforeFullscreen.current = null
     }
-  }, [fullscreenPanelId])
+    const before = beforeArranged.current
+    beforeArranged.current = null
+    if (before && !reducedMotion) glide(canvas, useCanvasStore.getState().panels, gliders.current, before)
+  }, [fullscreenPanelId, arranged, reducedMotion])
 
   const narrow = useNarrowCanvas(canvasRef)
   const stackOrder = new Map([...panels].sort(byPosition).map((p, i) => [p.id, i]))
@@ -102,6 +144,10 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           breakpoint only restyles panels: widgets never remount (an
           in-progress recording survives). Stacked reading order comes from CSS
           `order`, not from re-sorting children. */}
+      {/* Keyed by the panel set: another board's widgets are there at once
+          (the canvas slides in as a whole, see slideFrom), while a widget added to
+          or removed from this board arrives or leaves with the shared motion. */}
+      <AnimatePresence key={panelSet} initial={false}>
       {panels.map((panel) => (
         <DraggablePanel
           key={panel.id}
@@ -114,6 +160,9 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           isSelected={selectedPanelId === panel.id}
           isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
           isFullscreen={!narrow && fullscreenPanelId === panel.id}
+          isBehind={!narrow && fullscreenPanelId !== null && fullscreenPanelId !== panel.id}
+          reducedMotion={reducedMotion}
+          gliders={gliders.current}
           canvasRef={canvasRef}
           onRemovePanel={onRemovePanel}
           renderPanel={renderPanel}
@@ -122,6 +171,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
           renderHeaderActions={renderHeaderActions}
         />
       ))}
+      </AnimatePresence>
       {/* Air under the lowest widget once the free board scrolls. */}
       {!narrow && panels.length > 0 && (
         <div
@@ -159,6 +209,80 @@ function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
 /** Reading order for the stacked layout: top to bottom, then left to right. */
 function byPosition(a: PanelItem, b: PanelItem): number {
   return a.pos_y - b.pos_y || a.pos_x - b.pos_x
+}
+
+/* ── Gliding to a new arrangement ── */
+
+/** A panel's element and the motion values that place and size it on screen. */
+interface Glider {
+  el: HTMLElement
+  x: MotionValue<number>
+  y: MotionValue<number>
+  scaleX: MotionValue<number>
+  scaleY: MotionValue<number>
+  /** The panel's content (header and widget), apart from its card. */
+  content: MotionValue<number>
+}
+
+/** How far through a resize glide the content stays hidden (see `glide`). */
+const CONTENT_HIDDEN_UNTIL = 0.4
+
+/** Panels scale from their top edge's middle (enter, leave, step back, glide). */
+const ORIGIN = { x: 0.5, y: 0 }
+const PANEL_ORIGIN = `${ORIGIN.x * 100}% ${ORIGIN.y * 100}%`
+
+/**
+ * After an arranging change (fullscreen in or out, Tidy up), each panel is
+ * laid out at its new box at once, and drawn from where it was on screen
+ * (`before`) back to that box: a transform only, so nothing on the page is
+ * laid out again while it glides. A panel whose box didn't change still
+ * glides if the board's scroll moved under it. A panel changing size lays its
+ * content out afresh for the new size at once, which would make the content
+ * jump (and stretch with the card): so the content is hidden as it is laid
+ * out, and fades back in as the card settles. Motion/react owns these values
+ * (one engine per element).
+ */
+function glide(
+  canvas: HTMLElement,
+  panels: ReadonlyArray<PanelItem>,
+  gliders: ReadonlyMap<string, Glider>,
+  before: ArrangedBefore,
+) {
+  const frame = canvas.getBoundingClientRect()
+  const options = { type: 'tween' as const, duration: MOTION_MS / 1000, ease: MOTION_EASE_BEZIER }
+  for (const panel of panels) {
+    const g = gliders.get(panel.id)
+    const was = before.boxes.get(panel.id)
+    const size = before.sizes.get(panel.id)
+    if (!g || !was || !size || panel.width <= 0 || panel.height <= 0) continue
+    // Where its new box is on screen (the layout, not a transform in flight).
+    const left = frame.left + canvas.clientLeft + panel.pos_x - canvas.scrollLeft
+    const top = frame.top + canvas.clientTop + panel.pos_y - canvas.scrollTop
+    if (size.width !== panel.width || size.height !== panel.height) {
+      // Drawn at its old size and place, then grown or shrunk into the new.
+      const sx = was.width / panel.width
+      const sy = was.height / panel.height
+      animate(g.x, [was.left - left - ORIGIN.x * panel.width * (1 - sx), 0], options)
+      animate(g.y, [was.top - top - ORIGIN.y * panel.height * (1 - sy), 0], options)
+      animate(g.scaleX, [sx, 1], options)
+      animate(g.scaleY, [sy, 1], options)
+      animate(g.content, [0, 0, 1], { duration: MOTION_MS / 1000, times: [0, CONTENT_HIDDEN_UNTIL, 1], ease: 'easeOut' })
+      continue
+    }
+    // Same size: only moved (or the board scrolled under it). Measured by the
+    // middle of its top edge, which a panel stepping back keeps (see ORIGIN).
+    const dx = was.left + was.width / 2 - (left + panel.width / 2)
+    const dy = was.top - top
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) continue
+    animate(g.x, [dx, 0], options)
+    animate(g.y, [dy, 0], options)
+  }
+}
+
+/** The panels just before an arranging change: on screen, and their sizes in the store. */
+interface ArrangedBefore {
+  boxes: ReadonlyMap<string, DOMRect>
+  sizes: ReadonlyMap<string, { width: number; height: number }>
 }
 
 /* ── Handle directions ── */
@@ -426,6 +550,12 @@ interface DraggablePanelProps {
   isSelected?: boolean
   isDimmed?: boolean
   isFullscreen?: boolean
+  /** Another panel is fullscreen: this one steps back behind it. */
+  isBehind?: boolean
+  /** The student asked for less motion: nothing arrives, leaves or glides, it just is. */
+  reducedMotion?: boolean
+  /** Where the canvas finds this panel's motion values to glide it (see `glide`). */
+  gliders?: Map<string, Glider>
   canvasRef?: React.RefObject<HTMLDivElement | null>
   onRemovePanel?: (panelId: string) => void
   renderPanel?: (panelId: string) => ReactNode
@@ -434,8 +564,14 @@ interface DraggablePanelProps {
   renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, isBehind, reducedMotion, gliders, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
   const stacked = stackOrder !== undefined
+  // Removed and leaving: still drawn for its exit, but no longer on the board.
+  const present = useIsPresent()
+  const elRef = useRef<HTMLDivElement>(null)
+  const scaleX = useMotionValue(1)
+  const scaleY = useMotionValue(1)
+  const content = useMotionValue(1)
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
@@ -443,6 +579,17 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
 
   const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
     usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
+
+  useLayoutEffect(() => {
+    const el = elRef.current
+    if (!gliders || !el || !present) return
+    gliders.set(panel.id, { el, x, y, scaleX, scaleY, content })
+    return () => { gliders.delete(panel.id) }
+  }, [gliders, panel.id, present, x, y, scaleX, scaleY, content])
+
+  // What it showed last while on the board, kept for its exit (its data may already be gone).
+  const lastContent = useRef<ReactNode>(null)
+  if (present) lastContent.current = renderPanel?.(panel.id)
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
@@ -471,18 +618,29 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
         ? 'var(--shadow-panel-focused)'
         : 'var(--shadow-panel)'
 
-  // No layout animation while gesturing or stacked (switching layouts should snap).
-  const transitionStyle = isGesturing || stacked
-    ? undefined
-    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
+  // Only the shadow eases in CSS: where the panel is and how it fades are
+  // motion/react's (arrive, leave, dim, glide), never a CSS transition, so
+  // the two never fight over a value. No shadow easing while gesturing or
+  // stacked (switching layouts should snap).
+  const transitionStyle = isGesturing || stacked || reducedMotion ? undefined : 'box-shadow var(--transition-panel)'
+  const motionTiming = reducedMotion
+    ? { duration: 0 }
+    : { type: 'tween' as const, duration: MOTION_MS / 1000, ease: MOTION_EASE_BEZIER }
+  // Arrives from, and leaves to, the shared starting look (a slide would take
+  // the drag's `y`, so the scale from its top edge does the travelling).
+  const away = { opacity: ENTER_FROM.opacity, scale: ENTER_FROM.scale }
 
   const icon = panel.lensType ? getIcon?.(panel.lensType) : undefined
   const label = panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
 
   return (
     <motion.div
-      data-testid={`panel-${panel.id}`}
-      data-panel-id={panel.id}
+      ref={elRef}
+      data-testid={present ? `panel-${panel.id}` : undefined}
+      data-panel-id={present ? panel.id : undefined}
+      data-leaving={present ? undefined : ''}
+      inert={!present || undefined}
+      aria-hidden={present ? undefined : true}
       data-stack-order={stacked ? stackOrder : undefined}
       // Where the panel is headed, not where a transition has it now (see reveal.ts).
       data-layout-top={stacked ? undefined : panel.pos_y}
@@ -510,10 +668,14 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
             }),
         backgroundColor: 'var(--color-surface-raised)',
         boxShadow: shadow,
-        opacity: isDimmed ? 0.3 : 1,
         transition: transitionStyle,
+        transformOrigin: PANEL_ORIGIN,
+        // Nothing to press while it steps back behind a fullscreen panel.
+        pointerEvents: isBehind ? 'none' : undefined,
         x,
         y,
+        scaleX,
+        scaleY,
       }}
       onDragStart={onDragStart}
       onDrag={onDrag}
@@ -522,9 +684,13 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       className="rounded-widget border border-border-subtle"
-      initial={{ scale: 0.95 }}
-      animate={{ scale: isGesturing ? 1.015 : 1 }}
-      transition={{ type: 'tween', duration: 0.2 }}
+      initial={reducedMotion ? false : away}
+      animate={{
+        opacity: isBehind ? 0 : isDimmed ? 0.3 : 1,
+        scale: isGesturing ? 1.015 : isBehind ? ENTER_FROM.scale : 1,
+      }}
+      exit={reducedMotion ? undefined : away}
+      transition={motionTiming}
     >
       <div
         style={{ pointerEvents: (isHovered && !isFullscreen && !stacked) ? 'auto' : 'none' }}
@@ -541,6 +707,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
         ))}
       </div>
 
+      <motion.div className="h-full w-full" style={{ opacity: content }}>
       <PanelChrome
         panelId={panel.id}
         title={label}
@@ -551,8 +718,9 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
         onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
         headerActions={renderHeaderActions?.(panel.id)}
       >
-        {renderPanel?.(panel.id)}
+        {lastContent.current}
       </PanelChrome>
+      </motion.div>
     </motion.div>
   )
 }
