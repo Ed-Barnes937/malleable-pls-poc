@@ -1,7 +1,8 @@
 import path from 'path'
 import { withUser } from '@pls/db'
 import { createExecutorRegistry, type ExecutorRegistry } from '@pls/workflows'
-import { parseReviewParams, REVIEW_TASK_JOB, LECTURE_SUMMARY_ANCHOR } from '@pls/substrate'
+import { parseReviewParams, REVIEW_TASK_JOB, LECTURE_SUMMARY_ANCHOR, SORTED_TAG } from '@pls/substrate'
+import type { TransactionSql } from 'postgres'
 import type { AiDeps } from '../ai/deps'
 import { lectureSummaryTask, summaryBody } from '../ai/tasks/lecture-summary'
 import { reviewTask, reviewTitle } from '../ai/tasks/review-task'
@@ -131,10 +132,13 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
           ORDER BY (id = ${ctx.jobRun.workflow_job_id}) DESC, sort_order
           LIMIT 1
         `
-        return { moment, existing: await findOpenReview(tx, userId, moment), params: parseReviewParams(job?.params) }
+        return { moment, existing: await findOpenReview(tx, userId, moment), sorted: await isSorted(tx, userId, segmentId), params: parseReviewParams(job?.params) }
       })
       if (!found) throw new Error(`Transcript moment ${segmentId} not found`)
       const { moment, existing, params } = found
+      // A moment the student has marked sorted gets no more reviews.
+      const sortedSkip = { output: { skipped: 'moment sorted', quiet: true } }
+      if (found.sorted) return sortedSkip
       // Marking a moment again adds nothing. The run records which review it
       // matched but not where that review is now: only the run that created a
       // review records its placement (see replaceAutomationReviews).
@@ -147,7 +151,13 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       const { topic } = await llm.run(reviewTask, taskInput)
       const title = reviewTitle(topic, taskInput)
 
-      const result = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now(), workflowId: ctx.jobRun.workflow_id }))
+      // Checked again under the moment's lock (see tags.sort): it may have been sorted while the title was written.
+      const result = await withUser(userId, async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`review:${userId}:${moment.recordingId}:${moment.startMs}`}))`
+        if (await isSorted(tx, userId, segmentId)) return null
+        return createReview(tx, userId, { moment, title, params, now: Date.now(), workflowId: ctx.jobRun.workflow_id })
+      })
+      if (!result) return sortedSkip
       if (!result.created) return alreadyReviewed(result.item.id)
       const { item, slot } = result
       return {
@@ -165,4 +175,14 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
   )
 
   return serverExecutors
+}
+
+/** Whether the student marked this moment sorted (it then gets no more reviews). */
+async function isSorted(tx: TransactionSql, userId: string, segmentId: string): Promise<boolean> {
+  const [row] = await tx`
+    SELECT 1 FROM tags
+    WHERE user_id = ${userId} AND target_type = 'transcript_segment' AND target_id = ${segmentId} AND label = ${SORTED_TAG}
+    LIMIT 1
+  `
+  return !!row
 }

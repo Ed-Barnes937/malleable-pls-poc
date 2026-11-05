@@ -145,6 +145,24 @@ async function dispatchChange(
   }
 }
 
+/**
+ * Moves a plan item to `next` (e.g. dismisses it, or reopens a dismissed
+ * one), with its sessions following and the change's events. Returns the
+ * item after; nothing happens if it is already at `next`.
+ */
+export async function changeStatus(
+  tx: TransactionSql,
+  userId: string,
+  planItemId: string,
+  next: PlanItem['status'],
+  workspaceId: string | null,
+): Promise<PlanItem> {
+  const { before, item } = await setStatus(tx, userId, planItemId, next)
+  await cascadeToSessions(tx, userId, before, item)
+  if (before.status !== item.status) await dispatchChange(tx, userId, before, item, workspaceId)
+  return item
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -260,12 +278,7 @@ export const planItemsRouter = router({
   dismiss: publicProcedure
     .input(planItemOnBoardInput)
     .mutation(async ({ ctx, input }) => {
-      return withUser(ctx.userId, async (tx) => {
-        const { before, item } = await setStatus(tx, ctx.userId, input.id, 'dismissed')
-        await cascadeToSessions(tx, ctx.userId, before, item)
-        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
-        return item
-      })
+      return withUser(ctx.userId, (tx) => changeStatus(tx, ctx.userId, input.id, 'dismissed', input.workspaceId))
     }),
 
   /**

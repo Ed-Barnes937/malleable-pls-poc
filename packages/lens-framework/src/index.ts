@@ -9,6 +9,9 @@ export type {
   LensProps,
   Moment,
   FocusedMoment,
+  ReviewMoment,
+  ReviewRun,
+  LensNotice,
   FocusedPlanItem,
   PlanItemRef,
   ShowMomentResult,
@@ -68,3 +71,4 @@ export {
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
+export { useMarkSorted } from './sorted'

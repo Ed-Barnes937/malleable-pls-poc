@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -248,7 +248,7 @@ export function WorkspaceShell() {
    * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean, panelId?: string) => void } = {}) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
@@ -293,7 +293,7 @@ export function WorkspaceShell() {
           add.panelId = (row as { id?: string } | undefined)?.id
           dropPendingOnCanvas()
           if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
-          opts.onSettled?.(true)
+          opts.onSettled?.(true, add.panelId)
           // One toast for a run of adds, not a stack of them.
           if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
@@ -365,6 +365,53 @@ export function WorkspaceShell() {
     [removePanel],
   )
 
+  const startReview = useWorkspaceStore((s) => s.startReview)
+  const clearReview = useWorkspaceStore((s) => s.clearReview)
+  const reviewRun = useWorkspaceStore((s) => s.reviewRun)
+  const handleNotify = useCallback(
+    (notice: LensNotice) => pushToast({ ...notice, tone: 'success' }),
+    [pushToast],
+  )
+  /**
+   * A focused review on this board: handed to its Test Me (brought into
+   * view), or, when it has none, to one added for it, with Undo. Never
+   * switches boards.
+   */
+  const handleStartReview = useCallback(
+    (moments: ReviewMoment[]) => {
+      // The canvas, not the panel list: a widget just removed leaves the canvas
+      // at once, but the list until it refetches.
+      const reviewer = useCanvasStore.getState().panels
+        .find((p) => manifests.find((m) => m.id === p.lensType)?.runsReviews)
+      if (reviewer) {
+        startReview(moments)
+        revealPanel(reviewer.id)
+        return
+      }
+      const lensType = manifests.find((m) => m.runsReviews)?.id
+      if (!lensType) return
+      const label = manifests.find((m) => m.id === lensType)?.label ?? 'Test Me'
+      addWidget(lensType, undefined, {
+        quiet: true,
+        onSettled: (ok, panelId) => {
+          if (!ok) {
+            pushToast({ message: `Couldn't add ${label}. Try again.`, tone: 'error' })
+            return
+          }
+          startReview(moments)
+          if (panelId) revealPanel(panelId)
+          pushToast({
+            message: `${label} added to review your moments`,
+            tone: 'success',
+            key: 'widget-added',
+            ...(panelId ? { action: { label: 'Undo', onClick: () => handleRemovePanel(panelId) } } : {}),
+          })
+        },
+      })
+    },
+    [manifests, startReview, revealPanel, addWidget, pushToast, handleRemovePanel],
+  )
+
   // Render lens content for a given panel
   const renderPanel = useCallback(
     (panelId: string) => {
@@ -394,6 +441,10 @@ export function WorkspaceShell() {
             onOpenLectureOn={handleOpenLectureOn}
             onAddWidget={openWidgetPalette}
             onEditAutomation={setAutomationId}
+            onNotify={handleNotify}
+            onStartReview={handleStartReview}
+            reviewRun={manifest?.runsReviews ? reviewRun ?? undefined : undefined}
+            onReviewStarted={manifest?.runsReviews ? clearReview : undefined}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -410,7 +461,7 @@ export function WorkspaceShell() {
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, handleStartReview, reviewRun, clearReview],
   )
 
   // Icon resolver: look up icon from the manifest registry

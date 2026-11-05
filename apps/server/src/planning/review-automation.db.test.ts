@@ -333,8 +333,11 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       `)
       return n as number
     }
-    const mark = (workspaceId: string | null) =>
-      api.tags.create({ target_type: 'transcript_segment', target_id: seg(0), label: 'confused', workspaceId })
+    // Marked, then unmarked (a tag is added once, so each mark is a fresh one).
+    const mark = async (workspaceId: string | null) => {
+      const tag = await api.tags.create({ target_type: 'transcript_segment', target_id: seg(0), label: 'confused', workspaceId })
+      await api.tags.delete(tag.id)
+    }
 
     await mark(boardA)
     expect(await runsFor()).toBe(0)
@@ -439,5 +442,72 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     expect(created.created_by_workflow_id).toBeNull()
     const updated = await api.planItems.update({ id: created.id, patch: { title: 'Review: still by hand', created_by_workflow_id: workflowId } as never })
     expect(updated).toMatchObject({ title: 'Review: still by hand', created_by_workflow_id: null })
+  })
+
+  describe('a moment marked sorted', () => {
+    const sortedSeg = seg(9)
+    beforeAll(async () => {
+      await db.withUser(alice, (tx) => tx`
+        INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
+        VALUES (${sortedSeg}, ${alice}, ${rec}, 540000, 600000, 'Mitochondrial DNA mutates faster than nuclear DNA.', 'Prof')
+      `)
+    })
+    const tagsOn = async () => (await caller(alice).tags.forTarget({ targetType: 'transcript_segment', targetId: sortedSeg })).map((t) => t.label).sort()
+    const reviewsOf = async () => (await caller(alice).planItems.list({ sourceId: rec, statuses: ['open', 'done', 'dismissed'] }))
+      .filter((r) => r.source_offset_ms === 540000)
+
+    it('a tag is added once however often it is created', async () => {
+      const api = caller(alice)
+      const first = await api.tags.create({ target_type: 'transcript_segment', target_id: sortedSeg, label: 'confused' })
+      const again = await api.tags.create({ target_type: 'transcript_segment', target_id: sortedSeg, label: 'confused' })
+      expect(again.id).toBe(first.id)
+      expect(await tagsOn()).toEqual(['confused'])
+      // Two racing clicks too.
+      const [a, b] = await Promise.all([1, 2].map(() => api.tags.create({ target_type: 'transcript_segment', target_id: sortedSeg, label: 'question' })))
+      expect(a.id).toBe(b.id)
+      await api.tags.delete(a.id)
+      expect(await tagsOn()).toEqual(['confused'])
+    })
+
+    it('dismisses its open review, keeps confused as history, and Undo brings the review back', async () => {
+      const api = caller(alice)
+      const reviewId = (await markConfused(sortedSeg)).output.plan_item_id as string
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'open' })
+
+      const sorted = await api.tags.sort({ segmentId: sortedSeg })
+      expect(sorted.dismissed).toEqual([reviewId])
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'dismissed' })
+      expect(await tagsOn()).toEqual(['confused', 'sorted'])
+      // Sorting twice adds nothing.
+      expect((await api.tags.sort({ segmentId: sortedSeg })).dismissed).toEqual([])
+      expect(await tagsOn()).toEqual(['confused', 'sorted'])
+
+      const undone = await api.tags.unsort({ segmentId: sortedSeg, restore: sorted.dismissed })
+      expect(undone.restored).toEqual([reviewId])
+      expect(await api.planItems.byId(reviewId)).toMatchObject({ status: 'open' })
+      expect(await tagsOn()).toEqual(['confused'])
+    })
+
+    it('gets no more reviews from the automation, and a plain un-sort leaves its dismissed review alone', async () => {
+      const api = caller(alice)
+      await api.tags.sort({ segmentId: sortedSeg })
+      const again = await markConfused(sortedSeg)
+      expect(again.output).toMatchObject({ skipped: 'moment sorted', quiet: true })
+      expect((await reviewsOf()).map((r) => r.status)).toEqual(['dismissed'])
+
+      await api.tags.unsort({ segmentId: sortedSeg })
+      expect(await tagsOn()).toEqual(['confused'])
+      expect((await reviewsOf()).map((r) => r.status)).toEqual(['dismissed'])
+    })
+
+    it('restores only its own dismissed reviews', async () => {
+      const api = caller(alice)
+      const other = await api.planItems.create({ kind: 'task', title: 'Something else', subtype: null, course: null })
+      await api.planItems.dismiss(other.id)
+      await api.tags.sort({ segmentId: sortedSeg })
+      await api.tags.unsort({ segmentId: sortedSeg, restore: [other.id] })
+      expect(await api.planItems.byId(other.id)).toMatchObject({ status: 'dismissed' })
+      await api.planItems.delete(other.id)
+    })
   })
 })

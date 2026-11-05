@@ -179,7 +179,18 @@ export function isNotFoundError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 export interface SubstrateWriter extends SubstrateReader {
-  useCreateTag: () => MutationHandle<NewTag>
+  /** Adds a tag; once per (target, label), so a second call returns the tag already there. */
+  useCreateTag: () => MutationHandle<NewTag, Tag>
+  /** Removes a tag by id (a tag toggle turned off). */
+  useDeleteTag: () => MutationHandle<string, void>
+  /**
+   * Marks a confusing moment sorted (a `sorted` tag; `confused` stays as
+   * history) and dismisses its open review to-dos. `dismissed` is what
+   * `useUnsortMoment`'s `restore` brings back, for an Undo.
+   */
+  useSortMoment: () => MutationHandle<{ segmentId: string }, { dismissed: string[] }>
+  /** Un-sorts a moment; `restore` (from `useSortMoment`) reopens those reviews. */
+  useUnsortMoment: () => MutationHandle<{ segmentId: string; restore?: string[] }, { restored: string[] }>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   /**
@@ -297,6 +308,11 @@ export interface PanelManifest {
    * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
    */
   showsPlanItems?: boolean
+  /**
+   * The widget runs a focused review of moments (`LensProps.reviewRun`),
+   * e.g. Test Me. Decides where `LensProps.onStartReview` lands.
+   */
+  runsReviews?: boolean
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */
