@@ -62,5 +62,5 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 - **Don't scroll during the ripple** (about two seconds after confused): the board stops following it.
 - **Live Whisper splits moments differently** from mock: in mock the maternal-inheritance moment is one 40s segment (1:18-1:59); live it may be two or three shorter ones. Tap the one with "explain maternal inheritance"; the review title comes from the live LLM.
 - Weakest Topics shows two "Maternal inheritance" rows (the seeded lecture and today's); the distinct upload title tells them apart.
-- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the Calendar opens that week and the note says so.
+- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the Calendar opens that week to show them.
 - Keep Test Me off the demo board (its answer field is cut off); the seeded Evening Review and Exam Prep boards have it, so stay on "My week".

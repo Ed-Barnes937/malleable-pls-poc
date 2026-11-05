@@ -6,7 +6,6 @@ import { AudioCapturePom, CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, S
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
 import { expectedReviewSlots } from './review-placement'
-import { movedNote } from '../packages/lens-framework/src/missed-blocks'
 import { SEED_MISSED_IDS, SEED_TIME_ZONE, weekMonday } from './seed-week'
 
 /**
@@ -291,16 +290,21 @@ test.describe('Journey: the demo script (mock AI)', () => {
     const noFit = preview.length - movedIds.length
     await banner.getByRole('button', { name: 'Move them' }).click()
     await expect(banner).toHaveCount(0)
-    // The note says where they went, as of the browser's "now": "in your
-    // calendar" this week, or the week they went to (copy unit-tested in
-    // missed-blocks.test.tsx); the Calendar opened that week itself.
+    // The move is confirmed by an Undo toast (decision 30); the Calendar
+    // opened the week they went to itself. A note is left only for blocks
+    // that didn't fit (copy unit-tested in missed-blocks.test.tsx).
     await expect.poll(async () => (await trpcQuery<unknown[]>(request, 'planItems.refitPreview', { timeZone: SEED_TIME_ZONE })).length).toBe(noFit)
     const tasks = await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] })
-    const moved = movedIds.map((id) => tasks.find((t) => t.id === id)!)
-    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    await expect(calendar.root.getByTestId('refit-note')).toHaveText(new RegExp(
-      `^${escape(movedNote(moved.map((t) => t.starts_at!), [], NOW))}${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}$`,
-    ))
+    const toastHost = page.getByTestId('toast-host')
+    await expect(toastHost.getByTestId('toast').filter({ hasText: `Moved ${movedIds.length} blocks` })).toBeVisible()
+    await expect(toastHost.getByTestId('toast').filter({ hasText: `Moved ${movedIds.length} blocks` }).getByRole('button', { name: 'Undo' })).toBeVisible()
+    if (noFit === 0) {
+      await expect(calendar.root.getByTestId('refit-note')).toHaveCount(0)
+    } else {
+      await expect(calendar.root.getByTestId('refit-note')).toHaveText(new RegExp(
+        `^${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.$`,
+      ))
+    }
     const missedAfter = tasks.filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     for (const item of missedAfter) {
       expect(Date.parse(item.starts_at!), item.title).toBeGreaterThan(Date.now() - 5 * 60_000)
