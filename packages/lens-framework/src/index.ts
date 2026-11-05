@@ -72,3 +72,4 @@ export {
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
 export { momentMarksKey, useMomentMarks } from './sorted'
+export { requestHelpMePlan, takeHelpMePlanRequest, useHelpMePlanRequest, PLAN_REQUEST_TTL_MS } from './plan-request'

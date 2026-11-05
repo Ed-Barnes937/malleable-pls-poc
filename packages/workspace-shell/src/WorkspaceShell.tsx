@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
+import { requestHelpMePlan, useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -248,7 +248,7 @@ export function WorkspaceShell() {
    * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean, panelId?: string) => void } = {}) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; slotName?: string; onSettled?: (ok: boolean, panelId?: string) => void } = {}) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
@@ -281,7 +281,7 @@ export function WorkspaceShell() {
       addPanel.mutateAsync({
         workspaceId: activeWorkspaceId,
         lensType,
-        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        slotName: opts.slotName ?? `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         pos_x: box.x,
         pos_y: box.y,
         width,
@@ -513,12 +513,51 @@ export function WorkspaceShell() {
     handleLayoutChange(updated)
   }, [handleLayoutChange])
 
+  // The top bar's Up next: plan the week on this board, never switching boards.
+  // The Calendar that opens Help me plan is named by its panelId (the board and
+  // slot), so a board switch or a second press can't send it elsewhere.
+  const calendarPanel = (panels as unknown as { lens_type: string; slot_name: string }[] | undefined)?.find((p) => p.lens_type === 'calendar')
+  const boardHasCalendar = !!calendarPanel
+  /** A Calendar being added here: a second press waits for it instead of adding another. */
+  const calendarAdd = useRef<{ workspaceId: string; plan: boolean } | null>(null)
+  const addCalendar = useCallback(
+    (plan: boolean) => {
+      if (!activeWorkspaceId) return
+      const inFlight = calendarAdd.current
+      if (inFlight?.workspaceId === activeWorkspaceId) {
+        inFlight.plan ||= plan
+        return
+      }
+      const job = { workspaceId: activeWorkspaceId, plan }
+      calendarAdd.current = job
+      const slotName = `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      addWidget('calendar', undefined, {
+        slotName,
+        // Asked only once the Calendar is there, so a failed add asks nothing.
+        onSettled: (ok) => {
+          if (calendarAdd.current === job) calendarAdd.current = null
+          if (ok && job.plan) requestHelpMePlan(`${job.workspaceId}-${slotName}`)
+        },
+      })
+    },
+    [activeWorkspaceId, addWidget],
+  )
+  const handleAddCalendar = useCallback(() => addCalendar(false), [addCalendar])
+  const handlePlanWeek = useCallback(() => {
+    if (!activeWorkspaceId) return
+    if (calendarPanel) requestHelpMePlan(`${activeWorkspaceId}-${calendarPanel.slot_name}`)
+    else addCalendar(true)
+  }, [activeWorkspaceId, calendarPanel, addCalendar])
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
         menuOpen={drawerOpen}
         onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+        boardHasCalendar={boardHasCalendar}
+        onPlanWeek={handlePlanWeek}
+        onAddCalendar={handleAddCalendar}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
