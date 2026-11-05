@@ -40,12 +40,12 @@ export interface UpNextProps {
 
 /**
  * The top bar's Up next: a button naming the next item in the student's
- * calendar ("Up next: Cafe shift 17:00", "Chemistry now"), or "Plan your
+ * calendar ("Up next: Cafe shift 17:00", "Now: Chemistry" while it is on), or "Plan your
  * week" when nothing is booked. It opens a popover with the next few items,
  * what is due this week, and a way to plan and to add the Calendar to this
  * board. Always in the bar, at every width.
  */
-export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar }: UpNextProps) {
+export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar, className }: UpNextProps & { className?: string }) {
   const now = useMinuteClock()
   const narrow = useNarrowScreen()
   const preferences = usePreferences()
@@ -53,7 +53,8 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar }: UpNextPr
   const zone = upNextZone(preferences.data, preferences.isError, browserZone)
   // The query key is the same all day, so a minute ticking over refetches nothing.
   const range = useMemo(() => (zone ? upNextRange(now, zone) : null), [now, zone])
-  const rows = usePlanItemList({ ...(range ?? {}), statuses: ['open'] }, { enabled: !!range })
+  // The day rolling over changes the range: keep showing the last answer meanwhile.
+  const rows = usePlanItemList({ ...(range ?? {}), statuses: ['open'] }, { enabled: !!range, keepPrevious: true })
   const tasks = usePlanItemList({ kinds: ['task'], statuses: ['open', 'done'] })
 
   const summary = useMemo(
@@ -75,8 +76,14 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar }: UpNextPr
     ? summary.next && zone ? upNextLabel(summary.next, now, zone) : 'Plan your week'
     : null
 
+  // What the bar has left decides how much of the button shows (container
+  // queries on the box the bar hands it): the label truncates first, then
+  // only the icon is left. The bar never gives room to it before the board
+  // tabs and scope pills have theirs.
+  const live = !!summary?.next?.live
+
   return (
-    <>
+    <div className={cn('@container flex min-w-0', className)}>
       <button
         ref={triggerRef}
         type="button"
@@ -85,24 +92,20 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar }: UpNextPr
         aria-expanded={open}
         aria-controls={open ? popoverId : undefined}
         onClick={() => (open ? close() : setOpen(true))}
-        title={label ? `Up next: ${label}` : 'Up next'}
+        title={label ? (live ? label : `Up next: ${label}`) : 'Up next'}
         className={cn(
-          'inline-flex h-9 min-w-0 items-center gap-2 rounded-control border border-border bg-surface-raised px-3 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay',
-          // Tablet widths have no room for words: the icon alone (its name is still read out).
-          narrow ? 'max-w-full' : 'max-w-72 max-lg:w-9 max-lg:justify-center max-lg:gap-0 max-lg:px-0',
+          'inline-flex h-9 max-w-72 min-w-0 items-center gap-2 rounded-control border border-border bg-surface-raised px-3 text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay',
+          !narrow && '@max-[8rem]:w-9 @max-[8rem]:justify-center @max-[8rem]:gap-0 @max-[8rem]:px-0',
           open && 'bg-surface-overlay',
         )}
       >
         <CalendarClock aria-hidden className="h-4 w-4 shrink-0 text-accent" />
-        {summary?.next ? (
-          <span className={cn('min-w-0 truncate', !narrow && 'max-lg:sr-only')}>
-            {/* Room is short below xl: the label alone. */}
-            <span className="text-text-secondary max-xl:sr-only">Up next: </span>
-            <span data-testid="up-next-label">{label}</span>
-          </span>
-        ) : (
-          <span data-testid="up-next-label" className={cn('min-w-0 truncate', !narrow && 'max-lg:sr-only')}>{label ?? 'Up next'}</span>
-        )}
+        <span className={cn('min-w-0 truncate', !narrow && '@max-[8rem]:sr-only')}>
+          {summary?.next && !live && (
+            <span className="text-text-secondary @max-[19rem]:sr-only">Up next: </span>
+          )}
+          <span data-testid="up-next-label">{label ?? 'Up next'}</span>
+        </span>
       </button>
       {open && (
         <UpNextPopover
@@ -123,7 +126,7 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar }: UpNextPr
           }}
         />
       )}
-    </>
+    </div>
   )
 }
 
@@ -188,11 +191,20 @@ function UpNextPopover({ id, triggerRef, summary, now, zone, boardHasCalendar, o
     }
   }, [onClose, triggerRef])
 
-  // Tabbing out of the popover closes it, and focus goes back to the trigger.
-  const onBlur = (e: React.FocusEvent) => {
-    const next = e.relatedTarget as Node | null
-    if (!next || ref.current?.contains(next) || triggerRef.current?.contains(next)) return
-    onClose(false)
+  // Tab moves through the popover's buttons itself, and past either end
+  // leaves for the button it came from: the popover is rendered at the end of
+  // the page, so the browser's own next stop would be somewhere unrelated
+  // (and differs between browsers).
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab') return
+    const box = ref.current
+    if (!box) return
+    e.preventDefault()
+    const stops = [...box.querySelectorAll<HTMLElement>('button:not([disabled])')]
+    const at = stops.indexOf(document.activeElement as HTMLElement)
+    const next = e.shiftKey ? at - 1 : at + 1
+    if (next < 0 || next >= stops.length) onClose()
+    else stops[next].focus()
   }
 
   return createPortal(
@@ -206,9 +218,9 @@ function UpNextPopover({ id, triggerRef, summary, now, zone, boardHasCalendar, o
       aria-label="Up next"
       data-testid="up-next-popover"
       tabIndex={-1}
-      onBlur={onBlur}
-      className="fixed z-[10004] flex max-h-[calc(100dvh-5rem)] flex-col gap-3 overflow-y-auto rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop outline-none"
-      style={{ top: pos.top, left: pos.left, width: pos.width }}
+      onKeyDown={onKeyDown}
+      className="fixed z-[10004] flex flex-col gap-3 overflow-y-auto rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop outline-none"
+      style={{ top: pos.top, left: pos.left, width: pos.width, maxHeight: Math.max(160, window.innerHeight - pos.top - EDGE) }}
     >
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-title font-semibold text-text-primary">Up next</h2>

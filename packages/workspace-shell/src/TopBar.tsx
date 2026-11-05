@@ -24,7 +24,7 @@ const ICON_BUTTON =
  * The board tabs between a menu button and the widgets button. On a phone
  * (below 640px) that is all the first row holds: Activity, theme and board
  * appearance move into the board menu, and a second row has the scope
- * pills and the short today line.
+ * pills and Up next.
  */
 export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCalendar, onPlanWeek, onAddCalendar }: TopBarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
@@ -44,7 +44,9 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
       <LayoutGrid size={18} />
     </button>
   )
-  const upNext = <UpNext boardHasCalendar={boardHasCalendar} onPlanWeek={onPlanWeek} onAddCalendar={onAddCalendar} />
+  const upNext = (className: string) => (
+    <UpNext boardHasCalendar={boardHasCalendar} onPlanWeek={onPlanWeek} onAddCalendar={onAddCalendar} className={className} />
+  )
   const scope = activeWorkspaceId && <BoardScope workspaceId={activeWorkspaceId} compact={narrow} />
 
   if (narrow) {
@@ -62,7 +64,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
         {/* Up next wraps under the scope pills rather than cut them short. */}
         <div data-testid="top-bar-row-2" className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           {scope}
-          <div className="flex min-w-[40%] flex-1 basis-0 justify-end">{upNext}</div>
+          {upNext('min-w-[40%] flex-1 basis-0 justify-end')}
         </div>
       </header>
     )
@@ -82,16 +84,13 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
       {menuButton}
 
       {/* Board tabs */}
-      <div data-testid="board-tabs" className="min-w-28 shrink-[8]">{tabs}</div>
+      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}
 
       {/* What is next in the student's calendar, and a way to plan the week */}
-      <div className="flex shrink-0 justify-start">{upNext}</div>
-
-      {/* Spacer */}
-      <div className="flex-1" />
+      {upNext('min-w-9 flex-1 basis-0 justify-start')}
 
       <div className="flex shrink-0 items-center gap-1">
         {/* Background activity */}

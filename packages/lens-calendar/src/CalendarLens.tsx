@@ -64,7 +64,7 @@ function courseLabel(course: string): string {
 }
 
 export default function CalendarLens({
-  highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
+  panelId, highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
   onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget,
 }: LensProps) {
   const substrate = useSubstrate()
@@ -170,13 +170,13 @@ export default function CalendarLens({
   // this week (even on a phone, where Day view has no Help me plan).
   const planRequest = useHelpMePlanRequest()
   useEffect(() => {
-    if (!takeHelpMePlanRequest()) return
+    if (!takeHelpMePlanRequest(panelId)) return
     setViewState('week')
     setAnchorDay(startOfDay(new Date()))
     setPlanCollapsed(false)
     setPlanOpen(true)
     rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [planRequest])
+  }, [planRequest, panelId])
 
   const days = useMemo(() => {
     if (view === 'day') return [anchorDay]

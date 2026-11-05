@@ -75,7 +75,9 @@ export function upNextZone(prefs: UserPreferences | undefined, failed: boolean, 
 /** The span plan items are fetched for: today's start to the start of the week after this one. */
 export function upNextRange(now: number, timeZone: string): { from: string; to: string } {
   const today = localDayRange(now, timeZone)
-  return { from: new Date(today.start).toISOString(), to: new Date(weekEnd(now, timeZone) + 7 * DAY_MS).toISOString() }
+  // Noon of a day lands inside it whatever the clocks did, so a week is always a whole number of local days.
+  const to = localDayRange(weekEnd(now, timeZone) + 7 * DAY_MS + 12 * 60 * MINUTE_MS, timeZone).start
+  return { from: new Date(today.start).toISOString(), to: new Date(to).toISOString() }
 }
 
 /** The start (UTC ms) of the coming Monday in `timeZone`: the end of this Monday-to-Sunday week. */
@@ -118,16 +120,8 @@ export function upNextSummary(
   const { now, timeZone } = opts
   const clock = clockIn(timeZone)
   const end = weekEnd(now, timeZone)
-  const today = localDayRange(now, timeZone).start
 
-  const dayLabel = (ms: number): string => {
-    const start = localDayRange(ms, timeZone).start
-    const diff = Math.round((start - today) / DAY_MS)
-    if (diff === 0) return 'Today'
-    if (diff === 1) return 'Tomorrow'
-    if (diff < 7) return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone }).format(new Date(ms))
-    return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone }).format(new Date(ms))
-  }
+  const dayLabel = (ms: number): string => dayName(ms, now, timeZone)
 
   const blocks: UpNextItem[] = rows
     .filter((r) => r.status === 'open' && r.starts_at && r.ends_at && (r.kind === 'commitment' || r.kind === 'task'))
@@ -187,14 +181,30 @@ export function upNextSummary(
   return { next: shown[0] ?? null, days, due, studyBookedMin, unbooked: { count: waiting.length, minutes } }
 }
 
-/** What the top bar button says: "Chemistry 14:00", "Chemistry now", "Chemistry Wed 14:00"; the label is the whole text. */
-export function upNextLabel(item: UpNextItem, now: number, timeZone: string): string {
-  if (item.live) return `${item.name} now`
+/**
+ * A day in words: Today, Tomorrow, the weekday for the rest of this week, and
+ * a date ("Mon 2 Nov") from next week on, where a bare weekday would be
+ * ambiguous.
+ */
+function dayName(ms: number, now: number, timeZone: string): string {
   const today = localDayRange(now, timeZone).start
-  const start = localDayRange(item.startMs, timeZone).start
-  if (start === today) return `${item.name} ${item.time}`
-  const day = Math.round((start - today) / DAY_MS) === 1
-    ? 'tomorrow'
-    : new Intl.DateTimeFormat('en-GB', { weekday: 'short', timeZone }).format(new Date(item.startMs))
-  return `${item.name} ${day} ${item.time}`
+  const diff = Math.round((localDayRange(ms, timeZone).start - today) / DAY_MS)
+  if (diff === 0) return 'Today'
+  if (diff === 1) return 'Tomorrow'
+  if (ms < weekEnd(now, timeZone)) return new Intl.DateTimeFormat('en-GB', { weekday: 'long', timeZone }).format(new Date(ms))
+  return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone }).format(new Date(ms))
+}
+
+/**
+ * What the top bar button says: "Now: Chemistry" while it is on, else
+ * "Chemistry 14:00", "Chemistry tomorrow 14:00", "Chemistry Wed 14:00", or
+ * "Chemistry Mon 2 Nov 14:00" from next week on. The "Up next: " prefix is
+ * the button's own.
+ */
+export function upNextLabel(item: UpNextItem, now: number, timeZone: string): string {
+  if (item.live) return `Now: ${item.name}`
+  const day = dayName(item.startMs, now, timeZone)
+  if (day === 'Today') return `${item.name} ${item.time}`
+  const shown = day === 'Tomorrow' ? 'tomorrow' : /\d/.test(day) ? day : day.slice(0, 3)
+  return `${item.name} ${shown} ${item.time}`
 }

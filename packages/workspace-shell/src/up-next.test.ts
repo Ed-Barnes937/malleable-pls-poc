@@ -121,6 +121,13 @@ describe('weekEnd and upNextRange', () => {
   it('fetches from the start of today to a week past this week', () => {
     expect(upNextRange(NOW, TZ)).toEqual({ from: '2026-10-27T00:00:00.000Z', to: '2026-11-09T00:00:00.000Z' })
   })
+
+  it('ends on a local midnight even when the clocks change in that week', () => {
+    // The week of Wed 25 Mar 2026 ends Mon 30 Mar 00:00 BST; the next one ends Mon 6 Apr 00:00 BST.
+    expect(upNextRange(Date.parse('2026-03-25T10:00:00Z'), TZ).to).toBe('2026-04-05T23:00:00.000Z')
+    // The week of Wed 21 Oct 2026 ends Mon 26 Oct 00:00 GMT; the next ends Mon 2 Nov 00:00 GMT (clocks went back on the 25th).
+    expect(upNextRange(Date.parse('2026-10-21T10:00:00Z'), TZ).to).toBe('2026-11-02T00:00:00.000Z')
+  })
 })
 
 describe('upNextLabel', () => {
@@ -129,11 +136,15 @@ describe('upNextLabel', () => {
 
   it('says the time for today, "now" while live, and the day after today', () => {
     expect(label(next([shift]))).toBe('Cafe shift 17:00')
-    expect(label(next([chemistry], Date.parse(at('15:00'))), Date.parse(at('15:00')))).toBe('Chemistry now')
+    expect(label(next([chemistry], Date.parse(at('15:00'))), Date.parse(at('15:00')))).toBe('Now: Chemistry')
     const tomorrow = row({ kind: 'commitment', title: 'Biology lecture', subtype: 'class', course: 'biology', starts_at: at('10:00', '2026-10-28'), ends_at: at('12:00', '2026-10-28') })
     expect(label(next([tomorrow]))).toBe('Biology tomorrow 10:00')
     const thursday = row({ title: 'Lab', starts_at: at('10:00', '2026-10-29'), ends_at: at('11:00', '2026-10-29') })
     expect(label(next([thursday]))).toBe('Lab Thu 10:00')
+    // Next week a bare weekday would be ambiguous: say the date.
+    const nextWeek = row({ title: 'Lab', starts_at: at('10:00', '2026-11-02'), ends_at: at('11:00', '2026-11-02') })
+    expect(label(next([nextWeek]))).toBe('Lab Mon 2 Nov 10:00')
+    expect(summary([nextWeek]).days[0].label).toBe('Mon 2 Nov')
   })
 })
 

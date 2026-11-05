@@ -14,8 +14,9 @@ const TUESDAY = new Date('2026-10-27T09:00:00Z')
 /** 15:00 the same day: Chemistry (14:00-16:00) is on now. */
 const TUESDAY_AFTERNOON = new Date('2026-10-27T15:00:00Z')
 
-async function openBlankBoard(page: Page, now: Date) {
+async function openBlankBoard(page: Page, now: Date, arrange?: () => Promise<void>) {
   await reseed({ now })
+  await arrange?.()
   await page.clock.setFixedTime(now)
   await page.goto('/')
   const topBar = new TopBarPom(page)
@@ -82,7 +83,7 @@ test.describe('Up next', () => {
     await page.clock.setFixedTime(TUESDAY_AFTERNOON)
     await page.goto('/')
     const topBar = new TopBarPom(page)
-    await expect(topBar.upNext).toContainText('Up next: Chemistry now')
+    await expect(topBar.upNext).toHaveText(/^Now: Chemistry$/)
 
     for (const item of await trpcQuery<{ id: string }[]>(request, 'planItems.list')) {
       await trpcMutation(request, 'planItems.delete', item.id)
@@ -122,22 +123,91 @@ test.describe('Up next', () => {
     await expect(page.getByTestId('settings-popover')).toBeVisible()
   })
 
-  test('is in the bar at every width, as words where there is room and an icon where there is not', async ({ page }) => {
+  test('never takes the tabs\' room: at every width the active board name is whole, New board can be hit, and Up next is in the bar', async ({ page }) => {
     const topBar = await openBlankBoard(page, TUESDAY)
     for (const width of [640, 768, 1024, 1280, 1440]) {
       await page.setViewportSize({ width, height: 900 })
-      const box = (await topBar.upNext.boundingBox())!
-      expect(box.x, `${width}: on screen`).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width, `${width}: on screen`).toBeLessThanOrEqual(width)
+      // Let the bar settle after the resize.
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0))))
+      const upNext = (await topBar.upNext.boundingBox())!
+      expect(upNext.x, `${width}: Up next on screen`).toBeGreaterThanOrEqual(0)
+      expect(upNext.x + upNext.width, `${width}: Up next on screen`).toBeLessThanOrEqual(width)
       // A name for a screen reader, whatever is drawn.
-      await expect(topBar.upNext).toHaveAccessibleName(/Up next: Chemistry 14:00|Chemistry 14:00/)
-      const words = width >= 1024
-      expect(box.width > 40, `${width}: ${words ? 'words' : 'icon'}`).toBe(words)
+      await expect(topBar.upNext).toHaveAccessibleName(/Chemistry 14:00/)
+
+      // The active board's name is not cut (the tabs keep their room).
+      await topBar.workspaceTab('My week').scrollIntoViewIfNeeded()
+      const cut = await topBar.workspaceTab('My week').evaluate((tab) => {
+        const label = [...tab.querySelectorAll<HTMLElement>('*')].find((el) => el.children.length === 0 && el.textContent === 'My week') ?? tab
+        return label.scrollWidth > label.clientWidth
+      })
+      expect(cut, `${width}: active tab name cut`).toBe(false)
+
+      // Where the tabs all fit they are not squeezed into scrolling for Up next's sake.
+      if (width >= 1024) {
+        const room = await topBar.root.getByTestId('board-tabs').evaluate((el) => {
+          const strip = el.querySelector<HTMLElement>('[aria-label="Boards"]') ?? el
+          return strip.scrollWidth <= strip.clientWidth
+        })
+        expect(room, `${width}: all board tabs fit`).toBe(true)
+      }
+
+      // New board is reachable (the strip scrolls on a narrow bar): a click at its centre lands on it.
+      await topBar.newWorkspaceButton.scrollIntoViewIfNeeded()
+      const add = (await topBar.newWorkspaceButton.boundingBox())!
+      const hit = await page.evaluate(
+        ([x, y]) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label') ?? null,
+        [add.x + add.width / 2, add.y + add.height / 2],
+      )
+      expect(hit, `${width}: New board hit`).toBe('New board')
     }
   })
 
-  test('is above the top bar and the board, and never off screen', async ({ page }) => {
-    for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+  test('shows words where there is room, and only the icon where there is none', async ({ page }) => {
+    const topBar = await openBlankBoard(page, TUESDAY)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(topBar.upNext).toContainText('Up next: Chemistry 14:00')
+    expect((await topBar.upNext.boundingBox())!.width).toBeGreaterThan(150)
+    // Crowd the bar: the label gives way before anything else does.
+    await page.setViewportSize({ width: 640, height: 900 })
+    await expect.poll(async () => (await topBar.upNext.boundingBox())!.width).toBeLessThanOrEqual(40)
+  })
+
+  test('"Plan your week" is words, not an icon, wherever the bar has room for them', async ({ page, request }) => {
+    const topBar = await openBlankBoard(page, TUESDAY)
+    for (const item of await trpcQuery<{ id: string }[]>(request, 'planItems.list')) {
+      await trpcMutation(request, 'planItems.delete', item.id)
+    }
+    await page.reload()
+    for (const width of [768, 1024, 1280, 1440]) {
+      await page.setViewportSize({ width, height: 900 })
+      await expect(topBar.upNext).toHaveAccessibleName(/Plan your week/)
+      if (width >= 1024) await expect(topBar.upNext.getByTestId('up-next-label')).toHaveText('Plan your week')
+      const box = (await topBar.upNext.boundingBox())!
+      // Words wherever the bar leaves room (from 1024px with four boards open); the icon, still named, where it does not.
+      expect(box.width > 120, `${width}: words`).toBe(width >= 1024)
+    }
+  })
+
+  test('Tab out of either end of the popover closes it and puts focus back on the button', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const topBar = await openBlankBoard(page, TUESDAY)
+    await topBar.upNext.click()
+    await expect(topBar.upNextPopover).toBeFocused()
+    await page.keyboard.press('Shift+Tab')
+    await expect(topBar.upNextPopover).toBeHidden()
+    await expect(topBar.upNext).toBeFocused()
+
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-add-calendar').focus()
+    await page.keyboard.press('Tab')
+    await expect(topBar.upNextPopover).toBeHidden()
+    await expect(topBar.upNext).toBeFocused()
+  })
+
+  // A fresh page per size: reseeding under a page that is still open races its reload.
+  for (const size of [{ width: 1440, height: 900 }, { width: 1024, height: 768 }]) {
+    test(`is above the top bar and the board, and never off screen at ${size.width}px`, async ({ page }) => {
       await page.setViewportSize(size)
       const topBar = await openBlankBoard(page, TUESDAY)
       await expect(topBar.upNext).toBeVisible()
@@ -149,8 +219,69 @@ test.describe('Up next', () => {
       // What is under the popover's corners is the popover itself, not the bar or the board.
       const onTop = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-testid="up-next-popover"]') != null, { x: box.x + 20, y: box.y + 20 })
       expect(onTop).toBe(true)
-      await page.keyboard.press('Escape')
-    }
+    })
+  }
+})
+
+test.describe('Plan my week hand-off', () => {
+  test.afterAll(async () => { await reseed() })
+
+  const slowAdd = (page: Page, ms: number) =>
+    page.route('**/workspaces.addPanel**', async (route) => {
+      await new Promise((r) => setTimeout(r, ms))
+      await route.continue()
+    })
+
+  test('a second press while the Calendar is being added does not add another', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const topBar = await openBlankBoard(page, TUESDAY)
+    await slowAdd(page, 1200)
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').click()
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').click()
+    const calendar = new CalendarPom(page)
+    await expect(calendar.root).toBeVisible()
+    await expect(calendar.root.getByTestId('help-me-plan-panel')).toBeVisible()
+    await expect(new PanelGridPom(page).panels).toHaveCount(1)
+  })
+
+  test('leaving the board while the Calendar is added sends Help me plan nowhere else', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const topBar = await openBlankBoard(page, TUESDAY, async () => {
+      const other = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: 'Other week' })
+      await trpcMutation(request, 'workspaces.addPanel', {
+        workspaceId: other.id, lensType: 'calendar', slotName: 'calendar', pos_x: 24, pos_y: 24, width: 900, height: 640,
+      })
+    })
+    await slowAdd(page, 1500)
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').click()
+    await topBar.switchToWorkspace('Other week')
+    const calendar = new CalendarPom(page)
+    await expect(calendar.root).toBeVisible()
+    // Wait out the slow add, then check the other board's Calendar was left alone.
+    await page.waitForTimeout(2200)
+    await expect(calendar.root.getByTestId('help-me-plan-panel')).toHaveCount(0)
+    // Back on its own board the Calendar is there and Help me plan opens on it.
+    await topBar.switchToWorkspace('My week')
+    await expect(new CalendarPom(page).root.getByTestId('help-me-plan-panel')).toBeVisible()
+  })
+
+  test('a Calendar that failed to add leaves nothing waiting to open Help me plan later', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const topBar = await openBlankBoard(page, TUESDAY)
+    await page.route('**/workspaces.addPanel**', (route) => route.abort())
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').click()
+    await expect(page.getByTestId('toast').filter({ hasText: "Couldn't add Calendar" })).toBeVisible()
+    await page.unroute('**/workspaces.addPanel**')
+    // Adding a Calendar by hand now must not open Help me plan.
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-add-calendar').click()
+    const calendar = new CalendarPom(page)
+    await expect(calendar.root).toBeVisible()
+    await expect(calendar.root.getByTestId('help-me-plan-panel')).toHaveCount(0)
   })
 })
 
@@ -179,5 +310,16 @@ test.describe('Up next on a phone', () => {
     // A phone opens Day view, which has no Help me plan: it is forced to Week.
     await expect(calendar.root.getByRole('tab', { name: 'Week' })).toHaveAttribute('aria-selected', 'true')
     await expect(calendar.root.getByTestId('help-me-plan-panel')).toBeVisible()
+  })
+
+  test('on a short phone (375x667) the popover stays on screen and Plan my week is still reachable', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 })
+    const topBar = await openBlankBoard(page, TUESDAY)
+    await topBar.upNext.tap()
+    const box = (await topBar.upNextPopover.boundingBox())!
+    expect(box.y + box.height).toBeLessThanOrEqual(667)
+    // The popover scrolls within itself; the action is one tap away.
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').tap()
+    await expect(new CalendarPom(page).root.getByTestId('help-me-plan-panel')).toBeVisible()
   })
 })

@@ -248,7 +248,7 @@ export function WorkspaceShell() {
    * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; slotName?: string; onSettled?: (ok: boolean) => void } = {}) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
@@ -281,7 +281,7 @@ export function WorkspaceShell() {
       addPanel.mutateAsync({
         workspaceId: activeWorkspaceId,
         lensType,
-        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        slotName: opts.slotName ?? `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         pos_x: box.x,
         pos_y: box.y,
         width,
@@ -459,14 +459,40 @@ export function WorkspaceShell() {
   }, [handleLayoutChange])
 
   // The top bar's Up next: plan the week on this board, never switching boards.
-  const boardHasCalendar = activeLensTypes.includes('calendar')
-  const handleAddCalendar = useCallback(() => addWidget('calendar'), [addWidget])
+  // The Calendar that opens Help me plan is named by its panelId (the board and
+  // slot), so a board switch or a second press can't send it elsewhere.
+  const calendarPanel = (panels as unknown as { lens_type: string; slot_name: string }[] | undefined)?.find((p) => p.lens_type === 'calendar')
+  const boardHasCalendar = !!calendarPanel
+  /** A Calendar being added here: a second press waits for it instead of adding another. */
+  const calendarAdd = useRef<{ workspaceId: string; plan: boolean } | null>(null)
+  const addCalendar = useCallback(
+    (plan: boolean) => {
+      if (!activeWorkspaceId) return
+      const inFlight = calendarAdd.current
+      if (inFlight?.workspaceId === activeWorkspaceId) {
+        inFlight.plan ||= plan
+        return
+      }
+      const job = { workspaceId: activeWorkspaceId, plan }
+      calendarAdd.current = job
+      const slotName = `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      addWidget('calendar', undefined, {
+        slotName,
+        // Asked only once the Calendar is there, so a failed add asks nothing.
+        onSettled: (ok) => {
+          if (calendarAdd.current === job) calendarAdd.current = null
+          if (ok && job.plan) requestHelpMePlan(`${job.workspaceId}-${slotName}`)
+        },
+      })
+    },
+    [activeWorkspaceId, addWidget],
+  )
+  const handleAddCalendar = useCallback(() => addCalendar(false), [addCalendar])
   const handlePlanWeek = useCallback(() => {
     if (!activeWorkspaceId) return
-    if (!boardHasCalendar) addWidget('calendar')
-    // A Calendar added just now takes the request when it mounts.
-    requestHelpMePlan()
-  }, [activeWorkspaceId, boardHasCalendar, addWidget])
+    if (calendarPanel) requestHelpMePlan(`${activeWorkspaceId}-${calendarPanel.slot_name}`)
+    else addCalendar(true)
+  }, [activeWorkspaceId, calendarPanel, addCalendar])
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">

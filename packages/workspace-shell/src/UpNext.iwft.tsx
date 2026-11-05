@@ -71,7 +71,7 @@ test('says now while an item is on', async ({ mount, page, simulator }) => {
   await page.clock.setFixedTime(during)
   simulator.freezeNow(during)
   await mountUpNext(mount).mounted
-  await expect(page.getByTestId('up-next')).toContainText('Chemistry now')
+  await expect(page.getByTestId('up-next')).toContainText('Now: Chemistry')
 })
 
 test('Plan my week and Add Calendar hand over to the board; Add Calendar is hidden when it has one', async ({ mount, page, simulator }) => {
