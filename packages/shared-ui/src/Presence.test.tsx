@@ -56,6 +56,43 @@ describe('Presence', () => {
     expect(screen.getByTestId('alert').parentElement).not.toHaveAttribute('inert')
   })
 
+  it('unmarks only what it marked: a Presence inside it, or an id of its own ending in -leaving, keeps its mark', () => {
+    mockReducedMotion(false)
+    vi.useFakeTimers()
+    const Board = ({ shown, tip }: { shown: boolean; tip: boolean }) => (
+      <Presence>
+        {shown ? (
+          <section data-testid="board">
+            {/* E.g. a calendar's own copy of a block that is going. */}
+            <div data-testid="block-leaving" />
+            <Presence>{tip ? <p data-testid="tip">Tip</p> : null}</Presence>
+          </section>
+        ) : null}
+      </Presence>
+    )
+    const { rerender } = render(<Board shown tip />)
+    // The tip leaves while the board stays.
+    rerender(<Board shown tip={false} />)
+    expect(screen.getByTestId('tip-leaving')).toHaveTextContent('Tip')
+    expect(screen.queryByTestId('tip')).toBeNull()
+    expect(screen.getByTestId('block-leaving')).toBeInTheDocument()
+    expect(screen.getByTestId('board')).toBeInTheDocument()
+
+    // The board leaves and comes back while the tip is still leaving.
+    rerender(<Board shown={false} tip={false} />)
+    expect(screen.getByTestId('board-leaving')).toBeInTheDocument()
+    rerender(<Board shown tip={false} />)
+    expect(screen.getByTestId('board')).toBeInTheDocument()
+    expect(screen.getByTestId('tip-leaving')).toBeInTheDocument()
+    expect(screen.queryByTestId('tip')).toBeNull()
+    expect(screen.getByTestId('block-leaving')).toBeInTheDocument()
+    expect(screen.queryByTestId('block')).toBeNull()
+
+    act(() => { vi.advanceTimersByTime(MOTION_MS) })
+    expect(screen.queryByTestId('tip-leaving')).toBeNull()
+    expect(screen.getByTestId('block-leaving')).toBeInTheDocument()
+  })
+
   it('under reduced motion, goes at once', () => {
     mockReducedMotion(true)
     const { rerender } = render(<Alert text="Couldn't save" />)

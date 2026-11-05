@@ -37,14 +37,21 @@ export function Presence({ children }: { children: ReactNode }) {
 
   // The same elements stay as they leave (and if they come back), so their
   // test ids are marked and unmarked in place, before the browser paints.
+  // Only what this one marked is unmarked: a Presence inside it that is
+  // leaving, or an id that ends in -leaving of its own, keeps its mark.
   const box = useRef<HTMLDivElement>(null)
+  const marked = useRef(new WeakSet<HTMLElement>())
   const isLeaving = !present && leaving.current
   useLayoutEffect(() => {
     for (const el of box.current?.querySelectorAll<HTMLElement>('[data-testid]') ?? []) {
       const id = el.dataset.testid!
-      const marked = id.endsWith(LEAVING)
-      if (isLeaving && !marked) el.dataset.testid = id + LEAVING
-      else if (!isLeaving && marked) el.dataset.testid = id.slice(0, -LEAVING.length)
+      if (isLeaving && !id.endsWith(LEAVING)) {
+        el.dataset.testid = id + LEAVING
+        marked.current.add(el)
+      } else if (!isLeaving && marked.current.has(el)) {
+        if (id.endsWith(LEAVING)) el.dataset.testid = id.slice(0, -LEAVING.length)
+        marked.current.delete(el)
+      }
     }
   })
 
