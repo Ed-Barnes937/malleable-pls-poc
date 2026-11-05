@@ -183,7 +183,7 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex h-9 items-center gap-1.5 whitespace-nowrap rounded-tab pl-2 pr-0 text-body transition-[background-color,color,opacity] duration-150 select-none',
+                  'relative flex h-9 items-center gap-[3.5px] whitespace-nowrap rounded-tab pl-1 pr-0 text-body transition-[background-color,color,opacity] duration-150 select-none',
                   isActive
                     ? 'font-semibold text-text-primary'
                     : 'text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
@@ -207,12 +207,15 @@ export function WorkspaceSwitcher() {
                     }}
                     aria-label={`Delete ${ws.name}`}
                     title="Delete board"
+                    // A 24px target over a 20px room: it reaches 2px past the room on each side.
                     className={cn(
-                      'flex h-6 w-6 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-confused-soft hover:text-confused',
+                      'group/delete -m-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:text-confused',
                       shown.current && 'motion-safe:animate-enter',
                     )}
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
+                    <span className="flex h-5 w-5 items-center justify-center rounded-item transition-colors group-hover/delete:bg-confused-soft">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </span>
                   </button>
                 )}
               </span>
@@ -243,11 +246,12 @@ export function WorkspaceSwitcher() {
 }
 
 /**
- * The delete button's room at a tab's end: a 24px target, then the tab's
- * edge. With the icon and its gap on the left (8 + 16 + 6) it mirrors the
- * room on the right (24 + 6), so every tab's name sits in its middle.
+ * The delete button's room at a tab's end: 1.5px, a 20px room, then 2px to
+ * the tab's edge. It mirrors the icon and its gap on the left (4 + 16 + 3.5),
+ * so every tab's name sits in its middle, and no tab is wider than a closed
+ * tab was when the open one grew a delete button (px-3.5 and gap-2).
  */
-const TAB_ACTION_ROOM = 'mr-1.5 h-6 w-6 shrink-0'
+const TAB_ACTION_ROOM = 'ml-[1.5px] mr-0.5 h-5 w-5 shrink-0'
 
 /**
  * A tab's name, as wide as it is in bold whether it is or not: an invisible

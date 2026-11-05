@@ -136,6 +136,33 @@ test.describe('Motion', () => {
     expect(await tabNames(page)).toContain(third)
   })
 
+  test('no tab is wider than it was before tabs kept their width', async ({ page }) => {
+    // Each seed board's tab at 1440px, measured once on main (c2dce07, DM Sans):
+    // open, it was the name in bold and a delete button; not open, the name alone.
+    const before: Record<string, { open: number; closed: number }> = {
+      'Evening Review': { open: 176.98, closed: 150.5 },
+      'Exam Prep': { open: 145.27, closed: 120.41 },
+      'In Lecture': { open: 141.47, closed: 116.25 },
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const tabs = page.getByTestId('top-bar').getByTestId('workspace-tab')
+    const names = await tabNames(page)
+    expect(names.toSorted()).toEqual(Object.keys(before))
+    for (const open of names) {
+      await topBar.switchToWorkspace(open)
+      await topBar.expectActiveWorkspace(open)
+      const widths = await tabs.evaluateAll((els) => els.map((el) => ({
+        name: el.querySelector('[data-tab-name]')!.getAttribute('data-tab-name')!,
+        width: el.getBoundingClientRect().width,
+      })))
+      for (const { name, width } of widths) {
+        expect(width, `${name}, with ${open} open`).toBeLessThanOrEqual(before[name][name === open ? 'open' : 'closed'] + 0.01)
+      }
+    }
+  })
+
   test('to-do rows glide to their new places when the list re-sorts', async ({ page }) => {
     await recordAnimations(page)
     await page.goto('/')
