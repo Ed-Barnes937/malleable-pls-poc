@@ -18,6 +18,8 @@ export interface UndoableChange {
   message: string
   /** Puts it back exactly. A rejection shows `failMessage`. */
   undo: () => Promise<unknown>
+  /** `error`: the change only partly happened (e.g. a failed Accept that still changed an estimate). Default `success`. */
+  tone?: 'success' | 'error'
   /** Shown when Undo fails. Defaults to "Couldn't undo that. Try again from where you made the change." */
   failMessage?: string
 }
@@ -31,6 +33,7 @@ export function undoNotice(change: UndoableChange, notify: (notice: LensNotice) 
   return {
     message: change.message,
     key: change.key,
+    ...(change.tone ? { tone: change.tone } : {}),
     action: {
       label: 'Undo',
       kind: 'undo',

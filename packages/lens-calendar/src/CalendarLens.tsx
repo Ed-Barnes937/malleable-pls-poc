@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
 import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -322,7 +322,7 @@ export default function CalendarLens({
    * only partly written (a Shrink saved, then its session failed) is still
    * undone with the rest.
    */
-  const beforeAcceptRef = useRef(new Map<string, { title: string; state: PlanItemUndoState | null; wrote: boolean }>())
+  const beforeAcceptRef = useRef(new Map<string, { title: string; state: PlanItemUndoState | null; wrote: boolean; shrunkTo?: number }>())
   const confirmAccepted = useCallback((accepted: Proposal[]) => {
     const touched = [...beforeAcceptRef.current.entries()].filter(([, e]) => e.wrote)
     beforeAcceptRef.current.clear()
@@ -330,12 +330,15 @@ export default function CalendarLens({
     if (before.length === 0) return
     const n = accepted.length
     const taskIds = touched.map(([id]) => id)
+    // Nothing booked, but a Shrink saved: one error toast, whose Undo puts the estimate back.
+    const shrunk = n === 0 ? touched.find(([, e]) => e.shrunkTo !== undefined)?.[1] : undefined
     void draftUndo.confirm({
       before,
       message: n === 0
-        ? `Changed the estimate of "${touched[0][1].title}"`
+        ? `Couldn't book "${touched[0][1].title}".${shrunk ? ` Its estimate changed to ${formatMinutes(shrunk.shrunkTo!)}` : ''}`
         : n === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${n} blocks to your plan`,
-      failMessage: n === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
+      tone: n === 0 ? 'error' : undefined,
+      failMessage: n === 0 ? "Couldn't put its estimate back." : n === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
       // A Shrink undone is offered again on the next draft.
       onUndone: () => {
         for (const key of [...shrunkRef.current]) if (taskIds.some((id) => key.startsWith(`${id}:`))) shrunkRef.current.delete(key)
@@ -365,6 +368,7 @@ export default function CalendarLens({
       const key = `${p.taskId}:${estimate}`
       if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
         wrote(await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } }))
+        entry.shrunkTo = estimate
         shrunkRef.current.add(key)
       }
       return wrote(await createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt)))

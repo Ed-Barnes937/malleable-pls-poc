@@ -31,23 +31,6 @@ function daysFromNow(days: number, hour: number): string {
   return d.toISOString()
 }
 
-/**
- * The re-fit note for blocks moved to `starts`, as of now: "in your calendar"
- * when they stayed this week, else the week they went to (re-fit looks a
- * week ahead, so at most next week; the copy is unit-tested in
- * missed-blocks.test.tsx). Late on a Sunday, tomorrow is next week. Only
- * the To-do (asking on a board without a Calendar) shows it; the Calendar
- * confirms a move with its Undo toast alone (decision 30).
- */
-function movedNoteFor(starts: ReadonlyArray<string | null>): string {
-  const week = (ms: number) => JSON.stringify(weekMonday(ms))
-  const later = starts.filter((s) => week(Date.parse(s!)) !== week(Date.now())).length
-  const n = starts.length
-  if (later === 0) return `Moved ${n} blocks. They're in your calendar.`
-  if (later === n) return `Moved ${n} blocks to next week.`
-  return `Moved ${n} blocks: ${n - later} this week, ${later} next week.`
-}
-
 test.describe('Weak topics', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
@@ -230,9 +213,9 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect.poll(() => trpcQuery(request, 'planItems.refitPreview', { timeZone: 'Europe/London' })).toEqual([])
     const items = await trpcQuery<Item[]>(request, 'planItems.list', {})
     const byId = (id: string) => items.find((i) => i.id === id)!
-    // A To-do-only board: its own note says where they went, beside the Undo toast.
-    await expect(todo.getByTestId('refit-note')).toHaveText(movedNoteFor([readChapter, labWriteUp].map((t) => byId(t.id).starts_at)))
+    // The Undo toast confirms the move, in the To-do as in the Calendar: no note of its own (decision 30).
     await expect(page.getByTestId('toast')).toContainText('Moved 2 blocks')
+    await expect(todo.getByTestId('refit-note')).toHaveCount(0)
 
     for (const task of [readChapter, labWriteUp]) {
       expect(Date.parse(byId(task.id).starts_at!)).toBeGreaterThan(Date.now() - 5 * 60_000)
@@ -276,7 +259,7 @@ test.describe('Re-fit blocks that did not happen', () => {
     return [readChapter, labWriteUp]
   }
 
-  test('blocks moved past this week: the To-do says they went to next week', async ({ page, request }) => {
+  test('blocks moved past this week from the To-do: the Undo toast confirms it, with no note', async ({ page, request }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const missed = await seedMissed(request)
     // Away for the rest of this week, so their new times are next week (as from a Thursday on in the demo).
@@ -295,7 +278,8 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect(banner.getByTestId('refit-proposal')).toHaveCount(2)
     await banner.getByRole('button', { name: 'Move them' }).click()
 
-    await expect(todo.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week.')
+    await expect(page.getByTestId('toast')).toContainText('Moved 2 blocks')
+    await expect(todo.getByTestId('refit-note')).toHaveCount(0)
     // The move is saved behind the optimistic UI: wait for it, don't read once.
     await expect.poll(() => trpcQuery(request, 'planItems.refitPreview', { timeZone: 'Europe/London' })).toEqual([])
     const items = await trpcQuery<Item[]>(request, 'planItems.list', {})

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, refitUndoCopy, useMissedBlocks, type DraftUndo } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, noFitLabel, noFitNote, refitAsk, refitUndoCopy, useMissedBlocks, type DraftUndo } from '@pls/lens-framework'
 import { cn, dayAndTime } from '@pls/shared-ui'
 import { CalendarClock, RotateCcw } from 'lucide-react'
 
@@ -77,8 +77,8 @@ export function RefitBanner({ course, undo }: {
         // Undo bringing the moved ones back doesn't bring the question back.
         markHandled([...fits, ...noFit])
         if (before) void undo.confirm({ before, ...refitUndoCopy(fits.map((p) => p.item.title)) })
-        // The move is atomic: every block with a new time moved.
-        setNote(movedNote(fits.map((p) => p.starts_at!), noFit))
+        // The move is atomic and confirmed by its Undo toast; only the blocks that stay put get a note.
+        if (noFit.length > 0) setNote(noFitNote(noFit))
       },
       (err: unknown) => {
         // A conflict refreshes the preview (the mutation invalidates it); show that one.

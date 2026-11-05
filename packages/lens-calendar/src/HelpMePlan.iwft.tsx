@@ -547,7 +547,9 @@ test('a Shrink saved before its sessions failed is still undone', async ({ mount
 
   // The Shrink is offered back with Undo, as part of the Accept.
   const toast = page.getByTestId('toast')
-  await expect(toast).toContainText('Changed the estimate of "Lab report write-up"')
+  // One error toast, with Undo for the estimate the failed Accept still changed.
+  await expect(toast).toHaveCount(1)
+  await expect(toast).toContainText(`Couldn't book "Lab report write-up". Its estimate changed to 6h`)
   await toast.getByRole('button', { name: 'Undo' }).click()
   await expect.poll(() => stored(simulator, 'lab')?.duration_min).toBe(480)
 })

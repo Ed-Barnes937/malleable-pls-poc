@@ -66,7 +66,7 @@ export {
   missedBlockSignature,
   missedQuestion,
   refitAsk,
-  movedNote,
+  noFitNote,
   noFitLabel,
   type MissedBlocks,
 } from './missed-blocks'

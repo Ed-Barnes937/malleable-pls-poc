@@ -50,6 +50,8 @@ export interface DraftUndo {
     before: ReadonlyArray<PlanItemUndoState>
     message: string
     failMessage: string
+    /** `error`: the Accept failed but still changed something, which Undo puts back. */
+    tone?: 'success' | 'error'
     /** After an Undo that put something back. */
     onUndone?: () => void
   }) => Promise<void>
@@ -93,7 +95,7 @@ export function useDraftUndo({ onNotify, onDismissNotice, rows }: {
     }
   }, [])
 
-  const confirm = useCallback<DraftUndo['confirm']>(async ({ before, message, failMessage, onUndone }) => {
+  const confirm = useCallback<DraftUndo['confirm']>(async ({ before, message, failMessage, tone, onUndone }) => {
     const notify = latest.current.onNotify
     if (!notify || before.length === 0) return
     let after: PlanItemUndoState[]
@@ -101,7 +103,7 @@ export function useDraftUndo({ onNotify, onDismissNotice, rows }: {
       after = await latest.current.read(before.map((b) => b.id))
     } catch {
       // Without what the Accept left, Undo can't tell what changed since: none is offered.
-      notify({ message, key: DRAFT_ACCEPTED_KEY })
+      notify({ message, key: DRAFT_ACCEPTED_KEY, tone })
       return
     }
     const token = Symbol('accepted draft')
@@ -114,6 +116,7 @@ export function useDraftUndo({ onNotify, onDismissNotice, rows }: {
       key: DRAFT_ACCEPTED_KEY,
       message,
       failMessage,
+      tone,
       undo: async () => {
         if (shown?.token === token) shown = null
         const { reverted, kept } = await latest.current.revert.mutateAsync({ items })

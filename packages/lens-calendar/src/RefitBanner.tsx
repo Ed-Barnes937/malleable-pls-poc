@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, refitUndoCopy, type DraftUndo, type MissedBlocks } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, noFitLabel, noFitNote, refitAsk, refitUndoCopy, type DraftUndo, type MissedBlocks } from '@pls/lens-framework'
 import { RotateCcw } from 'lucide-react'
 import type { Proposal, ProposalLayer } from './proposals'
 
@@ -139,7 +139,7 @@ export function RefitBanner({
     missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
     missed.endPreview()
     // Moved blocks are confirmed by their Undo toast; only the ones that stay put are noted here.
-    if (session.noFit.length > 0) setNote(movedNote([], session.noFit))
+    if (session.noFit.length > 0) setNote(noFitNote(session.noFit))
     setSession(null)
     setChanged(false)
     reset()
@@ -184,7 +184,7 @@ export function RefitBanner({
     if (fits.length === 0) {
       // Nothing to show on the grid: say so once and leave them on the list.
       missed.markHandled(current)
-      setNote(movedNote([], noFit))
+      setNote(noFitNote(noFit))
       return
     }
     reset()

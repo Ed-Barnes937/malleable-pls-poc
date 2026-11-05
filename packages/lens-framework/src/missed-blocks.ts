@@ -50,60 +50,14 @@ export function refitAsk(n: number): string {
   return plural(n, 'Re-fit it?', 'Re-fit them?')
 }
 
-/** Local midnight of the Monday of the week `ms` is in. */
-function mondayOf(ms: number): number {
-  const d = new Date(ms)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return d.getTime()
-}
-
-/** Whole weeks from the week of `now` to the week of `ms` (0 = this week; never negative). */
-function weeksAhead(ms: number, now: number): number {
-  return Math.max(0, Math.round((mondayOf(ms) - mondayOf(now)) / (7 * 24 * 3_600_000)))
-}
-
-/** "this week", "next week", "the week of 9 Nov". */
-function weekName(ms: number, now: number): string {
-  const ahead = weeksAhead(ms, now)
-  if (ahead === 0) return 'this week'
-  if (ahead === 1) return 'next week'
-  return `the week of ${new Date(mondayOf(ms)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
-}
-
 /**
- * Where moved blocks went, so the student knows where to look: "Moved 2
- * blocks. They're in your calendar." when all stayed this week (the week a
- * calendar opens on), "Moved 2 blocks to next week." when all went to one
- * later week, "Moved 3 blocks: 2 this week, 1 next week." when split.
+ * "1 didn't fit this week, so it stays on your to-do list.": the blocks a
+ * re-fit left where they were, with the reason the preview gave ("before it
+ * is due" / "this week"). Moved blocks are confirmed by their Undo toast
+ * (decision 30), never by a note. Empty when every block fitted.
  */
-function movedSentence(moved: ReadonlyArray<string>, now: number): string {
-  const n = moved.length
-  const byWeek = new Map<number, number[]>()
-  for (const ms of moved.map(Date.parse)) {
-    const ahead = weeksAhead(ms, now)
-    byWeek.set(ahead, [...(byWeek.get(ahead) ?? []), ms])
-  }
-  const weeks = [...byWeek.entries()].sort(([a], [b]) => a - b)
-  if (weeks.length === 1 && weeks[0][0] === 0) return `Moved ${n} ${plural(n, "block. It's", "blocks. They're")} in your calendar.`
-  const blocks = `${n} ${plural(n, 'block', 'blocks')}`
-  if (weeks.length === 1) return `Moved ${blocks} to ${weekName(weeks[0][1][0], now)}.`
-  const parts = weeks.map(([ahead, starts]) => {
-    const name = weekName(starts[0], now)
-    return `${starts.length} ${ahead > 1 ? `in ${name}` : name}`
-  })
-  return `Moved ${blocks}: ${parts.join(', ')}.`
-}
-
-/**
- * "Moved 2 blocks to next week. 1 didn't fit this week, so it stays on your
- * to-do list." Where the moved blocks went (`moved`: each one's new start,
- * ISO; see `movedSentence`), then each block that didn't fit, with the
- * reason the preview gave ("before it is due" / "this week").
- */
-export function movedNote(moved: ReadonlyArray<string>, noFit: RefitProposal[], now = Date.now()): string {
+export function noFitNote(noFit: ReadonlyArray<RefitProposal>): string {
   const parts: string[] = []
-  if (moved.length > 0) parts.push(movedSentence(moved, now))
   const beforeDue = noFit.filter((p) => noFitWhen(p) === 'before it is due').length
   const thisWeek = noFit.length - beforeDue
   if (thisWeek > 0) {
