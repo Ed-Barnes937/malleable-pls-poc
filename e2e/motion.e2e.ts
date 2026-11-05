@@ -207,31 +207,44 @@ test.describe('Motion', () => {
     expect(await tabNames(page)).toContain(third)
   })
 
-  test('no tab is wider than it was before tabs kept their width', async ({ page }) => {
-    // Each seed board's tab at 1440px, measured once on main (c2dce07, DM Sans):
-    // open, it was the name in bold and a delete button; not open, the name alone.
-    const before: Record<string, { open: number; closed: number }> = {
-      'Evening Review': { open: 176.98, closed: 150.5 },
-      'Exam Prep': { open: 145.27, closed: 120.41 },
-      'In Lecture': { open: 141.47, closed: 116.25 },
-    }
+  test('whichever board is open, every tab keeps its width and its name in its middle, the open one has a 24px delete target, and New board stays put', async ({ page, request }) => {
+    // A long name of the student's own, beside the seed boards'.
+    await trpcMutation(request, 'workspaces.create', { name: 'Organic chemistry revision' })
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/')
     const topBar = new TopBarPom(page)
     const tabs = page.getByTestId('top-bar').getByTestId('workspace-tab')
     const names = await tabNames(page)
-    expect(names.toSorted()).toEqual(Object.keys(before))
+    expect(names).toContain('Organic chemistry revision')
+    const measure = () => page.evaluate(() => {
+      const tabs = [...document.querySelectorAll('[data-testid="top-bar"] [data-testid="workspace-tab"]')]
+      return {
+        widths: tabs.map((el) => el.getBoundingClientRect().width),
+        // How far each name is off its tab's middle.
+        offCentre: tabs.map((el) => {
+          const tab = el.getBoundingClientRect()
+          const name = el.querySelector('[data-tab-name]')!.getBoundingClientRect()
+          return Math.abs((name.left - tab.left) - (tab.right - name.right))
+        }),
+        newBoard: JSON.stringify(document.querySelector('[data-testid="top-bar"] [aria-label="New board"]')!.getBoundingClientRect()),
+      }
+    })
+    let first: Awaited<ReturnType<typeof measure>> | undefined
     for (const open of names) {
       await topBar.switchToWorkspace(open)
       await topBar.expectActiveWorkspace(open)
-      const widths = await tabs.evaluateAll((els) => els.map((el) => ({
-        name: el.querySelector('[data-tab-name]')!.getAttribute('data-tab-name')!,
-        width: el.getBoundingClientRect().width,
-      })))
-      for (const { name, width } of widths) {
-        expect(width, `${name}, with ${open} open`).toBeLessThanOrEqual(before[name][name === open ? 'open' : 'closed'] + 0.01)
-      }
+      const del = topBar.root.getByRole('button', { name: `Delete ${open}`, exact: true })
+      await motionSettled(del)
+      const target = (await del.boundingBox())!
+      expect(target.width, open).toBeGreaterThanOrEqual(24)
+      expect(target.height, open).toBeGreaterThanOrEqual(24)
+      const now = await measure()
+      for (const gap of now.offCentre) expect(gap, `with ${open} open`).toBeLessThanOrEqual(1)
+      first ??= now
+      expect(now.widths, `with ${open} open`).toEqual(first.widths)
+      expect(now.newBoard, `with ${open} open`).toBe(first.newBoard)
     }
+    await expect(tabs).toHaveCount(names.length)
   })
 
   test('to-do rows glide to their new places when the list re-sorts', async ({ page }) => {
@@ -562,17 +575,21 @@ test.describe('No layout jumps', () => {
     await tabNames(page)
     const lecture = topBar.root.getByTestId('board-scope').getByText('Loading...').filter({ visible: true })
     await expect(lecture).toBeVisible()
-    // To the pixel: the tabs take a sliver of the shortfall the pills can't.
-    const boxes = () => page.evaluate(() => ['[data-testid="board-tabs"]', '[data-testid="workspace-tab"]', '[aria-label="New board"]'].map((selector) => {
+    const boxes = () => page.evaluate(() => ['[data-testid="board-tabs"]', '[data-testid="workspace-tab"]', '[aria-label="New board"]'].flatMap((selector) => {
       const box = document.querySelector(selector)!.getBoundingClientRect()
-      return [box.left, box.width].map(Math.round)
+      return [box.left, box.width]
     }))
     await motionSettled(topBar.root)
     const before = await boxes()
     release()
     await expect(lecture).toHaveCount(0)
     await motionSettled(topBar.root)
-    expect(await boxes()).toEqual(before)
+    // Short of room, flex shares the shortfall by flex-shrink times width: the
+    // pills' 1000 to the tabs' 1 leaves the tabs about 1/1000 of it (here
+    // under 0.1px of a ~50px shortfall), so a quarter pixel is ample, and far
+    // under the ~48px the tabs gave up before.
+    const after = await boxes()
+    after.forEach((value, i) => expect(Math.abs(value - before[i]), `box value ${i}`).toBeLessThan(0.25))
   })
 
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {
