@@ -1,4 +1,4 @@
-import { createContext, useContext } from 'react'
+import type { LensNotice } from './types'
 
 /**
  * A change the student made that is big enough to confirm with Undo
@@ -20,19 +20,31 @@ export interface UndoableChange {
   undo: () => Promise<unknown>
   /** Shown when Undo fails. Defaults to "Couldn't undo that. Try again from where you made the change." */
   failMessage?: string
-  /** The board the change belongs to: leaving it dismisses the toast (a widget removal, Tidy up). */
-  board?: string
 }
 
-/** Pushes the toast. Outside a shell (tests, a bare widget) nothing is shown. */
-export type ConfirmChange = (change: UndoableChange) => void
+/**
+ * The notice that confirms `change` with Undo, for `LensProps.onNotify` (or
+ * the shell's own toast). Undo runs the change's `undo`; if that fails,
+ * `notify` says so.
+ */
+export function undoNotice(change: UndoableChange, notify: (notice: LensNotice) => void): LensNotice {
+  return {
+    message: change.message,
+    key: change.key,
+    action: {
+      label: 'Undo',
+      onClick: () => {
+        change.undo().catch(() => notify({
+          message: change.failMessage ?? "Couldn't undo that. Try again from where you made the change.",
+          key: `${change.key}:undo-failed`,
+          tone: 'error',
+        }))
+      },
+    },
+  }
+}
 
-const UndoToastContext = createContext<ConfirmChange>(() => {})
-
-/** The shell provides the toast (workspace-shell `pushUndoToast`). */
-export const UndoToastProvider = UndoToastContext.Provider
-
-/** Confirms a change with an Undo toast; see UndoableChange for which changes get one. */
-export function useUndoToast(): ConfirmChange {
-  return useContext(UndoToastContext)
+/** Confirms a change with Undo through `onNotify`; nothing when the widget has no shell to say it in. */
+export function confirmWithUndo(onNotify: ((notice: LensNotice) => void) | undefined, change: UndoableChange) {
+  if (onNotify) onNotify(undoNotice(change, onNotify))
 }

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefitProposal } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from './substrate-context'
-import { useUndoToast } from './undo-toast'
+import { confirmWithUndo } from './undo-toast'
+import type { LensProps } from './types'
 
 /**
  * "2 blocks didn't happen. Re-fit them?": the shared side of re-fitting
@@ -228,17 +229,17 @@ export const DRAFT_ACCEPTED_KEY = 'draft-accepted'
 /**
  * Confirms re-fitted blocks with Undo, which puts each back at the time it
  * didn't happen in (in one go) and counts that as the student's answer, so
- * the question isn't raised again straight away.
+ * the question isn't raised again straight away. `onNotify`: the widget's
+ * (`LensProps.onNotify`); without one nothing is said.
  */
-export function useUndoRefit(): (moved: ReadonlyArray<RefitProposal>) => void {
-  const confirm = useUndoToast()
+export function useUndoRefit(onNotify: LensProps['onNotify']): (moved: ReadonlyArray<RefitProposal>) => void {
   const revert = useSubstrateMutations().useRevertPlanItems()
   const revertRef = useRef(revert)
   revertRef.current = revert
   return useCallback((moved: ReadonlyArray<RefitProposal>) => {
     if (moved.length === 0) return
     const n = moved.length
-    confirm({
+    confirmWithUndo(onNotify, {
       key: DRAFT_ACCEPTED_KEY,
       message: n === 1 ? `Moved "${moved[0].item.title}"` : `Moved ${n} blocks`,
       failMessage: plural(n, "Couldn't put that block back.", "Couldn't put those blocks back."),
@@ -249,7 +250,7 @@ export function useUndoRefit(): (moved: ReadonlyArray<RefitProposal>) => void {
         markMissedBlocksHandled(moved)
       },
     })
-  }, [confirm])
+  }, [onNotify])
 }
 
 /** The browser's zone: the student's study day is read in it. */

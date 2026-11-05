@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, UndoToastProvider, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes, type WorkspacePanel } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -31,7 +31,7 @@ import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
 import { AutomationDialog } from './AutomationDialog'
-import { ToastHost, pushUndoToast, useToastStore } from './toast'
+import { ToastHost, notifyToast, pushUndoToast, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { hasPlanItemViewer, missedBlocksHost, useShowMoment } from './moments'
@@ -368,7 +368,6 @@ export function WorkspaceShell() {
         pushUndoToast({
           key: 'widget-removed',
           message: `${label} removed`,
-          board: boardId,
           failMessage: `Couldn't put ${label} back. Add it again from the widget menu.`,
           undo: () => addPanel.mutateAsync({
             workspaceId: boardId,
@@ -381,7 +380,7 @@ export function WorkspaceShell() {
             height: Math.round(box.height),
             z_index: box.z_index,
           }),
-        })
+        }, { board: boardId })
       }
       // Also remove from canvas store immediately for snappy UX
       useCanvasStore.getState().removePanel(panelId)
@@ -438,6 +437,7 @@ export function WorkspaceShell() {
             // (not the whole widget), so it is not scrolled here.
             onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
             asksAboutMissedBlocks={missedBlocksPanel === panel.id}
+            onNotify={notifyToast}
           />
         </PanelContainer>
       )
@@ -491,57 +491,55 @@ export function WorkspaceShell() {
   }, [handleLayoutChange])
 
   return (
-    <UndoToastProvider value={pushUndoToast}>
-      <div className="flex h-dvh flex-col overflow-hidden bg-surface">
-        <TopBar
-          onMenuClick={() => setDrawerOpen((v) => !v)}
-          menuOpen={drawerOpen}
-          onOrganize={activeWorkspaceId ? handleOrganize : undefined}
-        />
-        <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
-        <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-          {workspaces?.length === 0 ? (
-            <NoBoards />
-          ) : !panels ? (
-            <CanvasSkeleton />
-          ) : (
-            <div
-              className="relative min-h-0 flex-1 transition-opacity duration-150"
-              style={{ opacity: transitioning ? 0 : 1 }}
-            >
-              <WorkspaceBackground />
-              <CanvasEngine
-                onLayoutChange={handleLayoutChange}
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-                onRemovePanel={handleRemovePanel}
-                renderPanel={renderPanel}
-                getIcon={getIcon}
-                getLabel={getLabel}
-                renderHeaderActions={renderHeaderActions}
-              />
-              {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
-              {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
-                <div
-                  data-testid="workspace-empty-state"
-                  className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
-                >
-                  <BoardStarters
-                    manifests={manifests}
-                    onStart={addStarter}
-                    onAddWidgets={() => setDrawerOpen(true)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </main>
-        {automationId && activeWorkspaceId && (
-          <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
+    <div className="flex h-dvh flex-col overflow-hidden bg-surface">
+      <TopBar
+        onMenuClick={() => setDrawerOpen((v) => !v)}
+        menuOpen={drawerOpen}
+        onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+      />
+      <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
+      <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {workspaces?.length === 0 ? (
+          <NoBoards />
+        ) : !panels ? (
+          <CanvasSkeleton />
+        ) : (
+          <div
+            className="relative min-h-0 flex-1 transition-opacity duration-150"
+            style={{ opacity: transitioning ? 0 : 1 }}
+          >
+            <WorkspaceBackground />
+            <CanvasEngine
+              onLayoutChange={handleLayoutChange}
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              onRemovePanel={handleRemovePanel}
+              renderPanel={renderPanel}
+              getIcon={getIcon}
+              getLabel={getLabel}
+              renderHeaderActions={renderHeaderActions}
+            />
+            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
+            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
+              <div
+                data-testid="workspace-empty-state"
+                className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
+              >
+                <BoardStarters
+                  manifests={manifests}
+                  onStart={addStarter}
+                  onAddWidgets={() => setDrawerOpen(true)}
+                />
+              </div>
+            )}
+          </div>
         )}
-        <ToastHost />
-      </div>
-    </UndoToastProvider>
+      </main>
+      {automationId && activeWorkspaceId && (
+        <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
+      )}
+      <ToastHost />
+    </div>
   )
 }
 

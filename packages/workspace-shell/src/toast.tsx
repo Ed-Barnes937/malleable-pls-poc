@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { CheckCircle2, Undo2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
-import type { UndoableChange } from '@pls/lens-framework'
+import { undoNotice, type LensNotice, type UndoableChange } from '@pls/lens-framework'
 import { useActiveWorkspaceId } from './activeBoard'
 
 export type ToastTone = 'success' | 'error'
@@ -143,30 +143,28 @@ export const useToastStore = create<ToastState>((set, get) => {
 })
 
 /**
- * Confirms one of the student's big changes with an Undo toast (see
- * `UndoableChange` in @pls/lens-framework, which lenses reach through
- * `useUndoToast`). Undo dismisses the toast and runs the change's `undo`;
- * if that fails, an error toast says so.
+ * A widget's notice (`LensProps.onNotify`) as a toast. `board`: it only
+ * means something on that board, so leaving it dismisses the toast.
  */
-export function pushUndoToast(change: UndoableChange) {
-  const { push } = useToastStore.getState()
-  push({
-    message: change.message,
-    tone: 'success',
-    key: change.key,
-    board: change.board,
-    action: {
-      label: 'Undo',
-      icon: Undo2,
-      onClick: () => {
-        change.undo().catch(() => push({
-          message: change.failMessage ?? "Couldn't undo that. Try again from where you made the change.",
-          tone: 'error',
-          key: `${change.key}:undo-failed`,
-        }))
-      },
-    },
+export function notifyToast(notice: LensNotice, opts: { board?: string } = {}) {
+  useToastStore.getState().push({
+    message: notice.message,
+    tone: notice.tone ?? 'success',
+    key: notice.key,
+    board: opts.board,
+    action: notice.action && { ...notice.action, icon: notice.action.label === 'Undo' ? Undo2 : undefined },
   })
+}
+
+/**
+ * Confirms one of the student's big changes with an Undo toast, from the
+ * shell itself (a widget removed, Tidy up); widgets do the same through
+ * `onNotify` (see `confirmWithUndo` in @pls/lens-framework). Undo dismisses
+ * the toast and runs the change's `undo`; if that fails, an error toast
+ * says so.
+ */
+export function pushUndoToast(change: UndoableChange, opts: { board?: string } = {}) {
+  notifyToast(undoNotice(change, (n) => notifyToast(n)), opts)
 }
 
 /**

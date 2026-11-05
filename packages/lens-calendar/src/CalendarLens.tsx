@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemsRevert } from '@pls/substrate'
-import { DRAFT_ACCEPTED_KEY, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations, useUndoToast } from '@pls/lens-framework'
+import { DRAFT_ACCEPTED_KEY, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
@@ -65,7 +65,7 @@ function courseLabel(course: string): string {
 
 export default function CalendarLens({
   highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
-  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks,
+  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify,
 }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
@@ -281,7 +281,7 @@ export default function CalendarLens({
 
   // Study blocks whose time passed without being done, offered for re-fitting.
   const missed = useMissedBlocks()
-  const refit = useRefitDraft(missed)
+  const refit = useRefitDraft(missed, onNotify)
   const missedIds = useMemo(() => (missed.preview ? new Set(missed.preview.map((m) => m.item.id)) : null), [missed.preview])
 
   const validateProposal: ProposalValidator = useCallback((p, source) => {
@@ -323,7 +323,6 @@ export default function CalendarLens({
     })
     return true
   }
-  const confirmChange = useUndoToast()
   const revert = mutations.useRevertPlanItems()
   const revertRef = useRef(revert)
   revertRef.current = revert
@@ -332,7 +331,7 @@ export default function CalendarLens({
     const items = taskIds.flatMap((id) => beforeAcceptRef.current.get(id) ?? [])
     for (const id of taskIds) beforeAcceptRef.current.delete(id)
     if (items.length === 0) return
-    confirmChange({
+    confirmWithUndo(onNotify, {
       key: DRAFT_ACCEPTED_KEY,
       message: accepted.length === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${accepted.length} blocks to your plan`,
       failMessage: accepted.length === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
@@ -342,7 +341,7 @@ export default function CalendarLens({
         for (const key of [...shrunkRef.current]) if (taskIds.some((id) => key.startsWith(`${id}:`))) shrunkRef.current.delete(key)
       },
     })
-  }, [confirmChange])
+  }, [onNotify])
   const layer = useProposalLayer({
     // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
     save: async (p) => {
@@ -1037,7 +1036,7 @@ export default function CalendarLens({
             await deleteItem.mutateAsync(editing.id)
             // Undo puts it back as it was: a weekly one as the whole series, a to-do with its sessions.
             const { id, title } = editing
-            confirmChange({
+            confirmWithUndo(onNotify, {
               key: 'plan-item-deleted',
               message: `Deleted "${title}"`,
               failMessage: `Couldn't bring back "${title}".`,

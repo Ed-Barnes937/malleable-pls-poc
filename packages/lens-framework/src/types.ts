@@ -82,6 +82,16 @@ export interface FocusedMoment extends Moment {
   takeFocus?: boolean
 }
 
+/** A short confirmation in the shell's notification bar, optionally with one action (e.g. Undo). */
+export interface LensNotice {
+  message: string
+  /** Notices sharing a key replace each other instead of stacking. */
+  key?: string
+  action?: { label: string; onClick: () => void }
+  /** `error` when it says something didn't work (e.g. an Undo that failed). Defaults to `success`. */
+  tone?: 'success' | 'error'
+}
+
 /**
  * - `shown`: a widget that shows moments (manifest `showsMoments`) is on the
  *   board it was shown on: this one, or another board the shell switched to.
@@ -277,6 +287,11 @@ export interface LensProps {
    * longer exists, `failed` when nothing changed for another reason.
    */
   onOpenLectureOn?: (boardId: string, lecture: FocusedClassLecture) => Promise<'opened' | 'failed' | 'gone'>
+  /**
+   * Say something in the shell's notification bar, e.g. "Marked sorted" with
+   * Undo. Optional for the same reason as `onConfigChange`.
+   */
+  onNotify?: (notice: LensNotice) => void
   /** Open the board menu's widget palette, to add a widget to this board. */
   onAddWidget?: () => void
   /**

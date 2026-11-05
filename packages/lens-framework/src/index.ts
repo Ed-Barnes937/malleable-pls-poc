@@ -18,6 +18,7 @@ export type {
   UndoFocusClassResult,
   FocusedClassLecture,
   LectureBoardRef,
+  LensNotice,
 } from './types'
 export {
   usesScopeDim,
@@ -71,4 +72,4 @@ export {
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
-export { UndoToastProvider, useUndoToast, type UndoableChange, type ConfirmChange } from './undo-toast'
+export { undoNotice, confirmWithUndo, type UndoableChange } from './undo-toast'

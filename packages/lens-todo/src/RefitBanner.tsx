@@ -18,13 +18,15 @@ type Problem = 'conflict' | 'failed' | null
  * Calendar, see `useMissedBlocks`). Commitments are never involved.
  * On a course board, only that course's blocks.
  */
-export function RefitBanner({ course, onShowPlanItem }: {
+export function RefitBanner({ course, onShowPlanItem, onNotify }: {
   course: string | undefined
   /** Shows a block on the board's calendar, when it has one (see `LensProps`). */
   onShowPlanItem?: LensProps['onShowPlanItem']
+  /** Confirms a move with Undo (see `LensProps`). */
+  onNotify?: LensProps['onNotify']
 }) {
   const missed = useMissedBlocks({ course })
-  const confirmMoved = useUndoRefit()
+  const confirmMoved = useUndoRefit(onNotify)
 
   const [step, setStep] = useState<Step>('ask')
   const [problem, setProblem] = useState<Problem>(null)
