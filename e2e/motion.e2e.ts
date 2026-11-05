@@ -1,5 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
-import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
 
@@ -95,6 +95,54 @@ test.describe('Motion', () => {
     expect((await animated(page)).filter((a) => a.testid === 'canvas-container')[1].keyframes).toContain('translateX(-28px)')
     // The board's widgets come with it, not each on its own.
     expect((await animated(page)).filter((a) => a.panel !== null)).toEqual([])
+  })
+
+  test('opening a board never changes a tab\'s width; its delete button arrives, and the tabs after a deleted board glide aside', async ({ page }) => {
+    await recordAnimations(page)
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const tabs = page.getByTestId('top-bar').getByTestId('workspace-tab')
+    const [first, second, third] = await tabNames(page)
+    await topBar.switchToWorkspace(first)
+    await topBar.expectActiveWorkspace(first)
+    const widths = () => tabs.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().width))
+    const before = await widths()
+    await forget(page)
+    await topBar.switchToWorkspace(second)
+    await topBar.expectActiveWorkspace(second)
+    expect(await widths()).toEqual(before)
+    // The delete button arrives; no tab moves.
+    await expect(topBar.root.getByRole('button', { name: `Delete ${second}` })).toHaveCSS('animation-name', 'enter')
+    expect((await animated(page)).filter((a) => a.testid === 'workspace-tab')).toEqual([])
+
+    await topBar.deleteWorkspace(second)
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
+    await expect(tabs).toHaveCount(before.length - 1)
+    // The tabs after it glide left into its room.
+    await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'workspace-tab').map((a) => a.keyframes))
+      .toContainEqual(expect.stringMatching(/translateX\(\d+(\.\d+)?px\)/))
+    expect(await tabNames(page)).toContain(third)
+  })
+
+  test('to-do rows glide to their new places when the list re-sorts', async ({ page }) => {
+    await recordAnimations(page)
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('Glide')
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('To-do')
+    await page.keyboard.press('Escape')
+    const todo = new PanelGridPom(page).panelByLabel('To-do')
+    const rows = todo.getByTestId('todo-item')
+    await expect(rows.nth(2)).toBeVisible()
+    const first = (await rows.first().getAttribute('data-plan-item-id'))!
+    await forget(page)
+    // Ticked: after its "Done · Undo" (5s), the row goes to Done today, and the rows under it glide up.
+    await todo.getByRole('checkbox').first().click()
+    await expect.poll(async () => (await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-plan-item-id')))).indexOf(first), { timeout: 10_000 }).toBeGreaterThan(0)
+    await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'todo-item').map((a) => a.keyframes))
+      .toContainEqual(expect.stringMatching(/translateY\(\d+(\.\d+)?px\)/))
   })
 
   test('a widget added arrives and one removed leaves; a block made on the grid arrives, the week shown first does not', async ({ page, request }) => {

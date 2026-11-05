@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useSyncExternalStore, type RefObject } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useSyncExternalStore, type RefObject } from 'react'
 
 /**
  * The app's one motion language (flow audit decision 19): things arrive and
@@ -66,30 +66,45 @@ export function useReducedMotion(): boolean {
 }
 
 /**
- * Rows of a list that change places (it re-sorts, or a row above comes or
- * goes) glide from where they were to where they are now, instead of
- * jumping: each child of `list` with a `data-glide-key` is followed, by its
- * place in the list's layout (so scrolling the list never counts). Checked
- * after every render, before the browser paints. Nothing moves under
- * reduced motion. `axis: 'x'` for a row of items, e.g. the board tabs (the
- * open one is wider, with its delete button).
+ * Rows of a list that change places (it re-sorts, or a row comes or goes)
+ * glide from where they were to where they are now, instead of jumping:
+ * each child of `list` with a `data-glide-key` is followed by its place in
+ * the list's layout (so scrolling the list never counts). Places are read
+ * only when `keys` (the rows, in order) change, before the browser paints,
+ * and again whenever the list resizes, so a row that grew meanwhile is never
+ * taken for a move. The glide adds to whatever else moves the row (e.g. its
+ * own arrival), never replacing it. Nothing moves under reduced motion.
+ * `axis: 'x'` for a row of items, e.g. the board tabs.
  */
-export function useListGlide(list: RefObject<HTMLElement | null>, axis: 'x' | 'y' = 'y'): void {
+export function useListGlide(list: RefObject<HTMLElement | null>, keys: ReadonlyArray<string>, axis: 'x' | 'y' = 'y'): void {
   const places = useRef(new Map<string, number>())
-  useLayoutEffect(() => {
-    const el = list.current
-    if (!el) return
+  const order = keys.join('\n')
+  const measure = useCallback((el: HTMLElement, glide: boolean) => {
     const next = new Map<string, number>()
-    const still = prefersReducedMotion()
+    const still = !glide || prefersReducedMotion()
     for (const row of el.children) {
       if (!(row instanceof HTMLElement) || !row.dataset.glideKey) continue
       const place = axis === 'x' ? row.offsetLeft : row.offsetTop
       next.set(row.dataset.glideKey, place)
       const was = places.current.get(row.dataset.glideKey)
       if (still || was === undefined || Math.abs(was - place) < 1 || typeof row.animate !== 'function') continue
-      const from = axis === 'x' ? `translateX(${was - place}px)` : `translateY(${was - place}px)`
-      row.animate([{ transform: from }, {}], { duration: MOTION_MS, easing: MOTION_EASE })
+      const at = (px: number) => (axis === 'x' ? `translateX(${px}px)` : `translateY(${px}px)`)
+      row.animate([{ transform: at(was - place) }, { transform: at(0) }], { duration: MOTION_MS, easing: MOTION_EASE, composite: 'add' })
     }
     places.current = next
-  })
+  }, [axis])
+  // Re-read without gliding as the list or any row resizes (a row that grew
+  // moved the ones under it, and that is not a move to glide later).
+  const observer = useRef<ResizeObserver | null>(null)
+  useLayoutEffect(() => {
+    const el = list.current
+    if (!el) return
+    measure(el, true)
+    if (typeof ResizeObserver === 'undefined') return
+    observer.current ??= new ResizeObserver(() => { if (list.current) measure(list.current, false) })
+    observer.current.disconnect()
+    observer.current.observe(el)
+    for (const row of el.children) if (row instanceof HTMLElement && row.dataset.glideKey) observer.current.observe(row)
+  }, [list, order, measure])
+  useEffect(() => () => observer.current?.disconnect(), [])
 }

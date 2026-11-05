@@ -27,8 +27,11 @@ export function WorkspaceSwitcher() {
   const [dropIdx, setDropIdx] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  // The open tab is wider (its delete button): the others glide aside rather than jump.
-  useListGlide(containerRef, 'x')
+  // A board added, deleted or dragged to a new place: the others glide aside rather than jump.
+  useListGlide(containerRef, workspaces?.map((ws) => ws.id) ?? [], 'x')
+  // After the first render, an open tab's delete button arrives with the shared motion.
+  const shown = useRef(false)
+  useEffect(() => { shown.current = true }, [])
   const dragStartX = useRef(0)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
@@ -180,33 +183,39 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab text-body transition-[background-color,color,opacity] duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab pl-3 pr-1 text-body transition-[background-color,color,opacity] duration-150 select-none',
                   isActive
-                    ? 'pl-3.5 pr-1 font-semibold text-text-primary'
-                    : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
+                    ? 'font-semibold text-text-primary'
+                    : 'text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
                   isDragging && 'opacity-40',
                   dragging && 'cursor-grabbing',
                 )}
               >
                 <Icon className="h-4 w-4" />
-                {ws.name}
+                <TabName name={ws.name} />
               </button>
               {/* Only the open board can be deleted, so the button sits inside
-                  its tab and never overlaps a neighbour. */}
-              {isActive && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setDeleteTarget({ id: ws.id, name: ws.name })
-                  }}
-                  aria-label={`Delete ${ws.name}`}
-                  title="Delete board"
-                  className="mr-1.5 rounded-item p-1.5 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              )}
+                  its tab and never overlaps a neighbour. Every tab keeps its
+                  room, so opening a board never changes a tab's width. */}
+              <span className={cn(TAB_ACTION_ROOM, 'flex items-center justify-center')}>
+                {isActive && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setDeleteTarget({ id: ws.id, name: ws.name })
+                    }}
+                    aria-label={`Delete ${ws.name}`}
+                    title="Delete board"
+                    className={cn(
+                      'rounded-item p-[5px] text-text-muted transition-colors hover:bg-confused-soft hover:text-confused',
+                      shown.current && 'motion-safe:animate-enter',
+                    )}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </span>
               {dragging && dropIdx === workspaces.length && idx === workspaces.length - 1 && dragIdx !== idx && (
                 <div className="absolute -right-0.5 top-1 bottom-1 w-0.5 rounded-full bg-accent" />
               )}
@@ -230,5 +239,24 @@ export function WorkspaceSwitcher() {
         workspace={deleteTarget}
       />
     </>
+  )
+}
+
+/** The delete button's room at a tab's end (24px, then the tab's edge). */
+const TAB_ACTION_ROOM = 'mr-1 h-6 w-6 shrink-0'
+
+/**
+ * A tab's name, as wide as it is in bold whether it is or not: an invisible
+ * bold copy (drawn by CSS, so it is never read out or counted as text) sets
+ * the width, so opening a board never changes a tab's width.
+ */
+function TabName({ name }: { name: string }) {
+  return (
+    <span
+      data-tab-name={name}
+      className="inline-grid after:invisible after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-tab-name)]"
+    >
+      {name}
+    </span>
   )
 }

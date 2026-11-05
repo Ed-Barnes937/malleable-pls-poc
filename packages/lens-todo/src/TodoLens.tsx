@@ -118,7 +118,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   )
 
   const listRef = useRef<HTMLUListElement>(null)
-  useListGlide(listRef)
+  useListGlide(listRef, [...listed, ...done].map((item) => item.occurrence_key))
   const moreBelow = useMoreBelow(listRef, listed.length + done.length)
 
   return (
