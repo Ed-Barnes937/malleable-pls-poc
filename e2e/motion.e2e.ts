@@ -2,6 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
+import { motionSettled } from './settle'
 
 /**
  * The shared motion language (flow audit 03, decision 19): with motion on,
@@ -143,6 +144,32 @@ test.describe('Motion', () => {
     await expect.poll(async () => (await rows.evaluateAll((els) => els.map((el) => el.getAttribute('data-plan-item-id')))).indexOf(first), { timeout: 10_000 }).toBeGreaterThan(0)
     await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'todo-item').map((a) => a.keyframes))
       .toContainEqual(expect.stringMatching(/translateY\(\d+(\.\d+)?px\)/))
+  })
+
+  test('fullscreen and back puts the board\'s scroll and every widget back where they were, even scrolled to the end', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 })
+    await page.goto('/')
+    const grid = new PanelGridPom(page)
+    await expect(grid.panels.first()).toBeVisible()
+    const scroll = await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop })
+    expect(scroll).toBeGreaterThan(0)
+    const boxes = () => grid.panels.evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()))
+    await motionSettled(grid.panels)
+    const before = await boxes()
+    // The lowest widget, on screen at the end of the board (so the click scrolls nothing).
+    const label = await grid.panels.evaluateAll((els) => {
+      const lowest = els.reduce((a, b) => (b.getBoundingClientRect().bottom > a.getBoundingClientRect().bottom ? b : a))
+      return lowest.querySelector('[data-testid="panel-title"]')?.textContent ?? ''
+    })
+    const widget = grid.panelByLabel(label)
+    await widget.getByRole('button', { name: `Fullscreen ${label}` }).click()
+    await expect(widget.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(widget.getByRole('button', { name: `Fullscreen ${label}` })).toBeVisible()
+    await motionSettled(grid.panels)
+    expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(scroll)
+    expect(await boxes()).toEqual(before)
+    expect(scroll, 'the click scrolled nothing').toBe(await grid.root.evaluate((el) => el.scrollHeight - el.clientHeight))
   })
 
   test('a widget added arrives and one removed leaves; a block made on the grid arrives, the week shown first does not', async ({ page, request }) => {

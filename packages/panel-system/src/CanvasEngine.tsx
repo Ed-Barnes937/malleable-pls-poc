@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { AnimatePresence, animate, motion, useDragControls, useIsPresent, useMotionValue, type MotionValue } from 'motion/react'
+import { AnimatePresence, animate, motion, useDragControls, useIsPresent, useMotionValue, useTransform, type MotionValue } from 'motion/react'
 import { ENTER_FROM, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, boardSlideKeyframes, useReducedMotion } from '@pls/shared-ui'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
@@ -224,8 +224,8 @@ interface Glider {
   content: MotionValue<number>
 }
 
-/** How far through a resize glide the content stays hidden (see `glide`). */
-const CONTENT_HIDDEN_UNTIL = 0.4
+/** How far through a resize glide the content takes to fade in (see `glide`). */
+const CONTENT_FADE_UNTIL = 0.3
 
 /** Panels scale from their top edge's middle (enter, leave, step back, glide). */
 const ORIGIN = { x: 0.5, y: 0 }
@@ -237,10 +237,11 @@ const PANEL_ORIGIN = `${ORIGIN.x * 100}% ${ORIGIN.y * 100}%`
  * (`before`) back to that box: a transform only, so nothing on the page is
  * laid out again while it glides. A panel whose box didn't change still
  * glides if the board's scroll moved under it. A panel changing size lays its
- * content out afresh for the new size at once, which would make the content
- * jump (and stretch with the card): so the content is hidden as it is laid
- * out, and fades back in as the card settles. Motion/react owns these values
- * (one engine per element).
+ * content out afresh for the new size at once: the content is drawn at that
+ * size throughout (it is scaled against the card's scale, so it never
+ * stretches with it), clipped by the card, and fades in over the glide's
+ * first moments so the new layout never appears with a jump. Motion/react
+ * owns these values (one engine per element).
  */
 function glide(
   canvas: HTMLElement,
@@ -266,7 +267,7 @@ function glide(
       animate(g.y, [was.top - top - ORIGIN.y * panel.height * (1 - sy), 0], options)
       animate(g.scaleX, [sx, 1], options)
       animate(g.scaleY, [sy, 1], options)
-      animate(g.content, [0, 0, 1], { duration: MOTION_MS / 1000, times: [0, CONTENT_HIDDEN_UNTIL, 1], ease: 'easeOut' })
+      animate(g.content, [0, 1], { duration: (MOTION_MS / 1000) * CONTENT_FADE_UNTIL, ease: 'easeOut' })
       continue
     }
     // Same size: only moved (or the board scrolled under it). Measured by the
@@ -446,28 +447,55 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
 
 /* ── Drag hook ── */
 
-function usePanelDrag(
+/** Exported for its tests. */
+export function usePanelDrag(
   panel: PanelItem,
-  opts: { shiftRef: React.RefObject<boolean>; canvasRef: React.RefObject<HTMLDivElement | null>; isFullscreen: boolean },
+  opts: {
+    shiftRef: React.RefObject<boolean>
+    canvasRef: React.RefObject<HTMLDivElement | null>
+    isFullscreen: boolean
+    /** A gesture starts: any glide in flight stops (see `glide`). */
+    onSettle: () => void
+  },
 ) {
   const movePanel = useCanvasStore((s) => s.movePanel)
   const dragControls = useDragControls()
   const x = useMotionValue(0)
   const y = useMotionValue(0)
   const [isGesturing, setIsGesturing] = useState(false)
-  const { shiftRef, canvasRef, isFullscreen } = opts
+  const { shiftRef, canvasRef, isFullscreen, onSettle } = opts
+  /**
+   * Where a glide had the panel as a drag took it (0 when none was in
+   * flight): the drag carries on from there, so it never jumps by the rest
+   * of the glide.
+   */
+  const glideLeft = useRef({ x: 0, y: 0 })
 
-  const onGestureChange = useCallback((active: boolean) => setIsGesturing(active), [])
+  // A resize works from the panel's laid-out box: the glide jumps to its end.
+  const onGestureChange = useCallback((active: boolean) => {
+    if (active) {
+      onSettle()
+      x.jump(0)
+      y.jump(0)
+    }
+    setIsGesturing(active)
+  }, [onSettle, x, y])
 
-  const onDragStart = useCallback(() => setIsGesturing(true), [])
+  const onDragStart = useCallback(() => {
+    onSettle()
+    x.stop()
+    y.stop()
+    glideLeft.current = { x: x.get(), y: y.get() }
+    setIsGesturing(true)
+  }, [onSettle, x, y])
 
   const onDrag = useCallback(
     (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
       const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
       if (!current) return
 
-      let offsetX = info.offset.x
-      let offsetY = info.offset.y
+      let offsetX = glideLeft.current.x + info.offset.x
+      let offsetY = glideLeft.current.y + info.offset.y
 
       if (shiftRef.current) {
         offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
@@ -496,8 +524,9 @@ function usePanelDrag(
       const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
       if (!current) return
 
-      let newX = current.pos_x + info.offset.x
-      let newY = current.pos_y + info.offset.y
+      let newX = current.pos_x + glideLeft.current.x + info.offset.x
+      let newY = current.pos_y + glideLeft.current.y + info.offset.y
+      glideLeft.current = { x: 0, y: 0 }
 
       if (shiftRef.current) {
         newX = snapToGrid(newX)
@@ -577,8 +606,18 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
   const [isHovered, setIsHovered] = useState(false)
 
+  // A gesture during a glide stops it: the card takes its own size at once.
+  const settle = useCallback(() => {
+    for (const v of [scaleX, scaleY, content]) v.stop()
+    scaleX.jump(1)
+    scaleY.jump(1)
+    content.jump(1)
+  }, [scaleX, scaleY, content])
   const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
-    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
+    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false, onSettle: settle })
+  // The content against the card's scale, so it is drawn at its own size as the card glides.
+  const contentScaleX = useTransform(scaleX, (s) => 1 / s)
+  const contentScaleY = useTransform(scaleY, (s) => 1 / s)
 
   useLayoutEffect(() => {
     const el = elRef.current
@@ -639,7 +678,8 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
       data-testid={present ? `panel-${panel.id}` : undefined}
       data-panel-id={present ? panel.id : undefined}
       data-leaving={present ? undefined : ''}
-      inert={!present || undefined}
+      // Nothing to reach while it leaves, or while it steps back behind a fullscreen panel.
+      inert={!present || isBehind || undefined}
       aria-hidden={present ? undefined : true}
       data-stack-order={stacked ? stackOrder : undefined}
       // Where the panel is headed, not where a transition has it now (see reveal.ts).
@@ -707,7 +747,9 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
         ))}
       </div>
 
-      <motion.div className="h-full w-full" style={{ opacity: content }}>
+      {/* Clips the content to the card while the card glides (see `glide`). */}
+      <div className="h-full w-full overflow-hidden rounded-widget">
+      <motion.div className="h-full w-full" style={{ opacity: content, scaleX: contentScaleX, scaleY: contentScaleY, transformOrigin: PANEL_ORIGIN }}>
       <PanelChrome
         panelId={panel.id}
         title={label}
@@ -721,6 +763,7 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
         {lastContent.current}
       </PanelChrome>
       </motion.div>
+      </div>
     </motion.div>
   )
 }
