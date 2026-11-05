@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
-import { departures, motionSettled, recordDepartures } from './settle'
+import { departures, fontsLoaded, motionSettled, recordDepartures } from './settle'
 
 /**
  * The shared motion language (flow audit 03, decision 19): with motion on,
@@ -51,10 +51,38 @@ async function calendarBoard(request: APIRequestContext, name: string) {
   return ws.id
 }
 
-/** The board tabs' names, in tab order. */
+/**
+ * Tuesday 27 Oct 2026, 09:00 in London: Up next reads "Up next: Chemistry
+ * 14:00", too long for the room the seed boards' pills leave on a phone, so
+ * its width follows the pills (on the real clock it can be short enough to
+ * fit them all).
+ */
+const TUESDAY = new Date('2026-10-27T09:00:00Z')
+
+async function onTuesday(page: Page) {
+  await reseed({ now: TUESDAY.getTime() })
+  await page.clock.setFixedTime(TUESDAY)
+}
+
+// On a phone, Up next takes the room the pills leave on the row, and sits at its end, once it has glided there.
+const upNextFillsRoom = (page: Page) => expect.poll(() => page.evaluate(() => {
+  const row = document.querySelector('[data-testid="top-bar-row-2"]')!
+  const pills = row.querySelector('[data-testid="board-scope"]')?.getBoundingClientRect()
+  const button = row.querySelector('[data-testid="up-next"]')!
+  const gap = parseFloat(getComputedStyle(row).columnGap)
+  const room = row.getBoundingClientRect().width - (pills ? pills.width + gap : 0)
+  return {
+    width: Math.round(button.parentElement!.getBoundingClientRect().width - room),
+    right: Math.round(button.getBoundingClientRect().right - row.getBoundingClientRect().right),
+    gliding: button.getAnimations().length > 0,
+  }
+})).toEqual({ width: 0, right: 0, gliding: false })
+
+/** The board tabs' names, in tab order, once they are drawn in the app's font (so their widths are final). */
 async function tabNames(page: Page): Promise<string[]> {
   const tabs = page.getByTestId('top-bar').getByTestId('workspace-tab')
   await expect(tabs.first()).toBeVisible()
+  await fontsLoaded(page)
   return tabs.evaluateAll((els) => els.map((el) => el.querySelector('button')?.textContent?.trim() ?? ''))
 }
 
@@ -347,6 +375,7 @@ test.describe('Reduced motion', () => {
   })
 
   test('on a phone, Up next takes its new width at once as the pills change', async ({ page }) => {
+    await onTuesday(page)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await recordAnimations(page)
     await page.setViewportSize({ width: 390, height: 844 })
@@ -358,9 +387,18 @@ test.describe('Reduced motion', () => {
       await topBar.switchToWorkspace(name)
       await topBar.expectActiveWorkspace(name)
       await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+      await expect(topBar.upNext).toContainText('Chemistry')
+      await upNextFillsRoom(page)
       widths.add(Math.round((await topBar.upNext.boundingBox())!.width))
     }
-    // The seed boards' pills differ, so Up next changed width, and never glided.
+    // And a board with no pills, where it has the whole row.
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('Still phone board')
+    await topBar.expectActiveWorkspace('Still phone board')
+    await expect(topBar.root.getByTestId('board-scope')).toHaveCount(0)
+    await upNextFillsRoom(page)
+    widths.add(Math.round((await topBar.upNext.boundingBox())!.width))
+    // The pills differ, so Up next changed width, and never glided.
     expect(widths.size).toBeGreaterThan(1)
     expect((await animated(page)).filter((a) => a.testid === 'up-next')).toEqual([])
   })
@@ -387,24 +425,16 @@ test.describe('No layout jumps', () => {
 
   test('on a phone, switching boards or adding the first widget never moves the board, and Up next glides to fill the room the pills leave', async ({ page }) => {
     await recordAnimations(page)
+    // The glide never trips the browser's ResizeObserver loop guard.
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    await onTuesday(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     const canvasTop = async () => Math.round((await page.getByTestId('canvas-container').boundingBox())!.y)
-    // Up next takes the room the pills leave on the row, and sits at its end, once it has glided there.
-    const expectFillsRoom = () => expect.poll(() => page.evaluate(() => {
-      const row = document.querySelector('[data-testid="top-bar-row-2"]')!
-      const pills = row.querySelector('[data-testid="board-scope"]')?.getBoundingClientRect()
-      const button = row.querySelector('[data-testid="up-next"]')!
-      const gap = parseFloat(getComputedStyle(row).columnGap)
-      const room = row.getBoundingClientRect().width - (pills ? pills.width + gap : 0)
-      return {
-        width: Math.round(button.parentElement!.getBoundingClientRect().width - room),
-        right: Math.round(button.getBoundingClientRect().right - row.getBoundingClientRect().right),
-        gliding: button.getAnimations().length > 0,
-      }
-    })).toEqual({ width: 0, right: 0, gliding: false })
+    const expectFillsRoom = () => upNextFillsRoom(page)
     const upNextWidth = async () => Math.round((await topBar.upNext.boundingBox())!.width)
     const glides = async () => (await animated(page)).filter((a) => a.testid === 'up-next' && a.keyframes.includes('width')).length
     const names = await tabNames(page)
@@ -463,6 +493,7 @@ test.describe('No layout jumps', () => {
     await expectFillsRoom()
     await expect.poll(glides).toBeGreaterThan(0)
     expect(await watched()).toEqual([top])
+    expect(errors).toEqual([])
   })
 
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {

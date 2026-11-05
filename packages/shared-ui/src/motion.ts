@@ -126,10 +126,14 @@ export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = t
     const roomOf = () => parent.getBoundingClientRect().width
     let width = el.getBoundingClientRect().width
     let glide: { animation: Animation; room: number } | null = null
-    const observer = new ResizeObserver(() => {
+    // Only a change of room starts a glide, from its parent's notice: a glide
+    // started from the element's own notice would resize what was just
+    // reported, which the browser flags as a ResizeObserver loop.
+    const observer = new ResizeObserver((entries) => {
+      const roomChanged = entries.some((entry) => entry.target === parent)
       const room = roomOf()
       // Its own frames while it glides; the width it lands on is read when it lands.
-      if (glide && Math.abs(glide.room - room) < 1) return
+      if (glide && (!roomChanged || Math.abs(glide.room - room) < 1)) return
       let from = width
       if (glide) {
         from = el.getBoundingClientRect().width
@@ -137,7 +141,8 @@ export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = t
         glide = null
       }
       width = el.getBoundingClientRect().width
-      if (Math.abs(width - from) < 1 || prefersReducedMotion()) return
+      // Its own size changing on its own (its label) is only noted.
+      if (!roomChanged || Math.abs(width - from) < 1 || prefersReducedMotion()) return
       // Not shrunk to its new room meanwhile (as a flex item would be): it glides there.
       const animation = el.animate(
         [{ width: `${from}px`, flexShrink: 0 }, { width: `${width}px`, flexShrink: 0 }],

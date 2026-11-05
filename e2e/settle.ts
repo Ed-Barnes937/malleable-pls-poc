@@ -14,6 +14,15 @@ export async function motionSettled(locator: Locator): Promise<void> {
   ))
 }
 
+/**
+ * Waits for the app's font (DM Sans, from Google Fonts with `display=swap`)
+ * in the weights the page uses: until it arrives text is drawn in the
+ * fallback, so a width read before then changes when it swaps in.
+ */
+export async function fontsLoaded(page: Page): Promise<void> {
+  await page.waitForFunction(() => document.fonts.check('400 14px "DM Sans"') && document.fonts.check('600 14px "DM Sans"'))
+}
+
 /** Something that left with the shared motion: what it was, and the motion it played. */
 export interface Departure {
   /** The data-testids in what left (itself and inside it). */
