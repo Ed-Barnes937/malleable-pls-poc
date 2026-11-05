@@ -187,3 +187,43 @@ for (const viewport of CLASS_VIEWPORTS) {
     }
   })
 }
+
+/**
+ * A phone turned on its side while a block's popover is open: the calendar
+ * is laid out afresh and its blocks move, so the popover is placed again
+ * from where its block is now, and never covers it.
+ */
+test.describe('Popover on a phone turned on its side', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+  test.beforeEach(async ({ request }) => {
+    await reseed()
+    await boardWithCalendar(request)
+  })
+  test.afterAll(async () => { await reseed() })
+
+  for (const hour of [9, 13, 18]) {
+    test(`${hour}:00 block: its popover never covers it once the phone turns`, async ({ page, request }) => {
+      const today = new Date()
+      const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour)
+      await trpcMutation(request, 'planItems.create', {
+        kind: 'task', title: 'Turn me', course: 'biology', duration_min: 60,
+        starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+      })
+      await page.goto('/')
+      await new TopBarPom(page).switchToWorkspace('My week')
+      const calendar = new CalendarPom(page)
+      const block = calendar.block('Turn me')
+      await block.scrollIntoViewIfNeeded()
+      const box = await settledBox(page, block)
+      await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+      await expect(calendar.popover).toBeVisible()
+
+      await page.setViewportSize({ width: 844, height: 390 })
+      const after = await settledBox(page, block)
+      const popover = await settledBox(page, calendar.popover)
+      const overlap = Math.min(after.x + after.width, popover.x + popover.width) > Math.max(after.x, popover.x)
+        && Math.min(after.y + after.height, popover.y + popover.height) > Math.max(after.y, popover.y)
+      expect(overlap, `block ${JSON.stringify(after)}, popover ${JSON.stringify(popover)}`).toBe(false)
+    })
+  }
+})

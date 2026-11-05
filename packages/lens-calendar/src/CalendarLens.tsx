@@ -45,6 +45,10 @@ interface PendingMove {
   basis: string
 }
 
+/** How much the calendar's width must change while a popover is open to count as the phone turning (more than a scrollbar). */
+const TURN_PX = 16
+/** How many frames a turned calendar has to draw a popover's block before the popover closes. */
+const TURN_WAIT_FRAMES = 30
 /** Air between the grid's prompts (re-fit, suggested blocks) and a Help me plan panel over the grid. */
 const PROMPTS_GAP_PX = 8
 /** Beside Show plan (at the grid's bottom corner) while the Help me plan panel is tucked away. */
@@ -728,6 +732,53 @@ export default function CalendarLens({
   useEffect(() => {
     if (popover?.mode === 'edit' && data && !editing) setPopover(null)
   }, [popover, data, editing])
+
+  // The calendar much wider or narrower while a popover is open (a phone
+  // turned on its side) lays the blocks out afresh: a block's popover is
+  // placed again from where its block is now, so it never covers it (or
+  // closes, if the block is nowhere to be seen once the calendar has been
+  // laid out again), and a new block's from the same point across the
+  // calendar. A frame's small change (a scrollbar) is not a turn, and never
+  // moves it.
+  const popoverRef = useRef(popover)
+  popoverRef.current = popover
+  const popoverOpen = popover !== null
+  useEffect(() => {
+    const root = rootRef.current
+    if (!popoverOpen || !root || typeof ResizeObserver === 'undefined') return
+    let placedWidth = root.clientWidth
+    let frame = 0
+    const replace = (was: number, width: number, tries: number) => {
+      const p = popoverRef.current
+      if (!p) return
+      if (p.mode === 'create') return setPopover({ ...p, x: (p.x * width) / was })
+      const block = root.querySelector(`[data-occurrence-key="${CSS.escape(p.key)}"]`)
+      if (!block) {
+        // Its block may be a frame or two from being drawn at the new width.
+        if (tries > 0) frame = requestAnimationFrame(() => replace(was, width, tries - 1))
+        else leavePopover()
+        return
+      }
+      const at = root.getBoundingClientRect()
+      const box = block.getBoundingClientRect()
+      const span = { top: box.top - at.top, bottom: box.bottom - at.top, left: box.left - at.left, right: box.right - at.left }
+      const into = p.span ? Math.min(Math.max(p.y - p.span.top, 0), span.bottom - span.top) : (span.bottom - span.top) / 2
+      setPopover({ ...p, x: box.left + box.width / 2 - at.left, y: span.top + into, span })
+    }
+    const observer = new ResizeObserver(() => {
+      const width = root.clientWidth
+      if (Math.abs(width - placedWidth) <= TURN_PX) return
+      const was = placedWidth
+      placedWidth = width
+      cancelAnimationFrame(frame)
+      replace(was, width, TURN_WAIT_FRAMES)
+    })
+    observer.observe(root)
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [popoverOpen, leavePopover])
 
   const step = view === 'week' ? 7 : 1
   const phoneDay = narrow && view === 'day'

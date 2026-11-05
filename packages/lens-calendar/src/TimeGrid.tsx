@@ -838,6 +838,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       data-testid={preview ? 'calendar-block-preview' : leaving ? 'calendar-block-leaving' : 'calendar-block'}
       data-plan-item-id={preview || leaving ? undefined : item.id}
       data-segment-key={preview || leaving ? undefined : seg.key}
+      data-occurrence-key={preview || leaving ? undefined : item.occurrence_key}
       data-kind={item.kind}
       data-look={look}
       data-dimmed={dimmed || undefined}

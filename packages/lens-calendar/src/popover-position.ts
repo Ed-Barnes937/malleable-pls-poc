@@ -3,10 +3,16 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 're
 const GAP = 12
 const MARGIN = 8
 
-/** The top and bottom of what was pressed (a block, or the new block a press on empty time makes). */
+/**
+ * The top and bottom of what was pressed (a block, or the new block a press
+ * on empty time makes). With its sides too when it is placed again from the
+ * block alone (no press to sit beside, e.g. after the phone turns).
+ */
 export interface Span {
   top: number
   bottom: number
+  left?: number
+  right?: number
 }
 
 /**
@@ -16,15 +22,19 @@ export interface Span {
  * can't sit beside the point (a phone, or a narrow panel, where it is nearly
  * as wide as the calendar), it goes above what was pressed (`span`, the point
  * when absent), or below it, so that stays in view; only when neither fits
- * does it cover it.
+ * does it cover it. Given the span's sides, it sits beside the whole of it
+ * rather than beside the point.
  */
 export function placePopover(
   { x, y, span = { top: y, bottom: y }, bounds, width, height }:
   { x: number; y: number; span?: Span; bounds: { width: number; height: number }; width: number; height: number },
 ) {
-  const beside = x + GAP + width > bounds.width ? x - width - GAP : x + GAP
+  const from = { left: span.left ?? x, right: span.right ?? x }
+  const beside = from.right + GAP + width > bounds.width ? from.left - width - GAP : from.right + GAP
   const left = Math.max(MARGIN, Math.min(beside, bounds.width - width - MARGIN))
-  const covers = left <= x && x <= left + width
+  const covers = span.left === undefined || span.right === undefined
+    ? left <= x && x <= left + width
+    : left < from.right && from.left < left + width
   const above = span.top - GAP - height
   const below = span.bottom + GAP
   const top = !covers
@@ -70,15 +80,17 @@ export function usePopoverPosition(
   const [pos, setPos] = useState({ left: x, top: y })
   const spanTop = span?.top
   const spanBottom = span?.bottom
+  const spanLeft = span?.left
+  const spanRight = span?.right
   const placedRef = useRef<{ press: string; top: number; anchor: number | null } | null>(null)
   useLayoutEffect(() => {
-    const pressed = spanTop === undefined || spanBottom === undefined ? undefined : { top: spanTop, bottom: spanBottom }
+    const pressed = spanTop === undefined || spanBottom === undefined ? undefined : { top: spanTop, bottom: spanBottom, left: spanLeft, right: spanRight }
     const el = ref.current
     const anchorOffset = () => {
       const anchor = el?.querySelector<HTMLElement>('[data-popover-anchor]')
       return el && anchor ? anchor.getBoundingClientRect().top - el.getBoundingClientRect().top : null
     }
-    const press = `${x}:${y}:${spanTop}:${spanBottom}`
+    const press = `${x}:${y}:${spanTop}:${spanBottom}:${spanLeft}:${spanRight}`
     const place = () => {
       const placed = placedRef.current?.press === press ? placedRef.current : null
       const height = el?.offsetHeight ?? 320
@@ -95,7 +107,7 @@ export function usePopoverPosition(
     const observer = new ResizeObserver(place)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [ref, x, y, spanTop, spanBottom, bounds.width, bounds.height, width])
+  }, [ref, x, y, spanTop, spanBottom, spanLeft, spanRight, bounds.width, bounds.height, width])
   return pos
 }
 

@@ -27,6 +27,17 @@ describe('placePopover', () => {
     expect(placePopover({ x: 200, y: 300, span, bounds: desktop, width: 340, height: 320 })).toEqual({ left: 212, top: 276 })
   })
 
+  it('given the block\'s sides (placed again with no press), sits beside the whole block, never over it', () => {
+    const span = { top: 280, bottom: 310, left: 440, right: 550 }
+    expect(placePopover({ x: 495, y: 290, span, bounds: { width: 858, height: 640 }, width: 300, height: 300 })).toEqual({ left: 128, top: 266 })
+    expect(placePopover({ x: 145, y: 290, span: { ...span, left: 90, right: 200 }, bounds: { width: 858, height: 640 }, width: 300, height: 300 })).toEqual({ left: 212, top: 266 })
+  })
+
+  it('given the block\'s sides with no room beside it, goes above or below the block', () => {
+    const span = { top: 300, bottom: 330, left: 20, right: 350 }
+    expect(placePopover({ x: 185, y: 310, span, bounds: phone, width: 340, height: 200 })).toEqual({ left: 8, top: 88 })
+  })
+
   it('on a phone, goes above the block pressed when there is room, clear of all of it', () => {
     const span = { top: 520, bottom: 580 }
     const pos = placePopover({ x: 180, y: 560, span, bounds: phone, width: 340, height: 360 })
