@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { useWorkspaces, useReorderWorkspaces } from '@pls/substrate-client'
-import { cn } from '@pls/shared-ui'
+import { cn, useListGlide } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useActiveWorkspaceId } from './activeBoard'
 import { BookOpen, Moon, GraduationCap, Plus, Trash2 } from 'lucide-react'
@@ -27,6 +27,8 @@ export function WorkspaceSwitcher() {
   const [dropIdx, setDropIdx] = useState<number | null>(null)
   const [dragging, setDragging] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // The open tab is wider (its delete button): the others glide aside rather than jump.
+  useListGlide(containerRef, 'x')
   const dragStartX = useRef(0)
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
 
@@ -159,9 +161,10 @@ export function WorkspaceSwitcher() {
           return (
             <div
               key={ws.id}
+              data-glide-key={ws.id}
               data-testid="workspace-tab"
               className={cn(
-                'relative flex shrink-0 items-center rounded-tab transition-all duration-150',
+                'relative flex shrink-0 items-center rounded-tab transition-[background-color,box-shadow] duration-150',
                 isActive && 'bg-surface-raised shadow-sm',
               )}
             >
@@ -177,7 +180,7 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab text-body transition-all duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab text-body transition-[background-color,color,opacity] duration-150 select-none',
                   isActive
                     ? 'pl-3.5 pr-1 font-semibold text-text-primary'
                     : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',

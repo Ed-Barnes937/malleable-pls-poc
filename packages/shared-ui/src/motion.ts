@@ -71,10 +71,11 @@ export function useReducedMotion(): boolean {
  * jumping: each child of `list` with a `data-glide-key` is followed, by its
  * place in the list's layout (so scrolling the list never counts). Checked
  * after every render, before the browser paints. Nothing moves under
- * reduced motion.
+ * reduced motion. `axis: 'x'` for a row of items, e.g. the board tabs (the
+ * open one is wider, with its delete button).
  */
-export function useListGlide(list: RefObject<HTMLElement | null>): void {
-  const tops = useRef(new Map<string, number>())
+export function useListGlide(list: RefObject<HTMLElement | null>, axis: 'x' | 'y' = 'y'): void {
+  const places = useRef(new Map<string, number>())
   useLayoutEffect(() => {
     const el = list.current
     if (!el) return
@@ -82,12 +83,13 @@ export function useListGlide(list: RefObject<HTMLElement | null>): void {
     const still = prefersReducedMotion()
     for (const row of el.children) {
       if (!(row instanceof HTMLElement) || !row.dataset.glideKey) continue
-      const top = row.offsetTop
-      next.set(row.dataset.glideKey, top)
-      const was = tops.current.get(row.dataset.glideKey)
-      if (still || was === undefined || Math.abs(was - top) < 1 || typeof row.animate !== 'function') continue
-      row.animate([{ transform: `translateY(${was - top}px)` }, {}], { duration: MOTION_MS, easing: MOTION_EASE })
+      const place = axis === 'x' ? row.offsetLeft : row.offsetTop
+      next.set(row.dataset.glideKey, place)
+      const was = places.current.get(row.dataset.glideKey)
+      if (still || was === undefined || Math.abs(was - place) < 1 || typeof row.animate !== 'function') continue
+      const from = axis === 'x' ? `translateX(${was - place}px)` : `translateY(${was - place}px)`
+      row.animate([{ transform: from }, {}], { duration: MOTION_MS, easing: MOTION_EASE })
     }
-    tops.current = next
+    places.current = next
   })
 }
