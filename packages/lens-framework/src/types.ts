@@ -312,6 +312,8 @@ export interface LensProps {
    * Undo. Optional for the same reason as `onConfigChange`.
    */
   onNotify?: (notice: LensNotice) => void
+  /** Takes down the notice with this `key`, if it is still up (its Undo no longer applies). */
+  onDismissNotice?: (key: string) => void
   /**
    * Go through these moments in a focused review on this board: the shell
    * hands them to the widget that runs reviews (manifest `runsReviews`) via

@@ -368,6 +368,7 @@ export function WorkspaceShell() {
   const startReview = useWorkspaceStore((s) => s.startReview)
   const clearReview = useWorkspaceStore((s) => s.clearReview)
   const reviewRun = useWorkspaceStore((s) => s.reviewRun)
+  const dismissToastKey = useToastStore((s) => s.dismissKey)
   const handleNotify = useCallback(
     (notice: LensNotice) => pushToast({ ...notice, tone: notice.tone ?? 'success' }),
     [pushToast],
@@ -443,6 +444,7 @@ export function WorkspaceShell() {
             onAddWidget={openWidgetPalette}
             onEditAutomation={setAutomationId}
             onNotify={handleNotify}
+            onDismissNotice={dismissToastKey}
             onStartReview={handleStartReview}
             // Only the widget the run was handed to takes it (the first on the canvas).
             reviewRun={manifest?.runsReviews && reviewRun && reviewRun.panelId === panel.id ? reviewRun : undefined}
@@ -463,7 +465,7 @@ export function WorkspaceShell() {
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, handleStartReview, reviewRun, clearReview],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, dismissToastKey, handleStartReview, reviewRun, clearReview],
   )
 
   // Icon resolver: look up icon from the manifest registry

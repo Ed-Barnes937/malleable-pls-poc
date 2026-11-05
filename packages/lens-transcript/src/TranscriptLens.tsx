@@ -365,7 +365,7 @@ function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; me
   )
 }
 
-export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem, onScopeChange, onNotify }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem, onScopeChange, onNotify, onDismissNotice }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -544,9 +544,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     }
     markedAt.current = watchUserScroll()
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
-    // Replaces an earlier "No longer marked confusing" toast for this moment,
-    // whose Undo would now double the mark and its review.
-    if (label === 'confused') onNotify?.({ message: 'Marked confusing', key: momentMarksKey(selectedSegmentId) })
+    // An earlier "No longer marked confusing" toast for this moment goes: its
+    // Undo would now double the mark and its review.
+    if (label === 'confused') onDismissNotice?.(momentMarksKey(selectedSegmentId))
   }
   const handleSorted = () => {
     if (!selectedSegmentId || marks.isPending) return
