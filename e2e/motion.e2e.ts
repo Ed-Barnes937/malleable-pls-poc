@@ -192,7 +192,7 @@ test.describe('No layout jumps', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
 
-  test('the re-fit prompt floats over the grid: answering it moves nothing', async ({ page, request }) => {
+  test('the re-fit prompt sits in the grid\'s footer: answering it moves nothing', async ({ page, request }) => {
     await calendarBoard(request, 'Prompt week')
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('Prompt week')
@@ -205,5 +205,26 @@ test.describe('No layout jumps', () => {
     await notNow.click()
     await expect(banner).toHaveCount(0)
     expect(await calendar.grid.boundingBox()).toEqual(before)
+  })
+
+  test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {
+    await calendarBoard(request, 'Prompt week')
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Prompt week')
+    const calendar = new CalendarPom(page)
+    const banner = calendar.root.getByTestId('refit-banner')
+    const notNow = banner.getByRole('button', { name: 'Not now' })
+    await notNow.scrollIntoViewIfNeeded()
+    const scroll = calendar.root.getByTestId('calendar-scroll')
+    const end = await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop })
+    expect(end).toBeGreaterThan(0)
+    const before = await settledBox(page, 'calendar-grid')
+    await notNow.click()
+    await expect(banner).toHaveCount(0)
+    expect(await calendar.grid.boundingBox()).toEqual(before)
+    expect(await scroll.evaluate((el) => el.scrollTop)).toBe(end)
+    // Scrolling back up gives the kept room back.
+    await scroll.evaluate((el) => { el.scrollTop = 0 })
+    await expect.poll(() => calendar.root.getByTestId('calendar-scroll-slack').evaluate((el) => el.getBoundingClientRect().height)).toBe(0)
   })
 })

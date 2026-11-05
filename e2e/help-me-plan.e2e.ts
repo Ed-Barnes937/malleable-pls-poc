@@ -262,31 +262,36 @@ test.describe('Help me plan', () => {
     expect(await trpcQuery<Row[]>(request, 'planItems.list')).toEqual(before)
   })
 
-  test('a draft ending with the panel closed leaves the grid where it is (decision 13)', async ({ page, request }) => {
-    await seedWeek(request)
-    const { calendar, panel } = await openPlanner(page)
-    await panel.getByTestId('autofill').click()
-    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
-    await expect(calendar.root.getByTestId('calendar-ghost').first()).toBeVisible()
-    await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+  for (const scrolled of [false, true]) {
+    test(`a draft ending with the panel closed leaves the grid where it is (decision 13)${scrolled ? ', scrolled to the end of the hours' : ''}`, async ({ page, request }) => {
+      await seedWeek(request)
+      const { calendar, panel } = await openPlanner(page)
+      await panel.getByTestId('autofill').click()
+      await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+      await expect(calendar.root.getByTestId('calendar-ghost').first()).toBeVisible()
+      await panel.getByRole('button', { name: 'Close Help me plan' }).click()
 
-    // The suggested-blocks tray floats over the grid's foot: the grid and its
-    // hours stay put as it comes and goes.
-    const tray = calendar.root.getByTestId('proposal-tray')
-    const acceptAll = tray.getByRole('button', { name: 'Accept all' })
-    // In view first, so the click itself scrolls nothing.
-    await acceptAll.scrollIntoViewIfNeeded()
-    const placement = calendar.block('Lab placement').first()
-    let last = ''
-    await expect.poll(async () => {
-      const boxes = JSON.stringify([await calendar.grid.boundingBox(), await placement.boundingBox()])
-      const settled = boxes === last
-      last = boxes
-      return settled
-    }, { intervals: [100] }).toBe(true)
-    await acceptAll.click()
-    await expect(tray).toHaveCount(0)
-    await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
-    expect(JSON.stringify([await calendar.grid.boundingBox(), await placement.boundingBox()])).toBe(last)
-  })
+      // The suggested-blocks tray sits in the grid's footer: the grid and its
+      // hours stay put as it comes and goes.
+      const tray = calendar.root.getByTestId('proposal-tray')
+      const acceptAll = tray.getByRole('button', { name: 'Accept all' })
+      // In view first, so the click itself scrolls nothing.
+      await acceptAll.scrollIntoViewIfNeeded()
+      const scroll = calendar.root.getByTestId('calendar-scroll')
+      if (scrolled) await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight })
+      const placement = calendar.block('Lab placement').first()
+      const boxes = async () => JSON.stringify([await calendar.grid.boundingBox(), await placement.boundingBox(), await scroll.evaluate((el) => el.scrollTop)])
+      let last = ''
+      await expect.poll(async () => {
+        const now = await boxes()
+        const settled = now === last
+        last = now
+        return settled
+      }, { intervals: [100] }).toBe(true)
+      await acceptAll.click()
+      await expect(tray).toHaveCount(0)
+      await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
+      expect(await boxes()).toBe(last)
+    })
+  }
 })

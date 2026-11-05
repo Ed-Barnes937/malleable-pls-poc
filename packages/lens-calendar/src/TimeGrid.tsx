@@ -158,6 +158,8 @@ export function TimeGrid({
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
+  /** Room under the hours kept while scrolled into it (see the footer's effect). */
+  const slackRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
@@ -222,6 +224,47 @@ export function TimeGrid({
     el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
     keepTopHour.current = null
   }, [hourPx])
+
+  // Scrolled to the end, a footer that shrinks or goes would make the browser
+  // pull the scroll back (the hours can't scroll past their end), and every
+  // block would jump down. Instead the hours keep the room it gave up, as
+  // blank space under 24:00, for as long as the grid is scrolled into it.
+  // Measured as the footer resizes, after layout and before paint.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const foot = footerRef.current
+    const slack = slackRef.current
+    if (!el || !foot || !slack) return
+    let footHeight = foot.offsetHeight
+    let lastTop = el.scrollTop
+    let room = 0
+    const setRoom = (px: number) => {
+      room = Math.max(0, Math.round(px))
+      slack.style.height = `${room}px`
+    }
+    /** How far the view reaches past the hours' own end. */
+    const overhang = (top: number) => top + el.clientHeight - (el.scrollHeight - room)
+    const onScroll = () => {
+      // A footer resize not yet handled: the browser's own pull-back, not the student.
+      if (foot.offsetHeight !== footHeight) return
+      lastTop = el.scrollTop
+      if (room > 0) setRoom(Math.min(room, overhang(lastTop)))
+    }
+    const observer = new ResizeObserver(() => {
+      const next = foot.offsetHeight
+      if (next < footHeight) {
+        setRoom(Math.max(room, overhang(lastTop)))
+        el.scrollTop = lastTop
+      }
+      footHeight = next
+    })
+    observer.observe(foot)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   // Ghosts are laid out with real blocks, so a dragged one never hides another.
   const segments = useMemo(
@@ -701,8 +744,9 @@ export function TimeGrid({
             })}
           </div>
         </div>
+        <div ref={slackRef} aria-hidden data-testid="calendar-scroll-slack" className="h-0" />
       </div>
-      {footer && <div ref={footerRef} className="shrink-0">{footer}</div>}
+      <div ref={footerRef} className="shrink-0">{footer}</div>
     </div>
   )
 }
