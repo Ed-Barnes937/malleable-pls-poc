@@ -700,7 +700,7 @@ test('a review of a moment shortened to 15m is not partly booked: its block is i
   await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
 })
 
-test('Book the rest that fails to save saves nothing, says so, and books it all on a retry', async ({ mount, page, simulator }) => {
+test('Book the rest that fails to save saves nothing, says so, and books it all on a retry', async ({ mount, page, simulator, consoleErrors }) => {
   // 3h due in four days, booked for 30m: the rest splits into sessions.
   const start = daysFromNow(1, 9)
   seedPlanItem(simulator, {
@@ -719,6 +719,7 @@ test('Book the rest that fails to save saves nothing, says so, and books it all 
   const blocks = await draft.getByTestId('book-the-rest-block').count()
   expect(blocks).toBeGreaterThan(1)
 
+  consoleErrors.allowFailedRequest('planItems.bookSessions')
   let failNext = true
   await page.route(/planItems\.bookSessions/, async (route) => {
     if (!failNext) return route.fallback()

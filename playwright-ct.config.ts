@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/experimental-ct-react'
 import path from 'path'
+import { CT_SPECS } from './playwright/spec-files'
 
 // Cost guardrail: test runs never reach a real AI provider. Forced here so
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
@@ -10,8 +11,7 @@ delete process.env.OPENROUTER_API_KEY
 process.env.TZ = 'Europe/London'
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: '**/*.iwft.{ts,tsx}',
+  ...CT_SPECS,
   outputDir: 'test-results/ct',
   timeout: 15_000,
   retries: 0,

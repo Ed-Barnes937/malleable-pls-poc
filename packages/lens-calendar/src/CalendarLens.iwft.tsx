@@ -139,6 +139,30 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
   })
 }
 
+// Any scroll the student (or a block shown) makes keeps its place, not only
+// touch, wheel and keys: a scrollbar drag or scrollIntoView used to snap back
+// to 08:00 the next time the panel resized.
+test('a scroll by any means keeps its place when the panel resizes', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  const component = await mount(<CalendarHarness height={400} />)
+  await expect(block(page, 'Biology lecture')).toBeVisible()
+  await point(page, 0, 12) // waits for the grid to stop re-fitting
+  const scroll = page.getByTestId('calendar-scroll')
+  const bottom = await scroll.evaluate(async (el) => {
+    el.scrollTop = el.scrollHeight
+    await new Promise((resolve) => el.addEventListener('scrollend', resolve, { once: true }))
+    return el.scrollTop
+  })
+  expect(bottom).toBeGreaterThan(0)
+
+  await component.update(<CalendarHarness height={420} />)
+  await point(page, 0, 12)
+  const box = (await scroll.boundingBox())!
+  const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+  // 22:00 is still in view, not scrolled away to 08:00.
+  expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(box.y + box.height)
+})
+
 test('block language: a class is a solid course tint, a shift neutral with a cup, study time a soft tint with a bar and a grab handle', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
@@ -596,7 +620,8 @@ test('the next and previous weeks are fetched by date range', async ({ mount, pa
   await expect(block(page, 'Field trip')).toHaveCount(0)
 })
 
-test('a move that does not save says so and puts the block back', async ({ mount, page, simulator }) => {
+test('a move that does not save says so and puts the block back', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   await expect(block(page, 'Revise respiration')).toBeVisible()

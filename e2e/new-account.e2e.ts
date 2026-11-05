@@ -1,5 +1,6 @@
 import path from 'path'
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { AudioCapturePom, CreateWorkspaceDialogPom, PanelGridPom, TopBarPom } from './pom'
 import { apiUrl } from './ports'
 import { trpcMutation, trpcQuery } from './api'
@@ -21,14 +22,14 @@ async function actAs(page: Page, userId: string) {
   })
 }
 
-/** An empty "Lectures" board with Audio Capture and Transcript, as the account's first act. */
+/** An empty "Lectures" board with Audio Capture, Transcript and Resources, as the account's first act. */
 async function openCaptureBoard(page: Page) {
   await page.goto('/')
   const grid = new PanelGridPom(page)
   await new TopBarPom(page).openCreateWorkspaceDialog()
   await new CreateWorkspaceDialogPom(page).createWorkspace('Lectures')
   await grid.starter('Capture a lecture').click()
-  await grid.expectPanelCount(2)
+  await grid.expectPanelCount(3)
   return { audio: new AudioCapturePom(grid.panelByLabel('Audio Capture')), transcript: grid.panelByLabel('Transcript') }
 }
 
@@ -62,7 +63,7 @@ test.describe('A brand-new account', () => {
     const transcribe = (await automationsOf(request, user)).find((a) => a.trigger_event === 'recording:completed')!
     await trpcMutation(request, 'workflows.delete', { workflowId: transcribe.id }, user)
     await page.reload()
-    await new PanelGridPom(page).expectPanelCount(2)
+    await new PanelGridPom(page).expectPanelCount(3)
     expect(await triggers()).toEqual(['recording:transcribed', 'tag:created'])
   })
 

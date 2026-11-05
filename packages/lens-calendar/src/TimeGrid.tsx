@@ -152,6 +152,8 @@ export function TimeGrid({
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** Where the grid last put its own scroll: any other scroll is someone else's (touch, wheel, keys, the scrollbar, scrollIntoView). */
+  const ownScrollTop = useRef<number | null>(null)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
@@ -185,27 +187,27 @@ export function TimeGrid({
         setHourPx(px)
       } else if (!userScrolled.current) {
         el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+        ownScrollTop.current = el.scrollTop
       }
       fitted = px
     }
-    const markScrolled = () => { userScrolled.current = true }
+    const markScrolled = () => {
+      if (ownScrollTop.current === null || Math.abs(el.scrollTop - ownScrollTop.current) > 1) userScrolled.current = true
+    }
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
-    el.addEventListener('wheel', markScrolled, { passive: true })
-    el.addEventListener('touchmove', markScrolled, { passive: true })
-    el.addEventListener('keydown', markScrolled)
+    el.addEventListener('scroll', markScrolled, { passive: true })
     return () => {
       observer.disconnect()
-      el.removeEventListener('wheel', markScrolled)
-      el.removeEventListener('touchmove', markScrolled)
-      el.removeEventListener('keydown', markScrolled)
+      el.removeEventListener('scroll', markScrolled)
     }
   }, [])
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el || keepTopHour.current === null) return
     el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    ownScrollTop.current = el.scrollTop
     keepTopHour.current = null
   }, [hourPx])
 

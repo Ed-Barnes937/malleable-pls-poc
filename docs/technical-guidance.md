@@ -115,9 +115,13 @@ workspace_scopes
   -- scope_type: "tag" (course) | "lecture" (selected lecture)
   -- scope_value: "biology" | "lec_123"
   -- Written only through workspaces.setBoardScope (one call per user
-  -- action, course and lecture in one transaction): a selected lecture
-  -- brings its course, and a course change (including "All courses")
-  -- clears a lecture outside it. Read with decodeScope (substrate-client)
+  -- action, course and lecture in one transaction): a board's lecture
+  -- belongs to its course, unless the board is "All courses" (no 'tag'
+  -- row), which may show any lecture. On a board with a course a selected
+  -- lecture brings its course; an "All courses" board stays "All courses"
+  -- until the student changes it. A change to a course clears a lecture
+  -- outside it; a change to "All courses" keeps the lecture. See
+  -- writeBoardScope. Read with decodeScope (substrate-client)
   -- as Scope { courseTag, lectureId }.
   -- At most one row per (workspace_id, scope_type), enforced by a unique
   -- index; writers upsert under the board's scope lock (lockBoardScope).
@@ -250,10 +254,12 @@ simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
   lecture and selects it on the board in one transaction, so every widget
   knows it during the class. If a class of the board's course is on (from 15
   minutes before its start to its end), it is that occurrence's lecture, the
-  same one a calendar click finds. `classForCapture` is the one place that
-  decides this; it matches silently today (open product question Q8: ask the
-  first time instead?). A refused microphone leaves the empty lecture
-  selected, which is valid.
+  same one a calendar click finds. On an "All courses" board any class that
+  is on counts, whatever its course, and the board stays "All courses". At
+  a changeover (several on) it is the one that starts last, counting the
+  15-minute lead-in as started, either way. `classForCapture` is the one
+  place that decides this; it matches silently. A refused microphone leaves
+  the empty lecture selected, which is valid.
 - **The server selects lectures that captures and uploads make**; the widget
   never writes the board scope after an upload. `/upload` without
   `x-lecture-id` but with `x-select-on-board: 1` selects its new lecture on
@@ -278,8 +284,9 @@ simulator and widgets all use them): `occurrenceDate`, `occurrenceOn`,
 ### Focusing a class's lecture ("click Tuesday's Biology class")
 
 Opening a class block on the calendar (a click, a tap or Enter; never a drag
-or resize) focuses that occurrence's lecture, with its course, **on the board
-in view**. It is not an automation (a click is client-side intent, and an
+or resize) focuses that occurrence's lecture **on the board in view**, with
+its course on a board with a course; an "All courses" board stays "All
+courses" (and so does one opened with "Also open in"). It is not an automation (a click is client-side intent, and an
 automation would have to name a board, which is app state nothing can
 guarantee), it never navigates, and it never makes a board or asks the
 student to. Like a Notion or Obsidian link, it names content (the lecture),
@@ -309,7 +316,8 @@ not a view; boards are the student's views.
    `after`: a change made since, anywhere, is kept, and the row says "The
    board has changed since." and drops Undo. A `before` lecture that has
    since been deleted comes back as just its course; one refiled under
-   another course comes back with its new course. Quick opens (one made from
+   another course comes back with its new course (or under "All courses",
+   when the board was that). Quick opens (one made from
    the last one's popover, or before it answered) are one Undo session:
    Undo puts back the board from before the first, not a class passed
    through. A failure leaves the board alone and offers Try again. Nothing
@@ -342,8 +350,8 @@ gesture, not lens-to-lens messaging, and it works like scope:
 
 1. A widget calls `LensProps.onShowMoment({ recordingId, offsetMs })`.
 2. The shell (`packages/workspace-shell/src/moments.ts`) selects the
-   recording's lecture on the board in one `setBoardScope` (so the board
-   course becomes the lecture's course) and publishes the moment as
+   recording's lecture on the board in one `setBoardScope` (so a board with
+   a course takes the lecture's course; an "All courses" board stays so) and publishes the moment as
    ephemeral, app-wide shell state
    (`useWorkspaceStore().focusedMoment`, never persisted, a fresh `id` per
    request).

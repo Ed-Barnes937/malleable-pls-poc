@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createJobRunner } from './job-runner'
 import { createExecutorRegistry } from './executor-registry'
 import { createWorkflowEngine } from './engine'
-import { createMemoryAdapter } from './testing/memory-adapter'
+import { createMemoryAdapter, type MemoryAdapter } from './testing/memory-adapter'
 import type { JobRun, RunnerEvent, StorageAdapter } from './types'
 
 function makePendingJob(overrides: Partial<JobRun> = {}): JobRun {
@@ -382,6 +382,134 @@ describe('job runner', () => {
       // second tick processes second:run.
       await runner.processOnce()
       expect(executors2).toHaveBeenCalled()
+    })
+  })
+
+  describe('settling a run atomically', () => {
+    const followUp = {
+      id: 'wf-2',
+      source_lens: 'lens:x',
+      trigger_event: 'evt:next',
+      condition_field: null,
+      condition_value: null,
+      enabled: true,
+      jobs: [{ id: 'wj-2', workflow_id: 'wf-2', job_type: 'second:run', params: {}, sort_order: 0, delay_ms: 0 }],
+    }
+
+    /**
+     * The in-memory adapter, logging its writes, with "tx:" on those made
+     * inside a transaction and "begin"/"end" around each one.
+     */
+    function loggingAdapter(base: MemoryAdapter, failEnqueue?: string) {
+      const log: string[] = []
+      let inTx = 0
+      const note = (call: string) => { log.push(inTx > 0 ? `tx:${call}` : call) }
+      const wrap = (inner: StorageAdapter): StorageAdapter => ({
+        getEffectiveWorkflows: (event, scope) => inner.getEffectiveWorkflows(event, scope),
+        claimPendingJobRuns: () => inner.claimPendingJobRuns(),
+        updateJobRunStatus: (id, status, output, error) => {
+          note(`status ${status}`)
+          return inner.updateJobRunStatus(id, status, output, error)
+        },
+        enqueueJobRun: (args) => {
+          note(`enqueue ${args.jobType}`)
+          if (args.jobType === failEnqueue) throw new Error('enqueue failed')
+          return inner.enqueueJobRun(args)
+        },
+        transaction: async (fn) => {
+          note('begin')
+          inTx += 1
+          try {
+            return await base.transaction!((tx) => fn(wrap(tx)))
+          } finally {
+            inTx -= 1
+            note('end')
+          }
+        },
+      })
+      return { adapter: wrap(base), log }
+    }
+
+    function seedFirstRun(adapter: MemoryAdapter) {
+      adapter.enqueueJobRun({ workflowId: 'wf-1', workflowJobId: 'wj-1', jobType: 'first:run', input: {}, depth: 0 })
+    }
+
+    it('commits a run as completed in the same transaction that queues its follow-ups', async () => {
+      const memory = createMemoryAdapter({ workflows: [followUp] })
+      seedFirstRun(memory)
+      const { adapter, log } = loggingAdapter(memory)
+      const executors = createExecutorRegistry()
+      executors.register('first:run', async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }), { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null })
+
+      await runner.processOnce()
+
+      expect(log).toEqual(['status running', 'begin', 'tx:status completed', 'tx:enqueue second:run', 'end'])
+      expect(memory.jobRuns.map((r) => [r.job_type, r.status])).toEqual([['first:run', 'completed'], ['second:run', 'pending']])
+    })
+
+    it('commits a run as failed in the same transaction that queues its retry', async () => {
+      const memory = createMemoryAdapter()
+      seedFirstRun(memory)
+      const { adapter, log } = loggingAdapter(memory)
+      const executors = createExecutorRegistry()
+      executors.register('first:run', async () => { throw new Error('boom') }, { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null, maxRetries: 1 })
+
+      await runner.processOnce()
+
+      expect(log).toEqual(['status running', 'begin', 'tx:status failed', 'tx:enqueue first:run', 'end'])
+      expect(memory.jobRuns.map((r) => [r.status, r.retry_count])).toEqual([['failed', 0], ['pending', 1]])
+    })
+
+    it('a listener that throws on job:completed is logged and leaves the committed run as it is', async () => {
+      const memory = createMemoryAdapter({ workflows: [followUp] })
+      seedFirstRun(memory)
+      const executors = createExecutorRegistry()
+      executors.register('first:run', async () => ({ output: {}, events: [{ type: 'evt:next', payload: {} }] }), { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter: memory })
+      const runner = createJobRunner({ adapter: memory, executors, engine, scopeId: null, maxRetries: 1 })
+      const heard: string[] = []
+      runner.onEvent((e) => { if (e.type === 'job:completed') throw new Error('listener broke') })
+      runner.onEvent((e) => { heard.push(e.type) })
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+      await runner.processOnce()
+
+      // Completed once, its follow-up queued once: no failure, no retry.
+      expect(memory.jobRuns.map((r) => [r.job_type, r.status, r.retry_count])).toEqual([
+        ['first:run', 'completed', 0],
+        ['second:run', 'pending', 0],
+      ])
+      // The other listener still heard it.
+      expect(heard).toEqual(['job:started', 'job:completed'])
+      expect(logged).toHaveBeenCalledTimes(1)
+      expect(String(logged.mock.calls[0]![0])).toContain('a job:completed listener failed for run run-1')
+      logged.mockRestore()
+    })
+
+    it('rolls the completion back when queuing a follow-up fails, then fails the run and retries it', async () => {
+      const memory = createMemoryAdapter({ workflows: [followUp] })
+      seedFirstRun(memory)
+      const { adapter } = loggingAdapter(memory, 'second:run')
+      const executors = createExecutorRegistry()
+      executors.register('first:run', async () => ({ output: { done: true }, events: [{ type: 'evt:next', payload: {} }] }), { label: 'T', category: 'T' })
+      const engine = createWorkflowEngine({ adapter })
+      const runner = createJobRunner({ adapter, executors, engine, scopeId: null, maxRetries: 1 })
+      const events: string[] = []
+      runner.onEvent((e) => { events.push(e.type) })
+
+      await runner.processOnce()
+
+      // The completed status (and its output) never landed: the run went
+      // from claimed straight to failed, with its retry queued and no follow-up.
+      expect(memory.jobRuns.map((r) => [r.job_type, r.status, r.retry_count, r.output, r.error])).toEqual([
+        ['first:run', 'failed', 0, null, 'enqueue failed'],
+        ['first:run', 'pending', 1, null, null],
+      ])
+      expect(events).toEqual(['job:started', 'job:failed'])
     })
   })
 

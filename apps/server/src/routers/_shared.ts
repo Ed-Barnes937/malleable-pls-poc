@@ -14,8 +14,9 @@ export const courseTag = z.string().max(500).optional()
  * Scope accepted by list endpoints: the board's course and selected lecture,
  * and optionally one recording (not a board dimension: e.g. the recording a
  * study block came from). Every dimension given is applied. A board's
- * lecture is always in its course (see `writeBoardScope`), so course and
- * lecture never disagree; applying both is defence in depth.
+ * lecture is always in its course when it has one (see `writeBoardScope`;
+ * an "All courses" board has none), so course and lecture never disagree;
+ * applying both is defence in depth.
  */
 export const boardScope = z.object({
   courseTag,
@@ -58,23 +59,44 @@ export async function requireOwnBoard(tx: TxSql, userId: string, workspaceId: st
   if (!board) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
 }
 
+/** A row lock `requireOwnLecture` takes on the lecture. */
+export type LectureLock = 'key share' | 'share' | 'no key update' | 'update'
+
+const LECTURE_LOCK: Record<LectureLock, (tx: TxSql) => Fragment> = {
+  'key share': (tx) => tx`FOR KEY SHARE`,
+  share: (tx) => tx`FOR SHARE`,
+  'no key update': (tx) => tx`FOR NO KEY UPDATE`,
+  update: (tx) => tx`FOR UPDATE`,
+}
+
 /**
  * Checks that `lectureId` is one of the student's lectures before a write
  * that names it, and holds it until the transaction ends. Throws NOT_FOUND
  * otherwise, for the same reason as `requireOwnBoard`: foreign keys skip
  * row-level security, so without it a recording or a board could point at
  * another student's lecture.
+ *
+ * `lock` is the row lock it takes (see the protocol in `_board-scope.ts`):
+ * - 'key share' (the default): the lecture can't be deleted meanwhile, as
+ *   for a recording written into it.
+ * - 'share': as well, its course can't change meanwhile, and one being
+ *   changed is waited for and read as committed (a board selecting it).
+ * - 'no key update': changing it (`lectures.update`); waits for every
+ *   'share' holder and makes later ones wait.
+ * - 'update': deleting it; every write that names it then waits, and finds
+ *   it gone.
  */
 export async function requireOwnLecture(
   tx: TxSql,
   userId: string,
   lectureId: string,
-): Promise<{ id: string; course: string | null }> {
+  { lock = 'key share' }: { lock?: LectureLock } = {},
+): Promise<{ id: string; title: string; course: string | null }> {
   const [lecture] = await tx`
-    SELECT id, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} FOR KEY SHARE
+    SELECT id, title, course FROM lectures WHERE id = ${lectureId} AND user_id = ${userId} ${LECTURE_LOCK[lock](tx)}
   `
   if (!lecture) throw new TRPCError({ code: 'NOT_FOUND', message: 'Lecture not found' })
-  return { id: lecture.id as string, course: (lecture.course as string | null) ?? null }
+  return { id: lecture.id as string, title: lecture.title as string, course: (lecture.course as string | null) ?? null }
 }
 
 /**

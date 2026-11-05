@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'
@@ -142,7 +143,8 @@ test.describe('Calendar', () => {
     await expect(calendar.popover.getByRole('status')).toHaveText('')
   })
 
-  test('a save that fails after its popover was closed says so above the calendar', async ({ page, request }) => {
+  test('a save that fails after its popover was closed says so above the calendar', async ({ page, request, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('planItems.complete')
     await board(request, 'Week plan', ['calendar'])
     await call(request, 'planItems.create', { kind: 'task', title: 'Read chapter 3', starts_at: at(5, 10), ends_at: at(5, 11), duration_min: 60 })
     let fail!: () => void

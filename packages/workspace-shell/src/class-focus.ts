@@ -68,7 +68,8 @@ export function useLectureBoards(activeWorkspaceId: string | null, activeLensTyp
 /**
  * The shell side of `LensProps.onFocusClass`: find or make the class
  * occurrence's lecture and select it on the open board, in one server call
- * (`lectures.forClassOccurrence`, so the board course becomes the lecture's).
+ * (`lectures.forClassOccurrence`: a board with a course takes the lecture's,
+ * an "All courses" board stays "All courses").
  * Reports the board before and after, for Undo (`useUndoFocusClass`).
  */
 export function useFocusClass(activeWorkspaceId: string | null): (cls: ClassRef) => Promise<FocusClassResult> {
@@ -134,7 +135,8 @@ function focusBoardTab(boardId: string) {
 
 /**
  * The shell side of `LensProps.onOpenLectureOn` ("Also open in"): focus the
- * lecture on another board (its course follows), switch to it, move focus
+ * lecture on another board (by the same rule: a board with a course takes
+ * the lecture's, an "All courses" one stays so), switch to it, move focus
  * there and say so with a toast offering the way back, as a moment opened
  * elsewhere does. Going back returns to the board and leaves both scopes as
  * they are. A board that is gone resolves `gone` (and the board list

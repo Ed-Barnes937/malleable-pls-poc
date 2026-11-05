@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import { PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'

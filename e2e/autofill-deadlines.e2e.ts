@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import type { PlanItem } from '../packages/substrate/src'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'

@@ -361,6 +361,12 @@ describe('planAutofillInput', () => {
     expect(planAutofillInput.safeParse({ ...base, to: iso(14, 0) }).success).toBe(false)
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
   })
+
+  it('takes the bookings still saving, with their times normalised to UTC', () => {
+    const pending = [{ id: 'quiz', starts_at: '2026-11-02T09:00:00+00:00', ends_at: '2026-11-02T10:00:00Z' }]
+    expect(planAutofillInput.parse({ ...base, pending }).pending).toEqual([{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
+    expect(planAutofillInput.safeParse({ ...base, pending: [{ id: 'quiz', starts_at: 'soon', ends_at: iso(0, 10) }] }).success).toBe(false)
+  })
 })
 
 describe('placeReviews', () => {

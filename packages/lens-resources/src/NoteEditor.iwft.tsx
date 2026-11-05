@@ -1,18 +1,8 @@
 import { StrictMode } from 'react'
 import { test, expect } from '../../../playwright/fixtures'
-import { watchConsole } from '../../../playwright/console-guard'
 import NoteEditor from './NoteEditor'
 
 const noop = () => {}
-
-// Any React error (a render loop, a bad hook) fails the test.
-let consoleErrors: ReturnType<typeof watchConsole>
-test.beforeEach(({ page }) => {
-  consoleErrors = watchConsole(page)
-})
-test.afterEach(() => {
-  expect(consoleErrors.unexpected()).toEqual([])
-})
 
 /** The note's markdown as the editor would save it now, via the Markdown toggle (and back). */
 async function sourceOf(page: import('@playwright/test').Page): Promise<string> {

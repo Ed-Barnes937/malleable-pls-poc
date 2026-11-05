@@ -19,6 +19,7 @@ import {
   WorkspaceBackground,
   useCanvasStore,
   placeNewPanel,
+  layoutGroup,
   scrollPanelIntoView,
   type PanelItem,
 } from '@pls/panel-system'
@@ -35,6 +36,7 @@ import { ToastHost, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { hasPlanItemViewer, useShowMoment } from './moments'
+import { useRevealPlanItem } from './reveal-plan-item'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
@@ -71,6 +73,8 @@ export function WorkspaceShell() {
   const pushToast = useToastStore((s) => s.push)
   // Read when a job finishes, so the toast offers "See it" only on a board that can show the block.
   const showPlanItemRef = useRef<(item: PlanItemRef) => boolean>(() => false)
+  // Only if the block is still there by the time "See it" is pressed.
+  const revealPlanItem = useRevealPlanItem(useCallback((item: PlanItemRef) => showPlanItemRef.current(item), []))
   const canShowPlanItemRef = useRef(false)
   const activeBoardRef = useRef(activeWorkspaceId)
   activeBoardRef.current = activeWorkspaceId
@@ -83,7 +87,7 @@ export function WorkspaceShell() {
         tone: 'success',
         // "See it" reveals the block on the board in view, so it goes if the student leaves it.
         ...(block && canShowPlanItemRef.current
-          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current ?? undefined }
+          ? { action: { label: 'See it', onClick: () => void revealPlanItem(block) }, board: activeBoardRef.current ?? undefined }
           : {}),
       })
     },
@@ -112,7 +116,10 @@ export function WorkspaceShell() {
   const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  /** The board whose widgets the canvas holds (the last board's, until a new one's arrive). */
+  const canvasBoard = usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  const canvasBoardRef = useRef(canvasBoard)
+  canvasBoardRef.current = canvasBoard
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
 
   // Workspace transition animation
@@ -238,22 +245,42 @@ export function WorkspaceShell() {
     requestAnimationFrame(tryReveal)
   }, [])
 
+  /** Adds asked for while the board's widgets were still loading, made once they have reached the canvas. */
+  const [waitingAdds, setWaitingAdds] = useState<{ workspaceId: string; add: () => void }[]>([])
+  useEffect(() => {
+    if (!activeWorkspaceId || canvasBoard !== activeWorkspaceId || waitingAdds.length === 0) return
+    setWaitingAdds([])
+    // Adds for a board the student has since left are dropped.
+    for (const a of waitingAdds) if (a.workspaceId === activeWorkspaceId) a.add()
+  }, [activeWorkspaceId, canvasBoard, waitingAdds])
+
   /**
    * Adds a widget at its default size. Without a position (a palette click)
    * it goes in the first free area of the visible board, shortened (down to
    * its minimum height) when that keeps it in view next to the widgets already
    * there on the desktop layout (see placeNewPanel). A drop (`at`) keeps its
-   * default height. `quiet` skips the
-   * scroll into view and the toasts, for a caller adding a group of widgets
-   * to an empty board and announcing the outcome itself (`onSettled`).
+   * default size, unless `at` gives one (a starter's group layout). `quiet`
+   * skips the scroll into view and the toasts, for a caller adding a group of
+   * widgets to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+    (
+      lensType: string,
+      at?: { x: number; y: number; width?: number; height?: number },
+      opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {},
+    ) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
+      // Placed among this board's widgets, never the last board's: an add asked
+      // for before they reach the canvas waits for them.
+      if (canvasBoardRef.current !== activeWorkspaceId) {
+        const workspaceId = activeWorkspaceId
+        setWaitingAdds((waiting) => [...waiting, { workspaceId, add: () => addWidgetRef.current(lensType, at, opts) }])
+        return
+      }
       const m = manifests.find((man) => man.id === lensType)
-      const width = m?.defaultWidth ?? 400
-      const height = m?.defaultHeight ?? 300
+      const width = at?.width ?? m?.defaultWidth ?? 400
+      const height = at?.height ?? m?.defaultHeight ?? 300
       const existing = useCanvasStore.getState().panels
       const pending = pendingAddsRef.current.filter((a) => a.workspaceId === activeWorkspaceId)
       const taken = [
@@ -262,7 +289,7 @@ export function WorkspaceShell() {
       ]
       const canvas = canvasRef.current
       // A click places it in view, on the desktop layout a little shorter if that is what fits (see placeNewPanel).
-      const spot = at ? { ...at, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
+      const spot = at ? { x: at.x, y: at.y, height } : placeNewPanel(taken, { width, height, minHeight: m?.minHeight }, {
         width: canvas?.clientWidth ?? 0,
         height: canvas?.clientHeight ?? 0,
       })
@@ -306,12 +333,15 @@ export function WorkspaceShell() {
     },
     [activeWorkspaceId, addPanel, manifests, pushToast, dropPendingOnCanvas, revealPanel, setPendingAdds],
   )
+  const addWidgetRef = useRef(addWidget)
+  addWidgetRef.current = addWidget
 
   /**
-   * A first-run starter: its widgets, placed one after another by the same
-   * click-to-add placement (largest first), with one toast once all have
-   * settled: what was added, or what couldn't be (the adds share one request,
-   * so they usually fail together).
+   * A first-run starter: its widgets, laid out as a group to fit the visible
+   * board (see layoutGroup) and saved one by one through the same add path,
+   * with one toast once all have settled: what was added, or what couldn't be
+   * (the adds share one request, so they usually fail together). The layout
+   * is the student's from then on: nothing reflows it when the window resizes.
    */
   const addStarter = useCallback(
     (widgets: PanelManifest[]) => {
@@ -324,7 +354,20 @@ export function WorkspaceShell() {
         if (failed.length > 0) pushToast({ message: `Couldn't add ${names(failed)}. Try again.`, tone: 'error' })
         else pushToast({ message: `${names(added)} added`, tone: 'success', key: 'widget-added' })
       }
-      for (const w of widgets) addWidget(w.id, undefined, { quiet: true, onSettled: onSettled(w.label) })
+      const canvas = canvasRef.current
+      const boxes = layoutGroup(
+        widgets.map((w) => ({
+          width: w.defaultWidth ?? 400,
+          height: w.defaultHeight ?? 300,
+          minWidth: w.minWidth,
+          minHeight: w.minHeight,
+          maxWidth: w.maxWidth,
+          maxHeight: w.maxHeight,
+        })),
+        { width: canvas?.clientWidth ?? 0, height: canvas?.clientHeight ?? 0 },
+        { scrollbarWidth: scrollbarWidth() },
+      )
+      widgets.forEach((w, i) => addWidget(w.id, boxes[i], { quiet: true, onSettled: onSettled(w.label) }))
     },
     [addWidget, pushToast],
   )
@@ -487,8 +530,9 @@ export function WorkspaceShell() {
               getLabel={getLabel}
               renderHeaderActions={renderHeaderActions}
             />
-            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
-            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
+            {/* No starters before the board's widgets are in, or while an add waits or is on its way: a starter could add a second Calendar. */}
+            {panels.length === 0 && canvasBoard === activeWorkspaceId && waitingAdds.length === 0
+              && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
               <div
                 data-testid="workspace-empty-state"
                 className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
@@ -509,6 +553,16 @@ export function WorkspaceShell() {
       <ToastHost />
     </div>
   )
+}
+
+/** The width a vertical scrollbar takes from the board when it scrolls (0 with overlay scrollbars). */
+function scrollbarWidth(): number {
+  const probe = document.createElement('div')
+  probe.style.cssText = 'position:absolute;top:-9999px;width:100px;height:100px;overflow-y:scroll'
+  document.body.appendChild(probe)
+  const width = probe.offsetWidth - probe.clientWidth
+  probe.remove()
+  return width
 }
 
 function CanvasSkeleton() {

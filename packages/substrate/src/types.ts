@@ -48,8 +48,8 @@ export interface Lecture {
 
 /**
  * A board's scope as `workspaces.setBoardScope` returns it: null is unset
- * ("All courses", no lecture). Invariant: when `lectureId` is set,
- * `courseTag` is that lecture's course.
+ * ("All courses", no lecture). Invariant: when both are set, `courseTag` is
+ * the lecture's course; an "All courses" board may show any lecture.
  */
 export interface BoardScope {
   courseTag: string | null

@@ -1,11 +1,15 @@
 import { z } from 'zod'
+import { TRPCError } from '@trpc/server'
 import { withUser, type TxSql } from '@pls/db'
-import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture } from '@pls/substrate'
+import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture, type LectureDeletePreview } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { studentTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
-import { lockBoardScope, readBoardScope, writeBoardScope } from './_board-scope'
+import { lockBoardScope, readBoardScope, refileLectureOnBoards, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
+import { deleteRecordingData, lockDerivedPlanItems, planLectureDeletion } from './_lecture-deletion'
+import { dispatchWorkflows } from '../workflows/dispatch'
+import { removeLectureFiles } from '../uploaded-files'
 
 const lectureId = z.string().max(255)
 const lectureTitle = z.string().trim().min(1).max(500)
@@ -72,6 +76,12 @@ async function boardStillShows(tx: TxSql, userId: string, workspaceId: string, e
   return !stillThere
 }
 
+/** What `lectures.delete` answers with. */
+export interface DeletedLecture {
+  id: string
+  title: string
+}
+
 export const lecturesRouter = router({
   /** The student's lectures, latest first, optionally only those in a course. */
   list: publicProcedure
@@ -93,11 +103,14 @@ export const lecturesRouter = router({
    * A new lecture, e.g. from a widget before any audio exists (Record makes
    * one when capture starts). Named from its course and start time in the
    * student's zone unless `title` is given. With `workspaceId` it is also
-   * selected on that board, in the same transaction, bringing its course
-   * with it (see `writeBoardScope`).
+   * selected on that board, in the same transaction: a board with a course
+   * takes the lecture's course, an "All courses" board stays "All courses"
+   * (see `writeBoardScope`).
    *
-   * With `matchClass`, when a class of `course` is on at `startsAt` (see
-   * `classForCapture`), it is that class occurrence's lecture instead, found
+   * With `matchClass`, when a class of `course` is on at `startsAt` (with
+   * `course` null, as on an "All courses" board: a class of any course; at a
+   * changeover the one that starts last, counting the 15-minute lead-in; see `classForCapture`), it is that class
+   * occurrence's lecture instead, filed under the class's course and found
    * or made exactly as `forClassOccurrence` does (so "press Record during
    * Biology" and "open Tuesday's Biology class" land on one lecture), and
    * `title` is not used.
@@ -149,8 +162,9 @@ export const lecturesRouter = router({
    * YYYY-MM-DD in the series' zone, else the student's), made on first use:
    * exactly one per occurrence however many callers race. Past, current and
    * future occurrences all work. With `workspaceId` it is also selected on
-   * that board in the same transaction (course follows, per
-   * `writeBoardScope`), and the board's scope before and after is returned.
+   * that board in the same transaction (a board with a course takes the
+   * lecture's, an "All courses" board stays so, per `writeBoardScope`), and
+   * the board's scope before and after is returned.
    *
    * NOT_FOUND: the plan item or board isn't the student's. BAD_REQUEST: the
    * plan item isn't a class block, or isn't on `date`.
@@ -182,9 +196,10 @@ export const lecturesRouter = router({
 
   /**
    * Renames a lecture and/or refiles it under another course (null = none).
-   * A course change re-scopes every board that has it selected to the new
-   * course in the same transaction, so a board's lecture is always in the
-   * board course.
+   * A course change re-scopes every board with a course that has it
+   * selected to the new course in the same transaction, so a board's
+   * lecture is always in the board course; an "All courses" board stays
+   * "All courses" (`refileLectureOnBoards`).
    */
   update: publicProcedure
     .input(z.object({
@@ -194,7 +209,11 @@ export const lecturesRouter = router({
     }))
     .mutation(async ({ ctx, input }): Promise<Lecture> => {
       return withUser(ctx.userId, async (tx) => {
-        const before = await requireOwnLecture(tx, ctx.userId, input.id)
+        // FOR NO KEY UPDATE before anything else: a board selecting the
+        // lecture (FOR SHARE) waits for this, then reads the new course, and
+        // one that already has is committed before this lists the boards
+        // (the protocol in _board-scope.ts).
+        const before = await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'no key update' })
         await tx`
           UPDATE lectures SET
             title = COALESCE(${input.title ?? null}, title),
@@ -203,21 +222,81 @@ export const lecturesRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (input.course !== undefined && input.course !== before.course) {
-          const boards = await tx`
-            SELECT workspace_id FROM workspace_scopes
-            WHERE scope_type = 'lecture' AND scope_value = ${input.id} AND user_id = ${ctx.userId}
-          `
-          for (const board of boards) {
-            const workspaceId = board.workspace_id as string
-            // Under the board's scope lock, only if it still has the lecture
-            // selected: a scope write since the select above may have
-            // cleared it, and that must not bring it back.
-            await lockBoardScope(tx, ctx.userId, workspaceId)
-            if ((await readBoardScope(tx, ctx.userId, workspaceId)).lectureId !== input.id) continue
-            await writeBoardScope(tx, ctx.userId, workspaceId, { lectureId: input.id })
-          }
+          await refileLectureOnBoards(tx, ctx.userId, input.id, input.course)
         }
         return (await lectureById(tx, ctx.userId, input.id))!
       })
+    }),
+
+  /**
+   * What deleting the lecture would remove, for the confirm step (see
+   * `LectureDeletePreview`). NOT_FOUND: not the student's lecture.
+   */
+  deletePreview: publicProcedure
+    .input(lectureId)
+    .query(async ({ ctx, input }): Promise<LectureDeletePreview> => {
+      return withUser(ctx.userId, async (tx) => {
+        const lecture = await requireOwnLecture(tx, ctx.userId, input)
+        return (await planLectureDeletion(tx, ctx.userId, lecture)).preview
+      })
+    }),
+
+  /**
+   * Deletes a lecture and everything that is only there because of it: its
+   * recordings and their transcripts, marks and notes on them, unfinished
+   * plan items made from its moments (finished ones stay, no longer linked
+   * to it), its resources, and its selection on every board (each keeps its
+   * course). The class it was made for stays. Its files go from disk once
+   * the transaction commits.
+   *
+   * With `fingerprint` (from `deletePreview`), CONFLICT and nothing deleted
+   * when anything listed has changed since (a transcript or study block
+   * arrived), so the student never loses what they weren't shown.
+   * NOT_FOUND: not the student's lecture (or gone already).
+   */
+  delete: publicProcedure
+    .input(z.object({ id: lectureId, fingerprint: z.string().max(200).optional() }))
+    .mutation(async ({ ctx, input }): Promise<DeletedLecture> => {
+      const { deleted, files } = await withUser(ctx.userId, async (tx) => {
+        // FOR UPDATE: an upload or a board selecting the lecture takes FOR
+        // KEY SHARE or FOR SHARE on it first (requireOwnLecture,
+        // writeBoardScope), so it waits for this and then finds it gone, and
+        // once this holds the lock every selection of it is committed and
+        // seen below. That is why the board rows can go without each board's
+        // scope lock (the protocol in _board-scope.ts).
+        const { id, title } = await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'update' })
+        const lecture = { id, title }
+        // And its recordings: an AI job writing to one (a transcript, the
+        // summary, a study block) holds it FOR KEY SHARE while it does, so
+        // this waits for that write and lists it, or the job waits and then
+        // finds the recording gone, so no AI job's write lands after the
+        // list is made. A tag, note or confidence rating the student adds
+        // to one of its moments at that same instant takes no lock and can
+        // still be left behind, pointing at nothing (harmless: no reader
+        // reaches it once its moment is gone).
+        const recordings = await tx`
+          SELECT id FROM recordings WHERE lecture_id = ${lecture.id} AND user_id = ${ctx.userId} ORDER BY id FOR UPDATE
+        `
+        // And the plan items made from its moments, in id order, so a
+        // concurrent change to one (marked done meanwhile) is either in the
+        // list or waits for the delete.
+        await lockDerivedPlanItems(tx, ctx.userId, recordings.map((r) => r.id as string))
+        const plan = await planLectureDeletion(tx, ctx.userId, lecture)
+        if (input.fingerprint !== undefined && input.fingerprint !== plan.preview.fingerprint) {
+          throw new TRPCError({ code: 'CONFLICT', message: 'The lecture has changed since - check what will be deleted' })
+        }
+        await deleteRecordingData(tx, ctx.userId, plan.recordingIds)
+        await tx`
+          DELETE FROM workspace_scopes
+          WHERE scope_type = 'lecture' AND scope_value = ${lecture.id} AND user_id = ${ctx.userId}
+        `
+        // Recordings (with their segments) and resources cascade.
+        await tx`DELETE FROM lectures WHERE id = ${lecture.id} AND user_id = ${ctx.userId}`
+        // No automation uses it yet; it is there to hook into.
+        await dispatchWorkflows(tx, ctx.userId, 'lecture:deleted', { lecture_id: lecture.id, title: lecture.title }, null)
+        return { deleted: lecture, files: { audioUrls: plan.audioUrls, resourceFileKeys: plan.resourceFileKeys } }
+      })
+      await removeLectureFiles(files)
+      return deleted
     }),
 })

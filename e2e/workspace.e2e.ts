@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import { TopBarPom, CreateWorkspaceDialogPom, DeleteWorkspaceDialogPom, PanelGridPom } from './pom'
 import { reseed } from './reseed'
 

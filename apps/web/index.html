@@ -5,9 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Malleable PLS</title>
     <script>try{var t=localStorage.getItem('pls-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300..700;1,9..40,300..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <!-- The first screen's font (src/fonts/fonts.css), fetched with the page rather than once the CSS asks for it. -->
+    <link rel="preload" href="/src/fonts/dm-sans-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin />
   </head>
   <body class="h-dvh overflow-hidden antialiased">
     <div id="root"></div>

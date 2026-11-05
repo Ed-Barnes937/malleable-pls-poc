@@ -92,7 +92,9 @@ test('the look-ahead is a knob saved to the widget config', async ({ mount, page
   await expect(page.getByText('Essay')).toBeVisible()
 })
 
-test('says so calmly when nothing is due', async ({ mount, page }) => {
+// The simulator starts with no plan items: the list really is empty, rather
+// than failing to load.
+test('says so calmly when nothing is due', async ({ mount, page, simulator: _empty }) => {
   await mount(
     <TestProviders>
       <ComingUpLens {...defaultProps} config={{ lookAheadDays: 7 }} />

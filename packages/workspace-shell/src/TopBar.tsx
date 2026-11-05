@@ -81,8 +81,9 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
     >
       {menuButton}
 
-      {/* Board tabs */}
-      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
+      {/* Board tabs: they give way first (they scroll), down to their floor,
+          before the lecture pill is cut short. */}
+      <div data-testid="board-tabs" className="min-w-28 shrink-[100]">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}

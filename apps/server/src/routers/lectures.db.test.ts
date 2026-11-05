@@ -12,6 +12,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { insertRecording } from '../test-support/recordings'
+import { lockProbes } from '../test-support/locks'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -28,6 +29,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   let chem: string
   let unfiled: string
   let bobLecture: string
+  let locks: ReturnType<typeof lockProbes>
 
   const notFound = expect.objectContaining({ code: 'NOT_FOUND' })
   const badRequest = expect.objectContaining({ code: 'BAD_REQUEST' })
@@ -43,6 +45,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    locks = lockProbes(db.sql)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -69,7 +72,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
   })
 
   describe('setBoardScope', () => {
-    it('selecting a lecture brings its course, in one write', async () => {
+    it('on a board with a course, selecting a lecture brings its course, in one write', async () => {
       const ws = await board('biology')
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })).toEqual({ courseTag: 'chemistry', lectureId: chem })
       expect(await storedScope(ws)).toEqual([['lecture', chem], ['tag', 'chemistry']])
@@ -79,6 +82,17 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       const ws = await board('biology')
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled })).toEqual({ courseTag: null, lectureId: unfiled })
       expect(await storedScope(ws)).toEqual([['lecture', unfiled]])
+    })
+
+    it('on an "All courses" board, selecting a lecture keeps "All courses"', async () => {
+      const ws = await board()
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })).toEqual({ courseTag: null, lectureId: chem })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })).toEqual({ courseTag: null, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
+      // Naming "All courses" with the lecture is the same, from any board.
+      const course = await board('physics')
+      expect(await api().workspaces.setBoardScope({ workspaceId: course, courseTag: null, lectureId: chem }))
+        .toEqual({ courseTag: null, lectureId: chem })
     })
 
     it('accepts a lecture with its own course, and rejects one with another course, writing nothing', async () => {
@@ -92,21 +106,25 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
     it('a course change keeps a lecture in it and clears one outside it', async () => {
       const ws = await board()
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'biology' })).toEqual({ courseTag: 'biology', lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: 'chemistry' })).toEqual({ courseTag: 'chemistry', lectureId: null })
       expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
     })
 
-    it('"All courses" clears a lecture that has a course and keeps one filed under none', async () => {
-      const ws = await board()
+    it('changing to "All courses" keeps the lecture, and so does staying "All courses"', async () => {
+      const ws = await board('biology')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
-      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: null })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: bio })
+      expect(await storedScope(ws)).toEqual([['lecture', bio]])
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: unfiled })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: unfiled })
+      await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: chem })
+      expect(await api().workspaces.setBoardScope({ workspaceId: ws, courseTag: null })).toEqual({ courseTag: null, lectureId: chem })
     })
 
     it('clearing the lecture keeps the course; an empty patch changes nothing', async () => {
-      const ws = await board()
+      const ws = await board('biology')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws })).toEqual({ courseTag: 'biology', lectureId: bio })
       expect(await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: null })).toEqual({ courseTag: 'biology', lectureId: null })
@@ -151,8 +169,151 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
         expect(types).toEqual([...new Set(types)])
         const lectureId = rows.find(([type]) => type === 'lecture')?.[1] ?? null
         const course = rows.find(([type]) => type === 'tag')?.[1] ?? null
-        if (lectureId) expect(course).toBe((await api().lectures.byId(lectureId))!.course)
+        // A board with a course shows only a lecture of it; "All courses" may show any.
+        if (lectureId && course) expect(course).toBe((await api().lectures.byId(lectureId))!.course)
       }
+    })
+
+    /** Two fresh boards of Alice's, in the order a course change locks them. */
+    const twoBoards = async (courseTag?: string) => locks.inLockOrder([await board(courseTag), await board(courseTag)])
+
+    it('a lecture moving course while another board selects it leaves no board showing it under its old course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      const selecting = await board('physics')
+
+      // A scope write on the board already showing it is under way, so the
+      // course change waits partway, for that board.
+      const holder = await locks.holdBoard(showing)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        // Meanwhile another board selects the lecture, and the change goes on.
+        const { outcome: selection } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: selecting, lectureId: moving.id }))
+        await holder.release()
+        await Promise.all([update, selection])
+      } finally {
+        await holder.release()
+      }
+
+      for (const ws of [showing, selecting]) {
+        expect(await storedScope(ws)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+      }
+    })
+
+    it('a lecture moving course leaves alone a board that a scope write is moving off it', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving off' })
+      const leaving = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: leaving, lectureId: moving.id })
+
+      // A scope write clearing the lecture has written its rows, not yet committed.
+      let pid = 0
+      let wrote!: () => void
+      const written = new Promise<void>((done) => { wrote = done })
+      let commit!: () => void
+      const committing = new Promise<void>((done) => { commit = done })
+      const clearing = db.sql.begin(async (tx) => {
+        pid = (await tx`SELECT pg_backend_pid() AS pid`)[0].pid as number
+        await tx`SELECT id FROM workspaces WHERE id = ${leaving} FOR NO KEY UPDATE`
+        await tx`DELETE FROM workspace_scopes WHERE workspace_id = ${leaving} AND scope_type = 'lecture'`
+        wrote()
+        await committing
+      })
+      await written
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(pid)).on_it).toBe(1)
+        commit()
+        await Promise.all([clearing, update])
+      } finally {
+        commit()
+        await clearing
+      }
+
+      expect(await storedScope(leaving)).toEqual([['tag', 'physics']])
+    })
+
+    it('an Undo putting back a lecture while it moves course puts it back with its new course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving back' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      // The board showed the lecture, then a change cleared it: Undo puts it back.
+      const undoing = await board('physics')
+      const to = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: moving.id })
+      const ifBoardShows = await api().workspaces.setBoardScope({ workspaceId: undoing, lectureId: null })
+
+      const holder = await locks.holdBoard(showing)
+      let restored
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        const { outcome: undo } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.restoreBoardScope({ workspaceId: undoing, to, ifBoardShows }))
+        await holder.release()
+        ;[, restored] = await Promise.all([update, undo])
+      } finally {
+        await holder.release()
+      }
+
+      expect(restored).toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: moving.id } })
+      for (const ws of [showing, undoing]) {
+        expect(await storedScope(ws)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+      }
+    })
+
+    it('a board changing course while its lecture moves course keeps the lecture only if it is in the new course', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving, board narrowing' })
+      const showing = await board('physics')
+      await api().workspaces.setBoardScope({ workspaceId: showing, lectureId: moving.id })
+      // An "All courses" board showing the lecture, about to narrow to its old course.
+      const narrowing = await board()
+      await api().workspaces.setBoardScope({ workspaceId: narrowing, lectureId: moving.id })
+
+      const holder = await locks.holdBoard(showing)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        const { outcome: narrowed } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: narrowing, courseTag: 'physics' }))
+        await holder.release()
+        await Promise.all([update, narrowed])
+      } finally {
+        await holder.release()
+      }
+
+      // The lecture is in chemistry now, so physics doesn't keep it.
+      expect(await storedScope(narrowing)).toEqual([['tag', 'physics']])
+      expect(await storedScope(showing)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
+    })
+
+    it('a board moving to another lecture while a course change refiles it does not deadlock', async () => {
+      const moving = await api().lectures.create({ course: 'physics', title: 'Moving, board moving on' })
+      const next = await api().lectures.create({ course: 'chemistry', title: 'Next' })
+      const [first, second] = await twoBoards('physics')
+      for (const ws of [first, second]) await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: moving.id })
+
+      // The course change has locked the first board's lecture row and waits for the second's.
+      const holder = await locks.holdLectureRow(second)
+      try {
+        const update = api().lectures.update({ id: moving.id, course: 'chemistry' })
+        await expect.poll(async () => (await locks.waiting(holder.pid)).on_it).toBe(1)
+
+        // The first board moves on, and waits for the change at its lecture row.
+        const { outcome: moved } = await locks.settledOrBehind(holder.pid, () =>
+          api().workspaces.setBoardScope({ workspaceId: first, lectureId: next.id }))
+        await holder.release()
+        await Promise.all([update, moved])
+      } finally {
+        await holder.release()
+      }
+
+      expect(await storedScope(first)).toEqual([['lecture', next.id], ['tag', 'chemistry']])
+      expect(await storedScope(second)).toEqual([['lecture', moving.id], ['tag', 'chemistry']])
     })
 
     it('the database refuses a second row of one dimension', async () => {
@@ -171,7 +332,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
 
   describe('workspaces.scopes', () => {
     it('returns the stored course and lecture rows only (no recording row)', async () => {
-      const ws = await board()
+      const ws = await board('chemistry')
       await api().workspaces.setBoardScope({ workspaceId: ws, lectureId: bio })
       const rows = await api().workspaces.scopes(ws)
       expect(rows.map((r) => [r.scope_type, r.scope_value])).toEqual([['lecture', bio], ['tag', 'biology']])
@@ -221,26 +382,38 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures (Postgres)', () => {
       expect(await storedScope(ws)).toEqual([['lecture', lecture.id], ['tag', 'chemistry']])
     })
 
+    it('create on an "All courses" board selects the lecture and the board stays "All courses"', async () => {
+      const ws = await board()
+      const lecture = await api().lectures.create({ course: 'chemistry', title: 'Lab', workspaceId: ws })
+      expect(await storedScope(ws)).toEqual([['lecture', lecture.id]])
+    })
+
     it("create on another student's board is NOT_FOUND and creates nothing", async () => {
       const ws = await board()
       await expect(caller(bob).lectures.create({ course: null, title: 'Sneaky', workspaceId: ws })).rejects.toEqual(notFound)
       expect((await caller(bob).lectures.list()).map((l) => l.title)).not.toContain('Sneaky')
     })
 
-    it('update renames, and a course change re-scopes every board that has the lecture selected', async () => {
+    it('update renames, and a course change re-scopes every board with a course that has the lecture selected', async () => {
       const lecture = await api().lectures.create({ course: 'biology', title: 'Old name' })
-      const selected = await board()
+      const selected = await board('biology')
       const other = await board('biology')
+      const allCourses = await board()
       await api().workspaces.setBoardScope({ workspaceId: selected, lectureId: lecture.id })
+      await api().workspaces.setBoardScope({ workspaceId: allCourses, lectureId: lecture.id })
 
       expect(await api().lectures.update({ id: lecture.id, title: 'New name' })).toMatchObject({ title: 'New name', course: 'biology' })
       const moved = await api().lectures.update({ id: lecture.id, course: 'physics' })
       expect(moved).toMatchObject({ title: 'New name', course: 'physics' })
       expect(await storedScope(selected)).toEqual([['lecture', lecture.id], ['tag', 'physics']])
       expect(await storedScope(other)).toEqual([['tag', 'biology']])
+      expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])
 
+      // Unfiling it turns a course board showing it into "All courses", as
+      // selecting a lecture filed under no course does.
       await api().lectures.update({ id: lecture.id, course: null })
       expect(await storedScope(selected)).toEqual([['lecture', lecture.id]])
+      expect(await storedScope(allCourses)).toEqual([['lecture', lecture.id]])
     })
 
     it("update of another student's lecture is NOT_FOUND", async () => {

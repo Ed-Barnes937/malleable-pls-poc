@@ -136,3 +136,221 @@ function positions(room: number, gap: number, step: number): number[] {
   for (let v = gap; v <= room - gap; v += step) out.push(v)
   return out
 }
+
+/** A widget's size and size constraints, as its manifest gives them. */
+export interface GroupMember {
+  width: number
+  height: number
+  minWidth?: number
+  minHeight?: number
+  maxWidth?: number
+  maxHeight?: number
+}
+
+/**
+ * Boxes for a group of widgets added together to an empty board (a starter),
+ * in the order given (workflow order), laid out to fit the visible canvas.
+ *
+ * Every candidate layout puts the widgets in columns, in order: the first
+ * widgets go in the first column, top to bottom, then the next column (one
+ * column per widget is one row). Each column count, cut every way that keeps
+ * the order, is a candidate, as long as its columns fit across at minimum
+ * widths (one column always counts). In a candidate:
+ *
+ * - Widths shrink from default towards minimum, by the same fraction in every
+ *   column, until the columns fit across. A column is as wide as its widest
+ *   member; a narrower member keeps its own width (never stretched past its
+ *   default or `maxWidth`), at the column's left edge.
+ * - Heights fill the visible height: a column's height is shared in
+ *   proportion to its widgets' default heights, within their min and max. A
+ *   column whose minimum heights don't fit stacks at default heights (each
+ *   capped to the view where its minimum allows) and the board scrolls down.
+ *
+ * The layout is the best candidate, compared in this order:
+ *
+ * 1. Fits the view at minimum heights, over one that doesn't.
+ * 2. If it fits: least shrink, the most any widget is shrunk in width or
+ *    height, as a share of its default size. If not: least overflow (how far
+ *    the tallest column's minimum height runs past the view), then least shrink.
+ * 3. Shortest tallest column, at default heights.
+ * 4. More columns.
+ *
+ * When the layout scrolls, `scrollbarWidth` is taken off the canvas width
+ * (the scrollbar it brings would otherwise push the last column under it), so
+ * the board never scrolls across while the minimum widths allow. A narrow
+ * canvas (under `STACK_BREAKPOINT`) stacks widgets in one column anyway: they
+ * keep their default sizes, top to bottom in the order given.
+ */
+export function layoutGroup(
+  members: ReadonlyArray<GroupMember>,
+  canvas: { width: number; height: number },
+  opts: { scrollbarWidth?: number } = {},
+): Rect[] {
+  const sizes = members.map(normalise)
+  const g = PLACEMENT_GAP
+  if (sizes.length === 0) return []
+  if (canvas.width < STACK_BREAKPOINT) {
+    let y = g
+    return sizes.map((s) => {
+      const box = { x: g, y, width: s.width, height: s.height }
+      y += s.height + g
+      return box
+    })
+  }
+  const boxes = layoutColumns(sizes, canvas)
+  const scrollbar = opts.scrollbarWidth ?? 0
+  if (scrollbar > 0 && boxes.some((b) => b.y + b.height + g > canvas.height)) {
+    return layoutColumns(sizes, { width: canvas.width - scrollbar, height: canvas.height })
+  }
+  return boxes
+}
+
+interface Size {
+  width: number
+  height: number
+  minWidth: number
+  minHeight: number
+  maxWidth: number
+  maxHeight: number
+}
+
+/** Fills in missing constraints (no min: it can't shrink; no max: it can grow) and keeps the default within them. */
+function normalise(m: GroupMember): Size {
+  const minWidth = Math.min(m.width, m.minWidth ?? m.width)
+  const minHeight = Math.min(m.height, m.minHeight ?? m.height)
+  const maxWidth = Math.max(minWidth, m.maxWidth ?? Infinity)
+  const maxHeight = Math.max(minHeight, m.maxHeight ?? Infinity)
+  return {
+    width: Math.min(m.width, maxWidth),
+    height: Math.min(m.height, maxHeight),
+    minWidth, minHeight, maxWidth, maxHeight,
+  }
+}
+
+function layoutColumns(sizes: Size[], canvas: { width: number; height: number }): Rect[] {
+  const g = PLACEMENT_GAP
+  const { columns, colWidth, heights } = bestLayout(sizes, canvas)
+  const boxes: Rect[] = []
+  let x = g
+  columns.forEach((col, i) => {
+    let y = g
+    col.forEach((s, j) => {
+      boxes.push({ x, y, width: memberWidth(s, colWidth[i]!), height: heights[i]![j]! })
+      y += heights[i]![j]! + g
+    })
+    x += colWidth[i]! + g
+  })
+  return boxes
+}
+
+/** A member of a column as wide as `colWidth`: no wider than its default (or max) width. */
+function memberWidth(s: Size, colWidth: number): number {
+  return Math.min(colWidth, s.width, s.maxWidth)
+}
+
+interface Candidate {
+  columns: Size[][]
+  colWidth: number[]
+  heights: number[][]
+  fits: boolean
+  /** How far the tallest column's minimum height runs past the view (0 or less when it fits). */
+  overflow: number
+  /** The most any widget is shrunk, in width or height, as a share of its default size. */
+  shrink: number
+  /** The tallest column at default heights. */
+  tallest: number
+}
+
+/** The best of every in-order column layout that fits across (see `layoutGroup` for the ranking). */
+function bestLayout(sizes: Size[], canvas: { width: number; height: number }): Candidate {
+  const g = PLACEMENT_GAP
+  const candidates: Candidate[] = []
+  // Most columns first, so a full tie keeps the one with more columns.
+  for (let count = sizes.length; count >= 1; count--) {
+    for (const columns of splits(sizes, count)) {
+      const across = sum(columns.map((col) => Math.max(...col.map((s) => s.minWidth)))) + (count + 1) * g
+      if (across > canvas.width && count > 1) continue
+      candidates.push(measure(columns, canvas))
+    }
+  }
+  return candidates.reduce((best, c) => (better(c, best) ? c : best))
+}
+
+const SAME = 1e-9
+
+/** Whether `a` ranks above `b`: fits, then least shrink (or least overflow, then shrink), then shortest tallest column. */
+function better(a: Candidate, b: Candidate): boolean {
+  if (a.fits !== b.fits) return a.fits
+  if (!a.fits && Math.abs(a.overflow - b.overflow) > SAME) return a.overflow < b.overflow
+  if (Math.abs(a.shrink - b.shrink) > SAME) return a.shrink < b.shrink
+  return a.tallest < b.tallest - SAME
+}
+
+/** A candidate's widths (shrunk by one fraction to fit across), heights and score. */
+function measure(columns: Size[][], canvas: { width: number; height: number }): Candidate {
+  const g = PLACEMENT_GAP
+  const colMin = columns.map((col) => Math.max(...col.map((s) => s.minWidth)))
+  const colDefault = columns.map((col) => Math.max(...col.map((s) => s.width)))
+  const room = canvas.width - (columns.length + 1) * g
+  const sumMin = sum(colMin)
+  const sumDefault = sum(colDefault)
+  const t = sumDefault <= room ? 1 : sumDefault === sumMin ? 0 : Math.max(0, (room - sumMin) / (sumDefault - sumMin))
+  const colWidth = columns.map((_, i) => Math.floor(colMin[i]! + t * (colDefault[i]! - colMin[i]!)))
+  const heights = columns.map((col) => columnHeights(col, canvas.height))
+  const overflow = Math.max(...columns.map((col) => sum(col.map((s) => s.minHeight)) + (col.length + 1) * g - canvas.height))
+  const shrunk = (size: number, to: number) => Math.max(0, (size - to) / size)
+  const shrink = Math.max(...columns.flatMap((col, i) =>
+    col.map((s, j) => Math.max(shrunk(s.width, memberWidth(s, colWidth[i]!)), shrunk(s.height, heights[i]![j]!)))))
+  const tallest = Math.max(...columns.map((col) => sum(col.map((s) => s.height)) + (col.length - 1) * g))
+  return { columns, colWidth, heights, fits: overflow <= 0, overflow, shrink, tallest }
+}
+
+/** Every way to cut `items` into `count` non-empty runs, keeping their order. */
+function splits<T>(items: T[], count: number): T[][][] {
+  if (count === 1) return [[items]]
+  const out: T[][][] = []
+  for (let first = 1; first <= items.length - count + 1; first++) {
+    for (const rest of splits(items.slice(first), count - 1)) out.push([items.slice(0, first), ...rest])
+  }
+  return out
+}
+
+/**
+ * Heights for one column: the view's height (less the gaps) shared in
+ * proportion to default heights, within each widget's min and max. When the
+ * minimums don't fit, default heights capped to the view (not below the
+ * minimum), and the board scrolls.
+ */
+function columnHeights(col: Size[], viewHeight: number): number[] {
+  const g = PLACEMENT_GAP
+  const room = viewHeight - (col.length + 1) * g
+  if (sum(col.map((s) => s.minHeight)) > room) {
+    return col.map((s) => Math.max(s.minHeight, Math.min(s.height, viewHeight - 2 * g)))
+  }
+  const heights: (number | undefined)[] = col.map(() => undefined)
+  // Share what is left among the widgets not yet held at a limit. If some
+  // shares pass a limit, hold those at it (the side that is further out
+  // first, so the others' new shares stay within theirs) and share again.
+  for (;;) {
+    const free = col.flatMap((_, i) => (heights[i] === undefined ? [i] : []))
+    if (free.length === 0) break
+    const left = room - sum(heights.map((h) => h ?? 0))
+    const weight = sum(free.map((i) => col[i]!.height))
+    const share = (i: number) => (left * col[i]!.height) / weight
+    const under = free.filter((i) => share(i) < col[i]!.minHeight)
+    const over = free.filter((i) => share(i) > col[i]!.maxHeight)
+    if (under.length === 0 && over.length === 0) {
+      for (const i of free) heights[i] = share(i)
+      break
+    }
+    const short = sum(under.map((i) => col[i]!.minHeight - share(i)))
+    const spare = sum(over.map((i) => share(i) - col[i]!.maxHeight))
+    if (short >= spare) for (const i of under) heights[i] = col[i]!.minHeight
+    else for (const i of over) heights[i] = col[i]!.maxHeight
+  }
+  return heights.map((h) => Math.floor(h!))
+}
+
+function sum(values: number[]): number {
+  return values.reduce((a, b) => a + b, 0)
+}

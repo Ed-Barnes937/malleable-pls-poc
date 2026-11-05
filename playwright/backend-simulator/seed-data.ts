@@ -183,7 +183,7 @@ export function createDefaultSeedData(): SeedData {
     ],
 
     workspaceScopes: [
-      // As the server after the lectures migration: a selected lecture brings its course.
+      // As the server after the lectures migration: a course board's lecture is in its course.
       { id: 'ws-scope-1', workspace_id: 'ws-in-lecture', scope_type: 'lecture', scope_value: 'lec-rec-bio-4' },
       { id: 'ws-scope-1b', workspace_id: 'ws-in-lecture', scope_type: 'tag', scope_value: 'biology' },
       { id: 'ws-scope-2', workspace_id: 'ws-evening-review', scope_type: 'tag', scope_value: 'biology' },

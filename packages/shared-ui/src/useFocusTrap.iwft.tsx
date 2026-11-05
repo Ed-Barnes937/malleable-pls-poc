@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { FocusTrapHarness } from './FocusTrapHarness'
 
 test('Tab wraps from the last control to the first, Shift+Tab from the first to the last', async ({ mount, page }) => {

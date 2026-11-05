@@ -5,21 +5,18 @@
  *
  * It runs DDL, so it never touches the shared test database other db test
  * files are using in parallel: it creates a throwaway database on the same
- * server, migrates it up to just before the lectures migration (which seeds
- * the demo data the old way), adds pre-lectures data of its own, runs the
- * lectures migration twice and drops the database.
+ * server, migrated up to just before the lectures migration (which seeds
+ * the demo data the old way) as a copy of the run's template
+ * (pre-lectures-template.global-setup.ts), adds pre-lectures data of its
+ * own, runs the lectures migration twice and drops the database.
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, inject } from 'vitest'
 import { randomUUID } from 'node:crypto'
-import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import postgres from 'postgres'
+import { LECTURES, MIGRATIONS, databaseUrl, readMigration as read } from '../test-support/pre-lectures-template.global-setup'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
-const MIGRATIONS_DIR = resolve(__dirname, '../../../../packages/db/src/migrations')
-const MIGRATIONS = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort()
-const LECTURES = MIGRATIONS.find((f) => /^\d+_lectures\.sql$/.test(f))!
-const read = (file: string) => readFileSync(resolve(MIGRATIONS_DIR, file), 'utf-8')
 
 describe.skipIf(!TEST_DATABASE_URL)('lectures migration (own Postgres database)', () => {
   const dbName = `pls_migration_test_${randomUUID().replace(/-/g, '').slice(0, 12)}`
@@ -29,12 +26,12 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures migration (own Postgres database)'
   const carol = 'test-carol'
 
   beforeAll(async () => {
+    const template = inject('preLecturesTemplate')
+    if (!template) throw new Error('No pre-lectures template: is the global setup in vitest.config.ts?')
     admin = postgres(TEST_DATABASE_URL!, { max: 1, onnotice: () => {} })
-    await admin.unsafe(`CREATE DATABASE ${dbName}`)
-    const url = new URL(TEST_DATABASE_URL!)
-    url.pathname = `/${dbName}`
-    db = postgres(url.toString(), { max: 1, onnotice: (n) => notices.push(n.message) })
-    for (const file of MIGRATIONS.filter((f) => f < LECTURES)) await db.unsafe(read(file))
+    // Migrated up to just before the lectures migration.
+    await admin.unsafe(`CREATE DATABASE ${dbName} TEMPLATE ${template}`)
+    db = postgres(databaseUrl(TEST_DATABASE_URL!, dbName), { max: 1, onnotice: (n) => notices.push(n.message) })
 
     // Data as it was before lectures: no lecture, course as a 'recording' tag.
     await db`
@@ -156,9 +153,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lectures migration (own Postgres database)'
     const migrated = await demo()
     expect(migrated.lectures).toHaveLength(5)
 
-    const url = new URL(TEST_DATABASE_URL!)
-    url.pathname = `/${dbName}`
-    process.env.DATABASE_URL = url.toString()
+    process.env.DATABASE_URL = databaseUrl(TEST_DATABASE_URL!, dbName)
     // By path, so the server's typecheck does not take in the e2e sources.
     const reseedModule = resolve(__dirname, '../../../../e2e/reseed.ts')
     const { reseed } = (await import(reseedModule)) as { reseed: () => Promise<void> }

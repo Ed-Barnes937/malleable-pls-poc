@@ -228,7 +228,8 @@ test.describe('AudioCaptureLens', () => {
     expect(patches).toEqual([])
   })
 
-  test('when the lecture is gone, the audio is saved straight away as a new lecture in its course', async ({ mount, page, simulator }) => {
+  test('when the lecture is gone, the audio is saved straight away as a new lecture in its course', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('/upload')
     await injectMocks(page)
     const uploads: Record<string, string>[] = []
     await page.route('**/upload', async (route) => {
@@ -302,7 +303,8 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Recording complete')).toBeVisible({ timeout: 5000 })
   })
 
-  test('shows error when mic access is denied', async ({ mount, page, simulator }) => {
+  test('shows error when mic access is denied', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allow(/^mic error: Error: NotAllowedError/)
     await injectMocksWithDeniedMic(page)
     await mount(
       <AudioCaptureHarness>
@@ -314,7 +316,9 @@ test.describe('AudioCaptureLens', () => {
     await expect(page.getByText('Microphone access denied')).toBeVisible()
   })
 
-  test('a failed upload says it is not saved yet, and can be tried again or discarded', async ({ mount, page, simulator }) => {
+  test('a failed upload says it is not saved yet, and can be tried again or discarded', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('/upload')
+    consoleErrors.allow(/^upload error: Error: Upload failed/)
     await injectMocks(page)
     let attempts = 0
     const uploadIds: string[] = []

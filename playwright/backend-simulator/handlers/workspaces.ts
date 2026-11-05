@@ -128,7 +128,9 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   // The one scope write, as on the server (see `writeBoardScope`).
   router.register('workspaces.setBoardScope', (input) => {
-    const { workspaceId, ...patch } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    const { workspaceId, courseTag, lectureId } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    // Only what the server's input schema accepts (never `courseFollowsLecture`).
+    const patch = { courseTag, lectureId }
     if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
     return writeBoardScope(db, workspaceId, patch)
   })
@@ -144,8 +146,12 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
       return { restored: false, scope: current }
     }
-    const lectureThere = !!to.lectureId && db.lectures.some((l) => l.id === to.lectureId)
-    const patch = lectureThere ? { lectureId: to.lectureId } : { courseTag: to.courseTag, lectureId: null }
+    const lecture = to.lectureId ? db.lectures.find((l) => l.id === to.lectureId) : undefined
+    const patch = !lecture
+      ? { courseTag: to.courseTag, lectureId: null }
+      : to.courseTag === null
+        ? { courseTag: null, lectureId: lecture.id }
+        : { lectureId: lecture.id, courseFollowsLecture: true }
     return { restored: true, scope: writeBoardScope(db, workspaceId, patch) }
   })
 }

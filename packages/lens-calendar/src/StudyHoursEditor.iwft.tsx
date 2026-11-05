@@ -229,7 +229,7 @@ test('study hours saved while Auto-fill is drafting shape the draft it lands', a
 
 test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator }) => {
   seed(simulator)
-  await page.route('**/preferences.get**', (route) => route.fulfill({ status: 500, body: '{}' }))
+  simulator.failProcedure('preferences.get')
   const sent: Record<string, unknown>[] = []
   await page.route('**/preferences.update**', async (route) => {
     sent.push(JSON.parse(route.request().postData() ?? 'null'))
@@ -404,7 +404,8 @@ test('a change shows straight away while it saves, and two quick saves land in o
   await expect(page.getByTestId('plan-capacity')).toContainText('(3h a day)')
 })
 
-test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator }) => {
+test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('preferences.update')
   seed(simulator)
   await mount(<CalendarHarness />)
   await openPlan(page)

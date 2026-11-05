@@ -38,7 +38,7 @@ test('clicking a widget adds it and keeps the drawer open', async ({ mount, page
   await expect(page.getByTestId('drawer-sidebar')).toBeVisible()
 })
 
-test('a closed drawer is hidden from assistive tech and keyboard', async ({ mount, page }) => {
+test('a closed drawer is hidden from assistive tech and keyboard', async ({ mount, page, simulator: _boards }) => {
   await mount(
     <ShellProviders>
       <DrawerSidebar open={false} onClose={() => {}} onAddWidget={() => {}} />
