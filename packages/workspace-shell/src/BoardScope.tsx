@@ -130,8 +130,11 @@ function ScopeGroup({ compact, arrive, stale, children }: { compact: boolean; ar
       inert={stale || undefined}
       aria-busy={stale || undefined}
       // Never narrower than its pills can go (the course whole, a few words
-      // of the lecture): the tabs and the today line give way first.
-      className={cn('flex origin-left items-center gap-1.5', compact ? 'min-w-0 shrink' : 'shrink', entering && 'motion-safe:animate-enter')}
+      // of the lecture). In the top bar, short of room, it gives its own up
+      // (down to that) well before the board tabs do, so a lecture's name
+      // loading or changing never moves the tabs, or New board from under a
+      // pointer.
+      className={cn('flex origin-left items-center gap-1.5', compact ? 'min-w-0 shrink' : 'shrink-[1000]', entering && 'motion-safe:animate-enter')}
     >
       <JoinsShown.Provider value={mounted.current}>{children}</JoinsShown.Provider>
     </div>
@@ -193,8 +196,10 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         onChange={onChange}
         describe={describe}
         // A title is cut short before anything else in the bar, but always
-        // keeps a few words; "No lecture" is short and never cut.
-        className={cn(current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
+        // keeps a few words; "No lecture" is short and never cut. Loading,
+        // it already takes a title's least room, so the title arriving never
+        // moves what is beside it in a full bar.
+        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}
@@ -216,6 +221,8 @@ function LecturePill({ courseTag, lectureId, onChange }: {
           <Pencil aria-hidden className="h-3.5 w-3.5" />
         </button>
       )}
+      {/* Its room, kept while the lecture loads. */}
+      {!current && loading && <span aria-hidden className="h-10 w-8 shrink-0 sm:h-9 sm:w-7" />}
     </>
   )
 }
