@@ -78,6 +78,49 @@ const upNextFillsRoom = (page: Page) => expect.poll(() => page.evaluate(() => {
   }
 })).toEqual({ width: 0, right: 0, gliding: false })
 
+/**
+ * Notes every error the page reports on `window` (an uncaught exception, or
+ * the browser's own, e.g. "ResizeObserver loop completed with undelivered
+ * notifications", which Playwright's `pageerror` can miss).
+ */
+async function recordErrors(page: Page) {
+  await page.addInitScript(() => {
+    const seen: string[] = []
+    ;(window as unknown as { __errors: string[] }).__errors = seen
+    window.addEventListener('error', (e) => seen.push(e.message))
+  })
+}
+const errorsSeen = (page: Page) => page.evaluate(() => (window as unknown as { __errors: string[] }).__errors)
+
+/**
+ * From now until `pillMisses`, every frame: a press at the centre of each
+ * scope pill on the phone's second row would land on that pill (nothing else
+ * in the bar, e.g. Up next, is drawn over it).
+ */
+const watchPillHits = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __pillMisses: string[]; __pillWatch: boolean }
+  w.__pillMisses = []
+  w.__pillWatch = true
+  const tick = () => {
+    // The pills to press (not the last board's, kept inert while this one's load).
+    const pills = '[data-testid="top-bar-row-2"] [data-testid="board-scope"]:not([inert]) :is([data-testid="scope-course"], [data-testid="scope-lecture"])'
+    for (const pill of document.querySelectorAll<HTMLElement>(pills)) {
+      const box = pill.getBoundingClientRect()
+      if (box.width === 0) continue
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+      // Something else in the bar over it (an open drawer covering the bar is not the bar's doing).
+      if (!pill.contains(hit) && hit?.closest('[data-testid="top-bar"]')) w.__pillMisses.push(`${pill.dataset.testid} under ${hit?.closest('[data-testid]')?.getAttribute('data-testid')}`)
+    }
+    if (w.__pillWatch) requestAnimationFrame(tick)
+  }
+  tick()
+})
+const pillMisses = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __pillMisses: string[]; __pillWatch: boolean }
+  w.__pillWatch = false
+  return w.__pillMisses
+})
+
 /** The board tabs' names, in tab order, once they are drawn in the app's font (so their widths are final). */
 async function tabNames(page: Page): Promise<string[]> {
   const tabs = page.getByTestId('top-bar').getByTestId('workspace-tab')
@@ -426,8 +469,7 @@ test.describe('No layout jumps', () => {
   test('on a phone, switching boards or adding the first widget never moves the board, and Up next glides to fill the room the pills leave', async ({ page }) => {
     await recordAnimations(page)
     // The glide never trips the browser's ResizeObserver loop guard.
-    const errors: string[] = []
-    page.on('pageerror', (e) => errors.push(e.message))
+    await recordErrors(page)
     await onTuesday(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
@@ -459,21 +501,30 @@ test.describe('No layout jumps', () => {
       return [...(window as unknown as { __tops: Set<number> }).__tops]
     })
     await watch()
-    let changed = 0
+    const changes = { wider: 0, narrower: 0 }
     for (const name of [names[1], names[2], names[0]]) {
       await forget(page)
       const before = await upNextWidth()
+      await watchPillHits(page)
       await topBar.switchToWorkspace(name)
       await topBar.expectActiveWorkspace(name)
       await expect(page.locator('[data-panel-id]').first()).toBeVisible()
       await expectFillsRoom()
-      // Its width changed with the pills: it glided there, it did not jump.
-      if (await upNextWidth() !== before) {
-        changed++
+      // Never over a pill, even the moment one arrives.
+      expect(await pillMisses(page), `to ${name}`).toEqual([])
+      const after = await upNextWidth()
+      if (after > before) {
+        // Wider: it glided out, it did not jump.
+        changes.wider++
         await expect.poll(glides, { message: `to ${name}` }).toBeGreaterThan(0)
+      } else if (after < before) {
+        // Narrower: there at once, out of the pills' way.
+        changes.narrower++
+        expect(await glides(), `to ${name}`).toBe(0)
       }
     }
-    expect(changed).toBeGreaterThan(0)
+    expect(changes.wider).toBeGreaterThan(0)
+    expect(changes.narrower).toBeGreaterThan(0)
     expect(await watched()).toEqual([top])
 
     await topBar.openCreateWorkspaceDialog()
@@ -487,13 +538,14 @@ test.describe('No layout jumps', () => {
     await expect.poll(glides).toBeGreaterThan(0)
     await watch()
     await topBar.openDrawer()
-    await forget(page)
+    await watchPillHits(page)
     await new SidebarPom(page).addWidget('Calendar')
     await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
     await expectFillsRoom()
-    await expect.poll(glides).toBeGreaterThan(0)
+    // The pills arriving: Up next makes way at once, never drawn over them.
+    expect(await pillMisses(page)).toEqual([])
     expect(await watched()).toEqual([top])
-    expect(errors).toEqual([])
+    expect(await errorsSeen(page)).toEqual([])
   })
 
   test('at 1024px the lecture pill arriving never moves the board tabs or New board', async ({ page }) => {

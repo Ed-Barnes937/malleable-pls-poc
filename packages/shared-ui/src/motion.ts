@@ -112,11 +112,11 @@ export function useListGlide(list: RefObject<HTMLElement | null>, keys: Readonly
 /**
  * An element whose width the layout around it decides (e.g. a button that
  * shares a row with pills that come and go, and truncates to the room its
- * parent is given) glides from its old width to its new one instead of
- * jumping. Its parent's room changes at once; only the element catches up,
- * so what is next to it never moves meanwhile. The room changing again
- * mid-glide sends it on from where it is. Nothing moves under reduced
- * motion. Pass `enabled: false` to leave it be.
+ * parent is given) glides out to a wider width instead of jumping. A
+ * narrower one it takes at once: gliding in, it would sit over whatever just
+ * took the room (a pill arriving), and catch the presses meant for it. The
+ * room changing again mid-glide sends it on from where it is. Nothing moves
+ * under reduced motion. Pass `enabled: false` to leave it be.
  */
 export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = true): void {
   useLayoutEffect(() => {
@@ -124,7 +124,9 @@ export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = t
     const parent = el?.parentElement
     if (!enabled || !el || !parent || typeof ResizeObserver === 'undefined' || typeof el.animate !== 'function') return
     const roomOf = () => parent.getBoundingClientRect().width
-    let width = el.getBoundingClientRect().width
+    const widthOf = () => el.getBoundingClientRect().width
+    /** Its own width, as laid out (never a glide's frame). */
+    let width = widthOf()
     let glide: { animation: Animation; room: number } | null = null
     // Only a change of room starts a glide, from its parent's notice: a glide
     // started from the element's own notice would resize what was just
@@ -136,21 +138,22 @@ export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = t
       if (glide && (!roomChanged || Math.abs(glide.room - room) < 1)) return
       let from = width
       if (glide) {
-        from = el.getBoundingClientRect().width
+        from = widthOf()
         glide.animation.cancel()
         glide = null
       }
-      width = el.getBoundingClientRect().width
-      // Its own size changing on its own (its label) is only noted.
-      if (!roomChanged || Math.abs(width - from) < 1 || prefersReducedMotion()) return
-      // Not shrunk to its new room meanwhile (as a flex item would be): it glides there.
-      const animation = el.animate(
-        [{ width: `${from}px`, flexShrink: 0 }, { width: `${width}px`, flexShrink: 0 }],
-        { duration: MOTION_MS, easing: MOTION_EASE },
-      )
+      width = widthOf()
+      // Its own size changing on its own (its label) is only noted; narrower, it is there at once.
+      if (!roomChanged || width - from < 1 || prefersReducedMotion()) return
+      const animation = el.animate([{ width: `${from}px` }, { width: `${width}px` }], { duration: MOTION_MS, easing: MOTION_EASE })
       const gliding = { animation, room }
       glide = gliding
-      const landed = () => { if (glide === gliding) glide = null }
+      // Landed (or stopped): from now on it is its laid-out width, whatever its label did meanwhile.
+      const landed = () => {
+        if (glide !== gliding) return
+        glide = null
+        width = widthOf()
+      }
       animation.finished.then(landed, landed)
     })
     observer.observe(el)

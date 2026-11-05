@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { MOTION_TIMING, SWAP_KEYFRAMES, boardSlideKeyframes, prefersReducedMotion, useListGlide, useReducedMotion } from './motion'
+import { MOTION_TIMING, SWAP_KEYFRAMES, boardSlideKeyframes, prefersReducedMotion, useListGlide, useReducedMotion, useWidthGlide } from './motion'
 
 function mockReducedMotion(reduce: boolean) {
   vi.stubGlobal('matchMedia', (query: string) => ({
@@ -99,5 +99,75 @@ describe('useListGlide', () => {
     l.order(['b', 'a'])
     rerender({ keys: ['b', 'a'] })
     expect(l.animate).not.toHaveBeenCalled()
+  })
+})
+
+describe('useWidthGlide', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  /**
+   * A button in a row: its laid-out width and its parent's room are set by
+   * the test, with a ResizeObserver it fires by hand and an `animate` whose
+   * glides it finishes.
+   */
+  function row(width: number, room: number) {
+    const parent = document.createElement('div')
+    const el = document.createElement('button')
+    parent.append(el)
+    const size = { width, room }
+    el.getBoundingClientRect = () => ({ width: size.width }) as DOMRect
+    parent.getBoundingClientRect = () => ({ width: size.room }) as DOMRect
+    const glides: { keyframes: Keyframe[]; finish: () => void }[] = []
+    el.animate = ((keyframes: Keyframe[]) => {
+      let finish!: () => void
+      const finished = new Promise<void>((resolve) => { finish = resolve })
+      glides.push({ keyframes, finish })
+      return { finished, cancel: () => {} } as unknown as Animation
+    }) as typeof el.animate
+    let notify: (entries: { target: Element }[]) => void = () => {}
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb: typeof notify) { notify = cb }
+      observe() {}
+      disconnect() {}
+    })
+    const resize = (next: Partial<typeof size>, targets: Element[]) => {
+      Object.assign(size, next)
+      notify(targets.map((target) => ({ target })))
+    }
+    return { ref: { current: el }, el, parent, glides, resize }
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('glides out to a wider room, and takes a narrower one at once', async () => {
+    mockReducedMotion(false)
+    const r = row(100, 120)
+    renderHook(() => useWidthGlide(r.ref))
+    r.resize({ width: 200, room: 220 }, [r.parent, r.el])
+    expect(r.glides.map((g) => g.keyframes)).toEqual([[{ width: '100px' }, { width: '200px' }]])
+    r.glides[0].finish()
+    await settle()
+    r.resize({ width: 90, room: 110 }, [r.parent, r.el])
+    expect(r.glides).toHaveLength(1)
+  })
+
+  it('starts its next glide from the width it landed on, even if its label changed mid-glide', async () => {
+    mockReducedMotion(false)
+    const r = row(100, 120)
+    renderHook(() => useWidthGlide(r.ref))
+    r.resize({ width: 200, room: 220 }, [r.parent, r.el])
+    // Mid-glide its label gets shorter: its own notice only.
+    r.resize({ width: 180 }, [r.el])
+    r.glides[0].finish()
+    await settle()
+    r.resize({ width: 250, room: 270 }, [r.parent, r.el])
+    expect(r.glides[1].keyframes).toEqual([{ width: '180px' }, { width: '250px' }])
+  })
+
+  it('glides nothing under reduced motion', () => {
+    mockReducedMotion(true)
+    const r = row(100, 120)
+    renderHook(() => useWidthGlide(r.ref))
+    r.resize({ width: 200, room: 220 }, [r.parent, r.el])
+    expect(r.glides).toEqual([])
   })
 })
