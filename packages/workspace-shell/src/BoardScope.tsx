@@ -194,7 +194,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         describe={describe}
         // A title is cut short before anything else in the bar, but always
         // keeps a few words; "No lecture" is short and never cut.
-        className={cn(current ? 'max-w-[32ch] min-w-16 shrink sm:min-w-24 md:min-w-36' : 'min-w-16 shrink sm:shrink-0', entering && 'origin-left motion-safe:animate-enter')}
+        className={cn(current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}

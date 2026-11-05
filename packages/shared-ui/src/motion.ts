@@ -108,3 +108,51 @@ export function useListGlide(list: RefObject<HTMLElement | null>, keys: Readonly
   }, [list, order, measure])
   useEffect(() => () => observer.current?.disconnect(), [])
 }
+
+/**
+ * An element whose width the layout around it decides (e.g. a button that
+ * shares a row with pills that come and go, and truncates to the room its
+ * parent is given) glides from its old width to its new one instead of
+ * jumping. Its parent's room changes at once; only the element catches up,
+ * so what is next to it never moves meanwhile. The room changing again
+ * mid-glide sends it on from where it is. Nothing moves under reduced
+ * motion. Pass `enabled: false` to leave it be.
+ */
+export function useWidthGlide(target: RefObject<HTMLElement | null>, enabled = true): void {
+  useLayoutEffect(() => {
+    const el = target.current
+    const parent = el?.parentElement
+    if (!enabled || !el || !parent || typeof ResizeObserver === 'undefined' || typeof el.animate !== 'function') return
+    const roomOf = () => parent.getBoundingClientRect().width
+    let width = el.getBoundingClientRect().width
+    let glide: { animation: Animation; room: number } | null = null
+    const observer = new ResizeObserver(() => {
+      const room = roomOf()
+      // Its own frames while it glides; the width it lands on is read when it lands.
+      if (glide && Math.abs(glide.room - room) < 1) return
+      let from = width
+      if (glide) {
+        from = el.getBoundingClientRect().width
+        glide.animation.cancel()
+        glide = null
+      }
+      width = el.getBoundingClientRect().width
+      if (Math.abs(width - from) < 1 || prefersReducedMotion()) return
+      // Not shrunk to its new room meanwhile (as a flex item would be): it glides there.
+      const animation = el.animate(
+        [{ width: `${from}px`, flexShrink: 0 }, { width: `${width}px`, flexShrink: 0 }],
+        { duration: MOTION_MS, easing: MOTION_EASE },
+      )
+      const gliding = { animation, room }
+      glide = gliding
+      const landed = () => { if (glide === gliding) glide = null }
+      animation.finished.then(landed, landed)
+    })
+    observer.observe(el)
+    observer.observe(parent)
+    return () => {
+      observer.disconnect()
+      glide?.animation.cancel()
+    }
+  }, [target, enabled])
+}

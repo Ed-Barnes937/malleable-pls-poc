@@ -345,6 +345,25 @@ test.describe('Reduced motion', () => {
     // Nothing above was animated from script either.
     expect(await animated(page)).toEqual([])
   })
+
+  test('on a phone, Up next takes its new width at once as the pills change', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await recordAnimations(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
+    const widths = new Set<number>()
+    for (const name of await tabNames(page)) {
+      await topBar.switchToWorkspace(name)
+      await topBar.expectActiveWorkspace(name)
+      await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+      widths.add(Math.round((await topBar.upNext.boundingBox())!.width))
+    }
+    // The seed boards' pills differ, so Up next changed width, and never glided.
+    expect(widths.size).toBeGreaterThan(1)
+    expect((await animated(page)).filter((a) => a.testid === 'up-next')).toEqual([])
+  })
 })
 
 test.describe('No layout jumps', () => {
@@ -366,18 +385,33 @@ test.describe('No layout jumps', () => {
     expect(await calendar.grid.boundingBox()).toEqual(before)
   })
 
-  test('on a phone, switching boards or adding the first widget never moves the board under the top bar', async ({ page }) => {
+  test('on a phone, switching boards or adding the first widget never moves the board, and Up next glides to fill the room the pills leave', async ({ page }) => {
+    await recordAnimations(page)
     await page.setViewportSize({ width: 390, height: 844 })
     await page.goto('/')
     const topBar = new TopBarPom(page)
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     const canvasTop = async () => Math.round((await page.getByTestId('canvas-container').boundingBox())!.y)
-    const upNextBox = async () => JSON.stringify(await topBar.upNext.boundingBox())
+    // Up next takes the room the pills leave on the row, and sits at its end, once it has glided there.
+    const expectFillsRoom = () => expect.poll(() => page.evaluate(() => {
+      const row = document.querySelector('[data-testid="top-bar-row-2"]')!
+      const pills = row.querySelector('[data-testid="board-scope"]')?.getBoundingClientRect()
+      const button = row.querySelector('[data-testid="up-next"]')!
+      const gap = parseFloat(getComputedStyle(row).columnGap)
+      const room = row.getBoundingClientRect().width - (pills ? pills.width + gap : 0)
+      return {
+        width: Math.round(button.parentElement!.getBoundingClientRect().width - room),
+        right: Math.round(button.getBoundingClientRect().right - row.getBoundingClientRect().right),
+        gliding: button.getAnimations().length > 0,
+      }
+    })).toEqual({ width: 0, right: 0, gliding: false })
+    const upNextWidth = async () => Math.round((await topBar.upNext.boundingBox())!.width)
+    const glides = async () => (await animated(page)).filter((a) => a.testid === 'up-next' && a.keyframes.includes('width')).length
     const names = await tabNames(page)
     await topBar.switchToWorkspace(names[0])
     await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+    await expectFillsRoom()
     const top = await canvasTop()
-    const upNext = await upNextBox()
     // Boards whose pills differ (and while each one's pills load): the board stays put.
     const watch = () => page.evaluate(() => {
       const tops = new Set<number>()
@@ -395,29 +429,40 @@ test.describe('No layout jumps', () => {
       return [...(window as unknown as { __tops: Set<number> }).__tops]
     })
     await watch()
+    let changed = 0
     for (const name of [names[1], names[2], names[0]]) {
+      await forget(page)
+      const before = await upNextWidth()
       await topBar.switchToWorkspace(name)
       await topBar.expectActiveWorkspace(name)
       await expect(page.locator('[data-panel-id]').first()).toBeVisible()
+      await expectFillsRoom()
+      // Its width changed with the pills: it glided there, it did not jump.
+      if (await upNextWidth() !== before) {
+        changed++
+        await expect.poll(glides, { message: `to ${name}` }).toBeGreaterThan(0)
+      }
     }
+    expect(changed).toBeGreaterThan(0)
     expect(await watched()).toEqual([top])
-    // Up next keeps its own width, whatever pills the board shows.
-    expect(await upNextBox()).toBe(upNext)
 
     await topBar.openCreateWorkspaceDialog()
+    await forget(page)
     await new CreateWorkspaceDialogPom(page).createWorkspace('Phone board')
     await topBar.expectActiveWorkspace('Phone board')
     expect(await canvasTop()).toBe(top)
-    // A board with no pills: Up next stays where and as wide as it was.
+    // A board with no pills: Up next glides out into the whole row.
     await expect(topBar.root.getByTestId('board-scope')).toHaveCount(0)
-    expect(await upNextBox()).toBe(upNext)
+    await expectFillsRoom()
+    await expect.poll(glides).toBeGreaterThan(0)
     await watch()
     await topBar.openDrawer()
+    await forget(page)
     await new SidebarPom(page).addWidget('Calendar')
     await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+    await expectFillsRoom()
+    await expect.poll(glides).toBeGreaterThan(0)
     expect(await watched()).toEqual([top])
-    // Up next keeps its own width, whatever pills the board shows.
-    expect(await upNextBox()).toBe(upNext)
   })
 
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {

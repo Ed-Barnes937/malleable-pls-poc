@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { CalendarClock, CalendarPlus, Flag, ListTodo, Sparkles, X } from 'lucide-react'
 import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, SectionLabel, useNarrowScreen } from '@pls/shared-ui'
+import { cn, courseTone, SectionLabel, useNarrowScreen, useWidthGlide } from '@pls/shared-ui'
 import {
   upNextLabel,
   upNextRange,
@@ -66,6 +66,9 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar, className 
 
   const [open, setOpen] = useState(false)
   const triggerRef = useRef<HTMLButtonElement>(null)
+  // On a phone it fills the row's room left by the scope pills: as pills come
+  // and go it glides to its new width, its right edge staying put.
+  useWidthGlide(triggerRef, narrow)
   const popoverId = useId()
   const close = useCallback((restoreFocus = true) => {
     setOpen(false)
