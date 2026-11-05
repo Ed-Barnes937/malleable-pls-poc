@@ -496,6 +496,33 @@ test.describe('No layout jumps', () => {
     expect(errors).toEqual([])
   })
 
+  test('at 1024px the lecture pill arriving never moves the board tabs or New board', async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 768 })
+    // The lecture is held, so its pill says "Loading..." until it is let go.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route(/lectures\.byId/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await tabNames(page)
+    const lecture = topBar.root.getByTestId('board-scope').getByText('Loading...').filter({ visible: true })
+    await expect(lecture).toBeVisible()
+    // To the pixel: the tabs take a sliver of the shortfall the pills can't.
+    const boxes = () => page.evaluate(() => ['[data-testid="board-tabs"]', '[data-testid="workspace-tab"]', '[aria-label="New board"]'].map((selector) => {
+      const box = document.querySelector(selector)!.getBoundingClientRect()
+      return [box.left, box.width].map(Math.round)
+    }))
+    await motionSettled(topBar.root)
+    const before = await boxes()
+    release()
+    await expect(lecture).toHaveCount(0)
+    await motionSettled(topBar.root)
+    expect(await boxes()).toEqual(before)
+  })
+
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {
     await calendarBoard(request, 'Prompt week')
     await page.goto('/')

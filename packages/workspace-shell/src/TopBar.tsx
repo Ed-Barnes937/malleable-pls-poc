@@ -86,8 +86,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
     >
       {menuButton}
 
-      {/* Board tabs */}
-      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
+      {/* Board tabs. Short of room, the scope pills give theirs up first (down
+          to their own minimum), so a pill's name loading or changing never
+          moves the tabs, or New board from under a pointer. */}
+      <div data-testid="board-tabs" className="min-w-28 shrink-[0.0001]">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}
