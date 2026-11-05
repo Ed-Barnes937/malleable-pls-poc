@@ -58,7 +58,10 @@ export function anchoredTop(
  * once, by its size when shown, and from then on only grows or shrinks around
  * the element marked `data-popover-anchor` (the buttons), which stays where it
  * is on screen unless that would take the popover off the calendar. Without
- * an anchor it is placed afresh at each size.
+ * an anchor it is placed afresh at each size. Where it was placed lasts as
+ * long as the press it answers: the calendar's box changing meanwhile (a
+ * scrollbar coming and going for a frame) never places it afresh, which
+ * would move the anchor.
  */
 export function usePopoverPosition(
   ref: RefObject<HTMLElement | null>,
@@ -67,6 +70,7 @@ export function usePopoverPosition(
   const [pos, setPos] = useState({ left: x, top: y })
   const spanTop = span?.top
   const spanBottom = span?.bottom
+  const placedRef = useRef<{ press: string; top: number; anchor: number | null } | null>(null)
   useLayoutEffect(() => {
     const pressed = spanTop === undefined || spanBottom === undefined ? undefined : { top: spanTop, bottom: spanBottom }
     const el = ref.current
@@ -74,15 +78,16 @@ export function usePopoverPosition(
       const anchor = el?.querySelector<HTMLElement>('[data-popover-anchor]')
       return el && anchor ? anchor.getBoundingClientRect().top - el.getBoundingClientRect().top : null
     }
-    let placed: { top: number; anchor: number | null } | null = null
+    const press = `${x}:${y}:${spanTop}:${spanBottom}`
     const place = () => {
+      const placed = placedRef.current?.press === press ? placedRef.current : null
       const height = el?.offsetHeight ?? 320
       const anchor = anchorOffset()
       const fresh = placePopover({ x, y, span: pressed, bounds, width, height })
       const top = placed && anchor !== null && placed.anchor !== null
         ? anchoredTop({ top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, boundsHeight: bounds.height })
         : fresh.top
-      placed = { top, anchor }
+      placedRef.current = { press, top, anchor }
       setPos({ left: fresh.left, top })
     }
     place()

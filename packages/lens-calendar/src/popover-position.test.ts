@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { anchoredTop, placePopover } from './popover-position'
+import { describe, it, expect, vi } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
+import { anchoredTop, placePopover, usePopoverPosition } from './popover-position'
 
 const desktop = { width: 900, height: 640 }
 // A phone's Calendar: about 370px wide, so a 340px popover can't sit beside anything.
@@ -74,5 +75,40 @@ describe('anchoredTop', () => {
     expect(anchoredTop({ top: 200, anchorBefore: 200, anchorAfter: 440, height: 600, boundsHeight: 640 })).toBe(8)
     // Growing downward past the bottom edge: held to it.
     expect(anchoredTop({ top: 200, anchorBefore: 200, anchorAfter: 200, height: 500, boundsHeight: 640 })).toBe(132)
+  })
+})
+
+describe('usePopoverPosition', () => {
+  /** A popover whose height and buttons' offset the test sets, as its content loads. */
+  function popover(height: number, anchor: number) {
+    const el = document.createElement('div')
+    const row = document.createElement('div')
+    row.setAttribute('data-popover-anchor', '')
+    el.append(row)
+    const size = { height, anchor }
+    Object.defineProperty(el, 'offsetHeight', { get: () => size.height })
+    el.getBoundingClientRect = () => ({ top: 0 } as DOMRect)
+    row.getBoundingClientRect = () => ({ top: size.anchor } as DOMRect)
+    return { ref: { current: el }, size }
+  }
+
+  it("keeps its buttons where they were when the calendar's box changes after the content grew", () => {
+    const observers: (() => void)[] = []
+    vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { observers.push(cb) } observe() {} disconnect() {} })
+    const p = popover(440, 374)
+    const press = { x: 188, y: 377, span: { top: 367, bottom: 420 }, width: 334 }
+    const { result, rerender } = renderHook(({ bounds }) => usePopoverPosition(p.ref, { ...press, bounds }), { initialProps: { bounds: { width: 334, height: 918 } } })
+    const buttons = () => result.current.top + p.size.anchor
+    const before = buttons()
+    // "Also open in" arrives above the buttons: the popover grows around them.
+    p.size.height = 562
+    p.size.anchor = 496
+    act(() => observers.at(-1)!())
+    expect(buttons()).toBe(before)
+    // A scrollbar narrows the calendar for a frame, then goes.
+    rerender({ bounds: { width: 328, height: 918 } })
+    rerender({ bounds: { width: 334, height: 918 } })
+    expect(buttons()).toBe(before)
+    vi.unstubAllGlobals()
   })
 })
