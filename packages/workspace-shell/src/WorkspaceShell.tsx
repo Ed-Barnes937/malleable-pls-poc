@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { requestHelpMePlan, useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -458,12 +458,25 @@ export function WorkspaceShell() {
     handleLayoutChange(updated)
   }, [handleLayoutChange])
 
+  // The top bar's Up next: plan the week on this board, never switching boards.
+  const boardHasCalendar = activeLensTypes.includes('calendar')
+  const handleAddCalendar = useCallback(() => addWidget('calendar'), [addWidget])
+  const handlePlanWeek = useCallback(() => {
+    if (!activeWorkspaceId) return
+    if (!boardHasCalendar) addWidget('calendar')
+    // A Calendar added just now takes the request when it mounts.
+    requestHelpMePlan()
+  }, [activeWorkspaceId, boardHasCalendar, addWidget])
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
         menuOpen={drawerOpen}
         onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+        boardHasCalendar={boardHasCalendar}
+        onPlanWeek={handlePlanWeek}
+        onAddCalendar={handleAddCalendar}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">

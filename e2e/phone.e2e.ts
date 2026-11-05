@@ -403,50 +403,6 @@ test.describe('Phone top bar', () => {
   })
 })
 
-/** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, no study planned yet. */
-const TUESDAY = new Date('2026-10-27T09:00:00Z')
-
-test.describe('Phone today line', () => {
-  test.use({ viewport: { width: 400, height: 860 } })
-  test.afterAll(async () => { await reseed() })
-
-  test('shows the short form under the tabs, beside the scope pills or wrapped under them, never cut off', async ({ page, request }) => {
-    await reseed({ now: TUESDAY })
-    await myWeekBoard(request)
-    await page.clock.setFixedTime(TUESDAY)
-    await page.goto('/')
-    const topBar = new TopBarPom(page)
-    await topBar.switchToWorkspace('My week')
-    await expect(topBar.todayLine).toBeVisible()
-    await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
-
-    const notClipped = () => topBar.todayLine.evaluate((el) => el.offsetWidth <= el.parentElement!.clientWidth)
-    for (const width of [400, 360]) {
-      await page.setViewportSize({ width, height: 800 })
-      // Drops parts (the weekday, then later blocks) rather than cutting one off.
-      await expect(topBar.todayLine).toBeVisible()
-      await expect(topBar.todayLine).toContainText('2h to study')
-      await expect(topBar.todayLine).toContainText('Chemistry 14:00')
-      await expect.poll(notClipped).toBe(true)
-      // Under the tabs, after the pills on their row or on a row of its own
-      // under them (read once the bar has settled: the pills' text and the
-      // web font arrive late).
-      await expect.poll(async () => {
-        const line = (await topBar.todayLine.boundingBox())!
-        const pills = (await topBar.scopeGroup.boundingBox())!
-        const menu = (await topBar.drawerTrigger.boundingBox())!
-        const besidePills = Math.abs((line.y + line.height / 2) - (pills.y + pills.height / 2)) < 2 && line.x >= pills.x + pills.width
-        const underPills = line.y >= pills.y + pills.height
-        return {
-          underTabs: line.y >= menu.y + menu.height,
-          placed: besidePills || underPills,
-          onScreen: line.x >= 0 && line.x + line.width <= width,
-        }
-      }).toEqual({ underTabs: true, placed: true, onScreen: true })
-    }
-  })
-})
-
 test.describe('Phone scope pickers', () => {
   test.use({ viewport: { width: 400, height: 860 }, hasTouch: true })
   test.beforeEach(async () => { await reseed() })

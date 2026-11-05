@@ -6,11 +6,11 @@ import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { BoardScope } from './BoardScope'
-import { TodayLine } from './TodayLine'
+import { UpNext, type UpNextProps } from './UpNext'
 import { BoardAppearance } from './BoardAppearance'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
 
-export interface TopBarProps {
+export interface TopBarProps extends UpNextProps {
   onMenuClick: () => void
   /** Whether the board menu (drawer) is open, for the menu button's state. */
   menuOpen?: boolean
@@ -26,7 +26,7 @@ const ICON_BUTTON =
  * appearance move into the board menu, and a second row has the scope
  * pills and the short today line.
  */
-export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
+export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCalendar, onPlanWeek, onAddCalendar }: TopBarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
   const narrow = useNarrowScreen()
 
@@ -44,6 +44,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       <LayoutGrid size={18} />
     </button>
   )
+  const upNext = <UpNext boardHasCalendar={boardHasCalendar} onPlanWeek={onPlanWeek} onAddCalendar={onAddCalendar} />
   const scope = activeWorkspaceId && <BoardScope workspaceId={activeWorkspaceId} compact={narrow} />
 
   if (narrow) {
@@ -58,11 +59,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
           <div className="min-w-0 flex-1">{tabs}</div>
           {organizeButton}
         </div>
-        {/* Nothing in it (no scope, nothing today) and it takes no room. The
-            today line wraps under the pills rather than cut them short. */}
-        <div data-testid="top-bar-row-2" className="flex flex-wrap items-center gap-x-2 gap-y-1.5 empty:hidden">
+        {/* Up next wraps under the scope pills rather than cut them short. */}
+        <div data-testid="top-bar-row-2" className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
           {scope}
-          <TodayLine short />
+          <div className="flex min-w-[40%] flex-1 basis-0 justify-end">{upNext}</div>
         </div>
       </header>
     )
@@ -71,7 +71,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
   return (
     <header
       data-testid="top-bar"
-      className="flex shrink-0 items-center gap-3.5 border-b border-border-subtle px-4 py-2.5 md:px-5 sm:min-h-16"
+      className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-3 py-2.5 sm:min-h-16 md:gap-2 md:px-5 lg:gap-3.5"
       style={{
         background: 'var(--color-surface-raised)',
         transition: 'var(--transition-panel)',
@@ -82,13 +82,13 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       {menuButton}
 
       {/* Board tabs */}
-      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
+      <div data-testid="board-tabs" className="min-w-28 shrink-[8]">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}
 
-      {/* Today at a glance (wide screens only) */}
-      <TodayLine />
+      {/* What is next in the student's calendar, and a way to plan the week */}
+      <div className="flex shrink-0 justify-start">{upNext}</div>
 
       {/* Spacer */}
       <div className="flex-1" />

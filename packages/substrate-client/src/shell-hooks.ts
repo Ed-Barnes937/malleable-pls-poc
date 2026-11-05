@@ -424,11 +424,12 @@ export function useLecture(lectureId: string | undefined) {
 }
 
 /**
- * Plan items for shell chrome (the top bar's today line), outside any widget.
+ * Plan items for shell chrome (the top bar's Up next), outside any widget.
  * Shares the `planItems` cache, so every plan item change refreshes it.
+ * `enabled: false` waits (e.g. for the student's zone, which sets the range).
  */
-export function usePlanItemList(query: PlanItemQuery) {
-  return trpc.planItems.list.useQuery(query)
+export function usePlanItemList(query: PlanItemQuery, options: { enabled?: boolean } = {}) {
+  return trpc.planItems.list.useQuery(query, options)
 }
 
 /** Mutation scope for preference saves: they run one at a time, in order. */
