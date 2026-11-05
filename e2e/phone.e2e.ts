@@ -264,7 +264,7 @@ test.describe('Phone calendar taps', () => {
     await page.touchscreen.tap(point.x, point.y)
     await expect(calendar.popover).toBeVisible()
     // The block opened at the time tapped, not wherever the grid had moved to.
-    await expect(calendar.popover.locator('input').nth(2)).toHaveValue('03:30')
+    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('03:30')
     expect(await pressesInPopover(page)).toEqual([])
   })
 })
