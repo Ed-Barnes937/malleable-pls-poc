@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { MOTION_MS, useReducedMotion } from './motion'
 
 /**
@@ -6,7 +6,9 @@ import { MOTION_MS, useReducedMotion } from './motion'
  * shared motion instead of vanishing. While `children` is something, it is
  * shown as it is (the wrapper takes no box of its own). When it becomes
  * nothing, the last of it stays for the leave motion, out of reach and
- * hidden from assistive tech, then goes. Under reduced motion it goes at once.
+ * hidden from assistive tech, with `-leaving` on its data-testids (so a test,
+ * or a new one arriving, never takes it for the real thing), then goes.
+ * Under reduced motion it goes at once.
  * Its arrival is the child's own (`motion-safe:animate-enter`).
  */
 export function Presence({ children }: { children: ReactNode }) {
@@ -33,11 +35,26 @@ export function Presence({ children }: { children: ReactNode }) {
     return () => clearTimeout(t)
   }, [present])
 
-  if (present) return <div className="contents">{children}</div>
+  // The same elements stay as they leave (and if they come back), so their
+  // test ids are marked and unmarked in place, before the browser paints.
+  const box = useRef<HTMLDivElement>(null)
+  const isLeaving = !present && leaving.current
+  useLayoutEffect(() => {
+    for (const el of box.current?.querySelectorAll<HTMLElement>('[data-testid]') ?? []) {
+      const id = el.dataset.testid!
+      const marked = id.endsWith(LEAVING)
+      if (isLeaving && !marked) el.dataset.testid = id + LEAVING
+      else if (!isLeaving && marked) el.dataset.testid = id.slice(0, -LEAVING.length)
+    }
+  })
+
+  if (present) return <div ref={box} className="contents">{children}</div>
   if (!leaving.current) return null
   return (
-    <div inert aria-hidden data-leaving="" className="pointer-events-none origin-top motion-safe:animate-leave">
+    <div ref={box} inert aria-hidden data-leaving="" className="pointer-events-none origin-top motion-safe:animate-leave">
       {last.current}
     </div>
   )
 }
+
+const LEAVING = '-leaving'

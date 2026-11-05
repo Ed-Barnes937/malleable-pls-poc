@@ -31,14 +31,17 @@ describe('Presence', () => {
 
     rerender(<Alert text={null} />)
     // The same element, now leaving (never remounted, so it never misses a frame).
-    expect(screen.getByTestId('alert')).toBe(shown)
     expect(shown).toHaveTextContent("Couldn't save")
     expect(shown.parentElement).toHaveAttribute('inert')
     expect(shown.parentElement).toHaveAttribute('data-leaving')
     expect(shown.parentElement).toHaveClass('motion-safe:animate-leave')
+    // Marked as leaving, so nothing takes it for the one on show.
+    expect(screen.queryByTestId('alert')).toBe(null)
+    expect(screen.getByTestId('alert-leaving')).toBe(shown)
 
     act(() => { vi.advanceTimersByTime(MOTION_MS) })
     expect(screen.queryByTestId('alert')).toBeNull()
+    expect(screen.queryByTestId('alert-leaving')).toBeNull()
   })
 
   it('coming back while it leaves shows it again, and it stays', () => {
@@ -49,6 +52,7 @@ describe('Presence', () => {
     rerender(<Alert text="Two" />)
     act(() => { vi.advanceTimersByTime(MOTION_MS * 2) })
     expect(screen.getByTestId('alert')).toHaveTextContent('Two')
+    expect(screen.queryByTestId('alert-leaving')).toBeNull()
     expect(screen.getByTestId('alert').parentElement).not.toHaveAttribute('inert')
   })
 

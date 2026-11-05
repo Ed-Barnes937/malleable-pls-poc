@@ -288,9 +288,30 @@ test.describe('Help me plan', () => {
     expect((await departures(page)).filter((d) => d.testids[0] === 'calendar-ghost-leaving')).toHaveLength(1)
 
     await calendar.root.getByTestId('proposal-tray').getByRole('button', { name: 'Keep my plan' }).click()
-    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('proposal-tray') && d.animation === 'leave')).toBe(true)
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('proposal-tray-leaving') && d.animation === 'leave')).toBe(true)
     await expect(calendar.root.getByTestId('proposal-tray')).toHaveCount(0)
     await expect(page.locator('[data-leaving]')).toHaveCount(0)
+  })
+
+  test('Keep my plan, then Auto-fill straight away: exactly one suggested-blocks tray, the new one', async ({ page, request }) => {
+    await seedWeek(request)
+    const { calendar, panel } = await openPlanner(page)
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    await expect(calendar.root.getByTestId('calendar-ghost').first()).toBeVisible()
+    await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+    const tray = calendar.root.getByTestId('proposal-tray')
+    await tray.getByRole('button', { name: 'Keep my plan' }).click()
+    // The one leaving is marked so, at once: there is no tray now.
+    expect(await tray.count()).toBe(0)
+    await calendar.root.getByTestId('help-me-plan').click()
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    await expect(calendar.root.getByTestId('calendar-ghost').first()).toBeVisible()
+    await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+    await expect(tray).toHaveCount(1)
+    await expect(tray.getByRole('button', { name: 'Accept all' })).toBeEnabled()
+    await expect(calendar.root.getByTestId('proposal-tray-leaving')).toHaveCount(0)
   })
 
   for (const scrolled of [false, true]) {

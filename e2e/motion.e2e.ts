@@ -234,7 +234,7 @@ test.describe('Leaving', () => {
 
     const banner = calendar.root.getByTestId('refit-banner')
     await banner.getByRole('button', { name: 'Not now' }).click()
-    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('refit-banner') && d.animation === 'leave')).toBe(true)
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('refit-banner-leaving') && d.animation === 'leave')).toBe(true)
     await expect(banner).toHaveCount(0)
     await expect(page.locator('[data-leaving]')).toHaveCount(0)
   })
