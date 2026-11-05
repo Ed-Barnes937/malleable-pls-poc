@@ -27,6 +27,16 @@ async function openBlankBoard(page: Page, now: Date, arrange?: () => Promise<voi
   return topBar
 }
 
+/** The popover's two actions sit on one row, and its summary is two whole lines. */
+async function expectTidyPopover(topBar: TopBarPom) {
+  const plan = (await topBar.upNextPopover.getByTestId('up-next-plan-week').boundingBox())!
+  const add = (await topBar.upNextPopover.getByTestId('up-next-add-calendar').boundingBox())!
+  expect(Math.abs(plan.y - add.y)).toBeLessThan(2)
+  await expect(topBar.upNextPopover.getByTestId('up-next-add-calendar')).toHaveAccessibleName('Add Calendar to this board')
+  const lines = await topBar.upNextPopover.getByTestId('up-next-summary').locator('p').evaluateAll((ps) => ps.map((p) => Math.round(p.getBoundingClientRect().height / parseFloat(getComputedStyle(p).lineHeight))))
+  expect(lines).toEqual([1, 1])
+}
+
 test.describe('Up next', () => {
   test.afterAll(async () => { await reseed() })
 
@@ -49,6 +59,7 @@ test.describe('Up next', () => {
     await expect(popover.getByTestId('up-next-summary')).toContainText('of study booked for the rest of the week')
     await expect(popover.getByTestId('up-next-summary')).toContainText('not booked yet')
     await expect(popover.getByTestId('up-next-add-calendar')).toBeVisible()
+    await expectTidyPopover(topBar)
 
     await popover.getByTestId('up-next-plan-week').click()
     // Still on this board, now with a Calendar, and Help me plan open on the week.
@@ -303,6 +314,7 @@ test.describe('Up next on a phone', () => {
     expect(box.x).toBeGreaterThanOrEqual(0)
     expect(box.x + box.width).toBeLessThanOrEqual(390)
     expect(box.y + box.height).toBeLessThanOrEqual(844)
+    await expectTidyPopover(topBar)
 
     await topBar.upNextPopover.getByTestId('up-next-plan-week').tap()
     await topBar.expectActiveWorkspace('My week')

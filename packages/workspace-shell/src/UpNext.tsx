@@ -263,7 +263,7 @@ function UpNextPopover({ id, triggerRef, summary, now, zone, boardHasCalendar, o
             className="inline-flex h-9 items-center gap-1.5 rounded-control border border-border bg-surface-raised px-3.5 text-body font-semibold text-text-primary transition-colors hover:bg-surface-overlay"
           >
             <CalendarPlus aria-hidden className="h-4 w-4" />
-            Add Calendar to this board
+            Add Calendar<span className="sr-only"> to this board</span>
           </button>
         )}
       </div>
@@ -338,11 +338,11 @@ function DueThisWeek({ due }: { due: UpNextSummary['due'] }) {
 function SummaryLine({ summary }: { summary: UpNextSummary }) {
   const { studyBookedMin, unbooked } = summary
   return (
-    <p data-testid="up-next-summary" className="text-meta text-text-secondary">
-      <span className="font-semibold text-text-primary">{formatMinutes(studyBookedMin)}</span> of study booked for the rest of the week
+    <div data-testid="up-next-summary" className="text-meta text-text-secondary">
+      <p><span className="font-semibold text-text-primary">{formatMinutes(studyBookedMin)}</span> of study booked for the rest of the week</p>
       {unbooked.count > 0 && (
-        <> · {unbooked.count} to-do{unbooked.count === 1 ? '' : 's'} ({formatMinutes(unbooked.minutes)}) not booked yet</>
+        <p>{unbooked.count} to-do{unbooked.count === 1 ? '' : 's'} ({formatMinutes(unbooked.minutes)}) not booked yet</p>
       )}
-    </p>
+    </div>
   )
 }

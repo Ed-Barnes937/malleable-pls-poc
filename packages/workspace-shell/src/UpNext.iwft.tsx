@@ -54,7 +54,7 @@ test('names the next item, and the popover lists the week with a summary', async
   await expect(popover.getByRole('region', { name: 'Due this week' })).toContainText('Biology quiz')
   await expect(popover.getByRole('region', { name: 'Due this week' })).toContainText('Lab report')
   // 1h of study booked (tomorrow's); the lab report's 3h is not booked yet.
-  await expect(popover.getByTestId('up-next-summary')).toHaveText('1h of study booked for the rest of the week · 1 to-do (3h) not booked yet')
+  await expect(popover.getByTestId('up-next-summary').locator('p')).toHaveText(['1h of study booked for the rest of the week', '1 to-do (3h) not booked yet'])
 })
 
 test('with nothing booked it reads Plan your week', async ({ mount, page, simulator }) => {
