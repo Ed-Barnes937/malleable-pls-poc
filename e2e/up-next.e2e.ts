@@ -78,6 +78,35 @@ test.describe('Up next', () => {
     await expect(topBar.upNextPopover.getByTestId('up-next-plan-week')).toBeVisible()
   })
 
+  test('Plan my week opened before the week loads places Help me plan where a reopen does, clear of the days left', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    const topBar = await openBlankBoard(page, TUESDAY)
+    // The week's rows arrive late, so the panel opens before the grid is there.
+    await page.route(/planItems\.list/, async (route) => {
+      await new Promise((r) => setTimeout(r, 800))
+      await route.continue()
+    })
+    await topBar.upNext.click()
+    await topBar.upNextPopover.getByTestId('up-next-plan-week').click()
+    const calendar = new CalendarPom(page)
+    const panel = calendar.root.locator('[data-placement]')
+    await expect(panel.getByTestId('help-me-plan-panel')).toBeVisible()
+    await expect(calendar.days).toHaveCount(7)
+    await page.unrouteAll({ behavior: 'wait' })
+    // Tuesday, with Monday too narrow for it: over the weekend, clear of
+    // today and every weekday after it.
+    await expect(panel).toHaveAttribute('data-placement', 'right')
+    const friday = (await calendar.days.nth(4).boundingBox())!
+    await expect.poll(async () => Math.round((await panel.boundingBox())!.x)).toBeGreaterThanOrEqual(Math.round(friday.x + friday.width) - 1)
+    const first = (await panel.boundingBox())!
+    // Opened again on the loaded week: the same place.
+    await calendar.root.getByTestId('help-me-plan').click()
+    await expect(panel).toHaveCount(0)
+    await calendar.root.getByTestId('help-me-plan').click()
+    await expect(panel).toHaveAttribute('data-placement', 'right')
+    expect(await panel.boundingBox()).toEqual(first)
+  })
+
   test('Add Calendar to this board adds only the Calendar', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const topBar = await openBlankBoard(page, TUESDAY)

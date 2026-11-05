@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, prefersReducedMotion, showOnBoard, useArrivals, useEnterOnce } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
@@ -71,6 +71,8 @@ export interface TimeGridProps {
    * moves or re-sizes.
    */
   footer?: ReactNode
+  /** The grid's own element (its day headers carry `data-day-column`), e.g. to place a panel over it. */
+  rootRef?: Ref<HTMLDivElement>
 }
 
 /** A block to show: scrolled to in the grid and on the board, then glowing once. */
@@ -152,7 +154,7 @@ type Drag =
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
-  reveal, popoverOpen, loading, footer,
+  reveal, popoverOpen, loading, footer, rootRef,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
@@ -440,7 +442,7 @@ export function TimeGrid({
   const cols = { gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
       {/* Day headers (scrollbar gutter kept so columns line up with the body) */}
       <div ref={headerRef} className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
         <div className={cn(GUTTER, 'shrink-0')} />

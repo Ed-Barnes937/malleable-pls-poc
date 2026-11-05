@@ -432,7 +432,8 @@ export default function CalendarLens({
   // Where the panel floats: over the days already past, else the weekend,
   // never over a draft (see plan-panel.ts).
   const gridAreaRef = useRef<HTMLDivElement>(null)
-  const geometry = useWeekGeometry(gridAreaRef, !!planLayout, range.from)
+  const [gridEl, setGridEl] = useState<HTMLDivElement | null>(null)
+  const geometry = useWeekGeometry(gridAreaRef, gridEl, !!planLayout, range.from)
   const pastDays = days.filter((d) => d.getTime() < startOfDay(now).getTime()).length
   const draftDays = layer.proposals
     .filter((p) => !layer.savedIds.has(p.id))
@@ -923,10 +924,11 @@ export default function CalendarLens({
       <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
         {weekShown ? (
           <TimeGrid
+            rootRef={setGridEl}
             days={days}
             items={items}
             loading={!data}
-          footer={prompts}
+            footer={prompts}
             now={now}
             isDimmed={isDimmed}
             isLinked={isLinked}
