@@ -7,9 +7,17 @@ import {
   planItemListInput,
   newPlanItemOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
+  CLOSED_WITH_TODO,
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
+  isPlainTodo,
+  isSession,
+  newSession,
+  sessionParentId,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -37,6 +45,86 @@ async function setStatus(tx: TransactionSql, userId: string, planItemId: string,
     WHERE id = ${planItemId} AND user_id = ${userId}
   `
   return { before, item: await fetchOne(tx, userId, planItemId) }
+}
+
+/**
+ * A to-do booked in sessions is ticked off (or dismissed) once: its sessions
+ * follow (see @pls/substrate sessions).
+ * - Done or dismissed closes its open sessions, marked `CLOSED_WITH_TODO`.
+ * - Reopening it reopens just those, and only the ones still ahead (a past
+ *   one would come back as "didn't happen"); one the student ticked on its
+ *   own stays ticked.
+ * - A new title, course (`course`, as patched) or due time carries over.
+ * - A session whose own status changes loses the mark: that is the
+ *   student's choice now.
+ * Cascaded changes fire no workflow events.
+ */
+async function cascadeToSessions(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem, course?: string | null) {
+  if (after.kind !== 'task') return
+  if (isSession(after)) {
+    if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) {
+      await tx`UPDATE plan_items SET subtype = NULL WHERE id = ${after.id} AND user_id = ${userId}`
+    }
+    return
+  }
+  const owned = tx`user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${after.id}`
+  if (before.title !== after.title) await tx`UPDATE plan_items SET title = ${after.title}, updated_at = now() WHERE ${owned}`
+  if (before.due_at !== after.due_at) await tx`UPDATE plan_items SET due_at = ${after.due_at}, updated_at = now() WHERE ${owned}`
+  if (course !== undefined) {
+    for (const s of await tx`SELECT id FROM plan_items WHERE ${owned}`) await setCourse(tx, userId, s.id as string, course)
+  }
+  if (before.status === after.status) return
+  if (after.status === 'open') {
+    await tx`
+      UPDATE plan_items SET status = CASE WHEN ends_at > now() THEN 'open' ELSE status END, subtype = NULL, updated_at = now()
+      WHERE ${owned} AND subtype = ${CLOSED_WITH_TODO}
+    `
+  } else {
+    await tx`
+      UPDATE plan_items SET status = ${after.status}, subtype = ${CLOSED_WITH_TODO}, updated_at = now()
+      WHERE ${owned} AND status = 'open'
+    `
+  }
+}
+
+/**
+ * A to-do booked in one block becomes sessions when a second booking is
+ * needed (see @pls/substrate sessions): before `session` is added, the
+ * to-do's own block moves into a session of its own, at the same time and
+ * status, and the to-do keeps only its total. Fires no workflow events (the
+ * student's time hasn't changed).
+ */
+async function ownBlockToSession(tx: TransactionSql, userId: string, session: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }) {
+  const parentId = sessionParentId({ kind: session.kind, source_type: session.source_type ?? null, source_id: session.source_id ?? null })
+  if (!parentId) return
+  const todo = await fetchOne(tx, userId, parentId)
+  // Only a plain to-do: a review's block stays its own, linked to its moment.
+  if (!isPlainTodo(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+  const moved = await insertPlanItem(tx, userId, newSession(todo, todo.starts_at, todo.ends_at), todo.time_zone)
+  if (todo.status !== 'open') {
+    await tx`UPDATE plan_items SET status = ${todo.status} WHERE id = ${moved.id} AND user_id = ${userId}`
+  }
+  await tx`
+    UPDATE plan_items SET starts_at = NULL, ends_at = NULL, updated_at = now()
+    WHERE id = ${todo.id} AND user_id = ${userId}
+  `
+}
+
+/**
+ * A booking lengthened past its to-do's estimate raises the estimate to the
+ * booked total (flow-audit decision 16): its own block, or the sum of its
+ * sessions. Nothing here lowers it, and a block with no estimate (study time
+ * made on the calendar) keeps none. Fires no workflow events.
+ */
+async function raiseEstimateToBooked(tx: TransactionSql, userId: string, item: PlanItem) {
+  if (item.kind !== 'task') return
+  const parentId = sessionParentId(item)
+  const todo = parentId ? await fetchOne(tx, userId, parentId) : item
+  if (todo.duration_min == null || todo.recurrence) return
+  const sessions = parentId ? await listPlanItems(tx, userId, { kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE, sourceId: todo.id }) : []
+  const booked = Math.round(bookedMinutes([todo, ...sessions]).get(todo.id) ?? 0)
+  if (booked <= todo.duration_min) return
+  await tx`UPDATE plan_items SET duration_min = ${booked}, updated_at = now() WHERE id = ${todo.id} AND user_id = ${userId}`
 }
 
 /**
@@ -91,7 +179,9 @@ export const planItemsRouter = router({
     .input(newPlanItemOnBoardInput)
     .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
+        await ownBlockToSession(tx, ctx.userId, input)
         const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
+        await raiseEstimateToBooked(tx, ctx.userId, item)
         await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item
       })
@@ -102,6 +192,35 @@ export const planItemsRouter = router({
    * the fields that change; `null` clears one. See PlanItemOccurrence for
    * editing from a list row.
    */
+  /**
+   * Book the rest: sessions of one to-do, saved in one transaction (all or
+   * none). A to-do still booked in its own block has that block moved into a
+   * session first, as `create` does; the estimate rises if the sessions
+   * outgrow it. NOT_FOUND for a missing to-do; BAD_REQUEST for anything but
+   * an open plain to-do (not a session, not a review of a moment, not done),
+   * and for a block that is empty, longer than a day or overlaps another.
+   */
+  bookSessions: publicProcedure
+    .input(bookSessionsInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const todo = await fetchOne(tx, ctx.userId, input.todoId)
+        if (!isPlainTodo(todo) || todo.status !== 'open') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only an open to-do of your own can be booked in sessions' })
+        }
+        const made: PlanItem[] = []
+        for (const block of input.blocks) {
+          const session = newSession(todo, block.starts_at, block.ends_at)
+          await ownBlockToSession(tx, ctx.userId, session)
+          const item = await insertPlanItem(tx, ctx.userId, session, input.timeZone)
+          await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), input.workspaceId ?? null)
+          made.push(item)
+        }
+        await raiseEstimateToBooked(tx, ctx.userId, made[0])
+        return made
+      })
+    }),
+
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {
@@ -118,6 +237,9 @@ export const planItemsRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
+        const updated = await fetchOne(tx, ctx.userId, input.id)
+        await cascadeToSessions(tx, ctx.userId, current, updated, course)
+        if (updated.starts_at !== current.starts_at || updated.ends_at !== current.ends_at) await raiseEstimateToBooked(tx, ctx.userId, updated)
         const item = await fetchOne(tx, ctx.userId, input.id)
         await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
         return item
@@ -129,6 +251,7 @@ export const planItemsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const { before, item } = await setStatus(tx, ctx.userId, input.id, 'done')
+        await cascadeToSessions(tx, ctx.userId, before, item)
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
@@ -139,6 +262,7 @@ export const planItemsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const { before, item } = await setStatus(tx, ctx.userId, input.id, 'dismissed')
+        await cascadeToSessions(tx, ctx.userId, before, item)
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
@@ -170,7 +294,10 @@ export const planItemsRouter = router({
       }))
     }),
 
-  /** Hard delete (no workflow event). NOT_FOUND for a missing or another user's id. */
+  /**
+   * Hard delete (no workflow event), with the to-do's sessions if it has
+   * any. NOT_FOUND for a missing or another user's id.
+   */
   delete: publicProcedure
     .input(id)
     .mutation(async ({ ctx, input }) => {
@@ -178,6 +305,12 @@ export const planItemsRouter = router({
         const rows = await tx`DELETE FROM plan_items WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id`
         if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
         await setCourse(tx, ctx.userId, input, null)
+        const sessions = await tx`
+          DELETE FROM plan_items
+          WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${input}
+          RETURNING id
+        `
+        for (const s of sessions) await setCourse(tx, ctx.userId, s.id as string, null)
       })
     }),
 })

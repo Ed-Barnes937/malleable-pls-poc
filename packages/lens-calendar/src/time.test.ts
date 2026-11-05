@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  addDays, atMinutes, firstFreeStart, formatDuration, formatFullDay, formatRangeTitle, formatSpan, fromInputs,
+  addDays, atMinutes, firstFreeStart, latestFreeStart, formatDuration, formatFullDay, formatRangeTitle, formatSpan, fromInputs,
   snap, snapDown, startOfWeek, toDateInput, toTimeInput, wallMinutes,
 } from './time'
 
@@ -68,5 +68,18 @@ describe('formatting', () => {
     expect(firstFreeStart(free, 180)).toBe(14 * h)
     expect(firstFreeStart([{ start: 9 * h, end: 9 * h + 30 * 60_000 }, ...free], 180)).toBe(9 * h)
     expect(firstFreeStart([], 30)).toBeNull()
+  })
+
+  it('starts "Pick a time" for a due to-do at the latest free gap that fits before it is due', () => {
+    const h = 3_600_000
+    const free = [{ start: 9 * h, end: 12 * h }, { start: 14 * h, end: 15 * h + 20 * 60_000 }, { start: 20 * h, end: 22 * h }]
+    // Due at 21:00: the evening gap, ending on the due time.
+    expect(latestFreeStart(free, 60, 21 * h)).toBe(20 * h)
+    // Due at 18:00: the afternoon gap, on the 15-minute grid.
+    expect(latestFreeStart(free, 60, 18 * h)).toBe(14 * h + 15 * 60_000)
+    // Too long for the afternoon gap: the morning one.
+    expect(latestFreeStart(free, 90, 18 * h)).toBe(10 * h + 30 * 60_000)
+    // Nothing fits before it is due.
+    expect(latestFreeStart(free, 60, 9 * h + 30 * 60_000)).toBeNull()
   })
 })

@@ -1,12 +1,16 @@
 import type { TransactionSql } from 'postgres'
 import { withUser } from '@pls/db'
 import {
+  bookedMinutes,
+  isSession,
   planAutofillInput,
   planCapacity,
   planTasks,
   sanitizeAdvice,
+  todosToPlan,
   weekLayout,
-  withSavingBlocks,
+  withPendingBookings,
+  trustedPendingBookings,
   type PlanAdvice,
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
@@ -56,18 +60,24 @@ export const planningRouter = router({
       const loaded = await withUser(ctx.userId, async (tx) => ({
         // Every course: scope never changes what is busy or what needs doing.
         rows: await listPlanItems(tx, ctx.userId, { from: input.from, to: input.to, statuses: ['open', 'done'] }),
-        todos: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open'], scheduled: false }),
+        // Every task, with or without a time: a to-do booked in part (its own
+        // block, or sessions) is planned only for what is left (`todosToPlan`).
+        tasks: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open', 'done'] }),
         weak: await weakTopics(tx, ctx.userId),
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
       }))
-      // The plan as the student sees it: blocks they placed by hand still saving count as placed.
-      const plan = withSavingBlocks(loaded.rows, loaded.todos, input.saving)
-      const tasks = planTasks(plan.todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
+      const open = loaded.tasks.filter((t) => t.status === 'open' && !isSession(t))
+      // To-dos given a time a moment ago count as booked even if their save
+      // hasn't landed: only real blocks in this week, for the student's own open to-dos.
+      const pending = trustedPendingBookings(input.pending, { week, todoIds: new Set(open.map((t) => t.id)) })
+      const booked = bookedMinutes(withPendingBookings(loaded.tasks, pending))
+      const todos = todosToPlan(open, booked)
+      const tasks = planTasks(todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
       const { prefs } = loaded
       const timeZone = placementTimeZone(prefs, input.timeZone)
-      const layout = weekLayout(plan.rows, week, {
+      const layout = weekLayout(withPendingBookings(loaded.rows, pending), week, {
         timeZone,
         studyHours: prefs.study_hours,
         studyMinPerDay: prefs.study_min_per_day,
@@ -82,6 +92,6 @@ export const planningRouter = router({
         weakTopics: loaded.weak,
         timeZone,
       })
-      return sanitizeAdvice(raw, tasks, cap, prefs.study_min_per_day)
+      return sanitizeAdvice(raw, tasks, cap)
     }),
 })

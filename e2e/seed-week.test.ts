@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { expandPlanItems, validatePlanItem } from '../packages/substrate/src/plan-items'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import {
-  capacityCopy, completeTrims, defaultTrims, draftPlan, planCapacity, planTasks, rankForPlan, suggestTaskSlots, weekLayout,
+  autofillOrder, capacityCopy, completeTrims, defaultTrims, draftPlan, planCapacity, planTasks, rankForPlan, suggestTaskSlots, weekLayout,
 } from '../packages/substrate/src/planning'
 import type { PlanItem } from '../packages/substrate/src/types'
 import { priyaWeek, seededReviews, SEED_MISSED_IDS, SEED_TIME_ZONE } from './seed-week'
@@ -145,8 +145,8 @@ function step2(nowIso: string) {
   const todos = items.filter((i) => i.kind === 'task' && i.status === 'open' && i.starts_at == null)
   const tasks = planTasks(todos, week, { now })
   const cap = planCapacity(layout, tasks, now)
-  const trims = completeTrims(defaultTrims(tasks, cap.shortfallMin, 120), tasks, { overCapacity: !cap.fits, minutesPerDay: 120 })
-  const order = rankForPlan(tasks).map((id) => tasks.find((t) => t.id === id)!)
+  const trims = completeTrims(defaultTrims(tasks, cap.shortfallMin), tasks, { overCapacity: !cap.fits })
+  const order = autofillOrder(tasks, rankForPlan(tasks))
   const quiz = tasks.find((t) => t.id === 'seed-todo-quiz-revision')!
   return {
     now, items, week, cap, trims,
@@ -174,7 +174,8 @@ describe('Help me plan right after a reseed', () => {
     const r = step2(nowIso)
     expect(r.copy).toBe('About 9 hours of study time left this week. Your to-dos need 12.')
     expect(r.cap.fits).toBe(false)
-    expect(r.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['seed-todo-lab-write-up', 120]])
+    // 3h short: the longest to-do, the 3h lab report, shrinks by half (never below).
+    expect(r.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['seed-todo-lab-write-up', 90]])
     // A slot to assign the quiz revision by hand, and blocks for Auto-fill to draft (and Ed to drag).
     expect(r.handSlots.length).toBeGreaterThan(0)
     expect(r.draft.placements.length).toBeGreaterThan(0)
@@ -198,6 +199,22 @@ describe('Help me plan right after a reseed', () => {
     expect(r.items.filter((i) => i.id.startsWith('seed-study-')).map((i) => `${london(i.starts_at!)}-${london(i.ends_at!).slice(4)} ${i.title}`))
       .toEqual(['Sat 10:00-12:00 Biology reading: chapter 4', 'Sun 11:00-12:00 Lab prep: read the method'])
     expect(r.draft.placements[0].taskId).toBe('seed-todo-quiz-revision')
-    expect(r.draft.unplaced.map((u) => [u.taskId, u.reason])).toContainEqual(['seed-todo-lab-write-up', 'over-daily-budget'])
+    // Longer than a day: split into sessions, all before it is due.
+    const lab = r.draft.placements.filter((p) => p.taskId === 'seed-todo-lab-write-up')
+    expect(lab.length).toBeGreaterThan(1)
+    expect(lab.reduce((sum, p) => sum + (p.end - p.start) / 60_000, 0)).toBe(180)
+  })
+
+  it('on Wed 20:40: the quiz revision is split before Thu 10:00, the lab report across Thu and Fri, nothing across a due time', () => {
+    const r = step2('2026-10-28T20:40:00Z')
+    const blocks = (id: string) => r.draft.placements.filter((p) => p.taskId === id).map((p) => `${london(new Date(p.start).toISOString())}-${london(new Date(p.end).toISOString()).slice(4)}`)
+    expect(blocks('seed-todo-quiz-revision')).toEqual(['Wed 20:45-22:00', 'Thu 09:00-09:45'])
+    expect(blocks('seed-todo-lab-write-up')).toEqual(['Thu 10:15-11:30', 'Fri 09:00-10:45'])
+    const dues = r.items.filter((i) => i.due_at).map((i) => Date.parse(i.due_at!))
+    for (const p of r.draft.placements) {
+      for (const due of dues) expect(p.start < due && due < p.end, `${p.taskId} across a due time`).toBe(false)
+      const todo = r.items.find((i) => i.id === p.taskId)!
+      if (todo.due_at) expect(p.end).toBeLessThanOrEqual(Date.parse(todo.due_at))
+    }
   })
 })

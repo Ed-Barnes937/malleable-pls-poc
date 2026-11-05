@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
+import { BookTheRest } from './BookTheRest'
 import { useJustDone } from './useJustDone'
 import { useStatusWrites } from './useStatusWrites'
 
@@ -18,9 +20,16 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const writer = useSubstrateMutations()
   const course = scope.courseTag
 
-  const { data: items, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
+  // Sessions (study blocks of a to-do split by Auto-fill) are its time, not to-dos of their own.
+  const { data: taskRows, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
+  const items = useMemo(() => taskRows?.filter((item) => !isSession(item)), [taskRows])
+  // Time booked per to-do (its own block or its sessions): a resize never changes the estimate.
+  const booked = useMemo(() => bookedMinutes(taskRows ?? []), [taskRows])
+  /** The to-do whose rest is being drafted here (Book the rest). */
+  const [bookingRest, setBookingRest] = useState<string | null>(null)
   // Unfiltered counterpart, only to say what the course filter leaves out.
-  const { data: allOpen } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
+  const { data: allTaskRows } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
+  const allOpen = useMemo(() => allTaskRows?.filter((item) => !isSession(item)), [allTaskRows])
 
   const create = writer.useCreatePlanItem()
   const complete = writer.useCompletePlanItem()
@@ -96,6 +105,9 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
     />
   )
 
+  const listRef = useRef<HTMLUListElement>(null)
+  const moreBelow = useMoreBelow(listRef, listed.length + done.length)
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
       <div className="flex min-h-4 items-center justify-between gap-2">
@@ -108,9 +120,10 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
       <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
 
-      <ul className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
+      <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
           const stage = justDone.stages.get(item.id)
+          const booking = stage ? null : partBooking(item, booked)
           return (
             <TodoRow
               key={item.occurrence_key}
@@ -122,9 +135,15 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
+              booking={booking}
+              onBookRest={booking && bookingRest !== item.id ? () => setBookingRest(item.id) : undefined}
               onScopeChange={onScopeChange}
               onShowMoment={onShowMoment}
-            />
+            >
+              {booking && bookingRest === item.id && (
+                <BookTheRest todo={item} restMin={booking.restMin} now={now} onClose={() => setBookingRest(null)} />
+              )}
+            </TodoRow>
           )
         })}
         {done.length > 0 && (
@@ -148,6 +167,18 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           </li>
         )}
       </ul>
+      {/* Rows out of view below say so, so "9 to do" over two rows doesn't read as lost items. Under the list, not over it: it never covers a row. */}
+      {moreBelow > 0 && (
+        <button
+          type="button"
+          data-testid="todo-more-below"
+          onClick={() => listRef.current?.scrollBy({ top: listRef.current.clientHeight * 0.8, behavior: 'smooth' })}
+          className="-mt-1 flex min-h-8 shrink-0 items-center justify-center gap-1 self-center rounded-full px-3 text-meta font-semibold text-text-secondary hover:bg-surface-overlay hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
+          {moreBelow} more
+          <ChevronDown className="h-3 w-3" aria-hidden />
+        </button>
+      )}
 
       <form onSubmit={submit} className="flex items-center gap-2">
         <TextField
@@ -184,4 +215,26 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
       </form>
     </div>
   )
+}
+
+/** How many of the list's rows are wholly out of view below it; follows scrolling, resizing and the row count. */
+function useMoreBelow(ref: RefObject<HTMLElement | null>, rows: number): number {
+  const [more, setMore] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const update = () => {
+      const bottom = el.getBoundingClientRect().bottom
+      setMore([...el.children].filter((row) => row.tagName === 'LI' && row.getBoundingClientRect().top >= bottom - 1).length)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const resize = new ResizeObserver(update)
+    resize.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      resize.disconnect()
+    }
+  }, [ref, rows])
+  return more
 }

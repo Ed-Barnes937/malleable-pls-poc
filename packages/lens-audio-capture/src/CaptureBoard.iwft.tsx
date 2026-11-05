@@ -162,7 +162,7 @@ test.describe('Record and Transcript on one board', () => {
     release()
     await mount(<CaptureBoardHarness />)
     await page.getByRole('button', { name: 'Start recording' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
     // Still waiting for the lecture at 9 seconds.

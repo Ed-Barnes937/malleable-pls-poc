@@ -5,11 +5,14 @@ import {
   completeTrims,
   defaultTrims,
   draftCopy,
-  longestBlockMin,
+  autofillOrder,
   noteWithoutAmounts,
   openTime,
   outsideStudyHours,
   draftPlan,
+  draftRest,
+  withPendingBookings,
+  trustedPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   planAutofillInput,
@@ -24,10 +27,10 @@ import {
   studyDays,
   suggestTaskSlots,
   weekLayout,
-  withSavingBlocks,
   type PlanTask,
 } from './planning'
 import type { PlanItem } from './types'
+import { bookedMinutes, todosToPlan } from './sessions'
 import { DEFAULT_STUDY_HOURS, type StudyHours } from './preferences'
 
 // Mon 2 Nov 2026; London is on GMT, so local = UTC that week.
@@ -105,6 +108,13 @@ describe("study hours (the student's preference)", () => {
     const [p] = planRefit([missed], [], { now: at(0, 21, 30), timeZone: tz, studyHours, studyMinPerDay: 30 })
     // Monday has no 60m left before 22:00; Tuesday has no 60m of budget (30m): over budget, earliest free slot.
     expect(p.starts_at).toBe(iso(1, 9))
+  })
+
+  it('re-fit keeps a missed block at its length, not its to-do\'s estimate', () => {
+    // A 2h to-do whose block was resized to 1h: re-fitting it books 1h again.
+    const missed = item({ id: 'm', kind: 'task', starts_at: iso(0, 9), ends_at: iso(0, 10), duration_min: 120 })
+    const [p] = planRefit([missed], [], { now: at(0, 21, 30), timeZone: tz, studyHours, studyMinPerDay: 120 })
+    expect(Date.parse(p.ends_at!) - Date.parse(p.starts_at!)).toBe(60 * 60_000)
   })
 })
 
@@ -238,8 +248,41 @@ describe('draftPlan', () => {
       { taskId: 'b', start: at(0, 10, 15), end: at(0, 11, 15) },
       // Tuesday is spent by the pinned ghost.
       { taskId: 'a', start: at(2, 9), end: at(2, 10) },
+      // Longer than a day: split into sessions, the hour Wednesday has left, then Thursday.
+      { taskId: 'long', start: at(2, 10, 15), end: at(2, 11, 15) },
+      { taskId: 'long', start: at(3, 9), end: at(3, 11) },
     ])
-    expect(r.unplaced).toEqual([{ taskId: 'long', reason: 'over-daily-budget' }])
+    expect(r.unplaced).toEqual([])
+  })
+
+  it('splits a to-do before its due time, never across a due time on the calendar', () => {
+    // Wednesday 20:40: 20:45-22:00 is left tonight; the quiz is Thursday 10:00.
+    const quizDue = iso(3, 10)
+    const rows = [item({ id: 'quiz', kind: 'deadline', due_at: quizDue })]
+    const l = weekLayout(rows, week, { timeZone: tz })
+    const r = draftPlan(
+      [task({ id: 'revise', durationMin: 120, dueAt: quizDue, latest: Date.parse(quizDue) })],
+      l,
+      { now: at(2, 20, 40) },
+    )
+    expect(r.placements).toEqual([
+      { taskId: 'revise', start: at(2, 20, 45), end: at(2, 22) },
+      { taskId: 'revise', start: at(3, 9), end: at(3, 9, 45) },
+    ])
+    // The due time itself is busy: a block may end on it but never start on it or run across it.
+    const after = draftPlan([task({ id: 'x', durationMin: 60 })], l, { now: at(3, 9, 50) })
+    expect(after.placements).toEqual([{ taskId: 'x', start: at(3, 10, 15), end: at(3, 11, 15) }])
+  })
+
+  it('orders dated to-dos first, soonest due first, then the advised order', () => {
+    const list = [
+      task({ id: 'undated-a' }),
+      task({ id: 'fri', dueAt: iso(4, 17) }),
+      task({ id: 'undated-b' }),
+      task({ id: 'thu', dueAt: iso(3, 10) }),
+    ]
+    expect(autofillOrder(list, ['undated-b', 'fri', 'undated-a', 'thu']).map((t) => t.id))
+      .toEqual(['thu', 'fri', 'undated-b', 'undated-a'])
   })
 
   it('suggests slots on days with budget left', () => {
@@ -261,14 +304,11 @@ describe('ranking and trims', () => {
     expect(rankForPlan(tasks)).toEqual(['review', 'quiz', 'lab', 'cards', 'reading'])
   })
 
-  it('trims every to-do longer than a day, longest first, and shrinks towards a shortfall', () => {
-    expect(defaultTrims(tasks, 0, 120).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
-    // Three too long for a 1h day: all three get a way forward.
-    expect(defaultTrims(tasks, 0, 60).map((t) => t.taskId)).toEqual(['lab', 'reading', 'quiz'])
-    // Shortfall only (budget not binding): the longest shrinks, not below half.
-    expect(defaultTrims(tasks, 60, 600).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 180]])
-    expect(defaultTrims(tasks, 0, 600)).toEqual([])
-    expect(defaultTrims([task({ id: 'short', durationMin: 45 })], 60, 600)).toEqual([])
+  it('trims only towards a shortfall: the longest shrinks, not below half (a to-do longer than a day is split instead)', () => {
+    expect(defaultTrims(tasks, 60).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 180]])
+    expect(defaultTrims(tasks, 300).map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120]])
+    expect(defaultTrims(tasks, 0)).toEqual([])
+    expect(defaultTrims([task({ id: 'short', durationMin: 45 })], 60)).toEqual([])
   })
 
   it('sanitizes advice: full order, valid trims only, tidy note', () => {
@@ -285,9 +325,9 @@ describe('ranking and trims', () => {
         { taskId: 'review', durationMin: 15, reason: 'over the cap of two' },
       ],
       note: `  ${'word '.repeat(80)} `,
-    }, tasks, over, 600)
+    }, tasks, over)
     expect(advice.order).toEqual(['lab', 'quiz', 'review', 'cards', 'reading'])
-    // Capacity trims (none of these is longer than a 10h day): at most two.
+    // Capacity trims: at most two.
     expect(advice.trims).toEqual([
       { taskId: 'lab', durationMin: 120, reason: 'Draft it first' },
       { taskId: 'reading', durationMin: 90, reason: 'ok' },
@@ -295,44 +335,19 @@ describe('ranking and trims', () => {
     expect(advice.note!.length).toBeLessThanOrEqual(220)
     expect(advice.note!.endsWith('...')).toBe(true)
 
-    // When everything fits, only to-dos longer than a day may be trimmed.
+    // When everything fits, nothing is trimmed (a to-do longer than a day is split).
     const fits = { ...over, fits: true, shortfallMin: 0 }
-    const relaxed = sanitizeAdvice({ order: [], trims: [{ taskId: 'lab', durationMin: 120, reason: '' }, { taskId: 'quiz', durationMin: 60, reason: '' }], note: '  ' }, tasks, fits, 120)
-    expect(relaxed.trims.map((t) => t.taskId)).toEqual(['lab', 'reading'])
+    const relaxed = sanitizeAdvice({ order: [], trims: [{ taskId: 'lab', durationMin: 120, reason: '' }, { taskId: 'quiz', durationMin: 60, reason: '' }], note: '  ' }, tasks, fits)
+    expect(relaxed.trims).toEqual([])
     expect(relaxed.note).toBeNull()
-  })
-
-  it('clamps trims to one day, and gives every too-long to-do one', () => {
-    const fits = { freeMin: 900, neededMin: 600, shortfallMin: 0, spareMin: 300, fits: true }
-    const advice = sanitizeAdvice({
-      order: [],
-      // 4h -> 3h still does not fit a 2h day: clamped to 2h.
-      trims: [{ taskId: 'lab', durationMin: 180, reason: 'shorter' }],
-      note: null,
-    }, tasks, fits, 120)
-    expect(advice.trims.map((t) => [t.taskId, t.durationMin])).toEqual([['lab', 120], ['reading', 120]])
-    // The wording follows the budget in force, whatever the model said.
-    expect(advice.trims[0].reason).toBe('Longer than your 2h a day - a focused first pass fits, and you can finish it later.')
-    expect(completeTrims([], tasks, { overCapacity: true, minutesPerDay: 100 }).map((t) => t.durationMin)).toEqual([90, 90, 90])
-    expect(longestBlockMin(100)).toBe(90)
-  })
-
-  it('offers the new day length after the study time per day changes', () => {
-    // Advice from a 2h day ("Shrink to 2h?"), re-read at 3h a day: "Shrink to 3h?".
-    const lab = tasks.find((t) => t.id === 'lab')!
-    expect(lab.durationMin).toBeGreaterThan(180)
-    const offers = completeTrims([{ taskId: 'lab', durationMin: 120, reason: '' }], tasks, { overCapacity: false, minutesPerDay: 180 })
-    expect(offers.find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 180, reason: expect.stringContaining('3h a day') })
-    // A capacity trim (a to-do that fits a day) keeps the advice's length.
-    expect(completeTrims([{ taskId: 'lab', durationMin: 120, reason: 'r' }], tasks, { overCapacity: true, minutesPerDay: 600 })
-      .find((t) => t.taskId === 'lab')).toMatchObject({ durationMin: 120 })
+    expect(completeTrims([], tasks, { overCapacity: true })).toEqual([])
   })
 
   it('drops sentences with amounts of time from the note (code says the numbers)', () => {
     expect(noteWithoutAmounts('Quiz prep goes first. About 4h 30m will not fit! Problem sheet 3 can wait.'))
       .toBe('Quiz prep goes first. Problem sheet 3 can wait.')
     const cap = { freeMin: 0, neededMin: 60, shortfallMin: 60, spareMin: 0, fits: false }
-    expect(sanitizeAdvice({ order: [], trims: [], note: 'You need 3 hours more.' }, tasks, cap, 600).note).toBeNull()
+    expect(sanitizeAdvice({ order: [], trims: [], note: 'You need 3 hours more.' }, tasks, cap).note).toBeNull()
   })
 })
 
@@ -347,29 +362,10 @@ describe('planAutofillInput', () => {
     expect(planAutofillInput.safeParse({ ...base, timeZone: 'Mars/Olympus' }).success).toBe(false)
   })
 
-  it('takes the blocks still saving, with their times normalised to UTC', () => {
-    const saving = [{ id: 'quiz', starts_at: '2026-11-02T09:00:00+00:00', ends_at: '2026-11-02T10:00:00Z' }]
-    expect(planAutofillInput.parse({ ...base, saving }).saving).toEqual([{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
-    expect(planAutofillInput.safeParse({ ...base, saving: [{ id: 'quiz', starts_at: 'soon', ends_at: iso(0, 10) }] }).success).toBe(false)
-  })
-})
-
-describe('withSavingBlocks', () => {
-  const shift = item({ id: 'shift', kind: 'commitment', starts_at: iso(0, 17), ends_at: iso(0, 22) })
-  const quiz = item({ id: 'quiz', kind: 'task', duration_min: 60 })
-  const lab = item({ id: 'lab', kind: 'task', duration_min: 120 })
-
-  it('counts a to-do still saving as placed at its time: busy that day, no longer to plan', () => {
-    const plan = withSavingBlocks([shift], [quiz, lab], [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
-    expect(plan.todos.map((t) => t.id)).toEqual(['lab'])
-    expect(plan.rows).toEqual([shift, { ...quiz, starts_at: iso(0, 9), ends_at: iso(0, 10) }])
-    expect(weekLayout(plan.rows, week, { timeZone: tz }).busy).toEqual([{ start: at(0, 9), end: at(0, 10), taskId: 'quiz' }])
-  })
-
-  it('ignores blocks for anything that is not one of the to-dos (already saved, or not theirs)', () => {
-    const plan = withSavingBlocks([shift], [lab], [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }, { id: 'shift', starts_at: iso(1, 9), ends_at: iso(1, 10) }])
-    expect(plan).toEqual({ rows: [shift], todos: [lab] })
-    expect(withSavingBlocks([shift], [lab])).toEqual({ rows: [shift], todos: [lab] })
+  it('takes the bookings still saving, with their times normalised to UTC', () => {
+    const pending = [{ id: 'quiz', starts_at: '2026-11-02T09:00:00+00:00', ends_at: '2026-11-02T10:00:00Z' }]
+    expect(planAutofillInput.parse({ ...base, pending }).pending).toEqual([{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 10) }])
+    expect(planAutofillInput.safeParse({ ...base, pending: [{ id: 'quiz', starts_at: 'soon', ends_at: iso(0, 10) }] }).success).toBe(false)
   })
 })
 
@@ -489,5 +485,70 @@ describe('leftoverStudyTime', () => {
   it('leaves unnamed what neither explains: a day with a long enough gap and budget left', () => {
     // Free all day with the full 2h: a 90-minute to-do could go there, so nothing is blamed.
     expect(leftoverStudyTime(weekLayout([], monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 0, dayMin: 0 })
+  })
+})
+
+describe('draftRest', () => {
+  it('books a partly booked to-do rest before it is due, around its own block', () => {
+    // A 2h quiz revision, due Thu 10:00, booked Wed 09:00-10:00 (resized from 2h): 1h left.
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120, due_at: iso(3, 10), starts_at: iso(2, 9), ends_at: iso(2, 10) })
+    const layout = weekLayout([quiz], week, { timeZone: tz, studyMinPerDay: 120 })
+    const { placements, unplaced } = draftRest(quiz, 60, layout, at(2, 8))
+    expect(unplaced).toEqual([])
+    expect(placements).toHaveLength(1)
+    const [rest] = placements
+    expect(rest.end - rest.start).toBe(60 * 60_000)
+    expect(rest.end).toBeLessThanOrEqual(at(3, 10))
+    // Its own block stays where it is and is busy: the rest goes after it, with the usual gap.
+    expect(rest.start).toBe(at(2, 10, 15))
+    expect(suggestTaskSlots({ id: 'quiz', durationMin: 60, latest: at(3, 10) }, layout, { now: at(2, 8) })[0].start).toBe(at(2, 10, 15))
+  })
+
+  it('places nothing when the rest no longer fits before it is due', () => {
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120, due_at: iso(2, 9, 30), starts_at: iso(1, 14), ends_at: iso(1, 15) })
+    const layout = weekLayout([quiz], week, { timeZone: tz, studyMinPerDay: 120 })
+    expect(draftRest(quiz, 60, layout, at(2, 9)).placements).toEqual([])
+  })
+})
+
+describe('withPendingBookings', () => {
+  it('counts a to-do given a time whose save has not landed as booked and busy, once', () => {
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120 })
+    const pending = [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 11) }]
+    const rows = withPendingBookings([quiz], pending)
+    expect(todosToPlan([quiz], bookedMinutes(rows))).toEqual([])
+    expect(weekLayout(rows, week, { timeZone: tz }).busy).toEqual([{ start: at(0, 9), end: at(0, 11), taskId: 'pending:quiz@' + iso(0, 9) }])
+    // The save landed first: nothing is added twice.
+    const saved = { ...quiz, starts_at: iso(0, 9), ends_at: iso(0, 11) }
+    expect(withPendingBookings([saved], pending)).toEqual([saved])
+    expect(withPendingBookings([quiz])).toEqual([quiz])
+  })
+})
+
+describe('trustedPendingBookings', () => {
+  const opts = { week, todoIds: new Set(['quiz']) }
+  const ok = { id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 11) }
+
+  it('keeps a real block in the week for one of the student\'s open to-dos', () => {
+    expect(trustedPendingBookings([ok], opts)).toEqual([ok])
+    expect(trustedPendingBookings(undefined, opts)).toEqual([])
+  })
+
+  it('drops a block that ends before (or as) it starts', () => {
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(0, 9) }, { ...ok, ends_at: iso(0, 8) }], opts)).toEqual([])
+  })
+
+  it('drops a block longer than a day', () => {
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(1, 9, 1) }], opts)).toEqual([])
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(1, 9) }], opts)).toHaveLength(1)
+  })
+
+  it('drops a block outside the week asked about', () => {
+    expect(trustedPendingBookings([{ ...ok, starts_at: iso(-1, 9), ends_at: iso(-1, 10) }], opts)).toEqual([])
+    expect(trustedPendingBookings([{ ...ok, starts_at: iso(6, 23), ends_at: iso(7, 1) }], opts)).toEqual([])
+  })
+
+  it('drops a block for anything but one of the student\'s open to-dos', () => {
+    expect(trustedPendingBookings([{ ...ok, id: 'someone-else' }], opts)).toEqual([])
   })
 })

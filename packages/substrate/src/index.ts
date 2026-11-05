@@ -40,9 +40,13 @@ export {
   leftoverStudyTime,
   noSlotCause,
   type Leftover,
-  longestBlockMin,
+  autofillOrder,
+  dueTimes,
   noteWithoutAmounts,
   draftPlan,
+  draftRest,
+  withPendingBookings,
+  trustedPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   openTime,
@@ -53,7 +57,6 @@ export {
   planTasks,
   rankForPlan,
   sanitizeAdvice,
-  withSavingBlocks,
   suggestTaskSlots,
   weekLayout,
   type DraftResult,
@@ -61,12 +64,24 @@ export {
   type PlanAutofillInput,
   type PlanTask,
   type PlanTrim,
-  type SavingBlock,
   type WeekLayout,
   type Capacity,
   type Placement,
   type Unplaced,
 } from './planning'
+
+export {
+  CLOSED_WITH_TODO,
+  MIN_SESSION_MIN,
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
+  isPlainTodo,
+  isSession,
+  newSession,
+  partBooking,
+  sessionParentId,
+  todosToPlan,
+} from './sessions'
 
 export {
   applyPreferencesUpdate,
@@ -138,6 +153,8 @@ export {
   newPlanItemOnBoardInput,
   planItemUpdateOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
+  type BookSessions,
 } from './plan-item-schemas'
 
 export type {

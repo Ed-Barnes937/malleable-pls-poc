@@ -109,6 +109,7 @@ export function EventPopover({
         <button
           type="button"
           aria-label="Close"
+          title="Close"
           onClick={onClose}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >

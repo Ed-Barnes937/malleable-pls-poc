@@ -20,7 +20,8 @@ test.beforeEach(async ({ page, simulator }) => {
 })
 
 function seedMissed(simulator: BackendSimulator) {
-  seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: fromNow(-2, 10), ends_at: fromNow(-2, 11), course: 'biology' })
+  // A 1h to-do booked for 30m: re-fitted at its block's length, the time booked.
+  seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 60, starts_at: fromNow(-2, 10), ends_at: new Date(Date.parse(fromNow(-2, 10)) + 30 * 60_000).toISOString(), course: 'biology' })
   seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', duration_min: 60, starts_at: fromNow(-1, 19), ends_at: fromNow(-1, 20), course: 'chemistry' })
   // Never re-fit: a class that has passed, and a block ticked off.
   seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: fromNow(-1, 9), ends_at: fromNow(-1, 10) })

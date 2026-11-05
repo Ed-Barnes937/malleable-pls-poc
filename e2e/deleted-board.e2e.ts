@@ -39,7 +39,7 @@ test.describe('Reloading after deleting a board', () => {
     await grid.expectPanelCount(5)
   })
 
-  test('opens a board the student has, and a starter adds its widgets to it', async ({ page, request }) => {
+  test('opens a board the student has, and a starter adds its widgets to it', async ({ page }) => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await page.goto('/')
@@ -47,13 +47,10 @@ test.describe('Reloading after deleting a board', () => {
     await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
     await topBar.expectActiveWorkspace('My week')
     await deleteBoard(page, 'In Lecture')
-    // Arrange: the new, empty board first in tab order, so it opens on reload.
-    const boards = await trpcQuery<{ id: string; name: string }[]>(request, 'workspaces.list')
-    const myWeek = boards.find((b) => b.name === 'My week')!.id
-    await trpcMutation(request, 'workspaces.reorder', [myWeek, ...boards.map((b) => b.id).filter((id) => id !== myWeek)])
+    // The new, empty board is the one open when the page reloads.
+    await topBar.switchToWorkspace('My week')
 
     await page.reload()
-    await expect(topBar.workspaceTabs.first()).toHaveText('My week')
     await topBar.expectActiveWorkspace('My week')
     await grid.expectEmpty()
 

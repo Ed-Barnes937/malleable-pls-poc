@@ -8,6 +8,7 @@ import {
   planItemListInput,
   planItemIdInput,
   planItemOnBoardInput,
+  bookSessionsInput,
   parsePlanItemInput as parse,
   planAutofillInput,
   planCapacity,
@@ -22,7 +23,15 @@ import {
   refitPreviewInput,
   refitRange,
   withDefaults,
-  withSavingBlocks,
+  CLOSED_WITH_TODO,
+  bookedMinutes,
+  isPlainTodo,
+  isSession,
+  newSession,
+  sessionParentId,
+  todosToPlan,
+  withPendingBookings,
+  trustedPendingBookings,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -79,10 +88,32 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     return row ? withCourse(row) : null
   })
 
+  // As the server: a to-do booked in one block becomes sessions when a
+  // second booking is needed (its own block moves into a session first).
+  const ownBlockToSession = (fields: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }, now: string) => {
+    const parentId = sessionParentId({ kind: fields.kind, source_type: fields.source_type ?? null, source_id: fields.source_id ?? null })
+    const todo = parentId ? db.planItems.find((p) => p.id === parentId) : undefined
+    if (parentId && !todo) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    if (!todo || !isPlainTodo(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+    const session = newSession(withCourse(todo), todo.starts_at, todo.ends_at)
+    db.planItems.push({
+      id: `pi-${crypto.randomUUID().slice(0, 8)}`,
+      kind: 'task', title: session.title, starts_at: session.starts_at ?? null, ends_at: session.ends_at ?? null,
+      due_at: session.due_at ?? null, duration_min: session.duration_min ?? null, status: todo.status,
+      recurrence: null, subtype: null, source_type: session.source_type ?? null, source_id: session.source_id ?? null,
+      source_offset_ms: null, created_by_workflow_id: null, time_zone: todo.time_zone, created_at: now, updated_at: now,
+    })
+    setCourse(db.planItems[db.planItems.length - 1].id, session.course ?? null)
+    todo.starts_at = null
+    todo.ends_at = null
+    todo.updated_at = now
+  }
+
   router.register('planItems.create', (input) => {
     const { course, workspaceId: _board, timeZone, ...fields } = parse(newPlanItemOnBoardInput, input)
     assertValid(fields)
     const now = new Date().toISOString()
+    ownBlockToSession(fields, now)
     const row: StoredPlanItem = {
       id: `pi-${crypto.randomUUID().slice(0, 8)}`,
       kind: fields.kind,
@@ -105,7 +136,36 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     }
     db.planItems.push(row)
     setCourse(row.id, course ?? null)
+    raiseEstimateToBooked(row)
     return withCourse(row)
+  })
+
+  // As the server's `planItems.bookSessions`: all the sessions, or none.
+  router.register('planItems.bookSessions', (input) => {
+    // An invalid block (empty, longer than a day, overlapping) is BAD_REQUEST, as tRPC's input check on the server.
+    const checked = bookSessionsInput.safeParse(input)
+    if (!checked.success) throw new SimulatorError('BAD_REQUEST', checked.error.issues.map((i) => i.message).join('; '))
+    const { todoId, blocks, timeZone } = checked.data
+    const todo = db.planItems.find((p) => p.id === todoId)
+    if (!todo) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    if (!isPlainTodo(todo) || todo.status !== 'open') throw new SimulatorError('BAD_REQUEST', 'Only an open to-do of your own can be booked in sessions')
+    const sessions = blocks.map((b) => newSession(withCourse(todo), b.starts_at, b.ends_at))
+    for (const s of sessions) assertValid(s)
+    const now = new Date().toISOString()
+    const made = sessions.map((s) => {
+      ownBlockToSession(s, now)
+      const row: StoredPlanItem = {
+        id: `pi-${crypto.randomUUID().slice(0, 8)}`, kind: 'task', title: s.title, starts_at: s.starts_at ?? null, ends_at: s.ends_at ?? null,
+        due_at: s.due_at ?? null, duration_min: s.duration_min ?? null, status: 'open', recurrence: null, subtype: null,
+        source_type: s.source_type ?? null, source_id: s.source_id ?? null, source_offset_ms: null, created_by_workflow_id: null,
+        time_zone: studentTimeZone(timeZone), created_at: now, updated_at: now,
+      }
+      db.planItems.push(row)
+      setCourse(row.id, s.course ?? null)
+      return row
+    })
+    raiseEstimateToBooked(made[0])
+    return made.map(withCourse)
   })
 
   router.register('planItems.update', (input) => {
@@ -114,14 +174,56 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const { course, ...fields } = patch
     const merged = { ...row, ...fields }
     assertValid(merged)
+    const before = { ...row }
     Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: new Date().toISOString() })
     if (course !== undefined) setCourse(id, course)
+    cascadeToSessions(before, row, course)
+    if (row.starts_at !== before.starts_at || row.ends_at !== before.ends_at) raiseEstimateToBooked(row)
     return withCourse(row)
   })
 
+  /** As the server: a booking lengthened past its to-do's estimate raises the estimate to the booked total, never lowers it. */
+  const raiseEstimateToBooked = (item: StoredPlanItem) => {
+    if (item.kind !== 'task') return
+    const parentId = sessionParentId(item)
+    const todo = parentId ? db.planItems.find((p) => p.id === parentId) : item
+    if (!todo || todo.duration_min == null || todo.recurrence) return
+    const rows = parentId ? db.planItems.filter((p) => sessionParentId(p) === todo.id && p.status !== 'dismissed') : []
+    const booked = Math.round(bookedMinutes([todo, ...rows]).get(todo.id) ?? 0)
+    if (booked > todo.duration_min) {
+      todo.duration_min = booked
+      todo.updated_at = new Date().toISOString()
+    }
+  }
+
+  const sessionsOf = (todoId: string) => db.planItems.filter((p) => sessionParentId(p) === todoId)
+
+  /** As the server's `cascadeToSessions`: a to-do's sessions follow its status, title, course and due time. */
+  const cascadeToSessions = (before: StoredPlanItem, after: StoredPlanItem, course?: string | null) => {
+    if (after.kind !== 'task') return
+    if (isSession(after)) {
+      if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) after.subtype = null
+      return
+    }
+    const at = new Date().toISOString()
+    for (const s of sessionsOf(after.id)) {
+      if (before.title !== after.title) Object.assign(s, { title: after.title, updated_at: at })
+      if (before.due_at !== after.due_at) Object.assign(s, { due_at: after.due_at, updated_at: at })
+      if (course !== undefined) setCourse(s.id, course)
+      if (before.status === after.status) continue
+      if (after.status === 'open' && s.subtype === CLOSED_WITH_TODO) {
+        Object.assign(s, { status: Date.parse(s.ends_at!) > clock() ? 'open' : s.status, subtype: null, updated_at: at })
+      } else if (after.status !== 'open' && s.status === 'open') {
+        Object.assign(s, { status: after.status, subtype: CLOSED_WITH_TODO, updated_at: at })
+      }
+    }
+  }
+
   const setStatus = (id: string, status: StoredPlanItem['status']) => {
     const row = find(id)
+    const before = { ...row }
     if (row.status !== status) Object.assign(row, { status, updated_at: new Date().toISOString() })
+    cascadeToSessions(before, row)
     return withCourse(row)
   }
 
@@ -132,6 +234,10 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const id = parse(planItemIdInput, input)
     if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
     setCourse(id, null)
+    for (const s of sessionsOf(id)) {
+      db.remove(db.planItems, s.id)
+      setCourse(s.id, null)
+    }
     // As the server's ON DELETE SET NULL: its lectures keep their date.
     for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
   })
@@ -149,17 +255,16 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const now = clock()
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
-    const { rows, todos } = withSavingBlocks(
-      expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }),
-      all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null),
-      q.saving,
-    )
+    const open = all.filter((p) => p.kind === 'task' && p.status === 'open' && !isSession(p))
+    const pending = trustedPendingBookings(q.pending, { week, todoIds: new Set(open.map((t) => t.id)) })
+    const rows = withPendingBookings(expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }), pending)
+    const todos = todosToPlan(open, bookedMinutes(withPendingBookings(all, pending)))
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)
     const cap = planCapacity(weekLayout(rows, week, placement), tasks, now)
     const raw = planAutofillTask.fake({ tasks, freeMin: cap.freeMin, neededMin: cap.neededMin, minutesPerDay: placement.studyMinPerDay, weakTopics: [], timeZone: placement.timeZone })
-    return sanitizeAdvice(raw, tasks, cap, placement.studyMinPerDay)
+    return sanitizeAdvice(raw, tasks, cap)
   })
 
   // Re-fit, as apps/server/src/planning/refit.ts: same rules (@pls/substrate

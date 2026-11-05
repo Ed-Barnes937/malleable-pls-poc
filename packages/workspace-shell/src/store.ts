@@ -1,11 +1,14 @@
 import { create } from 'zustand'
 import type { FocusedMoment, FocusedPlanItem, Moment, PlanItemRef } from '@pls/lens-framework'
 import { watchUserScroll } from '@pls/shared-ui'
+import { readLastBoard, writeLastBoard } from './lastBoard'
 
 interface WorkspaceUIState {
   /**
    * The board the student last chose (a tab, a new board, a jump to a
-   * moment), or null before one is chosen. Not necessarily a board they still
+   * moment), or null before one is chosen. Starts as the board last open on
+   * this device (see `lastBoard.ts`) and is remembered there on every change.
+   * Not necessarily a board they still
    * have: read the open board with `useActiveWorkspaceId`, which checks it
    * against their boards.
    */
@@ -37,8 +40,11 @@ let nextMomentId = 0
 let nextPlanItemRequest = 0
 
 export const useWorkspaceStore = create<WorkspaceUIState>((set) => ({
-  activeWorkspaceId: null,
-  setActiveWorkspaceId: (id) => set({ activeWorkspaceId: id }),
+  activeWorkspaceId: readLastBoard(),
+  setActiveWorkspaceId: (id) => {
+    writeLastBoard(id)
+    set({ activeWorkspaceId: id })
+  },
 
   focusedPanelId: null,
   setFocusedPanelId: (id) => set({ focusedPanelId: id }),

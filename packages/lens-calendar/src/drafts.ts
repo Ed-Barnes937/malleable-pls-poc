@@ -1,4 +1,4 @@
-import { shiftByWallClock } from '@pls/substrate'
+import { isPlainTodo, isSession, shiftByWallClock } from '@pls/substrate'
 import type { NewPlanItem, PlanItemKind, PlanItemOccurrence, PlanItemPatch } from '@pls/substrate'
 
 /**
@@ -22,8 +22,6 @@ export const KIND_LABELS: Record<PlanItemKind, string> = {
   deadline: 'Due',
 }
 
-const minutesBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 60_000)
-
 export function validateDraft(d: Draft): string | null {
   if (!d.title.trim()) return 'Give it a name'
   if (d.kind !== 'deadline' && d.end.getTime() <= d.start.getTime()) return 'End after it starts'
@@ -34,7 +32,9 @@ export function newItemFromDraft(d: Draft, timeZone: string): NewPlanItem {
   const base = { kind: d.kind, title: d.title.trim(), course: d.course }
   if (d.kind === 'deadline') return { ...base, due_at: d.start.toISOString() }
   const times = { starts_at: d.start.toISOString(), ends_at: d.end.toISOString() }
-  if (d.kind === 'task') return { ...base, ...times, duration_min: minutesBetween(d.start, d.end) }
+  // Study time made on the calendar is just a block: it has no estimate
+  // (flow-audit decision 15), so resizing it never makes it look partly booked.
+  if (d.kind === 'task') return { ...base, ...times, duration_min: null }
   return { ...base, ...times, recurrence: d.repeatsWeekly ? { freq: 'weekly', timeZone } : null }
 }
 
@@ -66,8 +66,11 @@ function shift(row: PlanItemOccurrence, series: string | null, from: string | nu
 /**
  * Patch that moves / resizes a row to `start`-`end`. Updates apply to the
  * whole series, so the stored series times shift as far as this occurrence
- * did (see PlanItemOccurrence and `shift`). A study block keeps `duration_min` in
- * step with its length.
+ * did (see PlanItemOccurrence and `shift`). A to-do's `duration_min` is
+ * its estimate and stays as it is: the block's length is the time booked
+ * (flow-audit decision 8), so a 2h to-do resized to 1h is "1h of 2h booked"
+ * (the server raises the estimate when a booking outgrows it). A review of a
+ * moment is its block, as before: its `duration_min` follows its length.
  */
 export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): PlanItemPatch {
   const patch: PlanItemPatch = {}
@@ -76,8 +79,9 @@ export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): Plan
   // validatePlanItem needs both ends together.
   if (patch.starts_at && !patch.ends_at) patch.ends_at = row.series_ends_at ?? row.ends_at
   if (patch.ends_at && !patch.starts_at) patch.starts_at = row.series_starts_at ?? row.starts_at
-  const length = minutesBetween(start, end)
-  if (row.kind === 'task' && row.duration_min !== length) patch.duration_min = length
+  // A review of a moment (or anything with a source) is its block: its estimate follows its length.
+  const length = Math.round((end.getTime() - start.getTime()) / 60_000)
+  if (row.kind === 'task' && !isPlainTodo(row) && !isSession(row) && row.duration_min !== length) patch.duration_min = length
   return patch
 }
 

@@ -17,7 +17,8 @@ describe('plan-autofill (mock)', () => {
     const llm = createFakeLlmClient()
     const advice = await llm.run(planAutofillTask, { tasks, freeMin: 540, neededMin: 720, minutesPerDay: 180, weakTopics: [], timeZone: 'Europe/London' })
     expect(advice.order).toEqual(['quiz', 'lab', 'reading'])
-    expect(advice.trims).toEqual([expect.objectContaining({ taskId: 'lab', durationMin: 180 })])
+    // 3h short: the longest shrinks by half, never below (no trim just for being longer than a day).
+    expect(advice.trims).toEqual([expect.objectContaining({ taskId: 'lab', durationMin: 120 })])
     // Priorities only: what fits and how much comes from code.
     expect(advice.note).toBe('Biology quiz prep is due soonest, so it gets first pick of your study time.')
     // The prompt carries the code's numbers and the to-dos in the student's words.
@@ -25,6 +26,7 @@ describe('plan-autofill (mock)', () => {
     expect(prompt).toContain('Study time left this week: 9h (at most 3h a day). The to-dos need: 12h.')
     expect(prompt).toContain('- id=quiz: "Biology quiz prep", 120 min (guessed), due Thu 5 Nov, 09:00')
     expect(planAutofillTask.system).toContain('Never mention amounts of time')
+    expect(planAutofillTask.system).toContain('the app splits it into sessions across days')
   })
 
   it('says it fits, without trims, when there is room', async () => {

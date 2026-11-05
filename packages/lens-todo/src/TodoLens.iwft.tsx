@@ -343,7 +343,7 @@ test.describe('blocks that did not happen', () => {
   })
 
   const seedMissed = (simulator: Parameters<typeof seedPlanItem>[0]) => {
-    seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: fromNow(-2, 10), ends_at: fromNow(-2, 11), course: 'biology' })
+    seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 60, starts_at: fromNow(-2, 10), ends_at: new Date(Date.parse(fromNow(-2, 10)) + 30 * 60_000).toISOString(), course: 'biology' })
     seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', starts_at: fromNow(-1, 19), ends_at: fromNow(-1, 20), course: 'chemistry' })
     // Never re-fit: a missed class, and a block ticked off.
     seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: fromNow(-1, 9), ends_at: fromNow(-1, 10) })
@@ -372,6 +372,7 @@ test.describe('blocks that did not happen', () => {
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
     const moved = simulator.db.planItems.find((p) => p.id === 'missed-1')!
     expect(Date.parse(moved.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
+    // Re-fitted at its block's length (the time booked), not its to-do's 1h estimate.
     expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * 60_000)
     expect(simulator.db.planItems.find((p) => p.id === 'class')!.starts_at).toBe(fromNow(-1, 9))
   })
@@ -555,4 +556,185 @@ test.describe('blocks that did not happen', () => {
     await expect(page.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week.')
     await expect(page.getByTestId('refit-note').getByRole('button')).toHaveCount(0)
   })
+})
+
+test('a list too long for the panel says how many rows are below, and the count follows the scroll', async ({ mount, page, simulator }) => {
+  for (let i = 1; i <= 8; i++) seedPlanItem(simulator, { id: `todo-${i}`, kind: 'task', title: `Task number ${i}` })
+
+  await mount(
+    <TestProviders>
+      <div style={{ height: 320, display: 'flex', flexDirection: 'column' }}>
+        <TodoLens {...defaultProps} />
+      </div>
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Task number 1', { exact: true })).toBeVisible()
+  const more = page.getByTestId('todo-more-below')
+  await expect(more).toHaveText(/^\d+ more$/)
+  const before = Number((await more.textContent())!.split(' ')[0])
+  expect(before).toBeGreaterThan(0)
+
+  // It scrolls the list on: fewer below, and none at the end.
+  await more.click()
+  await expect.poll(async () => (await more.count()) ? Number((await more.textContent())!.split(' ')[0]) : 0).toBeLessThan(before)
+  await page.getByRole('list', { name: 'To-dos' }).evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await expect(more).toHaveCount(0)
+})
+
+test('a list that fits says nothing about more', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Only task' })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  await expect(page.getByText('Only task')).toBeVisible()
+  await expect(page.getByTestId('todo-more-below')).toHaveCount(0)
+})
+
+test('a to-do booked in sessions is one row, and ticking it off ticks off its sessions', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, { id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: daysFromNow(3, 17) })
+  for (const [id, day] of [['lab-1', 1], ['lab-2', 2]] as const) {
+    seedPlanItem(simulator, {
+      id, kind: 'task', title: 'Lab report write-up', duration_min: 120, source_type: 'plan_item', source_id: 'lab',
+      starts_at: daysFromNow(day, 9), ends_at: daysFromNow(day, 11),
+    })
+  }
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  await expect(page.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })).toHaveCount(1)
+  await expect(page.getByText('1 to do')).toBeVisible()
+  await page.getByRole('checkbox', { name: 'Done: Lab report write-up' }).click()
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.title === 'Lab report write-up').map((p) => p.status))
+    .toEqual(['done', 'done', 'done'])
+})
+
+test('a to-do whose block is shorter than its estimate reads "1h of 2h booked", and Book the rest books the other hour', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, {
+    id: 'quiz', kind: 'task', title: 'Revise for the quiz', duration_min: 120, due_at: daysFromNow(3, 17),
+    starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 10),
+  })
+  seedPlanItem(simulator, { id: 'essay', kind: 'task', title: 'Plan the essay', duration_min: 60 })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const quiz = page.getByTestId('todo-item').filter({ hasText: 'Revise for the quiz' })
+  await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+  // A to-do with nothing booked keeps its plain estimate and no Book the rest.
+  const essay = page.getByTestId('todo-item').filter({ hasText: 'Plan the essay' })
+  await expect(essay.getByText('1h', { exact: true })).toBeVisible()
+  await expect(essay.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
+
+  await quiz.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  const draft = quiz.getByTestId('book-the-rest')
+  await expect(draft.getByTestId('book-the-rest-block')).toHaveCount(1)
+  // A draft: nothing is saved until "Book it".
+  expect(simulator.db.planItems).toHaveLength(2)
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft).toHaveCount(0)
+
+  // The second booking turns the to-do's own block into a session too; the to-do keeps its total.
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'quiz').length).toBe(2)
+  const sessions = simulator.db.planItems.filter((p) => p.source_id === 'quiz')
+  expect(sessions.map((s) => (Date.parse(s.ends_at!) - Date.parse(s.starts_at!)) / 60_000)).toEqual([60, 60])
+  for (const s of sessions) expect(Date.parse(s.ends_at!)).toBeLessThanOrEqual(Date.parse(daysFromNow(3, 17)))
+  expect(simulator.db.planItems.find((p) => p.id === 'quiz')).toMatchObject({ starts_at: null, ends_at: null, duration_min: 120 })
+  await expect(quiz.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(quiz.getByText('2h', { exact: true })).toBeVisible()
+})
+
+test('Not now closes Book the rest without saving anything', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, {
+    id: 'quiz', kind: 'task', title: 'Revise for the quiz', duration_min: 120, due_at: daysFromNow(3, 17),
+    starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 10),
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const quiz = page.getByTestId('todo-item').filter({ hasText: 'Revise for the quiz' })
+  await quiz.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  await quiz.getByRole('button', { name: 'Not now' }).click()
+  await expect(quiz.getByTestId('book-the-rest')).toHaveCount(0)
+  expect(simulator.db.planItems).toHaveLength(1)
+  await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+})
+
+test('study time made on the calendar has no estimate, so it never reads as partly booked', async ({ mount, page, simulator }) => {
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, { id: 'block', kind: 'task', title: 'Revise enzymes', duration_min: null, starts_at: start, ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString() })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Revise enzymes' })
+  await expect(row.getByTitle('Scheduled')).toBeVisible()
+  await expect(row.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(row.getByTitle('Time estimate')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
+})
+
+test('a review of a moment shortened to 15m is not partly booked: its block is its booking', async ({ mount, page, simulator }) => {
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, {
+    id: 'review', kind: 'task', title: 'Review: maternal inheritance', subtype: 'review', duration_min: 30,
+    starts_at: start, ends_at: new Date(Date.parse(start) + 15 * 60_000).toISOString(),
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Review: maternal inheritance' })
+  await expect(row.getByTitle('Scheduled')).toBeVisible()
+  await expect(row.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
+})
+
+test('Book the rest that fails to save saves nothing, says so, and books it all on a retry', async ({ mount, page, simulator, consoleErrors }) => {
+  // 3h due in four days, booked for 30m: the rest splits into sessions.
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, {
+    id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: daysFromNow(4, 17),
+    starts_at: start, ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString(),
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const lab = page.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })
+  await lab.getByRole('button', { name: 'Book the rest of Lab report write-up' }).click()
+  const draft = lab.getByTestId('book-the-rest')
+  await expect(draft.getByTestId('book-the-rest-block').first()).toBeVisible()
+  const blocks = await draft.getByTestId('book-the-rest-block').count()
+  expect(blocks).toBeGreaterThan(1)
+
+  consoleErrors.allowFailedRequest('planItems.bookSessions')
+  let failNext = true
+  await page.route(/planItems\.bookSessions/, async (route) => {
+    if (!failNext) return route.fallback()
+    failNext = false
+    await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify([{ error: { json: { message: 'boom', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } } }]) })
+  })
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft.getByRole('status')).toHaveText("Couldn't book it just now. Nothing changed - try again?")
+  // Truly nothing: no session, and the to-do still has its own block.
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toEqual([])
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')).toMatchObject({ starts_at: start })
+
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft).toHaveCount(0)
+  // Every block once (no double booking), plus the own block as a session.
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toHaveLength(blocks + 1)
+  await expect(lab.getByTestId('todo-booked')).toHaveCount(0)
 })

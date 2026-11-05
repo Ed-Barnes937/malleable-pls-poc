@@ -16,9 +16,10 @@ import { REVIEW_SUBTYPE } from '../packages/substrate/src/workflows/review-autom
  * - Two study blocks from yesterday that didn't happen (still open), for
  *   demo step 6's "2 blocks didn't happen. Re-fit them?".
  * - Open to-dos with estimates, not yet scheduled. They add up to 12 hours,
- *   the "Your to-dos need 12." of demo step 2. Only the lab report write-up
- *   (3h) is longer than the default 2h of study time a day, so it is
- *   Auto-fill's only trim: "Shrink it to 2h?".
+ *   the "Your to-dos need 12." of demo step 2. The lab report write-up (3h)
+ *   is longer than the default 2h of study time a day, so Auto-fill splits
+ *   it into sessions; as the longest, it is also the over-capacity week's
+ *   only trim: "Shrink to 1h 30m?".
  * - Study Priya already planned, sized at reseed time so that Help me plan
  *   reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."
  *   (`STEP2_STUDY_LEFT_MIN`): on later days of the week only (Sat, Sun, then

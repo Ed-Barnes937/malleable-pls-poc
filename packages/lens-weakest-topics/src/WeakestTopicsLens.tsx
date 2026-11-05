@@ -123,7 +123,8 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
               {' · '}
             </>
           )}
-          {where}
+          {/* The lecture and its moment wrap as one: to the next line whole rather than split mid-name. */}
+          <span className="inline-block">{where}</span>
         </span>
       </span>
 

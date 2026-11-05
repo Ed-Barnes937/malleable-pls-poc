@@ -72,7 +72,7 @@ test.describe('A board selects a lecture', () => {
 
       // Record: it goes into this lecture, which stays the board's lecture.
       await audio.getByRole('button', { name: 'Start recording' }).click()
-      await expect(audio.getByText('REC')).toBeVisible()
+      await expect(audio.getByText('REC', { exact: true })).toBeVisible()
       await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       await expect(transcript.getByText('Enzymes')).toBeVisible({ timeout: 10000 })
@@ -83,7 +83,7 @@ test.describe('A board selects a lecture', () => {
 
       // Record more: a second part of the same lecture.
       await audio.getByRole('button', { name: 'Record more' }).click()
-      await expect(audio.getByText('REC')).toBeVisible()
+      await expect(audio.getByText('REC', { exact: true })).toBeVisible()
       await expect(audio.getByTestId('capture-timer')).toHaveText(AT_LEAST_2S, { timeout: 10000 })
       await audio.getByRole('button', { name: 'Stop recording' }).click()
       const parts = transcript.getByRole('group', { name: 'Lecture parts' }).getByRole('button')

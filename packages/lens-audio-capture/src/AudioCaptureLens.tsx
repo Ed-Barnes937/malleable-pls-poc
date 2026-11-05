@@ -1,4 +1,4 @@
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, formatTime } from '@pls/shared-ui'
 import { Mic, Square, Play, Pause, FilePlus2, Loader2, Upload } from 'lucide-react'
@@ -237,42 +237,36 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                 : '0:00'}
         </span>
 
-        <div className="flex items-center gap-2 @tall:gap-3">
+        <div className="flex items-start gap-2 @tall:gap-3">
           {settling || recorder.hasUnsaved ? null : state === 'idle' || state === 'complete' ? (
             <>
               {state === 'complete' && (
-                <button
-                  type="button"
+                <Control
+                  label={playback.playing ? 'Pause' : 'Play recording'}
+                  caption={playback.playing ? 'Pause' : 'Play'}
                   onClick={playback.toggle}
-                  aria-label={playback.playing ? 'Pause' : 'Play recording'}
-                  title={playback.playing ? 'Pause' : 'Play recording'}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-accent-foreground transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
+                  look="primary"
                 >
                   {playback.playing
                     ? <Pause className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
                     : <Play className="ml-0.5 h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />}
-                </button>
+                </Control>
               )}
-              <button
-                type="button"
-                onClick={recorder.start}
-                aria-label={state === 'complete' ? 'Record more' : 'Start recording'}
+              <Control
+                label={state === 'complete' ? 'Record more' : 'Start recording'}
                 title={state === 'complete' ? 'Record more of this lecture' : 'Start recording'}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
+                caption="Record"
+                onClick={recorder.start}
               >
                 <Mic className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Upload a recording"
-                title="Upload a recording"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
-              >
+              </Control>
+              <Control label="Upload a recording" caption="Upload" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-              </button>
+              </Control>
               {state === 'complete' && (
-                <button
-                  type="button"
+                <Control
+                  label="New lecture"
+                  caption="New lecture"
                   // Clears the board's lecture, so the next capture is a new one
                   // and every widget on the board moves on with it.
                   onClick={() => {
@@ -280,24 +274,15 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                     playback.stop()
                     if (scope.lectureId) letGoOf(scope.lectureId)
                   }}
-                  aria-label="New lecture"
-                  title="New lecture"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
                 >
                   <FilePlus2 className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-                </button>
+                </Control>
               )}
             </>
           ) : state === 'recording' ? (
-            <button
-              type="button"
-              onClick={recorder.stop}
-              aria-label="Stop recording"
-              title="Stop recording"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-confused text-surface-raised ring-4 ring-confused-soft transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
-            >
+            <Control label="Stop recording" caption="Stop" onClick={recorder.stop} look="stop">
               <Square className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-            </button>
+            </Control>
           ) : null}
         </div>
       </div>
@@ -321,5 +306,37 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         </div>
       )}
     </div>
+  )
+}
+
+/** A round capture control with its name under it, so none of them is a bare icon. */
+function Control({ label, title, caption, onClick, look = 'plain', children }: {
+  label: string
+  title?: string
+  caption: string
+  onClick: () => void
+  look?: 'plain' | 'primary' | 'stop'
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={title ?? label}
+      className="group flex min-w-12 flex-col items-center gap-1 whitespace-nowrap rounded-item text-meta text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      <span
+        className={cn(
+          'flex h-9 w-9 items-center justify-center rounded-full transition-all group-active:scale-95 @tall:h-11 @tall:w-11',
+          look === 'primary' && 'bg-accent text-accent-foreground group-hover:opacity-90',
+          look === 'stop' && 'bg-confused text-surface-raised ring-4 ring-confused-soft group-hover:opacity-90',
+          look === 'plain' && 'border border-border bg-surface-raised group-hover:bg-surface-overlay group-hover:text-text-primary',
+        )}
+      >
+        {children}
+      </span>
+      <span aria-hidden className="leading-tight">{caption}</span>
+    </button>
   )
 }

@@ -57,6 +57,29 @@ const browserZoneInput = timeZoneInput.optional()
 export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
 export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
 
+/**
+ * Book the rest: sessions of one to-do (`todoId`) at these times, saved
+ * together in one go: all of them or, on any failure, none.
+ */
+/** The longest single session: one study day (as Auto-fill's pending bookings). */
+const MAX_SESSION_MS = 24 * 60 * 60_000
+
+const sessionBlock = z.object({ starts_at: isoDateTime, ends_at: isoDateTime })
+  .refine((b) => Date.parse(b.ends_at) > Date.parse(b.starts_at), { message: 'a session must end after it starts' })
+  .refine((b) => Date.parse(b.ends_at) - Date.parse(b.starts_at) <= MAX_SESSION_MS, { message: 'a session is at most a day long' })
+
+export const bookSessionsInput = z.object({
+  todoId: planItemIdInput,
+  blocks: z.array(sessionBlock).min(1).max(10)
+    .refine((blocks) => {
+      const sorted = [...blocks].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+      return sorted.every((b, i) => i === 0 || Date.parse(sorted[i - 1].ends_at) <= Date.parse(b.starts_at))
+    }, { message: 'sessions must not overlap each other' }),
+  workspaceId: boardIdInput,
+  timeZone: browserZoneInput,
+})
+export type BookSessions = Omit<z.input<typeof bookSessionsInput>, 'workspaceId' | 'timeZone'>
+
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z
   .union([planItemIdInput, z.object({ id: planItemIdInput, workspaceId: boardIdInput })])
