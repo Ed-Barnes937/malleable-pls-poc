@@ -124,12 +124,21 @@ export default function CalendarLens({
     setNotice(null)
     setPopover(next)
   }
+  /** What focus goes back to once a closed popover has gone from the page. */
+  const focusBackRef = useRef<HTMLElement | null>(null)
   const closePopover = useCallback(() => {
     setPopover(null)
-    const opener = openerRef.current
+    focusBackRef.current = openerRef.current
     openerRef.current = null
-    if (!opener?.isConnected) return
-    requestAnimationFrame(() => {
+  }, [])
+  // Only once the popover has gone: until then focus is still in it (a save
+  // can close it before React has taken it away), and would read as the
+  // student having moved it elsewhere.
+  useEffect(() => {
+    const opener = focusBackRef.current
+    focusBackRef.current = null
+    if (popover || !opener?.isConnected) return
+    const frame = requestAnimationFrame(() => {
       // Focus goes back to what opened the popover, unless the press that
       // closed it put focus on something else in the calendar (another
       // block and maybe its popover, a button), which keeps it.
@@ -137,7 +146,8 @@ export default function CalendarLens({
       const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
       if (!elsewhere) opener.focus()
     })
-  }, [])
+    return () => cancelAnimationFrame(frame)
+  }, [popover])
   /** Closes the popover for somewhere else that takes focus (another board, the board menu). */
   const leavePopover = useCallback(() => {
     openerRef.current = null
