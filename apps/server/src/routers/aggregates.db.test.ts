@@ -108,14 +108,15 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
 
   it('the SQL and momentStatus agree on every case of one fixture table', async () => {
     const { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM } = await import('@pls/substrate')
-    // Each case: what the student did, in order (r = rating, c = confusing mark).
-    type Event = ['r', number] | ['c']
+    // Each case: what the student did, in order (r = rating, c = confusing mark, s = marked sorted).
+    type Event = ['r', number] | ['c'] | ['s']
     const scores = [0, WEAK_BELOW - 1, WEAK_BELOW, SOLID_FROM - 1, SOLID_FROM, 100]
     const cases: Event[][] = [[]]
     for (const s of scores) {
       cases.push([['r', s]], [['c'], ['r', s]], [['r', s], ['c']], [['r', 90], ['r', s]], [['c'], ['r', 90], ['r', s]])
     }
     cases.push([['c']], [['c'], ['c']])
+    cases.push([['c'], ['s']], [['c'], ['s'], ['r', 10]], [['c'], ['r', 10], ['s']], [['c'], ['s'], ['c']])
 
     const other = `test-agg-table-${randomUUID().slice(0, 8)}`
     const tableRec = `rec-${other}`
@@ -133,6 +134,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
           let latestScore: number | null = null
           let latestAt: string | null = null
           let confusedAt: string | null = null
+          let sorted = false
           for (const [step, ev] of events.entries()) {
             if (ev[0] === 'r') {
               await tx`
@@ -141,6 +143,12 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
               `
               latestScore = ev[1]
               latestAt = at(step)
+            } else if (ev[0] === 's') {
+              await tx`
+                INSERT INTO tags (user_id, target_type, target_id, label, created_at)
+                VALUES (${other}, 'transcript_segment', ${segOf(i)}, 'sorted', ${at(step)})
+              `
+              sorted = true
             } else {
               await tx`
                 INSERT INTO tags (user_id, target_type, target_id, label, created_at)
@@ -149,7 +157,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
               confusedAt = at(step)
             }
           }
-          const signals = { latestScore, latestAt, confusedAt }
+          const signals = { latestScore, latestAt, confusedAt, sorted }
           expected.set(segOf(i), { status: momentStatus(signals), confused: stillConfused(signals) })
         }
       })

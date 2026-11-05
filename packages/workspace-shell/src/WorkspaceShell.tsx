@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { requestHelpMePlan, useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes, type WorkspacePanel } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -248,7 +248,7 @@ export function WorkspaceShell() {
    * to an empty board and announcing the outcome itself (`onSettled`).
    */
   const addWidget = useCallback(
-    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {}) => {
+    (lensType: string, at?: { x: number; y: number }, opts: { quiet?: boolean; slotName?: string; onSettled?: (ok: boolean, panelId?: string) => void } = {}) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
       const m = manifests.find((man) => man.id === lensType)
@@ -281,7 +281,7 @@ export function WorkspaceShell() {
       addPanel.mutateAsync({
         workspaceId: activeWorkspaceId,
         lensType,
-        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        slotName: opts.slotName ?? `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         pos_x: box.x,
         pos_y: box.y,
         width,
@@ -293,7 +293,7 @@ export function WorkspaceShell() {
           add.panelId = (row as { id?: string } | undefined)?.id
           dropPendingOnCanvas()
           if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
-          opts.onSettled?.(true)
+          opts.onSettled?.(true, add.panelId)
           // One toast for a run of adds, not a stack of them.
           if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
@@ -395,6 +395,55 @@ export function WorkspaceShell() {
     [panels, manifests],
   )
 
+  const startReview = useWorkspaceStore((s) => s.startReview)
+  const clearReview = useWorkspaceStore((s) => s.clearReview)
+  const reviewRun = useWorkspaceStore((s) => s.reviewRun)
+  const dismissToastKey = useToastStore((s) => s.dismissKey)
+  const handleNotify = useCallback(
+    (notice: LensNotice) => notifyToast(notice),
+    [],
+  )
+  /**
+   * A focused review on this board: handed to its Test Me (brought into
+   * view), or, when it has none, to one added for it, with Undo. Never
+   * switches boards.
+   */
+  const handleStartReview = useCallback(
+    (moments: ReviewMoment[]) => {
+      // The canvas, not the panel list: a widget just removed leaves the canvas
+      // at once, but the list until it refetches.
+      const reviewer = useCanvasStore.getState().panels
+        .find((p) => manifests.find((m) => m.id === p.lensType)?.runsReviews)
+      if (reviewer) {
+        startReview(moments, reviewer.id)
+        revealPanel(reviewer.id)
+        return
+      }
+      const lensType = manifests.find((m) => m.runsReviews)?.id
+      if (!lensType) return
+      const label = manifests.find((m) => m.id === lensType)?.label ?? 'Test Me'
+      addWidget(lensType, undefined, {
+        quiet: true,
+        onSettled: (ok, panelId) => {
+          if (!ok) {
+            pushToast({ message: `Couldn't add ${label}. Try again.`, tone: 'error' })
+            return
+          }
+          if (!panelId) return
+          startReview(moments, panelId)
+          revealPanel(panelId)
+          pushToast({
+            message: `${label} added to review your moments`,
+            tone: 'success',
+            key: 'widget-added',
+            action: { label: 'Undo', onClick: () => handleRemovePanel(panelId) },
+          })
+        },
+      })
+    },
+    [manifests, startReview, revealPanel, addWidget, pushToast, handleRemovePanel],
+  )
+
   // Render lens content for a given panel
   const renderPanel = useCallback(
     (panelId: string) => {
@@ -424,6 +473,12 @@ export function WorkspaceShell() {
             onOpenLectureOn={handleOpenLectureOn}
             onAddWidget={openWidgetPalette}
             onEditAutomation={setAutomationId}
+            onNotify={handleNotify}
+            onDismissNotice={dismissToastKey}
+            onStartReview={handleStartReview}
+            // Only the widget the run was handed to takes it (the first on the canvas).
+            reviewRun={manifest?.runsReviews && reviewRun && reviewRun.panelId === panel.id ? reviewRun : undefined}
+            onReviewStarted={manifest?.runsReviews ? clearReview : undefined}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -437,12 +492,11 @@ export function WorkspaceShell() {
             // (not the whole widget), so it is not scrolled here.
             onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
             asksAboutMissedBlocks={missedBlocksPanel === panel.id}
-            onNotify={notifyToast}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, missedBlocksPanel],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, dismissToastKey, handleStartReview, reviewRun, clearReview, missedBlocksPanel],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -490,12 +544,51 @@ export function WorkspaceShell() {
     handleLayoutChange(updated)
   }, [handleLayoutChange])
 
+  // The top bar's Up next: plan the week on this board, never switching boards.
+  // The Calendar that opens Help me plan is named by its panelId (the board and
+  // slot), so a board switch or a second press can't send it elsewhere.
+  const calendarPanel = (panels as unknown as { lens_type: string; slot_name: string }[] | undefined)?.find((p) => p.lens_type === 'calendar')
+  const boardHasCalendar = !!calendarPanel
+  /** A Calendar being added here: a second press waits for it instead of adding another. */
+  const calendarAdd = useRef<{ workspaceId: string; plan: boolean } | null>(null)
+  const addCalendar = useCallback(
+    (plan: boolean) => {
+      if (!activeWorkspaceId) return
+      const inFlight = calendarAdd.current
+      if (inFlight?.workspaceId === activeWorkspaceId) {
+        inFlight.plan ||= plan
+        return
+      }
+      const job = { workspaceId: activeWorkspaceId, plan }
+      calendarAdd.current = job
+      const slotName = `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      addWidget('calendar', undefined, {
+        slotName,
+        // Asked only once the Calendar is there, so a failed add asks nothing.
+        onSettled: (ok) => {
+          if (calendarAdd.current === job) calendarAdd.current = null
+          if (ok && job.plan) requestHelpMePlan(`${job.workspaceId}-${slotName}`)
+        },
+      })
+    },
+    [activeWorkspaceId, addWidget],
+  )
+  const handleAddCalendar = useCallback(() => addCalendar(false), [addCalendar])
+  const handlePlanWeek = useCallback(() => {
+    if (!activeWorkspaceId) return
+    if (calendarPanel) requestHelpMePlan(`${activeWorkspaceId}-${calendarPanel.slot_name}`)
+    else addCalendar(true)
+  }, [activeWorkspaceId, calendarPanel, addCalendar])
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
       <TopBar
         onMenuClick={() => setDrawerOpen((v) => !v)}
         menuOpen={drawerOpen}
         onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+        boardHasCalendar={boardHasCalendar}
+        onPlanWeek={handlePlanWeek}
+        onAddCalendar={handleAddCalendar}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">

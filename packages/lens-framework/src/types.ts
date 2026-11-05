@@ -82,14 +82,34 @@ export interface FocusedMoment extends Moment {
   takeFocus?: boolean
 }
 
+/** A lecture moment to go through in a focused review (one of the "moments to review"). */
+export interface ReviewMoment {
+  segmentId: string
+  recordingId: string
+  recordingTitle: string
+  offsetMs: number
+  /** What it is about, in a few words (the review's topic, else a key phrase). */
+  label: string
+}
+
+/**
+ * A focused review the student asked for (the "N moments to review" chip),
+ * for the widget that runs reviews (manifest `runsReviews`, e.g. Test Me).
+ * `id` is new per request, so asking again restarts it.
+ */
+export interface ReviewRun {
+  id: number
+  moments: ReviewMoment[]
+}
+
 /** A short confirmation in the shell's notification bar, optionally with one action (e.g. Undo). */
 export interface LensNotice {
   message: string
+  /** `error`: something the student asked for didn't happen. Default `success`. */
+  tone?: 'success' | 'error'
   /** Notices sharing a key replace each other instead of stacking. */
   key?: string
   action?: { label: string; onClick: () => void }
-  /** `error` when it says something didn't work (e.g. an Undo that failed). Defaults to `success`. */
-  tone?: 'success' | 'error'
 }
 
 /**
@@ -292,6 +312,22 @@ export interface LensProps {
    * Undo. Optional for the same reason as `onConfigChange`.
    */
   onNotify?: (notice: LensNotice) => void
+  /** Takes down the notice with this `key`, if it is still up (its Undo no longer applies). */
+  onDismissNotice?: (key: string) => void
+  /**
+   * Go through these moments in a focused review on this board: the shell
+   * hands them to the widget that runs reviews (manifest `runsReviews`) via
+   * `reviewRun`, first adding one (with Undo) when the board has none.
+   * Optional for the same reason as `onConfigChange`.
+   */
+  onStartReview?: (moments: ReviewMoment[]) => void
+  /**
+   * For `runsReviews` widgets: the review last asked for. Start it once per
+   * `id`, then call `onReviewStarted(id)` so the shell drops it.
+   */
+  reviewRun?: ReviewRun
+  /** For `runsReviews` widgets: the run with this `id` has started. */
+  onReviewStarted?: (id: number) => void
   /** Open the board menu's widget palette, to add a widget to this board. */
   onAddWidget?: () => void
   /**

@@ -220,12 +220,14 @@ test.describe('Building a board', () => {
     await page.keyboard.press('Tab')
     await expect(topBar.root.getByRole('button', { name: 'Exam Prep', exact: true })).toBeFocused()
 
-    // After the board tabs (and New board), the scope pickers, then the right-hand buttons.
+    // After the board tabs (and New board), the scope pickers, Up next, then the right-hand buttons.
     await topBar.newWorkspaceButton.focus()
     await page.keyboard.press('Tab')
     await expect(topBar.courseSelect).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(topBar.lectureSelect).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.upNext).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(topBar.root.getByRole('button', { name: 'Activity' })).toBeFocused()
 

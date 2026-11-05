@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser, type TxSql } from '@pls/db'
-import { REVIEW_SUBTYPE, SOLID_FROM, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
+import { CONFUSED_TAG, REVIEW_SUBTYPE, SOLID_FROM, SORTED_TAG, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
 import { andInCourse, courseTag } from './_shared'
 
 /**
@@ -26,6 +26,7 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       marked.confused_at,
       still.confused,
       CASE
+        WHEN marked.sorted THEN 'solid'
         WHEN latest.score < ${WEAK_BELOW} OR still.confused THEN 'review'
         WHEN latest.score >= ${SOLID_FROM} THEN 'solid'
         ELSE 'learning'
@@ -39,14 +40,19 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       ORDER BY cs.created_at DESC, cs.id DESC
       LIMIT 1
     ) latest ON true
+    -- When it was last marked confusing, and whether it is marked sorted
+    -- (which keeps the confusing mark as history).
     LEFT JOIN LATERAL (
-      SELECT MAX(c.created_at) AS confused_at FROM tags c
+      SELECT
+        MAX(c.created_at) FILTER (WHERE c.label = ${CONFUSED_TAG}) AS confused_at,
+        COALESCE(BOOL_OR(c.label = ${SORTED_TAG}), false) AS sorted
+      FROM tags c
       WHERE c.user_id = ${userId} AND c.target_type = 'transcript_segment' AND c.target_id = ts.id
-        AND c.label = 'confused'
+        AND c.label IN (${CONFUSED_TAG}, ${SORTED_TAG})
     ) marked ON true
-    -- Marked confusing and not felt sure about since.
+    -- Marked confusing, not sorted, and not felt sure about since.
     CROSS JOIN LATERAL (
-      SELECT marked.confused_at IS NOT NULL
+      SELECT marked.confused_at IS NOT NULL AND NOT marked.sorted
         AND NOT COALESCE(latest.score >= ${SOLID_FROM} AND latest.created_at > marked.confused_at, false) AS confused
     ) still
     WHERE ts.user_id = ${userId}

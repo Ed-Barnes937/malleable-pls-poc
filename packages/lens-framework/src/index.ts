@@ -9,6 +9,9 @@ export type {
   LensProps,
   Moment,
   FocusedMoment,
+  ReviewMoment,
+  ReviewRun,
+  LensNotice,
   FocusedPlanItem,
   PlanItemRef,
   ShowMomentResult,
@@ -18,7 +21,6 @@ export type {
   UndoFocusClassResult,
   FocusedClassLecture,
   LectureBoardRef,
-  LensNotice,
 } from './types'
 export {
   usesScopeDim,
@@ -73,3 +75,5 @@ export {
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
 export { undoNotice, confirmWithUndo, type UndoableChange } from './undo-toast'
+export { momentMarksKey, useMomentMarks } from './sorted'
+export { requestHelpMePlan, takeHelpMePlanRequest, useHelpMePlanRequest, PLAN_REQUEST_TTL_MS } from './plan-request'

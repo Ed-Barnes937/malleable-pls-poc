@@ -81,7 +81,7 @@ A small, stable set of types that the platform team owns. Lenses read and write 
 - **Recording** - audio blob + duration + timestamp; belongs to one lecture (a lecture recorded in several goes has several, shown as parts), and its course is the lecture's
 - **Transcript** — text segments linked to recording timestamps
 - **Annotation** - user-created, anchored to a moment or span. One AI-written kind exists: a lecture's 3-line summary, anchored to the whole recording (`anchor_type = 'recording_summary'`)
-- **Tag** — a label on anything (confused, key concept, exam-relevant)
+- **Tag** - a label on anything (confused, key concept, exam-relevant). A moment has each tag at most once (tags toggle). A confusing moment the student understands now is marked `sorted`: the `confused` tag stays as history, and the moment counts as solid, so it leaves the moments to review and gets no more reviews
 - **Link** — a connection between any two things
 - **Confidence Signal** — a score on a piece of material (from quizzes, self-assessment, spaced repetition)
 - **Plan Item** - anything on a student's plan: a fixed *commitment* (class, shift; can repeat weekly), a *deadline* (something due), or a *task* (a to-do, optionally scheduled into a time block). One type, many views: Calendar, To-do and Coming up all read it. Course attaches as a tag; provenance (e.g. the lecture moment a review to-do came from) is kept on the item

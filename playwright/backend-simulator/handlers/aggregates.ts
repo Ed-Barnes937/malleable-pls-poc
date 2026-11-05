@@ -85,7 +85,8 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
         .map((t) => t.created_at)
         .sort()
       const confusedAt = marks.length ? marks[marks.length - 1] : null
-      const signals = { latestScore: latest?.score ?? null, latestAt: latest?.created_at ?? null, confusedAt }
+      const sorted = db.tags.some((t) => t.target_type === 'transcript_segment' && t.target_id === seg.id && t.label === 'sorted')
+      const signals = { latestScore: latest?.score ?? null, latestAt: latest?.created_at ?? null, confusedAt, sorted }
       const status = momentStatus(signals)
       const confused = stillConfused(signals)
       moments.push({

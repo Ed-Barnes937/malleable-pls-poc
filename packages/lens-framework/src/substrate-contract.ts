@@ -181,10 +181,29 @@ export function isNotFoundError(err: unknown): boolean {
 
 export interface SubstrateWriter extends SubstrateReader {
   /**
-   * Resolves to the tag, with how many automations it started (0 when none
-   * is on for it, e.g. no review will be planned for a confusing moment).
+   * Adds a tag; once per (target, label), so a second call returns the tag
+   * already there. `automations_started`: how many automations it started
+   * (0 when none is on for it, or the tag was already there).
    */
   useCreateTag: () => MutationHandle<NewTag, Tag & { automations_started: number }>
+  /** Removes a tag by id (a tag toggle turned off). */
+  useDeleteTag: () => MutationHandle<string, void>
+  /**
+   * Marks a confusing moment sorted (a `sorted` tag; `confused` stays as
+   * history) and dismisses its open review to-dos. `dismissed` is what
+   * `useUnsortMoment`'s `restore` brings back, for an Undo.
+   */
+  useSortMoment: () => MutationHandle<{ segmentId: string }, { dismissed: string[] }>
+  /** Un-sorts a moment; `restore` (from `useSortMoment`) reopens those reviews. */
+  useUnsortMoment: () => MutationHandle<{ segmentId: string; restore?: string[] }, { restored: string[] }>
+  /**
+   * Turns a moment's confusing mark off and dismisses its open review
+   * to-dos. `confusedAt` and `dismissed` are what `useRemarkConfused` puts
+   * back, for an Undo. A sorted moment keeps its mark (the server refuses).
+   */
+  useUnmarkConfused: () => MutationHandle<{ segmentId: string }, { confusedAt: string | null; dismissed: string[] }>
+  /** Undo for `useUnmarkConfused`: the mark as it was, and `restore` reopens those reviews. */
+  useRemarkConfused: () => MutationHandle<{ segmentId: string; confusedAt: string; restore?: string[] }, { restored: string[] }>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   /**
@@ -312,6 +331,11 @@ export interface PanelManifest {
    * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
    */
   showsPlanItems?: boolean
+  /**
+   * The widget runs a focused review of moments (`LensProps.reviewRun`),
+   * e.g. Test Me. Decides where `LensProps.onStartReview` lands.
+   */
+  runsReviews?: boolean
   /**
    * The widget can ask about blocks that didn't happen ("2 blocks didn't
    * happen. Re-fit them?"). A board asks once (flow-audit decision 4): in

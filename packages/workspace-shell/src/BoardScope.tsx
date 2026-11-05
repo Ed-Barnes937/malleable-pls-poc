@@ -17,7 +17,7 @@ import { useToastStore } from './toast'
 
 export interface BoardScopeProps {
   workspaceId: string
-  /** Phone layout: no "Showing" word, the pills share their row with the today line. */
+  /** Phone layout: no "Showing" word, the pills share their row with Up next. */
   compact?: boolean
 }
 
@@ -59,11 +59,11 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
       aria-label="What this board shows"
       data-testid="board-scope"
       // Never narrower than its pills can go (the course whole, a few words
-      // of the lecture): the tabs and the today line give way first.
+      // of the lecture): the tabs give way first.
       className={cn('flex items-center gap-1.5', compact ? 'max-w-full' : 'shrink')}
     >
       {/* Only where the bar has room for it; the pills say enough without. */}
-      {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary lg:inline">Showing</span>}
+      {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary xl:inline">Showing</span>}
       {showCourse && (
         <CoursePill courseTag={scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}

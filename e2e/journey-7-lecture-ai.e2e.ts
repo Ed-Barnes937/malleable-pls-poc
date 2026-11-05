@@ -92,7 +92,7 @@ test.describe('Journey: Lecture AI and the confusion automation (mock AI)', () =
     // 2. Mark the maternal-inheritance moment as confusing.
     await transcript.getByText(/This is what we call maternal inheritance/).click()
     const markedFrom = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const chip = transcript.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned', { timeout: 15000 })
     const markedTo = Date.now()

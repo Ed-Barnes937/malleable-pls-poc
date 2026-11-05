@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemsRevert } from '@pls/substrate'
-import { DRAFT_ACCEPTED_KEY, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
+import { DRAFT_ACCEPTED_KEY, confirmWithUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
@@ -64,7 +64,7 @@ function courseLabel(course: string): string {
 }
 
 export default function CalendarLens({
-  highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
+  panelId, highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
   onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify,
 }: LensProps) {
   const substrate = useSubstrate()
@@ -166,6 +166,18 @@ export default function CalendarLens({
     setViewState(narrow ? 'day' : savedView)
     if (narrow) setPlanOpen(false)
   }, [narrow, savedView])
+
+  // The top bar's "Plan my week": Help me plan opens here, in Week view on
+  // this week (even on a phone, where Day view has no Help me plan).
+  const planRequest = useHelpMePlanRequest()
+  useEffect(() => {
+    if (!takeHelpMePlanRequest(panelId)) return
+    setViewState('week')
+    setAnchorDay(startOfDay(new Date()))
+    setPlanCollapsed(false)
+    setPlanOpen(true)
+    rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [planRequest, panelId])
 
   const days = useMemo(() => {
     if (view === 'day') return [anchorDay]

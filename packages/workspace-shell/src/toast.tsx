@@ -45,6 +45,8 @@ interface ToastState {
   toasts: Toast[]
   push: (toast: Omit<Toast, 'id'>) => void
   dismiss: (id: number) => void
+  /** Dismisses the toast with this key, if one is up (e.g. an Undo that no longer applies). */
+  dismissKey: (key: string) => void
   /** Stops a toast's countdown (hover, focus). */
   hold: (id: number) => void
   /** Starts it again, from its full duration. */
@@ -109,6 +111,9 @@ export const useToastStore = create<ToastState>((set, get) => {
     dismiss: (id) => {
       forget(id)
       set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
+    },
+    dismissKey: (key) => {
+      for (const t of get().toasts) if (t.key === key) get().dismiss(t.id)
     },
     hold: (id) => {
       pause(id)

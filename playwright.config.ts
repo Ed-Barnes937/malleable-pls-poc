@@ -35,7 +35,7 @@ export default defineConfig({
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], timezoneId: 'Europe/London' },
-      testMatch: 'scope.e2e.ts',
+      testMatch: ['scope.e2e.ts', 'up-next.e2e.ts'],
     },
   ],
   webServer: [

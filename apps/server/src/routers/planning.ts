@@ -7,6 +7,7 @@ import {
   planCapacity,
   planTasks,
   sanitizeAdvice,
+  SORTED_TAG,
   todosToPlan,
   weekLayout,
   withPendingBookings,
@@ -22,7 +23,7 @@ const WEAK_TOPIC_LIMIT = 8
 /** Below this average "how sure you feel" score a moment counts as a weak topic. */
 const WEAK_CONFIDENCE = 50
 
-/** Moments the student marked confusing or felt unsure about, most recent lectures first. */
+/** Moments the student marked confusing or felt unsure about (and hasn't marked sorted), most recent lectures first. */
 async function weakTopics(tx: TransactionSql, userId: string): Promise<string[]> {
   const rows = await tx`
     SELECT ts.text FROM transcript_segments ts
@@ -38,6 +39,11 @@ async function weakTopics(tx: TransactionSql, userId: string): Promise<string[]>
         WHERE cs.user_id = ${userId} AND cs.target_type = 'transcript_segment' AND cs.target_id = ts.id
       ) < ${WEAK_CONFIDENCE}
     )
+      AND NOT EXISTS (
+        SELECT 1 FROM tags s
+        WHERE s.user_id = ${userId} AND s.target_type = 'transcript_segment'
+          AND s.target_id = ts.id AND s.label = ${SORTED_TAG}
+      )
     ORDER BY r.created_at DESC, ts.start_ms
     LIMIT ${WEAK_TOPIC_LIMIT}
   `

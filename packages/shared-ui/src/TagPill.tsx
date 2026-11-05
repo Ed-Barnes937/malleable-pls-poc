@@ -1,5 +1,5 @@
 import { cn } from './utils'
-import { Flag, Star, HelpCircle, type LucideIcon } from 'lucide-react'
+import { CircleCheck, Flag, Star, HelpCircle, type LucideIcon } from 'lucide-react'
 
 /**
  * How each moment tag looks: `bg` + `text` for a pill or button, `mark` for
@@ -10,11 +10,17 @@ export const TAG_STYLES: Record<string, { bg: string; text: string; mark: string
   confused: { bg: 'bg-confused-soft border-confused-line', text: 'text-confused', mark: 'bg-confused', line: 'border-confused', icon: Flag },
   'key-point': { bg: 'bg-attn-soft border-attn-line', text: 'text-attn', mark: 'bg-attn', line: 'border-attn', icon: Star },
   question: { bg: 'bg-accent-soft border-accent-line', text: 'text-accent', mark: 'bg-accent', line: 'border-accent', icon: HelpCircle },
+  // A confusing moment the student has sorted (the confused tag stays as history).
+  sorted: { bg: 'bg-good-soft border-good/40', text: 'text-good', mark: 'bg-good', line: 'border-good', icon: CircleCheck },
 }
 
-/** The tag a moment shows when it has several: confusion first, then questions, then key points. */
+/**
+ * The tag a moment shows when it has several: confusion first (or sorted,
+ * once a confusing moment is sorted), then questions, then key points.
+ */
 export function leadingTag(labels: Iterable<string>): string | undefined {
   const set = new Set(labels)
+  if (set.has('sorted') && set.has('confused')) return 'sorted'
   return ['confused', 'question', 'key-point'].find((l) => set.has(l))
 }
 
