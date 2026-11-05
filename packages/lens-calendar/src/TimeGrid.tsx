@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, prefersReducedMotion, showOnBoard, useArrivals, useEnterOnce } from '@pls/shared-ui'
+import { MOTION_MS, cn, courseTone, prefersReducedMotion, showOnBoard, useArrivals, useEnterOnce, useReducedMotion } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -279,6 +279,9 @@ export function TimeGrid({
     `${days[0]?.toISOString()}:${days.length}`,
   )
   const entering = useEnterOnce(arrived)
+  // And what goes while the student watches (a block deleted, a ghost
+  // dismissed) leaves with it; a ghost accepted settles into its real block.
+  const { leaving, settles } = useDepartures(segments, `${days[0]?.toISOString()}:${days.length}`, !!loading, useReducedMotion())
   // Short blocks' title captions, per day (see captionSides).
   const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
@@ -675,8 +678,33 @@ export function TimeGrid({
                       lifted={draggingKey === seg.item.occurrence_key}
                       glow={revealed?.key === seg.key}
                       enter={entering(seg.item.occurrence_key)}
+                      settle={settles.has(seg.item.occurrence_key)}
                       onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
+                    />
+                  ))}
+
+                  {leaving.filter((seg) => seg.dayIndex === dayIndex).map((seg) => ghostId(seg.item) ? (
+                    <GhostBlock
+                      key={`leaving:${seg.key}`}
+                      seg={seg}
+                      hourPx={hourPx}
+                      saved={false}
+                      lifted={false}
+                      leaving
+                      onPointerDown={() => {}}
+                      onAccept={() => {}}
+                      onDismiss={() => {}}
+                      onNudge={() => {}}
+                    />
+                  ) : (
+                    <Block
+                      key={`leaving:${seg.key}`}
+                      seg={seg}
+                      hourPx={hourPx}
+                      caption={null}
+                      dimmed={isDimmed(seg.item)}
+                      leaving
                     />
                   ))}
 
@@ -767,14 +795,19 @@ interface BlockProps {
   caption?: 'below' | 'above' | null
   /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
   enter?: boolean
+  /** Mounting where the ghost it was saved from just was: it settles in rather than arriving. */
+  settle?: boolean
+  /** Gone (deleted): drawn a moment longer, out of reach, for the shared leave motion. */
+  leaving?: boolean
   onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
   onKeyOpen?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, enter, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, enter, settle, leaving, onPointerDown, onKeyOpen }: BlockProps) {
   const { item } = seg
   // Kept from mount: the motion plays as it arrives, not on later renders.
-  const [entering] = useState(!!enter)
+  const [entering] = useState(!!enter && !settle)
+  const [settling] = useState(!!settle)
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
   const movable = isMovable(item)
@@ -796,12 +829,15 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
 
   return (
     <div
-      role={preview ? undefined : 'button'}
-      tabIndex={preview ? undefined : 0}
+      role={preview || leaving ? undefined : 'button'}
+      tabIndex={preview || leaving ? undefined : 0}
+      inert={leaving || undefined}
+      aria-hidden={leaving || undefined}
+      data-leaving={leaving || undefined}
       data-block={item.kind}
-      data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
-      data-plan-item-id={preview ? undefined : item.id}
-      data-segment-key={preview ? undefined : seg.key}
+      data-testid={preview ? 'calendar-block-preview' : leaving ? 'calendar-block-leaving' : 'calendar-block'}
+      data-plan-item-id={preview || leaving ? undefined : item.id}
+      data-segment-key={preview || leaving ? undefined : seg.key}
       data-kind={item.kind}
       data-look={look}
       data-dimmed={dimmed || undefined}
@@ -832,6 +868,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
         preview && 'pointer-events-none z-30 shadow-pop ring-2 ring-accent',
         // Grows down from its start time; a glow (its own animation) wins.
         entering && !glow && 'origin-top motion-safe:animate-enter',
+        settling && !glow && 'motion-safe:animate-settle',
+        leaving && 'pointer-events-none origin-top motion-safe:animate-leave',
         glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
       style={{
@@ -943,12 +981,14 @@ interface GhostBlockProps {
   onNudge: (minutes: number, days: number) => void
   /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
   enter?: boolean
+  /** Dismissed: drawn a moment longer, out of reach, for the shared leave motion. */
+  leaving?: boolean
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge, enter }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge, enter, leaving }: GhostBlockProps) {
   const { item } = seg
   const [entering] = useState(!!enter)
   const tone = toneFor(item.course)
@@ -969,8 +1009,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
   return (
     <div
       data-block="ghost"
-      data-testid="calendar-ghost"
-      data-ghost-id={ghostId(item) ?? undefined}
+      data-testid={leaving ? 'calendar-ghost-leaving' : 'calendar-ghost'}
+      inert={leaving || undefined}
+      aria-hidden={leaving || undefined}
+      data-leaving={leaving || undefined}
+      data-ghost-id={leaving ? undefined : (ghostId(item) ?? undefined)}
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
@@ -1004,6 +1047,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
         seg.continuesAfter && 'rounded-b-none',
         lifted && 'opacity-30',
         entering && 'origin-top motion-safe:animate-enter',
+        leaving && 'pointer-events-none origin-top motion-safe:animate-leave',
       )}
       style={{
         top: top + 1,
@@ -1069,4 +1113,67 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       )}
     </div>
   )
+}
+
+/**
+ * Blocks and ghosts that went while the grid was on screen (a block deleted,
+ * a ghost dismissed), kept a moment as they were for the shared leave
+ * motion, and the blocks that took a ghost's place (an Accept saved, its
+ * block arrives where the ghost was): those settle in, neither the ghost
+ * leaving nor the block arriving. Something replaced by a block at the same
+ * time (a save swapping a block's id) just stays. Worked out while
+ * rendering, so nothing shows for a frame without its motion. Another week,
+ * the first load, or reduced motion: nothing leaves, it is just gone.
+ */
+function useDepartures(
+  segments: ReadonlyArray<ReadonlyArray<DaySegment>>,
+  resetKey: string,
+  loading: boolean,
+  reducedMotion: boolean,
+): { leaving: ReadonlyArray<DaySegment>; settles: ReadonlySet<string> } {
+  const last = useRef<{ key: string; byItem: Map<string, DaySegment[]> } | null>(null)
+  const gone = useRef(new Map<string, DaySegment[]>())
+  const settled = useRef<ReadonlySet<string>>(new Set())
+  const [, setTick] = useState(0)
+  const now = new Map<string, DaySegment[]>()
+  for (const day of segments) for (const seg of day) now.set(seg.item.occurrence_key, [...(now.get(seg.item.occurrence_key) ?? []), seg])
+  const memo = useRef<{ segments: typeof segments; result: { leaving: DaySegment[]; settles: ReadonlySet<string> } } | null>(null)
+  if (memo.current?.segments !== segments) {
+    if (loading || reducedMotion || !last.current || last.current.key !== resetKey) {
+      if (gone.current.size) gone.current = new Map()
+    } else {
+      const timeOf = (seg: DaySegment) => `${seg.item.starts_at}/${seg.item.ends_at}`
+      const before = last.current.byItem
+      const arrivedAt = new Map<string, string>()
+      for (const [key, segs] of now) if (!before.has(key)) arrivedAt.set(timeOf(segs[0]), key)
+      const next = new Map([...gone.current].filter(([key]) => !now.has(key)))
+      const settles = new Set<string>()
+      for (const [key, segs] of before) {
+        if (now.has(key)) continue
+        const takenBy = arrivedAt.get(timeOf(segs[0]))
+        if (takenBy !== undefined) {
+          if (ghostId(segs[0].item) && !ghostId(now.get(takenBy)![0].item)) settles.add(takenBy)
+          continue
+        }
+        next.set(key, segs)
+      }
+      gone.current = next
+      if (settles.size) settled.current = settles
+    }
+    last.current = { key: resetKey, byItem: now }
+    memo.current = { segments, result: { leaving: [...gone.current.values()].flat(), settles: settled.current } }
+  }
+  // Each departure goes once its motion has played.
+  const leavingKeys = [...gone.current.keys()].join('\n')
+  useEffect(() => {
+    if (!leavingKeys) return
+    const keys = new Set(leavingKeys.split('\n'))
+    const t = setTimeout(() => {
+      gone.current = new Map([...gone.current].filter(([key]) => !keys.has(key)))
+      memo.current = null
+      setTick((n) => n + 1)
+    }, MOTION_MS)
+    return () => clearTimeout(t)
+  }, [leavingKeys])
+  return memo.current!.result
 }

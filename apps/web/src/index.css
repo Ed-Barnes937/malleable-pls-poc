@@ -73,7 +73,12 @@
  *              ease-motion, and nothing moves under reduced motion (the
  *              change still happens, at once). CSS: motion-safe:animate-enter
  *              on what arrives while the student watches (a new block, ghost,
- *              to-do row, chip or toast), never on a list's first render.
+ *              to-do row, chip or toast), never on a list's first render;
+ *              motion-safe:animate-leave on what goes (the same motion in
+ *              reverse, on a copy kept a moment out of reach: Presence in
+ *              shared-ui, or the Calendar's departures), and
+ *              motion-safe:animate-settle on a block that takes the place of
+ *              the ghost it was saved from.
  *              Script: packages/shared-ui/src/motion.ts (the same duration,
  *              curve and keyframes, and useReducedMotion). One engine per
  *              element: widgets are motion/react's alone (enter, leave,
@@ -193,11 +198,21 @@
   --ease-motion: cubic-bezier(0.2, 0.8, 0.2, 1);
   --transition-panel: 200ms var(--ease-motion);
   --animate-enter: enter 200ms var(--ease-motion) backwards;
+  /* Forwards is safe here: what leaves is removed once it has played. */
+  --animate-leave: leave 200ms var(--ease-motion) forwards;
+  --animate-settle: settle 200ms var(--ease-motion) backwards;
   --animate-glow-once: glow-once 1800ms ease-out 1;
 
   /* No `to`: it ends on the element's own opacity and transform. */
   @keyframes enter {
     from { opacity: 0; transform: translateY(6px) scale(0.94); }
+  }
+  @keyframes leave {
+    to { opacity: 0; transform: translateY(6px) scale(0.94); }
+  }
+  /* From a ghost's see-through look to the block's own. */
+  @keyframes settle {
+    from { opacity: 0.6; }
   }
   @keyframes glow-once {
     0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--glow) 70%, transparent); }

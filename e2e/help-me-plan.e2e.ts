@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { departures, recordDepartures } from './settle'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
@@ -260,6 +261,36 @@ test.describe('Help me plan', () => {
     await new TopBarPom(page).switchToWorkspace('Week plan')
     await expect(calendar.grid).toBeVisible()
     expect(await trpcQuery<Row[]>(request, 'planItems.list')).toEqual(before)
+  })
+
+  test('a dismissed ghost and the suggested-blocks tray leave with the shared motion; an accepted ghost settles into its block', async ({ page, request }) => {
+    await seedWeek(request)
+    await recordDepartures(page)
+    const { calendar, panel } = await openPlanner(page)
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    const ghosts = calendar.root.getByTestId('calendar-ghost')
+    await expect(ghosts.nth(1)).toBeVisible()
+    await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+
+    const [first, second] = await ghosts.evaluateAll((els) => els.slice(0, 2).map((el) => el.getAttribute('aria-label')!.replace(/^Suggested: /, '').replace(/, .*$/, '')))
+    await ghosts.filter({ has: page.getByRole('button', { name: `Dismiss ${first}` }) }).getByRole('button', { name: `Dismiss ${first}` }).click()
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids[0] === 'calendar-ghost-leaving' && d.animation === 'leave')).toBe(true)
+
+    const looks = () => calendar.root.getByTestId('calendar-block').evaluateAll((els) => els.map((el) => getComputedStyle(el).animationName))
+    expect(await looks()).not.toContain('settle')
+    const left = await ghosts.count()
+    await calendar.root.getByRole('button', { name: `Accept ${second}` }).click()
+    await expect(ghosts).toHaveCount(left - 1)
+    // Where the ghost was: its block settles in, rather than the ghost leaving and the block arriving.
+    await expect.poll(looks).toContain('settle')
+    expect(await looks()).not.toContain('enter')
+    expect((await departures(page)).filter((d) => d.testids[0] === 'calendar-ghost-leaving')).toHaveLength(1)
+
+    await calendar.root.getByTestId('proposal-tray').getByRole('button', { name: 'Keep my plan' }).click()
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('proposal-tray') && d.animation === 'leave')).toBe(true)
+    await expect(calendar.root.getByTestId('proposal-tray')).toHaveCount(0)
+    await expect(page.locator('[data-leaving]')).toHaveCount(0)
   })
 
   for (const scrolled of [false, true]) {

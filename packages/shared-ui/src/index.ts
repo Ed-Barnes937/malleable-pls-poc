@@ -1,5 +1,6 @@
 export { cn, formatTime, fromMomentLabel } from './utils'
 export { useArrivals, useEnterOnce } from './useArrivals'
+export { Presence } from './Presence'
 export { BOARD_SLIDE_PX, ENTER_FROM, MOTION_EASE, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, SWAP_KEYFRAMES, boardSlideKeyframes, prefersReducedMotion, useListGlide, useReducedMotion } from './motion'
 export { BOARD_VIEW_GAP, boardScrollFor, showOnBoard, userScrolledSince, watchUserScroll, type Span } from './board-view'
 export { useNarrowScreen } from './useNarrowScreen'

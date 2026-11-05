@@ -2,7 +2,7 @@ import { test, expect, type APIRequestContext, type Page } from '@playwright/tes
 import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
-import { motionSettled } from './settle'
+import { departures, motionSettled, recordDepartures } from './settle'
 
 /**
  * The shared motion language (flow audit 03, decision 19): with motion on,
@@ -209,6 +209,37 @@ test.describe('Motion', () => {
   })
 })
 
+test.describe('Leaving', () => {
+  test.beforeEach(async () => { await reseed() })
+  test.afterAll(async () => { await reseed() })
+
+  test('a deleted block and an answered re-fit prompt leave with the shared motion, then are gone', async ({ page, request }) => {
+    await calendarBoard(request, 'Leave week')
+    await recordDepartures(page)
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Leave week')
+    const calendar = new CalendarPom(page)
+    await expect(calendar.grid).toBeVisible()
+
+    await calendar.clickAt(2, 16.1)
+    await calendar.popover.getByLabel('Title').fill('Leaving seminar')
+    await calendar.popover.getByRole('button', { name: 'Add' }).click()
+    await expect(calendar.block('Leaving seminar')).toBeVisible()
+    await calendar.block('Leaving seminar').click()
+    await calendar.popover.getByRole('button', { name: 'Delete' }).click()
+    await calendar.popover.getByRole('button', { name: 'Delete it?' }).click()
+    await expect(calendar.block('Leaving seminar')).toHaveCount(0)
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids[0] === 'calendar-block-leaving' && d.animation === 'leave')).toBe(true)
+    await expect(calendar.root.getByTestId('calendar-block-leaving')).toHaveCount(0)
+
+    const banner = calendar.root.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Not now' }).click()
+    await expect.poll(async () => (await departures(page)).some((d) => d.testids.includes('refit-banner') && d.animation === 'leave')).toBe(true)
+    await expect(banner).toHaveCount(0)
+    await expect(page.locator('[data-leaving]')).toHaveCount(0)
+  })
+})
+
 test.describe('Reduced motion', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
@@ -217,6 +248,7 @@ test.describe('Reduced motion', () => {
     await calendarBoard(request, 'Still week')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await recordAnimations(page)
+    await recordDepartures(page)
     await page.goto('/')
     expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
     const topBar = new TopBarPom(page)
@@ -257,6 +289,16 @@ test.describe('Reduced motion', () => {
     await todo.getByRole('button', { name: 'Remove To-do from board' }).click()
     await expect(page.locator('[data-leaving]')).toHaveCount(0)
     await grid.expectPanelCount(1)
+
+    // A block deleted and the re-fit prompt answered: gone at once.
+    const departed = (await departures(page)).length
+    await block.click()
+    await calendar.popover.getByRole('button', { name: 'Delete' }).click()
+    await calendar.popover.getByRole('button', { name: 'Delete it?' }).click()
+    await expect(block).toHaveCount(0)
+    await calendar.root.getByTestId('refit-banner').getByRole('button', { name: 'Not now' }).click()
+    await expect(calendar.root.getByTestId('refit-banner')).toHaveCount(0)
+    expect((await departures(page)).slice(departed)).toEqual([])
 
     // Nothing above was animated from script either.
     expect(await animated(page)).toEqual([])

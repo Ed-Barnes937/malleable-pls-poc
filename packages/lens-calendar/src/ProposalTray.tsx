@@ -1,15 +1,18 @@
 import { Sparkles } from 'lucide-react'
+import { Presence } from '@pls/shared-ui'
 import type { ProposalLayer } from './proposals'
 
 /**
  * The calendar-level bar for a proposal layer: how many suggested blocks
  * there are, Accept all, and "Keep my plan" (dismiss all, nothing saved).
- * `label` lets the source say what they are, e.g. "re-fitted blocks".
+ * `label` lets the source say what they are, e.g. "re-fitted blocks". It
+ * arrives and leaves with the shared motion.
  */
 export function ProposalTray({ layer, label = 'suggested blocks' }: { layer: ProposalLayer; label?: string }) {
   const open = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
-  if (layer.proposals.length === 0) return null
   return (
+    <Presence>
+    {layer.proposals.length > 0 && (
     <div
       role="region"
       aria-label="Suggested blocks"
@@ -40,5 +43,7 @@ export function ProposalTray({ layer, label = 'suggested blocks' }: { layer: Pro
         </button>
       </div>
     </div>
+    )}
+    </Presence>
   )
 }

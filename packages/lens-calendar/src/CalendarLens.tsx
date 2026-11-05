@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemsRevert } from '@pls/substrate'
 import { DRAFT_ACCEPTED_KEY, confirmWithUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
+import { COURSES, Presence, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -785,6 +785,7 @@ export default function CalendarLens({
       className="flex flex-col gap-1.5 border-t border-border-subtle p-2 empty:hidden"
       style={promptsInset}
     >
+      <Presence>
       {lostSave && (
         <div
           role="alert"
@@ -803,6 +804,7 @@ export default function CalendarLens({
           </button>
         </div>
       )}
+      </Presence>
 
       {/* A board asks once: in its first Calendar (decision 4). */}
       {asksAboutMissedBlocks !== false && (
