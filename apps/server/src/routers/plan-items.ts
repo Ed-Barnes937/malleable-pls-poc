@@ -9,6 +9,8 @@ import {
   planItemOnBoardInput,
   bookSessionsInput,
   planItemsRevertInput,
+  planItemUndoStateInput,
+  type PlanItemUndoState,
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
@@ -58,6 +60,39 @@ async function trash(tx: TransactionSql, userId: string, planItemId: string, par
   await tx`DELETE FROM plan_items WHERE id = ${planItemId} AND user_id = ${userId}`
   await setCourse(tx, userId, planItemId, null)
   return true
+}
+
+/** Trash older than this can't be restored, and is purged (see migration 024). */
+const TRASH_KEPT = '1 day'
+
+async function purgeTrash(tx: TransactionSql, userId: string) {
+  await tx`DELETE FROM plan_item_trash WHERE user_id = ${userId} AND deleted_at <= now() - ${TRASH_KEPT}::interval`
+}
+
+/** One item as an accepted draft can change it, now (see planItemUndoState). */
+async function undoState(tx: TransactionSql, userId: string, planItemId: string): Promise<PlanItemUndoState> {
+  const item = await fetchOne(tx, userId, planItemId)
+  const sessions = await tx`
+    SELECT id, updated_at FROM plan_items
+    WHERE user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${planItemId}
+    ORDER BY id
+  `
+  return {
+    id: item.id,
+    title: item.title,
+    starts_at: item.starts_at,
+    ends_at: item.ends_at,
+    duration_min: item.duration_min,
+    updated_at: item.updated_at,
+    sessions: sessions.map((r) => ({ id: r.id as string, updated_at: (r.updated_at as Date).toISOString() })),
+  }
+}
+
+/** The same time, estimate, sessions and last change: nobody touched it in between. */
+function sameState(a: PlanItemUndoState, b: PlanItemUndoState): boolean {
+  if (a.updated_at !== b.updated_at || a.sessions.length !== b.sessions.length) return false
+  const sessions = new Map(a.sessions.map((s) => [s.id, s.updated_at]))
+  return b.sessions.every((s) => sessions.get(s.id) === s.updated_at)
 }
 
 /** Sets the status; returns the item before and after (unchanged if already at `next`). */
@@ -341,7 +376,7 @@ export const planItemsRouter = router({
     .input(id)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        await tx`DELETE FROM plan_item_trash WHERE user_id = ${ctx.userId} AND deleted_at < now() - interval '1 day'`
+        await purgeTrash(tx, ctx.userId)
         const sessions = await tx`
           SELECT id FROM plan_items
           WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${input}
@@ -360,10 +395,13 @@ export const planItemsRouter = router({
   restore: publicProcedure
     .input(id)
     .mutation(async ({ ctx, input }) => {
+      // Purged on its own, so it holds even when there is nothing to restore.
+      await withUser(ctx.userId, (tx) => purgeTrash(tx, ctx.userId))
       return withUser(ctx.userId, async (tx) => {
         const rows = await tx`
           SELECT id, course, lecture_ids FROM plan_item_trash
           WHERE user_id = ${ctx.userId} AND (id = ${input} OR parent_id = ${input})
+            AND deleted_at > now() - ${TRASH_KEPT}::interval
           ORDER BY (id = ${input}) DESC
         `
         if (!rows.some((r) => r.id === input)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Nothing to restore' })
@@ -414,37 +452,56 @@ export const planItemsRouter = router({
     }),
 
   /**
-   * Undo of an accepted draft: each item's time and estimate as they were,
-   * and (with `sessions`) the sessions the draft booked gone, all in one
-   * transaction. See planItemsRevertInput.
+   * Each item as an accepted draft can change it, now: read before an
+   * Accept and again after it, for `revert`. NOT_FOUND for a missing or
+   * another user's id.
+   */
+  undoState: publicProcedure
+    .input(planItemUndoStateInput)
+    .query(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const out: PlanItemUndoState[] = []
+        for (const planItemId of input) out.push(await undoState(tx, ctx.userId, planItemId))
+        return out
+      })
+    }),
+
+  /**
+   * Undo of an accepted draft, in one transaction: each item still as the
+   * Accept left it goes back as it was before (time, estimate, and the
+   * sessions the Accept booked gone, including one its own block moved
+   * into). An item changed since is left alone and named in `kept`, so a
+   * stale Undo never overwrites the student's newer work.
    */
   revert: publicProcedure
     .input(planItemsRevertInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const out: PlanItem[] = []
-        for (const it of input.items) {
-          const current = await fetchOne(tx, ctx.userId, it.id)
-          if (it.sessions) {
-            const booked = await tx`
-              DELETE FROM plan_items
-              WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${it.id}
-                AND status IN ('open', 'done')
-                ${it.sessions.length ? tx`AND id NOT IN ${tx(it.sessions)}` : tx``}
-              RETURNING id
-            `
-            for (const s of booked) await setCourse(tx, ctx.userId, s.id as string, null)
+        const reverted: PlanItem[] = []
+        const kept: { id: string; title: string }[] = []
+        for (const { before, after } of input.items) {
+          const now = await undoState(tx, ctx.userId, after.id)
+          if (before.id !== after.id || !sameState(now, after)) {
+            kept.push({ id: now.id, title: now.title })
+            continue
           }
-          assertValid({ ...current, starts_at: it.starts_at, ends_at: it.ends_at, duration_min: it.duration_min })
+          const current = await fetchOne(tx, ctx.userId, after.id)
+          const hadBefore = new Set(before.sessions.map((s) => s.id))
+          for (const s of after.sessions) {
+            if (hadBefore.has(s.id)) continue
+            await tx`DELETE FROM plan_items WHERE id = ${s.id} AND user_id = ${ctx.userId}`
+            await setCourse(tx, ctx.userId, s.id, null)
+          }
+          assertValid({ ...current, starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min })
           await tx`
-            UPDATE plan_items SET starts_at = ${it.starts_at}, ends_at = ${it.ends_at}, duration_min = ${it.duration_min}, updated_at = now()
-            WHERE id = ${it.id} AND user_id = ${ctx.userId}
+            UPDATE plan_items SET starts_at = ${before.starts_at}, ends_at = ${before.ends_at}, duration_min = ${before.duration_min}, updated_at = now()
+            WHERE id = ${after.id} AND user_id = ${ctx.userId}
           `
-          const item = await fetchOne(tx, ctx.userId, it.id)
+          const item = await fetchOne(tx, ctx.userId, after.id)
           await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
-          out.push(item)
+          reverted.push(item)
         }
-        return out
+        return { reverted, kept }
       })
     }),
 })

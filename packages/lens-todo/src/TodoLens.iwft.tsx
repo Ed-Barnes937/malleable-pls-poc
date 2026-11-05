@@ -3,6 +3,7 @@ import { test, expect } from '../../../playwright/fixtures'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import { daysFromNow, seedPlanItem } from '../../../playwright/plan-items'
 import { MomentHarness } from '../../../playwright/moment-harness'
+import { TodoHarness } from '../../../playwright/todo-harness'
 import TodoLens from './TodoLens'
 import { JUST_DONE_FADE_MS, JUST_DONE_MS } from './useJustDone'
 
@@ -275,11 +276,7 @@ test('removing a to-do is confirmed with Undo, which brings it back with the ses
   seedPlanItem(simulator, { id: 'session-past', kind: 'task', title: 'Lab report', source_type: 'plan_item', source_id: 'todo-lab', starts_at: daysFromNow(-2, 10), ends_at: daysFromNow(-2, 11) })
   seedPlanItem(simulator, { id: 'session-next', kind: 'task', title: 'Lab report', source_type: 'plan_item', source_id: 'todo-lab', starts_at: daysFromNow(2, 10), ends_at: daysFromNow(2, 11) })
 
-  await mount(
-    <TestProviders toasts>
-      <TodoLens {...defaultProps} />
-    </TestProviders>,
-  )
+  await mount(<TodoHarness />)
 
   await page.getByRole('button', { name: 'Not doing: Lab report' }).click()
   await expect(page.getByTestId('todo-item')).toHaveCount(0)
@@ -297,11 +294,7 @@ test('a run of removes is one toast, and its Undo brings back only the last one'
   seedPlanItem(simulator, { id: 'todo-1', kind: 'task', title: 'Optional reading' })
   seedPlanItem(simulator, { id: 'todo-2', kind: 'task', title: 'Flashcards' })
 
-  await mount(
-    <TestProviders toasts>
-      <TodoLens {...defaultProps} />
-    </TestProviders>,
-  )
+  await mount(<TodoHarness />)
 
   await page.getByRole('button', { name: 'Not doing: Optional reading' }).click()
   await expect(page.getByTestId('toast')).toContainText('Removed "Optional reading"')
@@ -412,8 +405,9 @@ test.describe('blocks that did not happen', () => {
     await expect(proposals.first()).toContainText('Read chapter 5')
 
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(page.getByRole('status')).toHaveText("Moved 2 blocks. They're in your calendar.")
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
+    // Every block fitted: the move's Undo toast says so, with no note of its own (decision 30).
+    await expect(page.getByTestId('refit-note')).toHaveCount(0)
     const moved = simulator.db.planItems.find((p) => p.id === 'missed-1')!
     expect(Date.parse(moved.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
     // Re-fitted at its block's length (the time booked), not its to-do's 1h estimate.
@@ -423,11 +417,7 @@ test.describe('blocks that did not happen', () => {
 
   test('moving them is confirmed with Undo, which puts them back and does not ask again', async ({ mount, page, simulator }) => {
     seedMissed(simulator)
-    await mount(
-      <TestProviders toasts>
-        <TodoLens {...defaultProps} />
-      </TestProviders>,
-    )
+    await mount(<TodoHarness />)
 
     const banner = page.getByTestId('refit-banner')
     await banner.getByRole('button', { name: 'Re-fit' }).click()
@@ -441,6 +431,56 @@ test.describe('blocks that did not happen', () => {
     expect(simulator.db.planItems.find((p) => p.id === 'missed-1')!).toMatchObject({ starts_at: fromNow(-2, 10), duration_min: 60 })
     // Undo was the student's answer: the question doesn't come straight back.
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
+  })
+
+  /** Resolves once the missed-blocks question is fetched again and its answer has had frames to render. */
+  const nextQuestion = (page: Page) => {
+    const response = page.waitForResponse((r) => r.url().includes('planItems.refitPreview'))
+    return async () => {
+      await response
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+    }
+  }
+
+  test('"Not now" holds when a missed to-do is removed and the removal undone', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    await mount(<TodoHarness />)
+    const banner = page.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Not now' }).click()
+    await expect(banner).toHaveCount(0)
+
+    // Removed: no longer missed, so the question is fetched without it.
+    const removed = nextQuestion(page)
+    await page.getByRole('button', { name: 'Not doing: Read chapter 5' }).click()
+    const toast = page.getByTestId('toast')
+    await expect(toast).toContainText('Removed "Read chapter 5"')
+    await removed()
+
+    // Undo brings back the same miss, already answered: it is not asked about again.
+    const restored = nextQuestion(page)
+    await toast.getByRole('button', { name: 'Undo' }).click()
+    await expect(page.getByTestId('todo-item').filter({ hasText: 'Read chapter 5' })).toBeVisible()
+    await restored()
+    await expect(banner).toHaveCount(0)
+  })
+
+  test('"Not now" holds when a missed to-do is ticked and the tick undone', async ({ mount, page, simulator }) => {
+    seedMissed(simulator)
+    await mount(<TodoHarness />)
+    const banner = page.getByTestId('refit-banner')
+    await banner.getByRole('button', { name: 'Not now' }).click()
+    await expect(banner).toHaveCount(0)
+
+    const ticked = nextQuestion(page)
+    await page.getByRole('checkbox', { name: 'Done: Lab write-up' }).click()
+    await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'missed-2')!.status).toBe('done')
+    await ticked()
+
+    const reopened = nextQuestion(page)
+    await page.getByRole('button', { name: 'Undo: Lab write-up' }).click()
+    await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'missed-2')!.status).toBe('open')
+    await reopened()
+    await expect(banner).toHaveCount(0)
   })
 
   test('"Not now" is remembered after a reload, until a further block is missed', async ({ mount, page, simulator }) => {
@@ -524,7 +564,9 @@ test.describe('blocks that did not happen', () => {
     await expect(banner.getByTestId('refit-proposal')).toHaveCount(1)
     await expect(banner.getByTestId('refit-proposal')).toContainText('Lab write-up')
     await banner.getByRole('button', { name: 'Move it' }).click()
-    await expect(page.getByRole('status')).toHaveText("Moved 1 block. It's in your calendar.")
+    await expect(page.getByTestId('refit-banner')).toHaveCount(0)
+    await expect.poll(() => Date.parse(simulator.db.planItems.find((p) => p.id === 'missed-2')!.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
+    await expect(page.getByTestId('refit-note')).toHaveCount(0)
   })
 
   test('a block that does not fit is reported once, not asked about again', async ({ mount, page, simulator }) => {
@@ -545,83 +587,22 @@ test.describe('blocks that did not happen', () => {
     await expect(banner.getByTestId('refit-proposal').filter({ hasText: 'Essay plan' })).toContainText('No free time before it is due')
     await banner.getByRole('button', { name: 'Move them' }).click()
 
-    await expect(page.getByRole('status')).toHaveText(
-      "Moved 2 blocks. They're in your calendar. 1 didn't fit before it is due, so it stays on your to-do list.",
-    )
+    // Only the block that stays put gets a note; the moved ones have their Undo toast.
+    await expect(page.getByTestId('refit-note')).toHaveText("1 didn't fit before it is due, so it stays on your to-do list.")
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
     await expect(page.getByTestId('todo-item').filter({ hasText: 'Essay plan' })).toBeVisible()
   })
 
-  test('blocks moved past this week: the note says which week, and offers to show it', async ({ mount, page, simulator }) => {
-    seedMissed(simulator)
-    // No free time for the rest of this week: the new times are next week.
-    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
-    const shown: { id: string; startsAt: string }[] = []
-    await mount(
-      <TestProviders>
-        <TodoLens {...defaultProps} onShowPlanItem={(item) => { shown.push({ id: item.id, startsAt: item.startsAt }); return true }} />
-      </TestProviders>,
-    )
-
-    const banner = page.getByTestId('refit-banner')
-    await banner.getByRole('button', { name: 'Re-fit' }).click()
-    await expect(banner.getByTestId('refit-proposal')).toHaveCount(2)
-    await banner.getByRole('button', { name: 'Move them' }).click()
-    const note = page.getByTestId('refit-note')
-    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
-    const first = [...simulator.db.planItems]
-      .filter((p) => p.id === 'missed-1' || p.id === 'missed-2')
-      .sort((a, b) => Date.parse(a.starts_at!) - Date.parse(b.starts_at!))[0]
-    expect(Date.parse(first.starts_at!)).toBeGreaterThanOrEqual(Date.parse(fromNow(5, 0)))
-    // It stays until used (no time limit on an action), then shows the first of them.
-    await page.waitForTimeout(6500)
-    await note.getByRole('button', { name: 'Show next week' }).click()
-    await expect.poll(() => shown).toEqual([{ id: first.id, startsAt: first.starts_at }])
-    await expect(note).toHaveCount(0)
-  })
-
-  test('a note with an action can be dismissed, and loses the action when the calendar goes', async ({ mount, page, simulator }) => {
-    seedMissed(simulator)
-    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
-    const showPlanItem = () => true
-    const component = await mount(
-      <TestProviders>
-        <TodoLens {...defaultProps} onShowPlanItem={showPlanItem} />
-      </TestProviders>,
-    )
-    const banner = page.getByTestId('refit-banner')
-    await banner.getByRole('button', { name: 'Re-fit' }).click()
-    await banner.getByRole('button', { name: 'Move them' }).click()
-    const note = page.getByTestId('refit-note')
-    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
-
-    // The Calendar is taken off the board: nothing left to show the week in.
-    await component.update(
-      <TestProviders>
-        <TodoLens {...defaultProps} />
-      </TestProviders>,
-    )
-    await expect(note).toHaveText('Moved 2 blocks to next week.')
-    await expect(page.getByRole('button', { name: 'Show next week' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Dismiss note' })).toHaveCount(0)
-
-    // Back again: the action, and a way to dismiss the note without using it.
-    await component.update(
-      <TestProviders>
-        <TodoLens {...defaultProps} onShowPlanItem={showPlanItem} />
-      </TestProviders>,
-    )
-    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
-    await page.getByRole('button', { name: 'Dismiss note' }).click()
-    await expect(note).toHaveCount(0)
-  })
-
   test('a new question replaces an old note, which does not come back once it is answered elsewhere', async ({ mount, page, simulator }) => {
     seedMissed(simulator)
-    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
+    // Due in 5 minutes: it can't fit, so the move leaves a note about it.
+    seedPlanItem(simulator, {
+      id: 'no-fit', kind: 'task', title: 'Essay plan', duration_min: 60, starts_at: fromNow(-1, 15), ends_at: fromNow(-1, 16),
+      due_at: new Date(NOW.getTime() + 5 * 60_000).toISOString(),
+    })
     await mount(
       <TestProviders>
-        <div data-testid="here"><TodoLens {...defaultProps} onShowPlanItem={() => true} /></div>
+        <div data-testid="here"><TodoLens {...defaultProps} /></div>
         <div data-testid="elsewhere"><TodoLens {...defaultProps} panelId="other-panel" /></div>
       </TestProviders>,
     )
@@ -629,7 +610,7 @@ test.describe('blocks that did not happen', () => {
     const elsewhere = page.getByTestId('elsewhere')
     await here.getByRole('button', { name: 'Re-fit' }).click()
     await here.getByRole('button', { name: 'Move them' }).click()
-    await expect(here.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week. Show next week')
+    await expect(here.getByTestId('refit-note')).toHaveText("1 didn't fit before it is due, so it stays on your to-do list.")
 
     // Another block is missed (picked up when the plan next changes).
     seedPlanItem(simulator, { id: 'missed-3', kind: 'task', title: 'Past paper', starts_at: fromNow(-1, 17), ends_at: fromNow(-1, 18) })
@@ -638,25 +619,10 @@ test.describe('blocks that did not happen', () => {
     await expect(here.getByTestId('refit-banner')).toContainText("1 block didn't happen.")
     await expect(here.getByTestId('refit-note')).toHaveCount(0)
 
-    // Answered in another widget: the old note (and its action) stays gone.
+    // Answered in another widget: the old note stays gone.
     await elsewhere.getByTestId('refit-banner').getByRole('button', { name: 'Not now' }).click()
     await expect(here.getByTestId('refit-banner')).toHaveCount(0)
     await expect(here.getByTestId('refit-note')).toHaveCount(0)
-  })
-
-  test('with no calendar on the board to show them, the note only says where they went', async ({ mount, page, simulator }) => {
-    seedMissed(simulator)
-    seedPlanItem(simulator, { id: 'away', kind: 'commitment', title: 'Away', starts_at: fromNow(0, 0), ends_at: fromNow(5, 0) })
-    await mount(
-      <TestProviders>
-        <TodoLens {...defaultProps} />
-      </TestProviders>,
-    )
-    const banner = page.getByTestId('refit-banner')
-    await banner.getByRole('button', { name: 'Re-fit' }).click()
-    await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(page.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week.')
-    await expect(page.getByTestId('refit-note').getByRole('button')).toHaveCount(0)
   })
 })
 
@@ -838,4 +804,56 @@ test('Book the rest that fails to save saves nothing, says so, and books it all 
   // Every block once (no double booking), plus the own block as a session.
   expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toHaveLength(blocks + 1)
   await expect(lab.getByTestId('todo-booked')).toHaveCount(0)
+})
+
+test('Book it is confirmed with Undo, which takes the booked time out and puts the to-do back as it was', async ({ mount, page, simulator }) => {
+  const own = { starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 10) }
+  seedPlanItem(simulator, { id: 'quiz', kind: 'task', title: 'Revise for the quiz', duration_min: 120, due_at: daysFromNow(3, 17), ...own })
+  await mount(<TodoHarness />)
+  const quiz = page.getByTestId('todo-item').filter({ hasText: 'Revise for the quiz' })
+  await quiz.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  await quiz.getByTestId('book-the-rest').getByRole('button', { name: 'Book it' }).click()
+
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Booked the rest of "Revise for the quiz"')
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'quiz').length).toBe(2)
+  await expect(quiz.getByTestId('todo-booked')).toHaveCount(0)
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  // The sessions go, and the to-do has its own block again.
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'quiz').length).toBe(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'quiz')).toMatchObject({ ...own, duration_min: 120, status: 'open' })
+  await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+})
+
+test('Book the rest split into sessions says how many, and its Undo leaves a session ticked off since', async ({ mount, page, simulator }) => {
+  // 3h due in four days, booked for 30m: the rest splits into sessions.
+  const start = daysFromNow(1, 9)
+  const own = { starts_at: start, ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString() }
+  seedPlanItem(simulator, { id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: daysFromNow(4, 17), ...own })
+  await mount(<TodoHarness />)
+  const lab = page.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })
+  await lab.getByRole('button', { name: 'Book the rest of Lab report write-up' }).click()
+  const draft = lab.getByTestId('book-the-rest')
+  await expect(draft.getByTestId('book-the-rest-block').first()).toBeVisible()
+  const blocks = await draft.getByTestId('book-the-rest-block').count()
+  expect(blocks).toBeGreaterThan(1)
+  await draft.getByRole('button', { name: 'Book it' }).click()
+
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText(`Booked the rest of "Lab report write-up" in ${blocks} sessions`)
+  // Every block, plus the own block as a session.
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'lab').length).toBe(blocks + 1)
+
+  // One session is ticked off on another device before Undo.
+  const ticked = simulator.db.planItems.filter((p) => p.source_id === 'lab').at(-1)!
+  Object.assign(ticked, { status: 'done', updated_at: new Date(Date.parse(ticked.updated_at) + 1000).toISOString() })
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(toast).toHaveText(/"Lab report write-up" changed since, so it stays as it is\./)
+  await expect(toast.getByRole('button', { name: 'Undo' })).toHaveCount(0)
+  // Nothing is taken back: the ticked session (and the rest of that booking) stays.
+  expect(simulator.db.planItems.find((p) => p.id === ticked.id)).toMatchObject({ status: 'done' })
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toHaveLength(blocks + 1)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')).toMatchObject({ starts_at: null, ends_at: null })
 })

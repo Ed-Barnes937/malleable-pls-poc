@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { DEFAULT_PREFERENCES, draftRest, formatMinutes, localDayRange, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
-import { useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { useSubstrate, useSubstrateMutations, type DraftUndo } from '@pls/lens-framework'
 import { clockTime, dayAndTime } from '@pls/shared-ui'
 import { Loader2, Sparkles } from 'lucide-react'
 
@@ -11,12 +11,15 @@ const DAY_MS = 24 * 3_600_000
  * placed by the same planner as Auto-fill (inside study hours and the daily
  * budget, before it is due, split into sessions when no one block fits),
  * over the next seven days. A draft until the student says "Book it"; then
- * its blocks are saved together as sessions of the to-do, all or none.
+ * its blocks are saved together as sessions of the to-do, all or none, and
+ * confirmed with Undo (an accepted draft, decision 19).
  */
-export function BookTheRest({ todo, restMin, now, onClose }: {
+export function BookTheRest({ todo, restMin, now, undo, onClose }: {
   todo: PlanItemOccurrence
   restMin: number
   now: number
+  /** The widget's Undo for an accepted draft (see `useDraftUndo`). */
+  undo: DraftUndo
   onClose: () => void
 }) {
   const reader = useSubstrate()
@@ -48,11 +51,20 @@ export function BookTheRest({ todo, restMin, now, onClose }: {
     setSaving(true)
     setFailed(false)
     try {
+      // As it was before, for Undo.
+      const before = await undo.readBefore([todo.id])
       // In one go, on the server: all of them or none (and the to-do's own block, if it has one, becomes a session too).
       await bookSessions.mutateAsync({
         todoId: todo.id,
         blocks: blocks.map((b) => ({ starts_at: new Date(b.start).toISOString(), ends_at: new Date(b.end).toISOString() })),
       })
+      if (before) {
+        void undo.confirm({
+          before,
+          message: blocks.length === 1 ? `Booked the rest of "${todo.title}"` : `Booked the rest of "${todo.title}" in ${blocks.length} sessions`,
+          failMessage: blocks.length === 1 ? "Couldn't take that session out of your plan." : "Couldn't take those sessions out of your plan.",
+        })
+      }
       onClose()
     } catch {
       setFailed(true)

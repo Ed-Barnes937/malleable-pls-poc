@@ -28,14 +28,19 @@ describe('usePendingReviews', () => {
     expect(result.current.stateOf('seg-1')).toBe('none')
   })
 
-  it('gives up after a while when nothing arrives (the automation failed)', () => {
-    const { result } = render()
+  it('says "not yet" after a while when nothing arrives, never that no review is planned, and a late review still takes its place', () => {
+    const reviewed = new Set<string>()
+    const { result, rerender } = render(reviewed)
     act(() => result.current.mark('seg-1'))
     act(() => result.current.started('seg-1', 1))
     act(() => vi.advanceTimersByTime(REVIEW_WAIT_MS - 1))
     expect(result.current.stateOf('seg-1')).toBe('planning')
     act(() => vi.advanceTimersByTime(1))
-    expect(result.current.stateOf('seg-1')).toBe('none')
+    expect(result.current.stateOf('seg-1')).toBe('late')
+
+    reviewed.add('seg-1')
+    rerender({ has: (id: string) => reviewed.has(id) })
+    expect(result.current.stateOf('seg-1')).toBeNull()
   })
 
   it('shows nothing when the tag itself did not save', () => {

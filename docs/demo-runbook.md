@@ -46,7 +46,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 
 **6. Encores**
 - Weakest Topics lists readable topics: Maternal inheritance (today's lecture, "Confusing"), Mitochondrial disease, Maternal inheritance (the seeded lecture), Paternal inheritance, ... Click one: the Transcript jumps to that moment (seeded ones show "Reviewed · 20 min"). A seeded one is in the other lecture, so the board switches to it and a toast says so ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") with **Back to Mitochondrial DNA - today**.
-- Calendar: "2 blocks didn't happen. Re-fit them?" > **Re-fit** (the new times show as ghost blocks within the 2h a day; drag to adjust) > **Move them**: "Moved 2 blocks. They're in your calendar." and a "Moved 2 blocks" toast with **Undo**. From Thursday on they may go to next week instead: the Calendar opens that week and the note says "Moved 2 blocks to next week." (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
+- Calendar: "2 blocks didn't happen. Re-fit them?" > **Re-fit** (the new times show as ghost blocks within the 2h a day; drag to adjust) > **Move them**: a "Moved 2 blocks" toast with **Undo**. From Thursday on they may go to next week instead: the Calendar opens that week. (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
 
 ## Fallbacks
 
@@ -62,5 +62,5 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 - **Don't scroll during the ripple** (about two seconds after confused): the board stops following it.
 - **Live Whisper splits moments differently** from mock: in mock the maternal-inheritance moment is one 40s segment (1:18-1:59); live it may be two or three shorter ones. Tap the one with "explain maternal inheritance"; the review title comes from the live LLM.
 - Weakest Topics shows two "Maternal inheritance" rows (the seeded lecture and today's); the distinct upload title tells them apart.
-- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the Calendar opens that week and the note says so.
+- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the Calendar opens that week to show them.
 - Keep Test Me off the demo board (its answer field is cut off); the seeded Evening Review and Exam Prep boards have it, so stay on "My week".

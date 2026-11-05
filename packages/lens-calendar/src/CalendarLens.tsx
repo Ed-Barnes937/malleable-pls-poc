@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemsRevert } from '@pls/substrate'
-import { DRAFT_ACCEPTED_KEY, confirmWithUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
+import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, Presence, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
@@ -70,7 +70,7 @@ function courseLabel(course: string): string {
 
 export default function CalendarLens({
   panelId, highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
-  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify,
+  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify, onDismissNotice,
 }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
@@ -302,7 +302,9 @@ export default function CalendarLens({
 
   // Study blocks whose time passed without being done, offered for re-fitting.
   const missed = useMissedBlocks()
-  const refit = useRefitDraft(missed, onNotify)
+  // Undo for an accepted draft (Auto-fill, re-fit); its toast goes once a block it changed is edited.
+  const draftUndo = useDraftUndo({ onNotify, onDismissNotice, rows: taskRows })
+  const refit = useRefitDraft(missed, draftUndo)
   const missedIds = useMemo(() => (missed.preview ? new Set(missed.preview.map((m) => m.item.id)) : null), [missed.preview])
 
   const validateProposal: ProposalValidator = useCallback((p, source) => {
@@ -323,68 +325,62 @@ export default function CalendarLens({
   /** Shrinks already saved with a split to-do's sessions (`taskId:minutes`). */
   const shrunkRef = useRef(new Set<string>())
   /**
-   * Each to-do an Accept writes, as it was before that Accept (its time,
-   * estimate and sessions), until the Accept is confirmed with Undo. Read
-   * from the latest rows when the to-do's first block in the Accept saves.
+   * Each to-do an Accept writes, as it was before that Accept (read from the
+   * server before its first write in the Accept), and whether anything of
+   * it was written, until the Accept is confirmed with Undo. One that was
+   * only partly written (a Shrink saved, then its session failed) is still
+   * undone with the rest.
    */
-  const beforeAcceptRef = useRef(new Map<string, PlanItemsRevert['items'][number]>())
-  const taskRowsRef = useRef(taskRows)
-  taskRowsRef.current = taskRows
-  /** Keeps the to-do as it is now, unless this Accept already has; true when it kept it. */
-  const keepBeforeAccept = (taskId: string): boolean => {
-    const rows = taskRowsRef.current ?? []
-    const stored = rows.find((t) => t.id === taskId)
-    if (!stored || beforeAcceptRef.current.has(taskId)) return false
-    beforeAcceptRef.current.set(taskId, {
-      id: taskId,
-      starts_at: stored.starts_at,
-      ends_at: stored.ends_at,
-      duration_min: stored.duration_min,
-      sessions: rows.filter((t) => sessionParentId(t) === taskId).map((t) => t.id),
-    })
-    return true
-  }
-  const revert = mutations.useRevertPlanItems()
-  const revertRef = useRef(revert)
-  revertRef.current = revert
+  const beforeAcceptRef = useRef(new Map<string, { title: string; state: PlanItemUndoState | null; wrote: boolean; shrunkTo?: number }>())
   const confirmAccepted = useCallback((accepted: Proposal[]) => {
-    const taskIds = [...new Set(accepted.map((p) => p.taskId))]
-    const items = taskIds.flatMap((id) => beforeAcceptRef.current.get(id) ?? [])
-    for (const id of taskIds) beforeAcceptRef.current.delete(id)
-    if (items.length === 0) return
-    confirmWithUndo(onNotify, {
-      key: DRAFT_ACCEPTED_KEY,
-      message: accepted.length === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${accepted.length} blocks to your plan`,
-      failMessage: accepted.length === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
-      undo: async () => {
-        await revertRef.current.mutateAsync({ items })
-        // A Shrink undone is offered again on the next draft.
+    const touched = [...beforeAcceptRef.current.entries()].filter(([, e]) => e.wrote)
+    beforeAcceptRef.current.clear()
+    const before = touched.flatMap(([, e]) => e.state ?? [])
+    if (before.length === 0) return
+    const n = accepted.length
+    const taskIds = touched.map(([id]) => id)
+    // Nothing booked, but a Shrink saved: one error toast, whose Undo puts the estimate back.
+    const shrunk = n === 0 ? touched.find(([, e]) => e.shrunkTo !== undefined)?.[1] : undefined
+    void draftUndo.confirm({
+      before,
+      message: n === 0
+        ? `Couldn't book "${touched[0][1].title}".${shrunk ? ` Its estimate changed to ${formatMinutes(shrunk.shrunkTo!)}` : ''}`
+        : n === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${n} blocks to your plan`,
+      tone: n === 0 ? 'error' : undefined,
+      failMessage: n === 0 ? "Couldn't put its estimate back." : n === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
+      // A Shrink undone is offered again on the next draft.
+      onUndone: () => {
         for (const key of [...shrunkRef.current]) if (taskIds.some((id) => key.startsWith(`${id}:`))) shrunkRef.current.delete(key)
       },
     })
-  }, [onNotify])
+  }, [draftUndo])
   const layer = useProposalLayer({
     // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
     save: async (p) => {
-      const kept = keepBeforeAccept(p.taskId)
-      try {
-        if (!p.session) return await updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
-        const todo = todos?.find((t) => t.id === p.taskId)
-        if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
-        // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
-        const estimate = p.session.estimateMin
-        const stored = openTodos?.find((t) => t.id === p.taskId)
-        const key = `${p.taskId}:${estimate}`
-        if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
-          await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
-          shrunkRef.current.add(key)
-        }
-        return await createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
-      } catch (err) {
-        // Nothing of this to-do saved in this Accept: there is nothing to undo for it.
-        if (kept) beforeAcceptRef.current.delete(p.taskId)
-        throw err
+      let entry = beforeAcceptRef.current.get(p.taskId)
+      if (!entry) {
+        const [state] = (await draftUndo.readBefore([p.taskId])) ?? [null]
+        // The to-do's own title: a session's ("... (1 of 3)") is not what an estimate belongs to.
+        entry = { title: state?.title ?? p.title, state: state ?? null, wrote: false }
+        beforeAcceptRef.current.set(p.taskId, entry)
       }
+      const wrote = <T,>(result: T) => {
+        entry.wrote = true
+        return result
+      }
+      if (!p.session) return wrote(await updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }))
+      const todo = todos?.find((t) => t.id === p.taskId)
+      if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
+      // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
+      const estimate = p.session.estimateMin
+      const stored = openTodos?.find((t) => t.id === p.taskId)
+      const key = `${p.taskId}:${estimate}`
+      if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
+        wrote(await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } }))
+        entry.shrunkTo = estimate
+        shrunkRef.current.add(key)
+      }
+      return wrote(await createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt)))
     },
     saveTogether: { [REFIT_SOURCE]: refit.save },
     onAccepted: confirmAccepted,

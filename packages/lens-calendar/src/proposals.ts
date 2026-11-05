@@ -112,9 +112,10 @@ export function useProposalLayer({
 }: {
   save: (proposal: Proposal) => Promise<unknown>
   /**
-   * One Accept (one ghost, or Accept all) saved these with `save`, in
-   * order: called once per Accept, so it can be undone as one change. Not
-   * called for a `saveTogether` source, whose save sees the whole batch.
+   * One Accept (one ghost, or Accept all) has finished: these are the ones
+   * it saved, in order (none if every one failed or was skipped, though a
+   * `save` may still have written part of one). Called once per Accept, so
+   * it can be undone as one change.
    */
   onAccepted?: (proposals: Proposal[], source: string) => void
   /**
@@ -351,7 +352,7 @@ export function useProposalLayer({
     } finally {
       setSaving((n) => n - 1)
     }
-    if (accepted.length > 0 && batchSource) onAccepted?.(accepted, batchSource)
+    if (batchSource) onAccepted?.(accepted, batchSource)
     if (skipped.length > 0) setNotice(skipped.join(' '))
     if (failed.length > 0) {
       setError(`Couldn't save ${failed.map((t) => `"${t}"`).join(', ')}. Still drafted - try again?`)

@@ -157,7 +157,7 @@ export function notifyToast(notice: LensNotice, opts: { board?: string } = {}) {
     tone: notice.tone ?? 'success',
     key: notice.key,
     board: opts.board,
-    action: notice.action && { ...notice.action, icon: notice.action.label === 'Undo' ? Undo2 : undefined },
+    action: notice.action && { label: notice.action.label, onClick: notice.action.onClick, icon: notice.action.kind === 'undo' ? Undo2 : undefined },
   })
 }
 

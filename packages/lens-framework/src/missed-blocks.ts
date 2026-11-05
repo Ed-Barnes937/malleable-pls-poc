@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { RefitProposal } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from './substrate-context'
-import { confirmWithUndo } from './undo-toast'
-import type { LensProps } from './types'
 
 /**
  * "2 blocks didn't happen. Re-fit them?": the shared side of re-fitting
@@ -22,6 +20,9 @@ import type { LensProps } from './types'
 
 /** One missed block as it is now: a new miss of the same to-do is a new signature. */
 export const missedBlockSignature = (p: RefitProposal) => `${p.item.id}@${p.item.ends_at}`
+
+/** The plan item a signature is for. */
+const signatureItemId = (signature: string) => signature.slice(0, signature.lastIndexOf('@'))
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
@@ -49,60 +50,14 @@ export function refitAsk(n: number): string {
   return plural(n, 'Re-fit it?', 'Re-fit them?')
 }
 
-/** Local midnight of the Monday of the week `ms` is in. */
-function mondayOf(ms: number): number {
-  const d = new Date(ms)
-  d.setHours(0, 0, 0, 0)
-  d.setDate(d.getDate() - ((d.getDay() + 6) % 7))
-  return d.getTime()
-}
-
-/** Whole weeks from the week of `now` to the week of `ms` (0 = this week; never negative). */
-function weeksAhead(ms: number, now: number): number {
-  return Math.max(0, Math.round((mondayOf(ms) - mondayOf(now)) / (7 * 24 * 3_600_000)))
-}
-
-/** "this week", "next week", "the week of 9 Nov". */
-function weekName(ms: number, now: number): string {
-  const ahead = weeksAhead(ms, now)
-  if (ahead === 0) return 'this week'
-  if (ahead === 1) return 'next week'
-  return `the week of ${new Date(mondayOf(ms)).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
-}
-
 /**
- * Where moved blocks went, so the student knows where to look: "Moved 2
- * blocks. They're in your calendar." when all stayed this week (the week a
- * calendar opens on), "Moved 2 blocks to next week." when all went to one
- * later week, "Moved 3 blocks: 2 this week, 1 next week." when split.
+ * "1 didn't fit this week, so it stays on your to-do list.": the blocks a
+ * re-fit left where they were, with the reason the preview gave ("before it
+ * is due" / "this week"). Moved blocks are confirmed by their Undo toast
+ * (decision 30), never by a note. Empty when every block fitted.
  */
-function movedSentence(moved: ReadonlyArray<string>, now: number): string {
-  const n = moved.length
-  const byWeek = new Map<number, number[]>()
-  for (const ms of moved.map(Date.parse)) {
-    const ahead = weeksAhead(ms, now)
-    byWeek.set(ahead, [...(byWeek.get(ahead) ?? []), ms])
-  }
-  const weeks = [...byWeek.entries()].sort(([a], [b]) => a - b)
-  if (weeks.length === 1 && weeks[0][0] === 0) return `Moved ${n} ${plural(n, "block. It's", "blocks. They're")} in your calendar.`
-  const blocks = `${n} ${plural(n, 'block', 'blocks')}`
-  if (weeks.length === 1) return `Moved ${blocks} to ${weekName(weeks[0][1][0], now)}.`
-  const parts = weeks.map(([ahead, starts]) => {
-    const name = weekName(starts[0], now)
-    return `${starts.length} ${ahead > 1 ? `in ${name}` : name}`
-  })
-  return `Moved ${blocks}: ${parts.join(', ')}.`
-}
-
-/**
- * "Moved 2 blocks to next week. 1 didn't fit this week, so it stays on your
- * to-do list." Where the moved blocks went (`moved`: each one's new start,
- * ISO; see `movedSentence`), then each block that didn't fit, with the
- * reason the preview gave ("before it is due" / "this week").
- */
-export function movedNote(moved: ReadonlyArray<string>, noFit: RefitProposal[], now = Date.now()): string {
+export function noFitNote(noFit: ReadonlyArray<RefitProposal>): string {
   const parts: string[] = []
-  if (moved.length > 0) parts.push(movedSentence(moved, now))
   const beforeDue = noFit.filter((p) => noFitWhen(p) === 'before it is due').length
   const thisWeek = noFit.length - beforeDue
   if (thisWeek > 0) {
@@ -112,21 +67,6 @@ export function movedNote(moved: ReadonlyArray<string>, noFit: RefitProposal[], 
     parts.push(`${beforeDue} didn't fit before ${plural(beforeDue, 'it is', 'they are')} due, so ${plural(beforeDue, 'it stays', 'they stay')} on your to-do list.`)
   }
   return parts.join(' ')
-}
-
-/**
- * When some moved blocks went past this week (the week a calendar opens
- * on), the earliest of them, to show, and the action's label: "Show next
- * week", "Show the week of 9 Nov". Null when they all stayed this week.
- */
-export function movedPastThisWeek(
-  moved: ReadonlyArray<{ id: string; startsAt: string }>,
-  now = Date.now(),
-): { id: string; startsAt: string; label: string } | null {
-  const later = moved
-    .filter((b) => weeksAhead(Date.parse(b.startsAt), now) > 0)
-    .sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))[0]
-  return later ? { id: later.id, startsAt: later.startsAt, label: `Show ${weekName(Date.parse(later.startsAt), now)}` } : null
 }
 
 /**
@@ -176,14 +116,24 @@ export function markMissedBlocksHandled(ps: ReadonlyArray<RefitProposal>) {
   notify()
 }
 
+/** At most this many answers are kept (the oldest go first). */
+const ANSWERS_KEPT = 200
+
 /**
- * Forgets answers for blocks that aren't missed any more (done, moved,
- * deleted), so what is kept stays as small as the list of missed blocks.
+ * Forgets answers that no longer apply: a block missed again (the same
+ * to-do with a new signature) is a further miss, so its old answer goes and
+ * it is asked about (decision 4). A block that is not missed for now (done,
+ * moved, deleted) keeps its answer: an Undo can bring the same miss straight
+ * back, and it must not be asked about again.
  */
-function forgetAnsweredExcept(all: ReadonlyArray<RefitProposal>) {
-  const live = new Set(all.map(missedBlockSignature))
-  if ([...handled].every((s) => live.has(s))) return
-  handled = new Set([...handled].filter((s) => live.has(s)))
+function forgetAnsweredFor(all: ReadonlyArray<RefitProposal>) {
+  const live = new Map(all.map((p) => [p.item.id, missedBlockSignature(p)]))
+  const next = [...handled].filter((s) => {
+    const now = live.get(signatureItemId(s))
+    return now === undefined || now === s
+  }).slice(-ANSWERS_KEPT)
+  if (next.length === handled.size) return
+  handled = new Set(next)
   saveAnswered(handled)
   notify()
 }
@@ -221,36 +171,6 @@ function previewedElsewhere(p: RefitProposal, owner: symbol, claims: ReadonlyMap
   const signature = missedBlockSignature(p)
   for (const [other, signatures] of claims) if (other !== owner && signatures.has(signature)) return true
   return false
-}
-
-/** The Undo toast key every accepted draft shares (Auto-fill, re-fit). */
-export const DRAFT_ACCEPTED_KEY = 'draft-accepted'
-
-/**
- * Confirms re-fitted blocks with Undo, which puts each back at the time it
- * didn't happen in (in one go) and counts that as the student's answer, so
- * the question isn't raised again straight away. `onNotify`: the widget's
- * (`LensProps.onNotify`); without one nothing is said.
- */
-export function useUndoRefit(onNotify: LensProps['onNotify']): (moved: ReadonlyArray<RefitProposal>) => void {
-  const revert = useSubstrateMutations().useRevertPlanItems()
-  const revertRef = useRef(revert)
-  revertRef.current = revert
-  return useCallback((moved: ReadonlyArray<RefitProposal>) => {
-    if (moved.length === 0) return
-    const n = moved.length
-    confirmWithUndo(onNotify, {
-      key: DRAFT_ACCEPTED_KEY,
-      message: n === 1 ? `Moved "${moved[0].item.title}"` : `Moved ${n} blocks`,
-      failMessage: plural(n, "Couldn't put that block back.", "Couldn't put those blocks back."),
-      undo: async () => {
-        await revertRef.current.mutateAsync({
-          items: moved.map((p) => ({ id: p.item.id, starts_at: p.item.starts_at, ends_at: p.item.ends_at, duration_min: p.item.duration_min })),
-        })
-        markMissedBlocksHandled(moved)
-      },
-    })
-  }, [onNotify])
 }
 
 /** The browser's zone: the student's study day is read in it. */
@@ -319,7 +239,7 @@ export function useMissedBlocks({ course }: { course?: string | null } = {}): Mi
     [acceptRefit, timeZone],
   )
   useEffect(() => {
-    if (data) forgetAnsweredExcept(data)
+    if (data) forgetAnsweredFor(data)
   }, [data])
   const startPreview = useCallback((ps: ReadonlyArray<RefitProposal>) => claimMissedBlocksPreview(owner, ps), [owner])
   const endPreview = useCallback(() => releaseMissedBlocksPreview(owner), [owner])

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
-import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
+import { type LensProps, useDraftUndo, useLinkedToLecture, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals, useEnterOnce, useListGlide } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
@@ -13,7 +13,7 @@ import { useStatusWrites } from './useStatusWrites'
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
 
-export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, onShowPlanItem, asksAboutMissedBlocks, onNotify }: LensProps) {
+export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, asksAboutMissedBlocks, onNotify, onDismissNotice }: LensProps) {
   // Rings to-dos made from the board's lecture's moments.
   const fromLecture = useLinkedToLecture(highlight?.lectureId)
   const reader = useSubstrate()
@@ -25,6 +25,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const items = useMemo(() => taskRows?.filter((item) => !isSession(item)), [taskRows])
   // Time booked per to-do (its own block or its sessions): a resize never changes the estimate.
   const booked = useMemo(() => bookedMinutes(taskRows ?? []), [taskRows])
+  // Undo for a re-fit move or Book the rest; its toast goes once a block it changed is edited.
+  const draftUndo = useDraftUndo({ onNotify, onDismissNotice, rows: taskRows })
   /** The to-do whose rest is being drafted here (Book the rest). */
   const [bookingRest, setBookingRest] = useState<string | null>(null)
   // Unfiltered counterpart, only to say what the course filter leaves out.
@@ -132,7 +134,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
       </div>
 
       {/* A board asks once: here only when it has no Calendar (decision 4). */}
-      {asksAboutMissedBlocks !== false && <RefitBanner course={course} onShowPlanItem={onShowPlanItem} onNotify={onNotify} />}
+      {asksAboutMissedBlocks !== false && <RefitBanner course={course} undo={draftUndo} />}
 
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
@@ -156,7 +158,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               onShowMoment={onShowMoment}
             >
               {booking && bookingRest === item.id && (
-                <BookTheRest todo={item} restMin={booking.restMin} now={now} onClose={() => setBookingRest(null)} />
+                <BookTheRest todo={item} restMin={booking.restMin} now={now} undo={draftUndo} onClose={() => setBookingRest(null)} />
               )}
             </TodoRow>
           )

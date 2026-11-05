@@ -151,6 +151,9 @@ export {
   bookSessionsInput,
   type BookSessions,
   planItemsRevertInput,
+  planItemUndoState,
+  planItemUndoStateInput,
+  type PlanItemUndoState,
   type PlanItemsRevert,
 } from './plan-item-schemas'
 

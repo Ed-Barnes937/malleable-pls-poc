@@ -63,17 +63,15 @@ export {
   useMissedBlocks,
   markMissedBlocksHandled,
   ANSWERED_STORAGE_KEY,
-  DRAFT_ACCEPTED_KEY,
-  useUndoRefit,
   missedBlockSignature,
   missedQuestion,
   refitAsk,
-  movedNote,
-  movedPastThisWeek,
+  noFitNote,
   noFitLabel,
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
 export { undoNotice, confirmWithUndo, type UndoableChange } from './undo-toast'
+export { DRAFT_ACCEPTED_KEY, keptMessage, refitUndoCopy, useDraftUndo, type DraftUndo } from './draft-undo'
 export { momentMarksKey, useMomentMarks } from './sorted'
 export { requestHelpMePlan, takeHelpMePlanRequest, useHelpMePlanRequest, PLAN_REQUEST_TTL_MS } from './plan-request'

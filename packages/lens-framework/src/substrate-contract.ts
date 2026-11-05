@@ -33,6 +33,7 @@ import type {
   NewResourceNote,
   ResourceUpdate,
   PlanItemsRevert,
+  PlanItemUndoState,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -250,10 +251,18 @@ export interface SubstrateWriter extends SubstrateReader {
   /** Undo of a dismiss: open again, with the sessions it closed. Takes the plan item id. */
   useUndismissPlanItem: () => MutationHandle<string, PlanItem>
   /**
-   * Undo of an accepted draft (Auto-fill, re-fit): every item's time and
-   * estimate as before, and the sessions it booked gone, in one go.
+   * Reads each item as an accepted draft can change it, now (time,
+   * estimate, sessions, last change): before an Accept and after it, for
+   * `useRevertPlanItems`. Always from the server, never a cached copy.
    */
-  useRevertPlanItems: () => MutationHandle<PlanItemsRevert, PlanItem[]>
+  useReadUndoState: () => (ids: string[]) => Promise<PlanItemUndoState[]>
+  /**
+   * Undo of an accepted draft (Auto-fill, re-fit, Book the rest), in one
+   * go: each item still as the Accept left it goes back as it was before,
+   * with the sessions the Accept booked gone. One changed since is left as
+   * it is and named in `kept`.
+   */
+  useRevertPlanItems: () => MutationHandle<PlanItemsRevert, { reverted: PlanItem[]; kept: { id: string; title: string }[] }>
   /**
    * Help me plan's Auto-fill advice for a week (priority order, trims when
    * over capacity, a short note). Writes and places nothing: place with
@@ -343,7 +352,7 @@ export interface PanelManifest {
    * first one if it has several. See `LensProps.asksAboutMissedBlocks`.
    */
   missedBlocksPriority?: number
-  load:() => Promise<{ default: ComponentType<import('./types').LensProps> }>
+  load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */
   minWidth?: number

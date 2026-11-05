@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, movedPastThisWeek, noFitLabel, refitAsk, useMissedBlocks, useUndoRefit, type LensProps, type PlanItemRef } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, noFitLabel, noFitNote, refitAsk, refitUndoCopy, useMissedBlocks, type DraftUndo } from '@pls/lens-framework'
 import { cn, dayAndTime } from '@pls/shared-ui'
-import { CalendarClock, RotateCcw, X } from 'lucide-react'
+import { CalendarClock, RotateCcw } from 'lucide-react'
 
 const plural = (n: number, one: string, many: string) => (n === 1 ? one : many)
 
@@ -18,23 +18,17 @@ type Problem = 'conflict' | 'failed' | null
  * Calendar, see `useMissedBlocks`). Commitments are never involved.
  * On a course board, only that course's blocks.
  */
-export function RefitBanner({ course, onShowPlanItem, onNotify }: {
+export function RefitBanner({ course, undo }: {
   course: string | undefined
-  /** Shows a block on the board's calendar, when it has one (see `LensProps`). */
-  onShowPlanItem?: LensProps['onShowPlanItem']
-  /** Confirms a move with Undo (see `LensProps`). */
-  onNotify?: LensProps['onNotify']
+  /** Confirms a move with Undo (the widget's, see `useDraftUndo`). */
+  undo: DraftUndo
 }) {
   const missed = useMissedBlocks({ course })
-  const confirmMoved = useUndoRefit(onNotify)
 
   const [step, setStep] = useState<Step>('ask')
   const [problem, setProblem] = useState<Problem>(null)
-  /**
-   * What happened, and, when blocks went past this week (which the calendar
-   * opens on), a way to show the first of them.
-   */
-  const [note, setNote] = useState<{ text: string; show: PlanItemRef & { label: string } | null } | null>(null)
+  /** What happened, for a moment. */
+  const [note, setNote] = useState<string | null>(null)
 
   // Blocks the student already answered for (here or in another widget) are left out.
   const proposals = missed.proposals
@@ -55,76 +49,36 @@ export function RefitBanner({ course, onShowPlanItem, onNotify }: {
     }
   }, [open, endPreview])
 
-  // The action needs a calendar on the board to show the blocks in.
-  const show = note && onShowPlanItem ? note.show : null
-
-  // A short "done" line, then nothing; one with a way to see the blocks
-  // stays until it is used or dismissed (no time limit on an action).
+  // A short "done" line, then nothing.
   useEffect(() => {
-    if (!note || show) return
+    if (!note) return
     const t = setTimeout(() => setNote(null), 6000)
     return () => clearTimeout(t)
-  }, [note, show])
+  }, [note])
 
   const markHandled = (ps: RefitProposal[]) => missed.markHandled(ps)
 
   if (!open) {
     if (!note) return null
-    const text = (
-      <p role="status" data-testid="refit-note" className="min-w-0 flex-1 px-1 text-meta text-text-muted">
-        {note.text}
-        {show && (
-          <>
-            {' '}
-            <button
-              type="button"
-              onClick={() => {
-                onShowPlanItem?.({ id: show.id, startsAt: show.startsAt })
-                setNote(null)
-              }}
-              className="rounded-item font-semibold text-accent outline-none hover:underline focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              {show.label}
-            </button>
-          </>
-        )}
-      </p>
-    )
-    if (!show) return text
-    return (
-      <div className="flex items-start gap-1">
-        {text}
-        <button
-          type="button"
-          aria-label="Dismiss note"
-          title="Dismiss note"
-          onClick={() => setNote(null)}
-          className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-item text-text-muted outline-none transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    )
+    return <p role="status" data-testid="refit-note" className="min-w-0 px-1 text-meta text-text-muted">{note}</p>
   }
 
   const n = proposals.length
 
-  const moveThem = () => {
+  const moveThem = async () => {
     const noFit = proposals.filter((p) => !p.starts_at || !p.ends_at)
     setStep('saving')
     setProblem(null)
+    // As they were before the move, for Undo.
+    const before = await undo.readBefore(fits.map((p) => p.item.id))
     missed.accept(fits.map((p) => ({ id: p.item.id, starts_at: p.starts_at!, ends_at: p.ends_at! }))).then(
       () => {
-        // Shown once here, so they don't bring the question straight back.
-        markHandled(noFit)
-        confirmMoved(fits)
-        // The move is atomic: every block with a new time moved.
-        const moved = fits.map((p) => ({ id: p.item.id, startsAt: p.starts_at! }))
-        const later = onShowPlanItem ? movedPastThisWeek(moved) : null
-        setNote({
-          text: movedNote(moved.map((b) => b.startsAt), noFit),
-          show: later,
-        })
+        // Answered: the ones that didn't fit are shown once here, and an
+        // Undo bringing the moved ones back doesn't bring the question back.
+        markHandled([...fits, ...noFit])
+        if (before) void undo.confirm({ before, ...refitUndoCopy(fits.map((p) => p.item.title)) })
+        // The move is atomic and confirmed by its Undo toast; only the blocks that stay put get a note.
+        if (noFit.length > 0) setNote(noFitNote(noFit))
       },
       (err: unknown) => {
         // A conflict refreshes the preview (the mutation invalidates it); show that one.
@@ -201,7 +155,7 @@ export function RefitBanner({ course, onShowPlanItem, onNotify }: {
         ) : (
           <>
             {fits.length > 0 && (
-              <button type="button" onClick={moveThem} disabled={step === 'saving'} className={primary}>
+              <button type="button" onClick={() => void moveThem()} disabled={step === 'saving'} className={primary}>
                 {step === 'saving' ? 'Moving...' : problem === 'failed' ? 'Try again' : plural(fits.length, 'Move it', 'Move them')}
               </button>
             )}

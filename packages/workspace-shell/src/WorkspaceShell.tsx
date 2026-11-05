@@ -13,7 +13,7 @@ import {
   boardScopePatch,
 } from '@pls/substrate-client'
 import { requestHelpMePlan, useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
-import { getAvailableJobTypes, type WorkspacePanel } from '@pls/substrate'
+import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
   WorkspaceBackground,
@@ -32,7 +32,7 @@ import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
 import { AutomationDialog } from './AutomationDialog'
 import { ToastHost, notifyToast, pushUndoToast, useToastStore } from './toast'
-import { usePanelSync, type PanelRow } from './usePanelSync'
+import { usePanelSync } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
 import { hasPlanItemViewer, missedBlocksHost, useShowMoment } from './moments'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
@@ -110,7 +110,7 @@ export function WorkspaceShell() {
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
   const canvasRef = useRef<HTMLDivElement>(null)
 
-  usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  usePanelSync(activeWorkspaceId, panels, manifests, canvasRef)
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
   const slideFrom = useBoardSlide(activeWorkspaceId, workspaces as unknown as { id: string }[] | undefined)
 
@@ -133,7 +133,7 @@ export function WorkspaceShell() {
   )
 
   const activeLensTypes = useMemo(
-    () => (panels as unknown as { lens_type: string }[] | undefined)?.map((p) => p.lens_type) ?? [],
+    () => panels?.map((p) => p.lens_type) ?? [],
     [panels],
   )
   const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
@@ -160,7 +160,7 @@ export function WorkspaceShell() {
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
     const map = new Map<string, Record<string, unknown>>()
-    for (const p of panels as unknown as { id: string; config: Record<string, unknown>; lens_type: string }[]) {
+    for (const p of panels) {
       map.set(p.id, { ...p.config, lensType: p.lens_type })
     }
     return map
@@ -344,12 +344,28 @@ export function WorkspaceShell() {
     [addWidget, manifests],
   )
 
+  /**
+   * Config changes sent but not in `panels` yet (it is read again once each
+   * is saved): with `panels`, each widget's settings as they are now.
+   */
+  const unsavedConfig = useRef(new Map<string, Record<string, unknown>>())
+  const changePanelConfig = useCallback((panelId: string, patch: Record<string, unknown>) => {
+    const merged = { ...unsavedConfig.current.get(panelId), ...patch }
+    unsavedConfig.current.set(panelId, merged)
+    updatePanelConfig.mutate({ panelId, configPatch: patch }, {
+      // Saved and read again (or failed): `panels` has it, unless a newer change is still on its way.
+      onSettled: () => {
+        if (unsavedConfig.current.get(panelId) === merged) unsavedConfig.current.delete(panelId)
+      },
+    })
+  }, [updatePanelConfig])
+
   // Handle panel removal — remove from DB then let query invalidation update canvas store
   const handleRemovePanel = useCallback(
     (panelId: string) => {
-      // Undo puts the widget back where it was, with its settings. A run of
-      // removes is one toast; its Undo brings back the last one.
-      const row = (panels as unknown as Pick<WorkspacePanel, 'id' | 'lens_type' | 'slot_name' | 'config'>[] | undefined)?.find((p) => p.id === panelId)
+      // Undo puts the widget back where it was, with its settings as they
+      // are now. A run of removes is one toast; its Undo brings back the last one.
+      const row = panels?.find((p) => p.id === panelId)
       const box = useCanvasStore.getState().panels.find((p) => p.id === panelId)
       const boardId = activeWorkspaceId
       if (row && box && boardId) {
@@ -362,7 +378,7 @@ export function WorkspaceShell() {
             workspaceId: boardId,
             lensType: row.lens_type,
             slotName: row.slot_name,
-            config: row.config ?? {},
+            config: { ...row.config, ...unsavedConfig.current.get(panelId) },
             pos_x: Math.round(box.pos_x),
             pos_y: Math.round(box.pos_y),
             width: Math.round(box.width),
@@ -380,7 +396,7 @@ export function WorkspaceShell() {
 
   // A board asks about blocks that didn't happen once (decision 4).
   const missedBlocksPanel = useMemo(
-    () => missedBlocksHost((panels as unknown as PanelRow[] | undefined) ?? [], manifests),
+    () => missedBlocksHost(panels ?? [], manifests),
     [panels, manifests],
   )
 
@@ -452,7 +468,7 @@ export function WorkspaceShell() {
             scope={panelScope.scope}
             highlight={panelScope.highlight}
             config={config}
-            onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
+            onConfigChange={(patch) => changePanelConfig(panel.id, patch)}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
             onFocusClass={handleFocusClass}
@@ -485,7 +501,7 @@ export function WorkspaceShell() {
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, dismissToastKey, handleStartReview, reviewRun, clearReview, missedBlocksPanel],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, changePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, dismissToastKey, handleStartReview, reviewRun, clearReview, missedBlocksPanel],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -536,7 +552,7 @@ export function WorkspaceShell() {
   // The top bar's Up next: plan the week on this board, never switching boards.
   // The Calendar that opens Help me plan is named by its panelId (the board and
   // slot), so a board switch or a second press can't send it elsewhere.
-  const calendarPanel = (panels as unknown as { lens_type: string; slot_name: string }[] | undefined)?.find((p) => p.lens_type === 'calendar')
+  const calendarPanel = panels?.find((p) => p.lens_type === 'calendar')
   const boardHasCalendar = !!calendarPanel
   /** A Calendar being added here: a second press waits for it instead of adding another. */
   const calendarAdd = useRef<{ workspaceId: string; plan: boolean } | null>(null)
