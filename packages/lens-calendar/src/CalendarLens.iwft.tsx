@@ -330,7 +330,8 @@ test('drag study time to another day and resize it', async ({ mount, page, simul
   await page.mouse.move(end.x, end.y, { steps: 5 })
   await page.mouse.up()
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(4, 11, 30))
-  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: iso(4, 10), duration_min: 90 })
+  // The block is the time booked; its to-do's estimate stays as it was (flow-audit decision 8).
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: iso(4, 10), duration_min: 60 })
 })
 
 test('commitments do not move by drag; they move by an explicit edit', async ({ mount, page, simulator }) => {
@@ -813,4 +814,87 @@ test('the source line wraps only where it reads well: never on its spaced dash, 
     expect(line, 'a line starts with the dash').not.toMatch(/^-/)
   }
   expect(lines.at(-1)).toBe('DNA - today · 9:00')
+})
+
+test('Find another time offers other free slots this week, and picking one moves the block', async ({ mount, page, simulator }) => {
+  // Wed 28 Oct, 09:00.
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seedWeek(simulator, FROZEN_MONDAY)
+  await mount(<CalendarHarness />)
+  const day = (d: number, h: number, m = 0) => new Date(2026, 9, 26 + d, h, m).toISOString()
+  await block(page, 'Revise respiration').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  const slots = popover.getByTestId('another-time-slot')
+  await expect(slots).toHaveCount(3)
+  // Earliest first, never where it is now (Wed 16:00).
+  await expect(slots.first()).toHaveText('Today 09:00')
+  await expect(slots.filter({ hasText: 'Today 16:00' })).toHaveCount(0)
+  // The fields stay for an exact time.
+  await expect(popover.getByLabel('Start time')).toBeVisible()
+
+  await slots.first().click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: day(2, 9), ends_at: day(2, 10), duration_min: 60 })
+  await expect(block(page, 'Revise respiration')).toHaveAttribute('aria-label', /09:00 - 10:00/)
+})
+
+test('Find another time says so when nothing else fits before it is due', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seed(simulator, [
+    { id: 'busy', kind: 'commitment', title: 'Placement', starts_at: new Date(2026, 9, 28, 9).toISOString(), ends_at: new Date(2026, 9, 28, 14).toISOString() },
+    { id: 'notes', kind: 'task', title: 'Tidy notes', starts_at: new Date(2026, 9, 28, 14).toISOString(), ends_at: new Date(2026, 9, 28, 15).toISOString(), duration_min: 60, due_at: new Date(2026, 9, 28, 15).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Tidy notes').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time')).toHaveText('No other free time fits before it is due this week.')
+  await expect(popover.getByTestId('another-time-slot')).toHaveCount(0)
+})
+
+/** A 3h lab report booked in two sessions this week (Wed 14:00, Thu 10:00), the first already ticked. */
+function seedSessions(simulator: BackendSimulator) {
+  const day = (d: number, h: number) => new Date(2026, 9, 26 + d, h).toISOString()
+  seed(simulator, [
+    { id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: day(4, 17), course: 'chemistry' },
+    { id: 'lab-1', kind: 'task', title: 'Lab report write-up', starts_at: day(2, 14), ends_at: day(2, 15), duration_min: 60, source_type: 'plan_item', source_id: 'lab', status: 'done', course: 'chemistry' },
+    { id: 'lab-2', kind: 'task', title: 'Lab report write-up', starts_at: day(3, 10), ends_at: day(3, 12), duration_min: 120, source_type: 'plan_item', source_id: 'lab', course: 'chemistry' },
+  ])
+}
+
+test("ticking a to-do's last open session offers to tick the to-do off too", async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 3), 13)
+  seedSessions(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Lab report write-up').last().click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  const offer = popover.getByTestId('tick-todo-too')
+  await expect(offer).toHaveText(/That was its last session\. Tick off Lab report write-up too\?/)
+  // Only the session is ticked until the student says so.
+  expect(simulator.db.planItems.find((p) => p.id === 'lab-2')?.status).toBe('done')
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('open')
+  await expect(offer.getByRole('button', { name: 'Tick it off' })).toBeFocused()
+  await offer.getByRole('button', { name: 'Tick it off' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('done')
+})
+
+test('"Not yet" leaves the to-do open; a session that is not the last one just ticks', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 3), 13)
+  seedSessions(simulator)
+  simulator.db.planItems.find((p) => p.id === 'lab-1')!.status = 'open'
+  await mount(<CalendarHarness />)
+  const popover = page.getByTestId('calendar-popover')
+  await block(page, 'Lab report write-up').first().click()
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab-1')?.status).toBe('done')
+
+  await block(page, 'Lab report write-up').last().click()
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  await popover.getByTestId('tick-todo-too').getByRole('button', { name: 'Not yet' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('open')
 })

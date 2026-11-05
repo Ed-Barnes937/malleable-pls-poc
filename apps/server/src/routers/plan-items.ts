@@ -13,6 +13,8 @@ import {
   CLOSED_WITH_TODO,
   SESSION_SOURCE_TYPE,
   isSession,
+  newSession,
+  sessionParentId,
 } from '@pls/substrate'
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -83,6 +85,28 @@ async function cascadeToSessions(tx: TransactionSql, userId: string, before: Pla
 }
 
 /**
+ * A to-do booked in one block becomes sessions when a second booking is
+ * needed (see @pls/substrate sessions): before `session` is added, the
+ * to-do's own block moves into a session of its own, at the same time and
+ * status, and the to-do keeps only its total. Fires no workflow events (the
+ * student's time hasn't changed).
+ */
+async function ownBlockToSession(tx: TransactionSql, userId: string, session: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }) {
+  const parentId = sessionParentId({ kind: session.kind, source_type: session.source_type ?? null, source_id: session.source_id ?? null })
+  if (!parentId) return
+  const todo = await fetchOne(tx, userId, parentId)
+  if (todo.kind !== 'task' || isSession(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+  const moved = await insertPlanItem(tx, userId, newSession(todo, todo.starts_at, todo.ends_at), todo.time_zone)
+  if (todo.status !== 'open') {
+    await tx`UPDATE plan_items SET status = ${todo.status} WHERE id = ${moved.id} AND user_id = ${userId}`
+  }
+  await tx`
+    UPDATE plan_items SET starts_at = NULL, ends_at = NULL, updated_at = now()
+    WHERE id = ${todo.id} AND user_id = ${userId}
+  `
+}
+
+/**
  * The one event rule, whichever procedure made the change: every change fires
  * plan-item:updated, and a transition into 'done' also fires
  * plan-item:completed (exactly once per transition).
@@ -134,6 +158,7 @@ export const planItemsRouter = router({
     .input(newPlanItemOnBoardInput)
     .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
+        await ownBlockToSession(tx, ctx.userId, input)
         const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
         await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item

@@ -1,8 +1,8 @@
 import type { TransactionSql } from 'postgres'
 import { withUser } from '@pls/db'
 import {
-  SESSION_SOURCE_TYPE,
   bookedMinutes,
+  isSession,
   planAutofillInput,
   planCapacity,
   planTasks,
@@ -58,14 +58,15 @@ export const planningRouter = router({
       const loaded = await withUser(ctx.userId, async (tx) => ({
         // Every course: scope never changes what is busy or what needs doing.
         rows: await listPlanItems(tx, ctx.userId, { from: input.from, to: input.to, statuses: ['open', 'done'] }),
-        todos: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open'], scheduled: false }),
-        // A to-do booked in sessions is planned only for what is left (`todosToPlan`).
-        sessions: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE }),
+        // Every task, with or without a time: a to-do booked in part (its own
+        // block, or sessions) is planned only for what is left (`todosToPlan`).
+        tasks: await listPlanItems(tx, ctx.userId, { kinds: ['task'], statuses: ['open', 'done'] }),
         weak: await weakTopics(tx, ctx.userId),
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
       }))
-      const todos = todosToPlan(loaded.todos, bookedMinutes(loaded.sessions))
+      const open = loaded.tasks.filter((t) => t.status === 'open' && !isSession(t))
+      const todos = todosToPlan(open, bookedMinutes(loaded.tasks))
       const tasks = planTasks(todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
       const { prefs } = loaded

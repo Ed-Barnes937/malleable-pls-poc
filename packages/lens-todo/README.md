@@ -7,6 +7,7 @@ To-do widget: a view over `task` plan items.
 - Quick add with an optional time estimate; new to-dos inherit the board course
 - Tick done: the row strikes through in place with "Done · Undo" for 5 seconds, then fades and moves under "Done today" (untick to restore). Or dismiss ("Not doing this")
 - Shows the scheduled time when a to-do is placed in the calendar, or its due day
+- A partly booked to-do (its block or sessions shorter than its estimate) reads "1h of 2h booked" and offers **Book the rest** (`src/BookTheRest.tsx`): the Auto-fill planner for the unbooked time over the next seven days (study hours, the daily budget, before it is due; `draftRest`), shown as a draft in the row until "Book it" saves it as sessions
 - Calm wording for anything that slipped: "Still to do from Monday", never "overdue"
 - "2 blocks didn't happen. Re-fit them?": a calm offer to re-place study blocks that passed without being ticked off, previewing the new times in the widget (`src/RefitBanner.tsx`, over `useMissedBlocks` from `lens-framework`, shared with the Calendar, which shows them as ghosts). Answering in either widget answers both, until the page is reloaded; while one shows new times, the other stops asking about those blocks. The To-do asks only about its board's course; the Calendar asks about every course, so answering there also covers this widget's blocks.
 - Source link for to-dos made from a lecture moment ("from: Mitochondrial DNA, 9:00"); clicking focuses that lecture on the board

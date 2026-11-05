@@ -611,3 +611,57 @@ test('a to-do booked in sessions is one row, and ticking it off ticks off its se
   await expect.poll(() => simulator.db.planItems.filter((p) => p.title === 'Lab report write-up').map((p) => p.status))
     .toEqual(['done', 'done', 'done'])
 })
+
+test('a to-do whose block is shorter than its estimate reads "1h of 2h booked", and Book the rest books the other hour', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, {
+    id: 'quiz', kind: 'task', title: 'Revise for the quiz', duration_min: 120, due_at: daysFromNow(3, 17),
+    starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 10),
+  })
+  seedPlanItem(simulator, { id: 'essay', kind: 'task', title: 'Plan the essay', duration_min: 60 })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const quiz = page.getByTestId('todo-item').filter({ hasText: 'Revise for the quiz' })
+  await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+  // A to-do with nothing booked keeps its plain estimate and no Book the rest.
+  const essay = page.getByTestId('todo-item').filter({ hasText: 'Plan the essay' })
+  await expect(essay.getByText('1h', { exact: true })).toBeVisible()
+  await expect(essay.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
+
+  await quiz.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  const draft = quiz.getByTestId('book-the-rest')
+  await expect(draft.getByTestId('book-the-rest-block')).toHaveCount(1)
+  // A draft: nothing is saved until "Book it".
+  expect(simulator.db.planItems).toHaveLength(2)
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft).toHaveCount(0)
+
+  // The second booking turns the to-do's own block into a session too; the to-do keeps its total.
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'quiz').length).toBe(2)
+  const sessions = simulator.db.planItems.filter((p) => p.source_id === 'quiz')
+  expect(sessions.map((s) => (Date.parse(s.ends_at!) - Date.parse(s.starts_at!)) / 60_000)).toEqual([60, 60])
+  for (const s of sessions) expect(Date.parse(s.ends_at!)).toBeLessThanOrEqual(Date.parse(daysFromNow(3, 17)))
+  expect(simulator.db.planItems.find((p) => p.id === 'quiz')).toMatchObject({ starts_at: null, ends_at: null, duration_min: 120 })
+  await expect(quiz.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(quiz.getByText('2h', { exact: true })).toBeVisible()
+})
+
+test('Not now closes Book the rest without saving anything', async ({ mount, page, simulator }) => {
+  seedPlanItem(simulator, {
+    id: 'quiz', kind: 'task', title: 'Revise for the quiz', duration_min: 120, due_at: daysFromNow(3, 17),
+    starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 10),
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const quiz = page.getByTestId('todo-item').filter({ hasText: 'Revise for the quiz' })
+  await quiz.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  await quiz.getByRole('button', { name: 'Not now' }).click()
+  await expect(quiz.getByTestId('book-the-rest')).toHaveCount(0)
+  expect(simulator.db.planItems).toHaveLength(1)
+  await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+})

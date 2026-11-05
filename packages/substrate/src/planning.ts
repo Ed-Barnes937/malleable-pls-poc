@@ -297,12 +297,31 @@ export function draftPlan(
   return place(
     tasks.map((t) => ({ id: t.id, durationMin: t.durationMin, latest: t.latest })),
     placeable(layout),
-    { now: opts.now, existingPlacements: [...layout.busy, ...pinned], ...placeRules(layout) },
+    { now: opts.now, existingPlacements: [...keptBusy(layout, tasks), ...pinned], ...placeRules(layout) },
   )
+}
+
+/**
+ * The week's busy blocks, with a partly booked to-do's own block kept where
+ * it is: the scheduler would treat it as the task's current placement and
+ * move it, but only the time not booked yet is being placed.
+ */
+function keptBusy(layout: WeekLayout, tasks: ReadonlyArray<Pick<PlanTask, 'id'>>): ExistingPlacement[] {
+  const placing = new Set(tasks.map((t) => t.id))
+  return layout.busy.map((b) => (b.taskId && placing.has(b.taskId) ? { ...b, taskId: `booked:${b.taskId}` } : b))
 }
 
 function placeRules(layout: WeekLayout) {
   return { policy: 'priority' as const, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget, split: { minSessionMin: MIN_SESSION_MIN } }
+}
+
+/**
+ * Book the rest: a partly booked to-do's unbooked `restMin`, placed as
+ * Auto-fill would place it alone (earliest fit, split into sessions when no
+ * one block fits, ending by its due time when that is inside the week).
+ */
+export function draftRest(todo: Todo, restMin: number, layout: WeekLayout, now: number): DraftResult {
+  return draftPlan(planTasks([{ ...todo, duration_min: restMin }], layout.week, { now }), layout, { now })
 }
 
 /**
@@ -326,7 +345,7 @@ export function suggestTaskSlots(
     { id: task.id, durationMin: task.durationMin, latest: task.latest },
     placeable(layout),
     opts.n ?? 3,
-    { now: opts.now, existingPlacements: layout.busy, gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget },
+    { now: opts.now, existingPlacements: keptBusy(layout, [task]), gapMin: STUDY_BLOCK_GAP_MIN, dailyBudget: layout.budget },
   )
 }
 

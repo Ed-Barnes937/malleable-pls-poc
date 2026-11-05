@@ -127,6 +127,8 @@ export type AutofillState =
       /** Trims the student applied: task id -> length. */
       trims: Map<string, number>
       draft: AutofillDraft
+      /** Book the rest: the draft is for these to-dos only (else every one waiting). */
+      only?: string[]
     }
 
 /** Planned minutes of a set of proposals. */

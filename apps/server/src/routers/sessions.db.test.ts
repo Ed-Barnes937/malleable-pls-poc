@@ -103,4 +103,25 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
     await api.planItems.delete(lab.id)
     expect(await api.planItems.byId(sessions[1].id)).toBeNull()
   })
+
+  it("a to-do booked in one block keeps its total when the block is resized, and Auto-fill plans the rest", async () => {
+    const { api, lab } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ duration_min: 180 })
+    expect((await api.planning.autofill(week)).order).toEqual([lab.id])
+  })
+
+  it('a second booking moves the to-do\'s own block into a session, so each can be ticked on its own', async () => {
+    const { api, lab, list } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    const rest = await api.planItems.create(newSession(lab, at(4, 9), at(4, 11)))
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ starts_at: null, ends_at: null, duration_min: 180, status: 'open' })
+    expect((await list()).map((s) => [s.starts_at, s.ends_at, s.duration_min, s.course])).toEqual([
+      [at(3, 9), at(3, 10), 60, 'chemistry'],
+      [at(4, 9), at(4, 11), 120, 'chemistry'],
+    ])
+    await api.planItems.complete({ id: rest.id })
+    expect((await api.planItems.byId(lab.id))!.status).toBe('open')
+    expect((await api.planning.autofill(week)).order).toEqual([])
+  })
 })

@@ -44,6 +44,7 @@ export {
   dueTimes,
   noteWithoutAmounts,
   draftPlan,
+  draftRest,
   formatMinutes,
   matchesWeakTopic,
   openTime,
@@ -74,6 +75,7 @@ export {
   bookedMinutes,
   isSession,
   newSession,
+  partBooking,
   sessionParentId,
   todosToPlan,
 } from './sessions'

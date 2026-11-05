@@ -66,8 +66,10 @@ function shift(row: PlanItemOccurrence, series: string | null, from: string | nu
 /**
  * Patch that moves / resizes a row to `start`-`end`. Updates apply to the
  * whole series, so the stored series times shift as far as this occurrence
- * did (see PlanItemOccurrence and `shift`). A study block keeps `duration_min` in
- * step with its length.
+ * did (see PlanItemOccurrence and `shift`). A study block's `duration_min`
+ * is its to-do's estimate and stays as it is: the block's length is the time
+ * booked (flow-audit decision 8), so a 2h to-do resized to 1h is "1h of 2h
+ * booked".
  */
 export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): PlanItemPatch {
   const patch: PlanItemPatch = {}
@@ -76,8 +78,6 @@ export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): Plan
   // validatePlanItem needs both ends together.
   if (patch.starts_at && !patch.ends_at) patch.ends_at = row.series_ends_at ?? row.ends_at
   if (patch.ends_at && !patch.starts_at) patch.starts_at = row.series_starts_at ?? row.starts_at
-  const length = minutesBetween(start, end)
-  if (row.kind === 'task' && row.duration_min !== length) patch.duration_min = length
   return patch
 }
 

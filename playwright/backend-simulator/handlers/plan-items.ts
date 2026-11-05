@@ -25,6 +25,7 @@ import {
   CLOSED_WITH_TODO,
   bookedMinutes,
   isSession,
+  newSession,
   sessionParentId,
   todosToPlan,
 } from '@pls/substrate'
@@ -83,10 +84,31 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     return row ? withCourse(row) : null
   })
 
+  // As the server: a to-do booked in one block becomes sessions when a
+  // second booking is needed (its own block moves into a session first).
+  const ownBlockToSession = (fields: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }, now: string) => {
+    const parentId = sessionParentId({ kind: fields.kind, source_type: fields.source_type ?? null, source_id: fields.source_id ?? null })
+    const todo = parentId ? db.planItems.find((p) => p.id === parentId) : undefined
+    if (!todo || todo.kind !== 'task' || isSession(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+    const session = newSession(withCourse(todo), todo.starts_at, todo.ends_at)
+    db.planItems.push({
+      id: `pi-${crypto.randomUUID().slice(0, 8)}`,
+      kind: 'task', title: session.title, starts_at: session.starts_at ?? null, ends_at: session.ends_at ?? null,
+      due_at: session.due_at ?? null, duration_min: session.duration_min ?? null, status: todo.status,
+      recurrence: null, subtype: null, source_type: session.source_type ?? null, source_id: session.source_id ?? null,
+      source_offset_ms: null, created_by_workflow_id: null, time_zone: todo.time_zone, created_at: now, updated_at: now,
+    })
+    setCourse(db.planItems[db.planItems.length - 1].id, session.course ?? null)
+    todo.starts_at = null
+    todo.ends_at = null
+    todo.updated_at = now
+  }
+
   router.register('planItems.create', (input) => {
     const { course, workspaceId: _board, timeZone, ...fields } = parse(newPlanItemOnBoardInput, input)
     assertValid(fields)
     const now = new Date().toISOString()
+    ownBlockToSession(fields, now)
     const row: StoredPlanItem = {
       id: `pi-${crypto.randomUUID().slice(0, 8)}`,
       kind: fields.kind,
@@ -185,8 +207,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
     const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
-    const unscheduled = all.filter((p) => p.kind === 'task' && p.status === 'open' && p.starts_at == null)
-    const todos = todosToPlan(unscheduled, bookedMinutes(all))
+    const open = all.filter((p) => p.kind === 'task' && p.status === 'open' && !isSession(p))
+    const todos = todosToPlan(open, bookedMinutes(all))
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)

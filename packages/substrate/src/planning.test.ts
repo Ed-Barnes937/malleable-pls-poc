@@ -10,6 +10,7 @@ import {
   openTime,
   outsideStudyHours,
   draftPlan,
+  draftRest,
   formatMinutes,
   matchesWeakTopic,
   planAutofillInput,
@@ -468,5 +469,28 @@ describe('leftoverStudyTime', () => {
   it('leaves unnamed what neither explains: a day with a long enough gap and budget left', () => {
     // Free all day with the full 2h: a 90-minute to-do could go there, so nothing is blamed.
     expect(leftoverStudyTime(weekLayout([], monday, tz), now, [], [stuck(90)])).toEqual({ gapMin: 0, dayMin: 0 })
+  })
+})
+
+describe('draftRest', () => {
+  it('books a partly booked to-do rest before it is due, around its own block', () => {
+    // A 2h quiz revision, due Thu 10:00, booked Wed 09:00-10:00 (resized from 2h): 1h left.
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120, due_at: iso(3, 10), starts_at: iso(2, 9), ends_at: iso(2, 10) })
+    const layout = weekLayout([quiz], week, { timeZone: tz, studyMinPerDay: 120 })
+    const { placements, unplaced } = draftRest(quiz, 60, layout, at(2, 8))
+    expect(unplaced).toEqual([])
+    expect(placements).toHaveLength(1)
+    const [rest] = placements
+    expect(rest.end - rest.start).toBe(60 * 60_000)
+    expect(rest.end).toBeLessThanOrEqual(at(3, 10))
+    // Its own block stays where it is and is busy: the rest goes after it, with the usual gap.
+    expect(rest.start).toBe(at(2, 10, 15))
+    expect(suggestTaskSlots({ id: 'quiz', durationMin: 60, latest: at(3, 10) }, layout, { now: at(2, 8) })[0].start).toBe(at(2, 10, 15))
+  })
+
+  it('places nothing when the rest no longer fits before it is due', () => {
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120, due_at: iso(2, 9, 30), starts_at: iso(1, 14), ends_at: iso(1, 15) })
+    const layout = weekLayout([quiz], week, { timeZone: tz, studyMinPerDay: 120 })
+    expect(draftRest(quiz, 60, layout, at(2, 9)).placements).toEqual([])
   })
 })
