@@ -8,7 +8,7 @@
 --
 -- `row` is the plan_items row as JSON (jsonb_populate_record puts it back,
 -- whatever columns plan_items has by then). Rows are kept a day: Undo is
--- offered for seconds, so older ones are purged on the next delete.
+-- offered for seconds, so older ones are purged on the next delete or restore.
 --
 -- Idempotent (safe to re-run).
 

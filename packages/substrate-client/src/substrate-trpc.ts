@@ -277,6 +277,11 @@ export const substrateTrpc: SubstrateWriter = {
     return useOnBoard(usePlanItemMutation(trpc.planItems.undismiss), (id: string, workspaceId) => ({ id, workspaceId }))
   },
 
+  useReadUndoState() {
+    const utils = trpc.useUtils()
+    return useCallback((ids: string[]) => utils.client.planItems.undoState.query(ids), [utils])
+  },
+
   useRevertPlanItems() {
     return useOnBoard(usePlanItemMutation(trpc.planItems.revert))
   },

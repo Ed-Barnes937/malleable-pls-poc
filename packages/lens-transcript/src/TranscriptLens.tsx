@@ -55,28 +55,31 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
 
 /**
  * In the review chip's place until the review arrives: "Planning a
- * review...", or "No review planned" when none is coming (the automation is
- * off, or didn't finish).
+ * review...", then "No review yet" if the automation is slow (or failed),
+ * or "No review planned" when none is coming (no automation started).
  */
 function PendingReviewChip({ state }: { state: PendingReview }) {
-  return state === 'planning' ? (
+  if (state === 'planning') {
+    return (
+      <span
+        role="status"
+        data-testid="review-chip-pending"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn"
+      >
+        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+        Planning a review...
+      </span>
+    )
+  }
+  return (
     <span
       role="status"
-      data-testid="review-chip-pending"
-      className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn"
-    >
-      <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
-      Planning a review...
-    </span>
-  ) : (
-    <span
-      role="status"
-      data-testid="review-chip-none"
-      title="Turn on the review automation to get one next time"
+      data-testid={state === 'late' ? 'review-chip-late' : 'review-chip-none'}
+      title={state === 'none' ? 'Turn on the review automation to get one next time' : undefined}
       className="inline-flex items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted"
     >
-      <CalendarX2 className="h-3 w-3" aria-hidden />
-      No review planned
+      {state === 'late' ? <Clock className="h-3 w-3" aria-hidden /> : <CalendarX2 className="h-3 w-3" aria-hidden />}
+      {state === 'late' ? 'No review yet' : 'No review planned'}
     </span>
   )
 }

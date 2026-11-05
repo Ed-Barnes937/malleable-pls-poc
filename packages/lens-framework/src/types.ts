@@ -109,7 +109,8 @@ export interface LensNotice {
   tone?: 'success' | 'error'
   /** Notices sharing a key replace each other instead of stacking. */
   key?: string
-  action?: { label: string; onClick: () => void }
+  /** `kind: 'undo'`: it reverses the change the notice names (shown with the Undo icon; see `undoNotice`). */
+  action?: { label: string; onClick: () => void; kind?: 'undo' }
 }
 
 /**

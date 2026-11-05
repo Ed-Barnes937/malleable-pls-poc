@@ -1,9 +1,9 @@
-import { Children, cloneElement, isValidElement, useState, type ReactElement } from 'react'
+import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { trpc, createTRPCClient } from '@pls/substrate-client'
 import { substrateTrpc } from '@pls/substrate-client'
 import { ManifestRegistryProvider, SubstrateProvider, type PanelManifest } from '@pls/lens-framework'
-import { ToastHost, notifyToast } from '@pls/workspace-shell'
+import { ToastHost } from '@pls/workspace-shell'
 import { manifest as audioCapture } from '@pls/lens-audio-capture'
 import { manifest as transcript } from '@pls/lens-transcript'
 import { manifest as testMe } from '@pls/lens-test-me'
@@ -33,7 +33,9 @@ const manifests: PanelManifest[] = [
 
 /**
  * `boardId`: the board the mounted widgets sit on (none by default, as outside a board).
- * `toasts`: the mounted widget's `onNotify` (Undo toasts) shows in the shell's toast bar, under it, as on a board.
+ * `toasts`: the shell's toast bar, under the widgets, as on a board. A widget's
+ * notices reach it when its harness passes `onNotify={notifyToast}` (e.g.
+ * TodoHarness, CalendarHarness): props mounted from a test run in Node, not here.
  */
 export function TestProviders({ children, boardId, toasts }: { children: React.ReactNode; boardId?: string; toasts?: boolean }) {
   const [queryClient] = useState(
@@ -54,10 +56,7 @@ export function TestProviders({ children, boardId, toasts }: { children: React.R
           <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc} boardId={boardId}>
             {toasts ? (
               <div className="flex h-full flex-col">
-                {/* As the shell does: each widget's onNotify is the toast bar. */}
-                <div className="min-h-0 flex-1">
-                  {Children.map(children, (child) => (isValidElement(child) && typeof child.type !== 'string' ? cloneElement(child as ReactElement<{ onNotify?: unknown }>, { onNotify: notifyToast }) : child))}
-                </div>
+                <div className="min-h-0 flex-1">{children}</div>
                 <ToastHost />
               </div>
             ) : children}

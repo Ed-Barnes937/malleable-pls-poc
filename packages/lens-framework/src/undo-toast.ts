@@ -33,6 +33,7 @@ export function undoNotice(change: UndoableChange, notify: (notice: LensNotice) 
     key: change.key,
     action: {
       label: 'Undo',
+      kind: 'undo',
       onClick: () => {
         change.undo().catch(() => notify({
           message: change.failMessage ?? "Couldn't undo that. Try again from where you made the change.",

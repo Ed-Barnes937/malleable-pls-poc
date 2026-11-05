@@ -46,7 +46,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 
 **6. Encores**
 - Weakest Topics lists readable topics: Maternal inheritance (today's lecture, "Confusing"), Mitochondrial disease, Maternal inheritance (the seeded lecture), Paternal inheritance, ... Click one: the Transcript jumps to that moment (seeded ones show "Reviewed · 20 min"). A seeded one is in the other lecture, so the board switches to it and a toast says so ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") with **Back to Mitochondrial DNA - today**.
-- Calendar: "2 blocks didn't happen. Re-fit them?" > **Re-fit** (the new times show as ghost blocks within the 2h a day; drag to adjust) > **Move them**: "Moved 2 blocks. They're in your calendar." and a "Moved 2 blocks" toast with **Undo**. From Thursday on they may go to next week instead: the Calendar opens that week and the note says "Moved 2 blocks to next week." (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
+- Calendar: "2 blocks didn't happen. Re-fit them?" > **Re-fit** (the new times show as ghost blocks within the 2h a day; drag to adjust) > **Move them**: a "Moved 2 blocks" toast with **Undo**. From Thursday on they may go to next week instead: the Calendar opens that week. (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
 
 ## Fallbacks
 

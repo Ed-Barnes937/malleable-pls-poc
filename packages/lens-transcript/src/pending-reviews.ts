@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 
 /**
- * How long a moment says "Planning a review..." before it gives up and says
- * "No review planned": the review automation normally answers in a second
- * or two (an AI call for the title), and a failed run tells nobody else.
+ * How long a moment says "Planning a review..." before it says "No review
+ * yet": the review automation normally answers in a second or two (an AI
+ * call for the title), and a failed run tells nobody else. A review that
+ * arrives later still takes its place.
  */
 export const REVIEW_WAIT_MS = 20_000
 
-/** `planning`: the automation is on it. `none`: no review is coming (no automation on, or it didn't finish). */
-export type PendingReview = 'planning' | 'none'
+/**
+ * `planning`: the automation is on it. `late`: it hasn't answered in
+ * REVIEW_WAIT_MS (slow or failed; one may still come). `none`: no review is
+ * coming (no automation started for it).
+ */
+export type PendingReview = 'planning' | 'late' | 'none'
 
 interface Entry {
   state: PendingReview
@@ -40,7 +45,7 @@ export function usePendingReviews(hasReview: (segmentId: string) => boolean) {
   }, [set])
   const failed = useCallback((segmentId: string) => set(segmentId, null), [set])
 
-  // Planning gives up after REVIEW_WAIT_MS.
+  // Planning says "No review yet" after REVIEW_WAIT_MS.
   useEffect(() => {
     const planning = [...entries].filter(([, e]) => e.state === 'planning')
     if (planning.length === 0) return
@@ -49,14 +54,14 @@ export function usePendingReviews(hasReview: (segmentId: string) => boolean) {
       setEntries((prev) => {
         const now = Date.now()
         const out = new Map(prev)
-        for (const [id, e] of prev) if (e.state === 'planning' && e.since + REVIEW_WAIT_MS <= now) out.set(id, { state: 'none', since: now })
+        for (const [id, e] of prev) if (e.state === 'planning' && e.since + REVIEW_WAIT_MS <= now) out.set(id, { state: 'late', since: now })
         return out
       })
     }, Math.max(0, next - Date.now()))
     return () => clearTimeout(t)
   }, [entries])
 
-  // The review arrived: it shows instead.
+  // The review arrived (late or not): it shows instead.
   useEffect(() => {
     const arrived = [...entries.keys()].filter(hasReview)
     if (arrived.length === 0) return

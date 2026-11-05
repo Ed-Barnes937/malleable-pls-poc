@@ -110,24 +110,29 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
     expect(await api.planItems.undismiss({ id: lab.id })).toMatchObject({ status: 'open' })
   })
 
+  /** As the Calendar does: reads before the Accept, accepts, reads after. */
+  async function accept(api: ReturnType<typeof student>['api'], ids: string[], write: () => Promise<unknown>) {
+    const before = await api.planItems.undoState(ids)
+    await write()
+    const after = await api.planItems.undoState(ids)
+    return before.map((b, i) => ({ before: b, after: after[i] }))
+  }
+
   it('revert undoes an accepted draft in one go: times, estimates and the sessions it booked', async () => {
     const { api } = student()
-    // A to-do Auto-fill gave its own block (shrinking the estimate to fit).
     const essay = await api.planItems.create({ kind: 'task', title: 'Essay plan', duration_min: 90 })
-    await api.planItems.update({ id: essay.id, patch: { starts_at: at(1, 9), ends_at: at(1, 10), duration_min: 60 } })
     // A to-do already booked in its own block: a second booking moves that block into a session.
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180 })
     await api.planItems.update({ id: lab.id, patch: { starts_at: at(2, 9), ends_at: at(2, 10) } })
-    const before = (await api.planItems.byId(lab.id))!
-    await api.planItems.create(newSession(lab, at(3, 9), at(3, 11)))
-    expect((await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id }))).toHaveLength(2)
-
-    await api.planItems.revert({
-      items: [
-        { id: essay.id, starts_at: null, ends_at: null, duration_min: 90 },
-        { id: lab.id, starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min, sessions: [] },
-      ],
+    const items = await accept(api, [essay.id, lab.id], async () => {
+      // Auto-fill gave the essay its own block, shrinking the estimate to fit.
+      await api.planItems.update({ id: essay.id, patch: { starts_at: at(1, 9), ends_at: at(1, 10), duration_min: 60 } })
+      await api.planItems.create(newSession(lab, at(3, 9), at(3, 11)))
     })
+    expect(await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id })).toHaveLength(2)
+
+    const { kept } = await api.planItems.revert({ items })
+    expect(kept).toEqual([])
     expect(await api.planItems.byId(essay.id)).toMatchObject({ starts_at: null, ends_at: null, duration_min: 90 })
     expect(await api.planItems.byId(lab.id)).toMatchObject({ starts_at: at(2, 9), ends_at: at(2, 10), duration_min: 180 })
     expect(await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id })).toEqual([])
@@ -137,16 +142,81 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
     const { api } = student()
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180 })
     const kept = await api.planItems.create(newSession(lab, at(3, 9), at(3, 11)))
-    await api.planItems.create(newSession(lab, at(4, 9), at(4, 10)))
-    await expect(api.planItems.revert({
-      items: [
-        { id: lab.id, starts_at: null, ends_at: null, duration_min: 180, sessions: [kept.id] },
-        { id: 'no-such-item', starts_at: null, ends_at: null, duration_min: null },
-      ],
-    })).rejects.toThrow(/not found/)
+    const items = await accept(api, [lab.id], () => api.planItems.create(newSession(lab, at(4, 9), at(4, 10))))
+    const missing = { ...items[0].after, id: 'no-such-item' }
+    await expect(api.planItems.revert({ items: [...items, { before: missing, after: missing }] })).rejects.toThrow(/not found/)
     expect(await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id })).toHaveLength(2)
 
-    await api.planItems.revert({ items: [{ id: lab.id, starts_at: null, ends_at: null, duration_min: 180, sessions: [kept.id] }] })
+    await api.planItems.revert({ items })
     expect((await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id })).map((s) => s.id)).toEqual([kept.id])
+  })
+
+  it('a stale Undo leaves an item the student changed since: moved, resized, a new estimate', async () => {
+    const { api } = student()
+    const moved = await api.planItems.create({ kind: 'task', title: 'Moved after', duration_min: 60 })
+    const estimated = await api.planItems.create({ kind: 'task', title: 'New estimate', duration_min: 60 })
+    const untouched = await api.planItems.create({ kind: 'task', title: 'Untouched', duration_min: 60 })
+    const items = await accept(api, [moved.id, estimated.id, untouched.id], async () => {
+      await api.planItems.update({ id: moved.id, patch: { starts_at: at(1, 9), ends_at: at(1, 10) } })
+      await api.planItems.update({ id: estimated.id, patch: { starts_at: at(1, 11), ends_at: at(1, 12) } })
+      await api.planItems.update({ id: untouched.id, patch: { starts_at: at(1, 13), ends_at: at(1, 14) } })
+    })
+    // Then the student drags one and changes the other's estimate.
+    await api.planItems.update({ id: moved.id, patch: { starts_at: at(2, 9), ends_at: at(2, 10) } })
+    await api.planItems.update({ id: estimated.id, patch: { duration_min: 45 } })
+
+    const { reverted, kept } = await api.planItems.revert({ items })
+    expect(kept).toEqual([{ id: moved.id, title: 'Moved after' }, { id: estimated.id, title: 'New estimate' }])
+    expect(reverted.map((r) => r.id)).toEqual([untouched.id])
+    expect(await api.planItems.byId(moved.id)).toMatchObject({ starts_at: at(2, 9), ends_at: at(2, 10) })
+    expect(await api.planItems.byId(estimated.id)).toMatchObject({ starts_at: at(1, 11), duration_min: 45 })
+    expect(await api.planItems.byId(untouched.id)).toMatchObject({ starts_at: null, ends_at: null })
+  })
+
+  it('a stale Undo never deletes a session ticked since', async () => {
+    const { api } = student()
+    const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 120 })
+    let first = ''
+    const items = await accept(api, [lab.id], async () => {
+      await api.planItems.update({ id: lab.id, patch: { duration_min: 90 } })
+      first = (await api.planItems.create(newSession(lab, at(1, 9), at(1, 10)))).id
+      await api.planItems.create(newSession(lab, at(2, 9), at(2, 9, 30)))
+    })
+    await api.planItems.complete(first)
+
+    const { kept } = await api.planItems.revert({ items })
+    expect(kept).toEqual([{ id: lab.id, title: 'Lab report' }])
+    expect(await api.planItems.list({ sourceType: 'plan_item', sourceId: lab.id })).toHaveLength(2)
+    expect(await api.planItems.byId(lab.id)).toMatchObject({ duration_min: 90 })
+  })
+
+  it('revert of a re-fit move puts the block back, unless it was moved again', async () => {
+    const { api } = student()
+    const block = await api.planItems.create({ kind: 'task', title: 'Missed notes', starts_at: past(0, 9), ends_at: past(0, 10) })
+    const again = await api.planItems.create({ kind: 'task', title: 'Moved again', starts_at: past(0, 11), ends_at: past(0, 12) })
+    const items = await accept(api, [block.id, again.id], async () => {
+      await api.planItems.update({ id: block.id, patch: { starts_at: at(1, 9), ends_at: at(1, 10) } })
+      await api.planItems.update({ id: again.id, patch: { starts_at: at(1, 11), ends_at: at(1, 12) } })
+    })
+    await api.planItems.update({ id: again.id, patch: { starts_at: at(3, 11), ends_at: at(3, 12) } })
+
+    const { kept } = await api.planItems.revert({ items })
+    expect(kept.map((k) => k.id)).toEqual([again.id])
+    expect(await api.planItems.byId(block.id)).toMatchObject({ starts_at: past(0, 9), ends_at: past(0, 10) })
+    expect(await api.planItems.byId(again.id)).toMatchObject({ starts_at: at(3, 11) })
+  })
+
+  it('trash older than a day is not restored, and is purged by a restore', async () => {
+    const { user, api } = student()
+    const old = await api.planItems.create({ kind: 'task', title: 'Long gone' })
+    const fresh = await api.planItems.create({ kind: 'task', title: 'Just deleted' })
+    await api.planItems.delete(old.id)
+    await api.planItems.delete(fresh.id)
+    // The app role can't see other students' trash, so this runs as the owner.
+    await db.sql`UPDATE plan_item_trash SET deleted_at = now() - interval '25 hours' WHERE id = ${old.id}`
+
+    await expect(api.planItems.restore(old.id)).rejects.toThrow(/Nothing to restore/)
+    expect(await db.sql`SELECT id FROM plan_item_trash WHERE user_id = ${user}`).toEqual([{ id: fresh.id }])
+    expect(await api.planItems.restore(fresh.id)).toMatchObject({ id: fresh.id, title: 'Just deleted' })
   })
 })
