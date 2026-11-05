@@ -248,13 +248,23 @@ test.describe('Phone calendar taps', () => {
     await new TopBarPom(page).switchToWorkspace('My week')
     await watchPressesInPopover(page)
     const calendar = new CalendarPom(page)
+    // The missed-blocks banner arrives once the preview loads, shrinking the
+    // grid; until the student scrolls, the grid then goes back to 08:00. Wait
+    // for it, then scroll up with a real wheel, as a student would, so later
+    // resizes keep the grid where it is.
+    await expect(calendar.root.getByTestId('refit-banner')).toBeVisible()
     // 03:30, free time near the top of the grid: the new block's popover opens over it.
     const scroll = calendar.root.getByTestId('calendar-scroll')
     await scroll.scrollIntoViewIfNeeded()
-    await scroll.evaluate((el) => { el.scrollTop = 0 })
+    const box = (await scroll.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, -5000)
+    await expect.poll(() => scroll.evaluate((el) => el.scrollTop)).toBe(0)
     const point = await calendar.point(0, 3.5)
     await page.touchscreen.tap(point.x, point.y)
     await expect(calendar.popover).toBeVisible()
+    // The block opened at the time tapped, not wherever the grid had moved to.
+    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('03:30')
     expect(await pressesInPopover(page)).toEqual([])
   })
 })
