@@ -90,6 +90,8 @@ export interface HelpMePlanPanelProps {
    * student-facing message when the time overlaps something.
    */
   onSchedule: (todo: PlanItemOccurrence, start: Date, durationMin: number) => Promise<unknown>
+  /** To-dos given a time by hand whose save hasn't landed yet: sent with Auto-fill's request so its advice counts them as booked. */
+  pendingBookings?: () => { id: string; starts_at: string; ends_at: string }[]
   onDragTodo: (todo: DraggedTodo | null) => void
   /** The student's study hours (their preference, defaults filled in). */
   studyHours: StudyHours
@@ -111,7 +113,7 @@ const SOURCE = 'autofill'
  */
 export function HelpMePlanPanel({
   layout, weekLabel, now, layer, todos: loaded, booked, autofill, onAutofillChange: setAutofill,
-  onClose, onCollapse, onSchedule, onDragTodo, studyHours, onStudyRhythmChange,
+  onClose, onCollapse, onSchedule, pendingBookings, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
   const updateItem = mutations.useUpdatePlanItem()
@@ -175,6 +177,8 @@ export function HelpMePlanPanel({
         to: new Date(asked.week.end).toISOString(),
         timeZone: asked.timeZone,
         estimates,
+        // The server reads what is saved: a to-do given a time a moment ago may not be yet.
+        pending: pendingBookings?.(),
       })
       // The same week, as it is now (the student may have moved to another week meanwhile: keep the one asked about).
       const current = latest.current

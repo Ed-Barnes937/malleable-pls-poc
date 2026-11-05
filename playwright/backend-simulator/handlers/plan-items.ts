@@ -28,6 +28,7 @@ import {
   newSession,
   sessionParentId,
   todosToPlan,
+  withPendingBookings,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -131,6 +132,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     }
     db.planItems.push(row)
     setCourse(row.id, course ?? null)
+    raiseEstimateToBooked(row)
     return withCourse(row)
   })
 
@@ -144,8 +146,23 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: new Date().toISOString() })
     if (course !== undefined) setCourse(id, course)
     cascadeToSessions(before, row, course)
+    if (row.starts_at !== before.starts_at || row.ends_at !== before.ends_at) raiseEstimateToBooked(row)
     return withCourse(row)
   })
+
+  /** As the server: a booking lengthened past its to-do's estimate raises the estimate to the booked total, never lowers it. */
+  const raiseEstimateToBooked = (item: StoredPlanItem) => {
+    if (item.kind !== 'task') return
+    const parentId = sessionParentId(item)
+    const todo = parentId ? db.planItems.find((p) => p.id === parentId) : item
+    if (!todo || todo.duration_min == null || todo.recurrence) return
+    const rows = parentId ? db.planItems.filter((p) => sessionParentId(p) === todo.id && p.status !== 'dismissed') : []
+    const booked = Math.round(bookedMinutes([todo, ...rows]).get(todo.id) ?? 0)
+    if (booked > todo.duration_min) {
+      todo.duration_min = booked
+      todo.updated_at = new Date().toISOString()
+    }
+  }
 
   const sessionsOf = (todoId: string) => db.planItems.filter((p) => sessionParentId(p) === todoId)
 
@@ -206,9 +223,9 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const now = clock()
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
-    const rows = expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to })
+    const rows = withPendingBookings(expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }), q.pending)
     const open = all.filter((p) => p.kind === 'task' && p.status === 'open' && !isSession(p))
-    const todos = todosToPlan(open, bookedMinutes(all))
+    const todos = todosToPlan(open, bookedMinutes(withPendingBookings(all, q.pending)))
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)

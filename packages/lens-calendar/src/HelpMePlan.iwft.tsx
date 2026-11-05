@@ -179,6 +179,9 @@ test('Auto-fill straight after picking a slot drafts around the block still savi
   await expect(ghosts.first()).toBeVisible()
   // Nothing drafted for the quiz again, nor over its block.
   await expect(ghosts.filter({ hasText: 'Biology quiz prep' })).toHaveCount(0)
+  // Nor does the advice rank it: the request says it is booked, though its save hasn't landed.
+  await expect(panel.getByTestId('autofill-note')).toBeVisible()
+  await expect(panel.getByTestId('autofill-note')).not.toContainText('Biology quiz prep')
   await expect(ghost(page, 'Flashcards')).not.toHaveAttribute('aria-label', /09:00 - 10:00/)
   const drafted = await ghosts.count()
 

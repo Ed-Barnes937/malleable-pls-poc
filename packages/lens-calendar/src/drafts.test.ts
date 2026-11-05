@@ -35,11 +35,11 @@ describe('newItemFromDraft', () => {
     })
   })
 
-  it('makes study time with a duration and never a recurrence', () => {
+  it('makes study time with no estimate (just its block) and never a recurrence', () => {
     const item = newItemFromDraft(draft({ kind: 'task', title: ' Revise ', repeatsWeekly: true, course: null }), 'UTC')
     expect(item).toEqual({
       kind: 'task', title: 'Revise', course: null,
-      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z', duration_min: 60,
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z', duration_min: null,
     })
   })
 

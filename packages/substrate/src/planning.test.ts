@@ -11,6 +11,7 @@ import {
   outsideStudyHours,
   draftPlan,
   draftRest,
+  withPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   planAutofillInput,
@@ -28,6 +29,7 @@ import {
   type PlanTask,
 } from './planning'
 import type { PlanItem } from './types'
+import { bookedMinutes, todosToPlan } from './sessions'
 import { DEFAULT_STUDY_HOURS, type StudyHours } from './preferences'
 
 // Mon 2 Nov 2026; London is on GMT, so local = UTC that week.
@@ -105,6 +107,13 @@ describe("study hours (the student's preference)", () => {
     const [p] = planRefit([missed], [], { now: at(0, 21, 30), timeZone: tz, studyHours, studyMinPerDay: 30 })
     // Monday has no 60m left before 22:00; Tuesday has no 60m of budget (30m): over budget, earliest free slot.
     expect(p.starts_at).toBe(iso(1, 9))
+  })
+
+  it('re-fit keeps a missed block at its length, not its to-do\'s estimate', () => {
+    // A 2h to-do whose block was resized to 1h: re-fitting it books 1h again.
+    const missed = item({ id: 'm', kind: 'task', starts_at: iso(0, 9), ends_at: iso(0, 10), duration_min: 120 })
+    const [p] = planRefit([missed], [], { now: at(0, 21, 30), timeZone: tz, studyHours, studyMinPerDay: 120 })
+    expect(Date.parse(p.ends_at!) - Date.parse(p.starts_at!)).toBe(60 * 60_000)
   })
 })
 
@@ -492,5 +501,19 @@ describe('draftRest', () => {
     const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120, due_at: iso(2, 9, 30), starts_at: iso(1, 14), ends_at: iso(1, 15) })
     const layout = weekLayout([quiz], week, { timeZone: tz, studyMinPerDay: 120 })
     expect(draftRest(quiz, 60, layout, at(2, 9)).placements).toEqual([])
+  })
+})
+
+describe('withPendingBookings', () => {
+  it('counts a to-do given a time whose save has not landed as booked and busy, once', () => {
+    const quiz = item({ id: 'quiz', kind: 'task', duration_min: 120 })
+    const pending = [{ id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 11) }]
+    const rows = withPendingBookings([quiz], pending)
+    expect(todosToPlan([quiz], bookedMinutes(rows))).toEqual([])
+    expect(weekLayout(rows, week, { timeZone: tz }).busy).toEqual([{ start: at(0, 9), end: at(0, 11), taskId: 'pending:quiz@' + iso(0, 9) }])
+    // The save landed first: nothing is added twice.
+    const saved = { ...quiz, starts_at: iso(0, 9), ends_at: iso(0, 11) }
+    expect(withPendingBookings([saved], pending)).toEqual([saved])
+    expect(withPendingBookings([quiz])).toEqual([quiz])
   })
 })

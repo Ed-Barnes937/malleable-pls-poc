@@ -12,6 +12,7 @@ import {
   refitPreviewInput,
   CLOSED_WITH_TODO,
   SESSION_SOURCE_TYPE,
+  bookedMinutes,
   isSession,
   newSession,
   sessionParentId,
@@ -107,6 +108,23 @@ async function ownBlockToSession(tx: TransactionSql, userId: string, session: { 
 }
 
 /**
+ * A booking lengthened past its to-do's estimate raises the estimate to the
+ * booked total (flow-audit decision 16): its own block, or the sum of its
+ * sessions. Nothing here lowers it, and a block with no estimate (study time
+ * made on the calendar) keeps none. Fires no workflow events.
+ */
+async function raiseEstimateToBooked(tx: TransactionSql, userId: string, item: PlanItem) {
+  if (item.kind !== 'task') return
+  const parentId = sessionParentId(item)
+  const todo = parentId ? await fetchOne(tx, userId, parentId) : item
+  if (todo.duration_min == null || todo.recurrence) return
+  const sessions = parentId ? await listPlanItems(tx, userId, { kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE, sourceId: todo.id }) : []
+  const booked = Math.round(bookedMinutes([todo, ...sessions]).get(todo.id) ?? 0)
+  if (booked <= todo.duration_min) return
+  await tx`UPDATE plan_items SET duration_min = ${booked}, updated_at = now() WHERE id = ${todo.id} AND user_id = ${userId}`
+}
+
+/**
  * The one event rule, whichever procedure made the change: every change fires
  * plan-item:updated, and a transition into 'done' also fires
  * plan-item:completed (exactly once per transition).
@@ -160,6 +178,7 @@ export const planItemsRouter = router({
       return withUser(ctx.userId, async (tx) => {
         await ownBlockToSession(tx, ctx.userId, input)
         const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
+        await raiseEstimateToBooked(tx, ctx.userId, item)
         await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item
       })
@@ -186,8 +205,10 @@ export const planItemsRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
+        const updated = await fetchOne(tx, ctx.userId, input.id)
+        await cascadeToSessions(tx, ctx.userId, current, updated, course)
+        if (updated.starts_at !== current.starts_at || updated.ends_at !== current.ends_at) await raiseEstimateToBooked(tx, ctx.userId, updated)
         const item = await fetchOne(tx, ctx.userId, input.id)
-        await cascadeToSessions(tx, ctx.userId, current, item, course)
         await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
         return item
       })

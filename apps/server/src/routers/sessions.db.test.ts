@@ -124,4 +124,33 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
     expect((await api.planItems.byId(lab.id))!.status).toBe('open')
     expect((await api.planning.autofill(week)).order).toEqual([])
   })
+
+  it('lengthening a booking past the estimate raises the estimate to the booked total; shortening never lowers it', async () => {
+    const { api, lab } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 13) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(240)
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(240)
+  })
+
+  it("lengthening a session raises its to-do's estimate to the sum of its sessions", async () => {
+    const { api, lab, sessions } = await labWithSessions([[at(3, 9), at(3, 11)], [at(4, 9), at(4, 10)]])
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(180)
+    await api.planItems.update({ id: sessions[1].id, patch: { starts_at: at(4, 9), ends_at: at(4, 11, 30) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(270)
+    // Moving it (same length) or shortening it leaves the estimate alone.
+    await api.planItems.update({ id: sessions[1].id, patch: { starts_at: at(4, 12), ends_at: at(4, 13) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(270)
+  })
+
+  it('study time made on the calendar has no estimate, and a resize never gives it one', async () => {
+    const user = `test-sessions-${randomUUID().slice(0, 8)}`
+    users.push(user)
+    const api = caller(user)
+    const block = await api.planItems.create({ kind: 'task', title: 'Revise', starts_at: at(3, 9), ends_at: at(3, 10), duration_min: null })
+    await api.planItems.update({ id: block.id, patch: { starts_at: at(3, 9), ends_at: at(3, 9, 30) } })
+    await api.planItems.update({ id: block.id, patch: { starts_at: at(3, 9), ends_at: at(3, 11) } })
+    expect((await api.planItems.byId(block.id))!.duration_min).toBeNull()
+    expect((await api.planning.autofill(week)).order).toEqual([])
+  })
 })

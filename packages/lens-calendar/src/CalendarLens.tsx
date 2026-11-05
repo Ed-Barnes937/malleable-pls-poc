@@ -377,6 +377,20 @@ export default function CalendarLens({
    * its block straight away, unless it would land on a commitment or other
    * study time: then nothing is saved and the promise rejects saying why.
    */
+  /**
+   * Hand bookings still saving. Auto-fill sends them with its request, so the
+   * server's advice counts them as booked and never ranks, trims or names a
+   * to-do the student has just given a time (the draft itself already drafts
+   * around them, see `assigning`).
+   */
+  const savingRef = useRef(new Map<Promise<unknown>, { id: string; starts_at: string; ends_at: string }>())
+  const tracked = <T,>(save: Promise<T>, booking: { id: string; starts_at: string; ends_at: string }): Promise<T> => {
+    savingRef.current.set(save, booking)
+    save.then(() => savingRef.current.delete(save), () => savingRef.current.delete(save))
+    return save
+  }
+  const pendingBookings = useCallback(() => [...savingRef.current.values()], [])
+
   const scheduleTodo = async (todo: { id: string; title: string }, start: Date, durationMin: number) => {
     const end = start.getTime() + durationMin * 60_000
     const clash = clashAt(booked.has(todo.id) ? null : todo.id, start.getTime(), end)
@@ -385,12 +399,12 @@ export default function CalendarLens({
     const row = todos?.find((t) => t.id === todo.id)
     // A to-do already booked in sessions gets another session: its own row keeps its total.
     if (row && booked.has(todo.id)) {
-      await createItem.mutateAsync(newSession(row, patch.starts_at, patch.ends_at))
+      await tracked(createItem.mutateAsync(newSession(row, patch.starts_at, patch.ends_at)), { id: todo.id, starts_at: patch.starts_at, ends_at: patch.ends_at })
       return
     }
     if (row) setAssigning((prev) => new Map(prev).set(todo.id, { ...row, ...patch, occurrence_key: todo.id }))
     try {
-      await updateItem.mutateAsync({ id: todo.id, patch })
+      await tracked(updateItem.mutateAsync({ id: todo.id, patch }), { id: todo.id, starts_at: patch.starts_at, ends_at: patch.ends_at })
     } catch (e) {
       setAssigning((prev) => {
         const next = new Map(prev)
@@ -882,6 +896,7 @@ export default function CalendarLens({
               }}
               onCollapse={() => setPlanCollapsed(true)}
               onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
+              pendingBookings={pendingBookings}
               onDragTodo={setIncoming}
               studyHours={planPrefs.study_hours}
               onStudyRhythmChange={(change) => {

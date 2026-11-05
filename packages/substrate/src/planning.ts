@@ -32,7 +32,7 @@ import {
 import type { PlanItem, PlanItemOccurrence } from './types'
 import { DEFAULT_STUDY_HOURS, DEFAULT_STUDY_MIN_PER_DAY, studyDayWindows, type StudyHours } from './preferences'
 import { REVIEW_SUBTYPE } from './workflows/review-automation'
-import { MIN_SESSION_MIN } from './sessions'
+import { MIN_SESSION_MIN, SESSION_SOURCE_TYPE } from './sessions'
 
 const MINUTE_MS = 60_000
 
@@ -615,10 +615,42 @@ export const planAutofillInput = z.object({
   timeZone: z.string().min(1).max(100).refine(isTimeZone, { message: 'Unknown time zone' }),
   /** Lengths the student accepted as assumed for to-dos with no estimate. */
   estimates: z.record(z.string().max(255), z.number().int().min(5).max(24 * 60)).optional(),
+  /**
+   * To-dos the student has just given a time whose save may not have landed
+   * yet (`withPendingBookings`): the advice counts them as booked, so it
+   * never ranks, trims or names one.
+   */
+  pending: z.array(z.object({ id: z.string().max(255), starts_at: isoDateTime, ends_at: isoDateTime })).max(50).optional(),
 }).refine((q) => Date.parse(q.from) < Date.parse(q.to), { message: 'from must be before to' })
   .refine((q) => Date.parse(q.to) - Date.parse(q.from) <= 8 * 24 * 60 * MINUTE_MS, { message: 'plan at most a week at a time' })
 
 export type PlanAutofillInput = z.input<typeof planAutofillInput>
+
+type PendingBooking = { id: string; starts_at: string; ends_at: string }
+
+/**
+ * `rows` with the pending bookings of an Auto-fill request added, each as a
+ * session of its to-do at that time, unless a row already holds it (the save
+ * landed first). Booked and busy like any saved block.
+ */
+export function withPendingBookings<T extends Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'source_type' | 'source_id'>>(
+  rows: ReadonlyArray<T>,
+  pending: ReadonlyArray<PendingBooking> = [],
+): (T | PendingRow)[] {
+  const out: (T | PendingRow)[] = [...rows]
+  for (const p of pending) {
+    const landed = rows.some((r) => (r.id === p.id || (r.source_type === SESSION_SOURCE_TYPE && r.source_id === p.id))
+      && r.starts_at != null && Date.parse(r.starts_at) === Date.parse(p.starts_at))
+    if (landed) continue
+    out.push({
+      id: `pending:${p.id}@${p.starts_at}`, kind: 'task', status: 'open', title: '', course: null, subtype: null, due_at: null, duration_min: null,
+      recurrence: null, starts_at: p.starts_at, ends_at: p.ends_at, source_type: SESSION_SOURCE_TYPE, source_id: p.id,
+    })
+  }
+  return out
+}
+
+type PendingRow = Pick<PlanItem, 'id' | 'kind' | 'status' | 'title' | 'course' | 'subtype' | 'due_at' | 'duration_min' | 'recurrence' | 'starts_at' | 'ends_at' | 'source_type' | 'source_id'>
 
 function isTimeZone(timeZone: string): boolean {
   try {
@@ -800,8 +832,9 @@ export function planRefit(
   const result = placeEachOverBudgetIfNeeded(
     oldestFirst.map((item) => ({
       id: item.id,
-      // A block keeps its length when the to-do has no estimate.
-      durationMin: item.duration_min ?? (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
+      // A block keeps its length: that is the time booked, which a resize
+      // changes without touching the to-do's estimate (flow-audit decision 8).
+      durationMin: (Date.parse(item.ends_at!) - Date.parse(item.starts_at!)) / MINUTE_MS,
       latest: latestFor(item, opts.now) ?? range.end,
     })),
     placeable(layout),

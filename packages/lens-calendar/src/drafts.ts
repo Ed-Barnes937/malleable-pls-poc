@@ -22,8 +22,6 @@ export const KIND_LABELS: Record<PlanItemKind, string> = {
   deadline: 'Due',
 }
 
-const minutesBetween = (a: Date, b: Date) => Math.round((b.getTime() - a.getTime()) / 60_000)
-
 export function validateDraft(d: Draft): string | null {
   if (!d.title.trim()) return 'Give it a name'
   if (d.kind !== 'deadline' && d.end.getTime() <= d.start.getTime()) return 'End after it starts'
@@ -34,7 +32,9 @@ export function newItemFromDraft(d: Draft, timeZone: string): NewPlanItem {
   const base = { kind: d.kind, title: d.title.trim(), course: d.course }
   if (d.kind === 'deadline') return { ...base, due_at: d.start.toISOString() }
   const times = { starts_at: d.start.toISOString(), ends_at: d.end.toISOString() }
-  if (d.kind === 'task') return { ...base, ...times, duration_min: minutesBetween(d.start, d.end) }
+  // Study time made on the calendar is just a block: it has no estimate
+  // (flow-audit decision 15), so resizing it never makes it look partly booked.
+  if (d.kind === 'task') return { ...base, ...times, duration_min: null }
   return { ...base, ...times, recurrence: d.repeatsWeekly ? { freq: 'weekly', timeZone } : null }
 }
 

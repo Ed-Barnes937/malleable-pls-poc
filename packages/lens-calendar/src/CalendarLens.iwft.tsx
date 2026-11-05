@@ -288,7 +288,8 @@ test('drag over empty time to add study time and something due', async ({ mount,
   await popover.getByRole('button', { name: 'Add' }).click()
   await expect(block(page, 'Problem set')).toHaveAttribute('data-kind', 'task')
   expect(simulator.db.planItems.find((p) => p.title === 'Problem set')).toMatchObject({
-    kind: 'task', starts_at: iso(3, 13), ends_at: iso(3, 14, 30), duration_min: 90, recurrence: null,
+    // Study time made on the calendar is just a block: no estimate (flow-audit decision 15).
+    kind: 'task', starts_at: iso(3, 13), ends_at: iso(3, 14, 30), duration_min: null, recurrence: null,
   })
 
   const due = await point(page, 4, 17.1)
@@ -330,8 +331,19 @@ test('drag study time to another day and resize it', async ({ mount, page, simul
   await page.mouse.move(end.x, end.y, { steps: 5 })
   await page.mouse.up()
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(4, 11, 30))
-  // The block is the time booked; its to-do's estimate stays as it was (flow-audit decision 8).
-  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: iso(4, 10), duration_min: 60 })
+  // Lengthened past its 1h estimate: the estimate rises to the 1h 30m booked (flow-audit decision 16).
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: iso(4, 10), duration_min: 90 })
+
+  // Shortened to 10:30: the block is the time booked, and the estimate is never lowered (decision 8).
+  await revise.hover()
+  const edge = await revise.getByTestId('calendar-block-resize').boundingBox()
+  const shorter = await point(page, 4, 10.5)
+  await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + edge!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(shorter.x, shorter.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(4, 10, 30))
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')?.duration_min).toBe(90)
 })
 
 test('commitments do not move by drag; they move by an explicit edit', async ({ mount, page, simulator }) => {

@@ -343,7 +343,7 @@ test.describe('blocks that did not happen', () => {
   })
 
   const seedMissed = (simulator: Parameters<typeof seedPlanItem>[0]) => {
-    seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: fromNow(-2, 10), ends_at: fromNow(-2, 11), course: 'biology' })
+    seedPlanItem(simulator, { id: 'missed-1', kind: 'task', title: 'Read chapter 5', duration_min: 60, starts_at: fromNow(-2, 10), ends_at: new Date(Date.parse(fromNow(-2, 10)) + 30 * 60_000).toISOString(), course: 'biology' })
     seedPlanItem(simulator, { id: 'missed-2', kind: 'task', title: 'Lab write-up', starts_at: fromNow(-1, 19), ends_at: fromNow(-1, 20), course: 'chemistry' })
     // Never re-fit: a missed class, and a block ticked off.
     seedPlanItem(simulator, { id: 'class', kind: 'commitment', title: 'Biology lecture', starts_at: fromNow(-1, 9), ends_at: fromNow(-1, 10) })
@@ -372,6 +372,7 @@ test.describe('blocks that did not happen', () => {
     await expect(page.getByTestId('refit-banner')).toHaveCount(0)
     const moved = simulator.db.planItems.find((p) => p.id === 'missed-1')!
     expect(Date.parse(moved.starts_at!)).toBeGreaterThan(NOW.getTime() - 60_000)
+    // Re-fitted at its block's length (the time booked), not its to-do's 1h estimate.
     expect(Date.parse(moved.ends_at!) - Date.parse(moved.starts_at!)).toBe(30 * 60_000)
     expect(simulator.db.planItems.find((p) => p.id === 'class')!.starts_at).toBe(fromNow(-1, 9))
   })
@@ -664,4 +665,19 @@ test('Not now closes Book the rest without saving anything', async ({ mount, pag
   await expect(quiz.getByTestId('book-the-rest')).toHaveCount(0)
   expect(simulator.db.planItems).toHaveLength(1)
   await expect(quiz.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+})
+
+test('study time made on the calendar has no estimate, so it never reads as partly booked', async ({ mount, page, simulator }) => {
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, { id: 'block', kind: 'task', title: 'Revise enzymes', duration_min: null, starts_at: start, ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString() })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Revise enzymes' })
+  await expect(row.getByTitle('Scheduled')).toBeVisible()
+  await expect(row.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(row.getByTitle('Time estimate')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
 })

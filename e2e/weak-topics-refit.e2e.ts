@@ -198,7 +198,7 @@ test.describe('Re-fit blocks that did not happen', () => {
 
   test('To-do asks calmly, previews new times and moves only the missed study blocks', async ({ page, request }) => {
     const readChapter = await trpcMutation<Item>(request, 'planItems.create', {
-      kind: 'task', title: 'Read chapter 5', duration_min: 30, starts_at: daysFromNow(-2, 10), ends_at: daysFromNow(-2, 11),
+      kind: 'task', title: 'Read chapter 5', duration_min: 60, starts_at: daysFromNow(-2, 10), ends_at: new Date(Date.parse(daysFromNow(-2, 10)) + 30 * 60_000).toISOString(),
     })
     const labWriteUp = await trpcMutation<Item>(request, 'planItems.create', {
       kind: 'task', title: 'Lab write-up', duration_min: 60, starts_at: daysFromNow(-1, 19), ends_at: daysFromNow(-1, 20), course: 'chemistry',
@@ -237,6 +237,7 @@ test.describe('Re-fit blocks that did not happen', () => {
     for (const task of [readChapter, labWriteUp]) {
       expect(Date.parse(byId(task.id).starts_at!)).toBeGreaterThan(Date.now() - 5 * 60_000)
     }
+    // Re-fitted at its block's 30m (the time booked), not its to-do's 1h estimate.
     expect(Date.parse(byId(readChapter.id).ends_at!) - Date.parse(byId(readChapter.id).starts_at!)).toBe(30 * 60_000)
     expect(byId(shift.id).starts_at).toBe(shift.starts_at)
     expect(byId(done.id).starts_at).toBe(done.starts_at)

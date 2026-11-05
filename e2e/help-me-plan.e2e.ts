@@ -104,6 +104,24 @@ test.describe('Help me plan', () => {
     for (const minutes of perDay.values()) expect(minutes).toBeLessThanOrEqual(120)
   })
 
+  test('Auto-fill pressed while a to-do just given a time is still saving waits for it, so the advice never ranks it', async ({ page, request }) => {
+    await seedWeek(request)
+    const { calendar, panel } = await openPlanner(page)
+    await expect(panel.getByTestId('plan-capacity')).toContainText('Your to-dos need 8.')
+    // A slow save: the quiz prep's block is on the grid at once, but the server has it a while later.
+    await page.route(/planItems\.update/, async (route) => {
+      await new Promise((r) => setTimeout(r, 1500))
+      await route.continue()
+    })
+    await panel.getByTestId('plan-todo').filter({ hasText: 'Biology quiz prep' }).getByTestId('plan-suggestion').first().click()
+    await expect(calendar.block('Biology quiz prep')).toHaveAttribute('aria-label', /09:00 - 11:00/)
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    const draft = panel.getByTestId('autofill-draft')
+    await expect(draft.getByTestId('autofill-note')).toContainText('Lab report write-up is due soonest, so it gets first pick of your study time.', { timeout: 15000 })
+    await expect(draft.getByTestId('autofill-block').filter({ hasText: 'Biology quiz prep' })).toHaveCount(0)
+  })
+
   /** The same week (2h of study time on each of three mornings) with these to-dos instead. */
   async function seedTodos(request: APIRequestContext, todos: ReadonlyArray<readonly [string, number]>) {
     const seeded = await seedWeek(request)

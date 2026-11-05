@@ -45,6 +45,7 @@ export {
   noteWithoutAmounts,
   draftPlan,
   draftRest,
+  withPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   openTime,

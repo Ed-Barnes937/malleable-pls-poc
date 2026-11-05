@@ -113,6 +113,19 @@ test.describe('Partly booked to-dos', () => {
     await expect(row).toHaveCount(0)
   })
 
+  test('lengthening the 2h quiz block to 2h 30m raises the estimate to 2h 30m; shortening it again never lowers it', async ({ page, request }) => {
+    const { calendar, todo } = await openWeek(page, request)
+    await resizeTo(page, calendar, 'Revise for the Biology quiz', 16.5)
+    await expect.poll(async () => (await byId(request, QUIZ)).ends_at).toBe('2026-10-28T16:30:00.000Z')
+    expect(await byId(request, QUIZ)).toMatchObject({ duration_min: 150 })
+    await expect(todo.getByTitle('Time estimate')).toHaveText('2h 30m')
+
+    await resizeTo(page, calendar, 'Revise for the Biology quiz', 15.5)
+    await expect.poll(async () => (await byId(request, QUIZ)).ends_at).toBe('2026-10-28T15:30:00.000Z')
+    expect(await byId(request, QUIZ)).toMatchObject({ duration_min: 150 })
+    await expect(todo.getByTestId('todo-booked')).toHaveText('1h 30m of 2h 30m booked')
+  })
+
   test('Find another time on the Saturday block offers free slots elsewhere, and picking one moves it', async ({ page, request }) => {
     const { calendar } = await openWeek(page, request)
     const reading = calendar.block('Biology reading: chapter 4')
