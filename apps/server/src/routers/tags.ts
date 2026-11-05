@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import type { TransactionSql } from 'postgres'
-import { boardIdInput, CONFUSED_TAG, REVIEW_SUBTYPE, SORTED_TAG } from '@pls/substrate'
+import { boardIdInput, CONFUSED_TAG, REVIEW_SUBTYPE, SORTED_TAG, type Tag } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -89,21 +89,24 @@ export const tagsRouter = router({
         // so a second click (or a racing one, hence the lock) returns the tag
         // already there and books nothing more.
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`tag:${ctx.userId}:${input.target_type}:${input.target_id}:${input.label}`}))`
-        const [existing] = await tx`
+        const [existing] = await tx<Tag[]>`
           SELECT * FROM tags
           WHERE user_id = ${ctx.userId} AND target_type = ${input.target_type}
             AND target_id = ${input.target_id} AND label = ${input.label}
           ORDER BY created_at ASC
           LIMIT 1
         `
-        if (existing) return existing
-        const [tag] = await tx`
+        // Already there: it started nothing this time.
+        if (existing) return { ...existing, automations_started: 0 }
+        const [tag] = await tx<Tag[]>`
           INSERT INTO tags (user_id, target_type, target_id, label)
           VALUES (${ctx.userId}, ${input.target_type}, ${input.target_id}, ${input.label})
           RETURNING *
         `
-        await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, workspaceId ?? null)
-        return tag
+        const jobs = await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, workspaceId ?? null)
+        // How many automations it started, so the moment can say at once that
+        // a review is being planned, or that none will be.
+        return { ...tag, automations_started: jobs.length }
       })
     }),
 

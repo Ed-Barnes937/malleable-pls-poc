@@ -9,6 +9,9 @@ import {
   planItemIdInput,
   planItemOnBoardInput,
   bookSessionsInput,
+  planItemsRevertInput,
+  planItemUndoStateInput,
+  type PlanItemUndoState,
   parsePlanItemInput as parse,
   planAutofillInput,
   planCapacity,
@@ -47,6 +50,16 @@ import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
  * (the simulator has no workflow engine).
  */
 export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryDb, clock: () => number = Date.now): void {
+  /**
+   * When a row changes: never the same twice, even within a millisecond or
+   * under a paused test clock, so Undo can tell a row changed since (as the
+   * server's updated_at does).
+   */
+  let lastStamp = 0
+  const stamp = () => {
+    lastStamp = Math.max(Date.now(), lastStamp + 1)
+    return new Date(lastStamp).toISOString()
+  }
   const courseOf = (id: string): string | null => {
     const tags = db.tags
       .filter((t) => t.target_type === 'plan_item' && t.target_id === id)
@@ -112,7 +125,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   router.register('planItems.create', (input) => {
     const { course, workspaceId: _board, timeZone, ...fields } = parse(newPlanItemOnBoardInput, input)
     assertValid(fields)
-    const now = new Date().toISOString()
+    const now = stamp()
     ownBlockToSession(fields, now)
     const row: StoredPlanItem = {
       id: `pi-${crypto.randomUUID().slice(0, 8)}`,
@@ -151,7 +164,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     if (!isPlainTodo(todo) || todo.status !== 'open') throw new SimulatorError('BAD_REQUEST', 'Only an open to-do of your own can be booked in sessions')
     const sessions = blocks.map((b) => newSession(withCourse(todo), b.starts_at, b.ends_at))
     for (const s of sessions) assertValid(s)
-    const now = new Date().toISOString()
+    const now = stamp()
     const made = sessions.map((s) => {
       ownBlockToSession(s, now)
       const row: StoredPlanItem = {
@@ -175,7 +188,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const merged = { ...row, ...fields }
     assertValid(merged)
     const before = { ...row }
-    Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: new Date().toISOString() })
+    Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: stamp() })
     if (course !== undefined) setCourse(id, course)
     cascadeToSessions(before, row, course)
     if (row.starts_at !== before.starts_at || row.ends_at !== before.ends_at) raiseEstimateToBooked(row)
@@ -192,7 +205,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const booked = Math.round(bookedMinutes([todo, ...rows]).get(todo.id) ?? 0)
     if (booked > todo.duration_min) {
       todo.duration_min = booked
-      todo.updated_at = new Date().toISOString()
+      todo.updated_at = stamp()
     }
   }
 
@@ -205,7 +218,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
       if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) after.subtype = null
       return
     }
-    const at = new Date().toISOString()
+    const at = stamp()
     for (const s of sessionsOf(after.id)) {
       if (before.title !== after.title) Object.assign(s, { title: after.title, updated_at: at })
       if (before.due_at !== after.due_at) Object.assign(s, { due_at: after.due_at, updated_at: at })
@@ -222,7 +235,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   const setStatus = (id: string, status: StoredPlanItem['status']) => {
     const row = find(id)
     const before = { ...row }
-    if (row.status !== status) Object.assign(row, { status, updated_at: new Date().toISOString() })
+    if (row.status !== status) Object.assign(row, { status, updated_at: stamp() })
     cascadeToSessions(before, row)
     return withCourse(row)
   }
@@ -230,16 +243,91 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   router.register('planItems.complete', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'done'))
   router.register('planItems.dismiss', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'dismissed'))
 
+  router.register('planItems.undismiss', (input) => {
+    const { id } = parse(planItemOnBoardInput, input)
+    const row = find(id)
+    if (row.status !== 'dismissed') return withCourse(row)
+    const at = stamp()
+    Object.assign(row, { status: 'open', updated_at: at })
+    if (row.kind === 'task' && !isSession(row)) {
+      for (const s of sessionsOf(id)) if (s.subtype === CLOSED_WITH_TODO) Object.assign(s, { status: 'open', subtype: null, updated_at: at })
+    }
+    return withCourse(row)
+  })
+
+  /** As the server's undoState: what an accepted draft can change of one item, now. */
+  const undoState = (id: string): PlanItemUndoState => {
+    const row = find(id)
+    return {
+      id: row.id, title: row.title, starts_at: row.starts_at, ends_at: row.ends_at, duration_min: row.duration_min, updated_at: row.updated_at,
+      sessions: sessionsOf(id).map((s) => ({ id: s.id, updated_at: s.updated_at })).sort((a, b) => a.id.localeCompare(b.id)),
+    }
+  }
+  const sameState = (a: PlanItemUndoState, b: PlanItemUndoState) =>
+    a.updated_at === b.updated_at && a.sessions.length === b.sessions.length
+    && b.sessions.every((s) => a.sessions.some((t) => t.id === s.id && t.updated_at === s.updated_at))
+
+  router.register('planItems.undoState', (input) => parse(planItemUndoStateInput, input).map(undoState))
+
+  router.register('planItems.revert', (input) => {
+    const { items } = parse(planItemsRevertInput, input)
+    // All or none, as the server's transaction: check everything first.
+    const plan = items.map(({ before, after }) => {
+      const now = undoState(after.id)
+      const changed = before.id !== after.id || !sameState(now, after)
+      if (!changed) assertValid({ ...find(after.id), starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min })
+      return { before, after, now, changed }
+    })
+    const reverted: ReturnType<typeof withCourse>[] = []
+    const kept: { id: string; title: string }[] = []
+    for (const { before, after, now, changed } of plan) {
+      if (changed) {
+        kept.push({ id: now.id, title: now.title })
+        continue
+      }
+      for (const s of after.sessions) {
+        if (before.sessions.some((b) => b.id === s.id)) continue
+        db.remove(db.planItems, s.id)
+        setCourse(s.id, null)
+      }
+      const row = find(after.id)
+      Object.assign(row, { starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min, updated_at: stamp() })
+      reverted.push(withCourse(row))
+    }
+    return { reverted, kept }
+  })
+
+  /** As the server's plan_item_trash: what delete took, so restore can put it back. */
+  const trash = new Map<string, { row: StoredPlanItem; parentId: string | null; course: string | null; lectureIds: string[] }>()
+  const toTrash = (row: StoredPlanItem, parentId: string | null) => {
+    const lectureIds = db.lectures.filter((l) => l.class_item_id === row.id).map((l) => l.id)
+    trash.set(row.id, { row: { ...row }, parentId, course: courseOf(row.id), lectureIds })
+    db.remove(db.planItems, row.id)
+    setCourse(row.id, null)
+    // As the server's ON DELETE SET NULL: its lectures keep their date.
+    for (const lecture of db.lectures) if (lecture.class_item_id === row.id) lecture.class_item_id = null
+  }
+
   router.register('planItems.delete', (input) => {
     const id = parse(planItemIdInput, input)
-    if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
-    setCourse(id, null)
-    for (const s of sessionsOf(id)) {
-      db.remove(db.planItems, s.id)
-      setCourse(s.id, null)
+    const row = db.planItems.find((p) => p.id === id)
+    if (!row) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    const sessions = sessionsOf(id)
+    toTrash(row, null)
+    for (const s of sessions) toTrash(s, id)
+  })
+
+  router.register('planItems.restore', (input) => {
+    const id = parse(planItemIdInput, input)
+    if (!trash.has(id)) throw new SimulatorError('NOT_FOUND', 'Nothing to restore')
+    for (const [key, t] of [...trash]) {
+      if (key !== id && t.parentId !== id) continue
+      db.planItems.push({ ...t.row })
+      setCourse(key, t.course)
+      for (const lecture of db.lectures) if (t.lectureIds.includes(lecture.id) && lecture.class_item_id == null) lecture.class_item_id = key
+      trash.delete(key)
     }
-    // As the server's ON DELETE SET NULL: its lectures keep their date.
-    for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
+    return withCourse(find(id))
   })
 
   /** The student's study hours and budget, and their zone if set (else the caller's), as the server reads them. */
@@ -301,7 +389,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
       const row = find(a.id)
       row.starts_at = new Date(a.start).toISOString()
       row.ends_at = new Date(a.end).toISOString()
-      row.updated_at = new Date().toISOString()
+      row.updated_at = stamp()
     }
     return { moved: accepted.length }
   })

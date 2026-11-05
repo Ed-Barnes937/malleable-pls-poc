@@ -85,6 +85,33 @@ test.describe('Partly booked to-dos', () => {
     await expect(calendar.block('Revise for the Biology quiz')).toHaveCount(2)
   })
 
+  test('Book the rest in To-do is confirmed with Undo, which takes the booked sessions back out, after a reload too', async ({ page, request }) => {
+    const { calendar, todo } = await openWeek(page, request)
+    await resizeTo(page, calendar, 'Revise for the Biology quiz', 15)
+    await expect.poll(async () => (await byId(request, QUIZ)).ends_at).toBe('2026-10-28T15:00:00.000Z')
+    const before = await byId(request, QUIZ)
+
+    await todo.getByRole('button', { name: 'Book the rest of Revise for the Biology quiz' }).click()
+    await todo.getByTestId('book-the-rest').getByRole('button', { name: 'Book it' }).click()
+    await expect.poll(async () => (await sessionsOf(request, QUIZ)).length).toBe(2)
+    await expect(calendar.block('Revise for the Biology quiz')).toHaveCount(2)
+    const toast = page.getByTestId('toast-host').getByTestId('toast').filter({ hasText: 'Booked the rest of "Revise for the Biology quiz"' })
+    await expect(toast).toBeVisible()
+
+    await toast.getByRole('button', { name: 'Undo' }).click()
+    // Back as it was: its own 1h block, no sessions, the 2h estimate.
+    await expect.poll(async () => (await sessionsOf(request, QUIZ)).length).toBe(0)
+    expect(await byId(request, QUIZ)).toMatchObject({ starts_at: before.starts_at, ends_at: before.ends_at, duration_min: 120, status: 'open' })
+    await expect(calendar.block('Revise for the Biology quiz')).toHaveCount(1)
+    await expect(todo.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+
+    await page.reload()
+    await expect(calendar.block('Revise for the Biology quiz')).toHaveCount(1, { timeout: 10000 })
+    await expect(calendar.block('Revise for the Biology quiz')).toHaveAttribute('aria-label', /14:00 - 15:00/)
+    await expect(todo.getByTestId('todo-booked')).toHaveText('1h of 2h booked')
+    expect(await sessionsOf(request, QUIZ)).toEqual([])
+  })
+
   test('Book the rest in Plan your time drafts the other 1h before the quiz, saved on Accept', async ({ page, request }) => {
     const { calendar } = await openWeek(page, request)
     await resizeTo(page, calendar, 'Revise for the Biology quiz', 15)

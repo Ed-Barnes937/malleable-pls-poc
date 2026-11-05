@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, momentMarksKey, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
-import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, Check, ChevronRight, CircleCheck, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, CalendarX2, Check, ChevronRight, CircleCheck, Clock, ListTodo, Loader2, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
+import { usePendingReviews, type PendingReview } from './pending-reviews'
 
 /** A review's length: its block's when it has one (a resize changes the block, not the estimate), else its estimate. */
 function reviewMinutes(review: PlanItemOccurrence): number | null {
@@ -49,6 +50,37 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
       {label}
       <ArrowRight className="h-3 w-3" aria-hidden />
     </button>
+  )
+}
+
+/**
+ * In the review chip's place until the review arrives: "Planning a
+ * review...", then "No review yet" if the automation is slow (or failed),
+ * or "No review planned" when none is coming (no automation started).
+ */
+function PendingReviewChip({ state }: { state: PendingReview }) {
+  if (state === 'planning') {
+    return (
+      <span
+        role="status"
+        data-testid="review-chip-pending"
+        className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn"
+      >
+        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+        Planning a review...
+      </span>
+    )
+  }
+  return (
+    <span
+      role="status"
+      data-testid={state === 'late' ? 'review-chip-late' : 'review-chip-none'}
+      title={state === 'none' ? 'Turn on the review automation to get one next time' : undefined}
+      className="inline-flex items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted"
+    >
+      {state === 'late' ? <Clock className="h-3 w-3" aria-hidden /> : <CalendarX2 className="h-3 w-3" aria-hidden />}
+      {state === 'late' ? 'No review yet' : 'No review planned'}
+    </span>
   )
 }
 
@@ -507,6 +539,15 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
+  // A moment just marked confusing says a review is being planned, until it
+  // arrives (or none is coming).
+  const segmentStart = useMemo(() => new Map(segments?.map((s) => [s.id, s.start_ms])), [segments])
+  const hasReview = useCallback((segmentId: string) => {
+    const start = segmentStart.get(segmentId)
+    return start !== undefined && reviewByOffset.has(start)
+  }, [segmentStart, reviewByOffset])
+  const pendingReviews = usePendingReviews(hasReview)
+
   // A review that arrives while the lecture is open (the student just marked
   // its moment) gets the ripple once; reviews already there never do.
   const arrived = useArrivals(reviews?.map((r) => r.id), recordingId)
@@ -536,17 +577,28 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
       if (label === 'confused') {
         // A sorted moment keeps its confusing mark (the button is locked too);
         // otherwise its review comes off the plan with it, with Undo.
-        if (!selectedSorted && !marks.isPending) void marks.unmarkConfused(selectedSegmentId)
+        if (!selectedSorted && !marks.isPending) {
+          // No review is on its way for it any more.
+          pendingReviews.failed(selectedSegmentId)
+          void marks.unmarkConfused(selectedSegmentId)
+        }
         return
       }
       for (const t of existing) deleteTag.mutate(t.id)
       return
     }
     markedAt.current = watchUserScroll()
-    createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
+    const segmentId = selectedSegmentId
+    // Confusing moments get a review from the automation (decision 24: its toast has no Undo).
+    const planning = label === 'confused' && !hasReview(segmentId)
+    if (planning) pendingReviews.mark(segmentId)
+    createTag.mutateAsync({ target_type: 'transcript_segment', target_id: segmentId, label }).then(
+      (tag) => { if (planning) pendingReviews.started(segmentId, tag.automations_started) },
+      () => { if (planning) pendingReviews.failed(segmentId) },
+    )
     // An earlier "No longer marked confusing" toast for this moment goes: its
     // Undo would now double the mark and its review.
-    if (label === 'confused') onDismissNotice?.(momentMarksKey(selectedSegmentId))
+    if (label === 'confused') onDismissNotice?.(momentMarksKey(segmentId))
   }
   const handleSorted = () => {
     if (!selectedSegmentId || marks.isPending) return
@@ -717,6 +769,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)
+          const pendingReview = pendingReviews.stateOf(seg.id)
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
           const isMoment = momentSegmentId === seg.id
@@ -780,7 +833,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                 </div>
               </button>
 
-              {(segTags.length > 0 || review) && (
+              {(segTags.length > 0 || review || pendingReview) && (
                 <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
                   {segTags.some((t) => t.label === 'sorted') ? (
                     // Sorted, with its confusing mark kept as quiet history.
@@ -795,6 +848,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                   ) : (
                     segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)
                   )}
+                  {!review && pendingReview && <PendingReviewChip state={pendingReview} />}
                   {review && (
                     <ReviewChip
                       review={review}

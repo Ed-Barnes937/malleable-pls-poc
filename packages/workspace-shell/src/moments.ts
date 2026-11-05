@@ -24,6 +24,25 @@ export function hasPlanItemViewer(lensTypes: string[], manifests: Pick<PanelMani
   return lensTypes.some((type) => manifests.find((m) => m.id === type)?.showsPlanItems === true)
 }
 
+/**
+ * The one widget on a board that asks about blocks that didn't happen
+ * (flow-audit decision 4): the lowest `missedBlocksPriority` (the Calendar,
+ * else the To-do), the first in `panels` order on a tie. Null when no widget
+ * on the board asks.
+ */
+export function missedBlocksHost(
+  panels: ReadonlyArray<{ id: string; lens_type: string }>,
+  manifests: Pick<PanelManifest, 'id' | 'missedBlocksPriority'>[],
+): string | null {
+  let host: { id: string; priority: number } | null = null
+  for (const p of panels) {
+    const priority = manifests.find((m) => m.id === p.lens_type)?.missedBlocksPriority
+    if (priority === undefined) continue
+    if (!host || priority < host.priority) host = { id: p.id, priority }
+  }
+  return host?.id ?? null
+}
+
 /** Whether any of `lensTypes` is a widget that can show a recording moment. */
 export function hasMomentViewer(lensTypes: string[], manifests: ManifestFlags[]): boolean {
   return lensTypes.some((type) => manifests.find((m) => m.id === type)?.showsMoments === true)

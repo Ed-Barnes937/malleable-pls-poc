@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
-import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
+import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
@@ -14,7 +14,7 @@ import { FindAnotherTime, TickTodoToo } from './StudyBlockActions'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
-import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposals'
+import { acceptPatch, useProposalLayer, type Proposal, type ProposalValidator } from './proposals'
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
@@ -65,7 +65,7 @@ function courseLabel(course: string): string {
 
 export default function CalendarLens({
   panelId, highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
-  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget,
+  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify, onDismissNotice,
 }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
@@ -73,6 +73,7 @@ export default function CalendarLens({
   const updateItem = mutations.useUpdatePlanItem()
   const completeItem = mutations.useCompletePlanItem()
   const deleteItem = mutations.useDeletePlanItem()
+  const restoreItem = mutations.useRestorePlanItem()
   // The student's study rhythm (one per user, not per board): study hours and
   // study time per day bound everything Help me plan places.
   const preferences = substrate.usePreferences()
@@ -292,7 +293,9 @@ export default function CalendarLens({
 
   // Study blocks whose time passed without being done, offered for re-fitting.
   const missed = useMissedBlocks()
-  const refit = useRefitDraft(missed)
+  // Undo for an accepted draft (Auto-fill, re-fit); its toast goes once a block it changed is edited.
+  const draftUndo = useDraftUndo({ onNotify, onDismissNotice, rows: taskRows })
+  const refit = useRefitDraft(missed, draftUndo)
   const missedIds = useMemo(() => (missed.preview ? new Set(missed.preview.map((m) => m.item.id)) : null), [missed.preview])
 
   const validateProposal: ProposalValidator = useCallback((p, source) => {
@@ -312,10 +315,51 @@ export default function CalendarLens({
   // lands on something.
   /** Shrinks already saved with a split to-do's sessions (`taskId:minutes`). */
   const shrunkRef = useRef(new Set<string>())
+  /**
+   * Each to-do an Accept writes, as it was before that Accept (read from the
+   * server before its first write in the Accept), and whether anything of
+   * it was written, until the Accept is confirmed with Undo. One that was
+   * only partly written (a Shrink saved, then its session failed) is still
+   * undone with the rest.
+   */
+  const beforeAcceptRef = useRef(new Map<string, { title: string; state: PlanItemUndoState | null; wrote: boolean; shrunkTo?: number }>())
+  const confirmAccepted = useCallback((accepted: Proposal[]) => {
+    const touched = [...beforeAcceptRef.current.entries()].filter(([, e]) => e.wrote)
+    beforeAcceptRef.current.clear()
+    const before = touched.flatMap(([, e]) => e.state ?? [])
+    if (before.length === 0) return
+    const n = accepted.length
+    const taskIds = touched.map(([id]) => id)
+    // Nothing booked, but a Shrink saved: one error toast, whose Undo puts the estimate back.
+    const shrunk = n === 0 ? touched.find(([, e]) => e.shrunkTo !== undefined)?.[1] : undefined
+    void draftUndo.confirm({
+      before,
+      message: n === 0
+        ? `Couldn't book "${touched[0][1].title}".${shrunk ? ` Its estimate changed to ${formatMinutes(shrunk.shrunkTo!)}` : ''}`
+        : n === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${n} blocks to your plan`,
+      tone: n === 0 ? 'error' : undefined,
+      failMessage: n === 0 ? "Couldn't put its estimate back." : n === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
+      // A Shrink undone is offered again on the next draft.
+      onUndone: () => {
+        for (const key of [...shrunkRef.current]) if (taskIds.some((id) => key.startsWith(`${id}:`))) shrunkRef.current.delete(key)
+      },
+    })
+  }, [draftUndo])
   const layer = useProposalLayer({
     // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
     save: async (p) => {
-      if (!p.session) return updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
+      let entry = beforeAcceptRef.current.get(p.taskId)
+      if (!entry) {
+        const [state] = (await draftUndo.readBefore([p.taskId])) ?? [null]
+        // The to-do's own title: a session's ("... (1 of 3)") is not what an estimate belongs to.
+        entry = { title: state?.title ?? p.title, state: state ?? null, wrote: false }
+        beforeAcceptRef.current.set(p.taskId, entry)
+      }
+      const wrote = <T,>(result: T) => {
+        entry.wrote = true
+        return result
+      }
+      if (!p.session) return wrote(await updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }))
       const todo = todos?.find((t) => t.id === p.taskId)
       if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
       // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
@@ -323,12 +367,14 @@ export default function CalendarLens({
       const stored = openTodos?.find((t) => t.id === p.taskId)
       const key = `${p.taskId}:${estimate}`
       if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
-        await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
+        wrote(await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } }))
+        entry.shrunkTo = estimate
         shrunkRef.current.add(key)
       }
-      return createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
+      return wrote(await createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt)))
     },
     saveTogether: { [REFIT_SOURCE]: refit.save },
+    onAccepted: confirmAccepted,
     onDismiss: refit.onDismiss,
     rows: items,
     validate: validateProposal,
@@ -823,15 +869,18 @@ export default function CalendarLens({
         </div>
       )}
 
-      <RefitBanner
-        refit={refit}
-        layer={layer}
-        onReveal={(startsAt) => {
-          // Show the first new time: its week (or day).
-          const start = Date.parse(startsAt)
-          if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
-        }}
-      />
+      {/* A board asks once: in its first Calendar (decision 4). */}
+      {asksAboutMissedBlocks !== false && (
+        <RefitBanner
+          refit={refit}
+          layer={layer}
+          onReveal={(startsAt) => {
+            // Show the first new time: its week (or day).
+            const start = Date.parse(startsAt)
+            if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
+          }}
+        />
+      )}
       {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
       <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
@@ -991,7 +1040,17 @@ export default function CalendarLens({
             if (Object.keys(patch).length === 0) return closePopover()
             void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
-          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, async () => {
+            await deleteItem.mutateAsync(editing.id)
+            // Undo puts it back as it was: a weekly one as the whole series, a to-do with its sessions.
+            const { id, title } = editing
+            confirmWithUndo(onNotify, {
+              key: 'plan-item-deleted',
+              message: `Deleted "${title}"`,
+              failMessage: `Couldn't bring back "${title}".`,
+              undo: () => restoreItem.mutateAsync(id),
+            })
+          })}
           // As children, so it isn't remounted when the board's scope changes under it.
           children={popover.lecture ? (
             <ClassLectureSection

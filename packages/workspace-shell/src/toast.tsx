@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Undo2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
+import { undoNotice, type LensNotice, type UndoableChange } from '@pls/lens-framework'
 import { useActiveWorkspaceId } from './activeBoard'
 
 export type ToastTone = 'success' | 'error'
@@ -145,6 +146,31 @@ export const useToastStore = create<ToastState>((set, get) => {
     },
   }
 })
+
+/**
+ * A widget's notice (`LensProps.onNotify`) as a toast. `board`: it only
+ * means something on that board, so leaving it dismisses the toast.
+ */
+export function notifyToast(notice: LensNotice, opts: { board?: string } = {}) {
+  useToastStore.getState().push({
+    message: notice.message,
+    tone: notice.tone ?? 'success',
+    key: notice.key,
+    board: opts.board,
+    action: notice.action && { label: notice.action.label, onClick: notice.action.onClick, icon: notice.action.kind === 'undo' ? Undo2 : undefined },
+  })
+}
+
+/**
+ * Confirms one of the student's big changes with an Undo toast, from the
+ * shell itself (a widget removed, Tidy up); widgets do the same through
+ * `onNotify` (see `confirmWithUndo` in @pls/lens-framework). Undo dismisses
+ * the toast and runs the change's `undo`; if that fails, an error toast
+ * says so.
+ */
+export function pushUndoToast(change: UndoableChange, opts: { board?: string } = {}) {
+  notifyToast(undoNotice(change, (n) => notifyToast(n)), opts)
+}
 
 /**
  * What a screen reader hears for a toast: its message, and its action when

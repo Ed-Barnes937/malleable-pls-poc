@@ -32,7 +32,7 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
     if (label === 'sorted') throw new SimulatorError('BAD_REQUEST', 'Mark a moment sorted with tags.sort')
     // As the server: once per (target, label).
     const existing = db.tags.find((t) => t.target_type === target_type && t.target_id === target_id && t.label === label)
-    if (existing) return existing
+    if (existing) return { ...existing, automations_started: 0 }
     const tag = {
       id: `tag-${crypto.randomUUID().slice(0, 8)}`,
       target_type,
@@ -41,7 +41,12 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
       created_at: new Date().toISOString(),
     }
     db.tags.push(tag)
-    return tag
+    // As the server: how many automations the tag starts (the simulator runs
+    // none of them; jobs are its tests' to fake).
+    const fields: Record<string, string> = { target_type, target_id, label }
+    const started = db.workflows.filter((w) => w.enabled && w.trigger_event === 'tag:created'
+      && (w.condition_field == null || fields[w.condition_field] === w.condition_value)).length
+    return { ...tag, automations_started: started }
   })
 
   router.register('tags.delete', (input) => {

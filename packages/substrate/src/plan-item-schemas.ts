@@ -80,6 +80,40 @@ export const bookSessionsInput = z.object({
 })
 export type BookSessions = Omit<z.input<typeof bookSessionsInput>, 'workspaceId' | 'timeZone'>
 
+/**
+ * What an accepted draft can change of one plan item, as it is at one
+ * moment (`planItems.undoState`): its time and estimate, its sessions, and
+ * when it last changed. Read before an Accept and again after it, so Undo
+ * can put back the first and tell whether the student changed it since.
+ */
+export const planItemUndoState = z.object({
+  id: planItemIdInput,
+  title: z.string().max(500),
+  starts_at: isoDateTime.nullable(),
+  ends_at: isoDateTime.nullable(),
+  duration_min: z.number().int().positive().max(24 * 60 * 7).nullable(),
+  updated_at: z.string().max(64),
+  /** Every session of it (a to-do booked in parts), whatever its status. */
+  sessions: z.array(z.object({ id: planItemIdInput, updated_at: z.string().max(64) })).max(200),
+})
+export type PlanItemUndoState = z.output<typeof planItemUndoState>
+
+/** planItems.undoState: the items an Accept is about to change, or just changed. */
+export const planItemUndoStateInput = z.array(planItemIdInput).min(1).max(50)
+
+/**
+ * Undo of an accepted draft (Auto-fill, re-fit, Book the rest): each item
+ * as it was `before` the Accept (time, estimate, and only the sessions it
+ * had), but only where it is still as the Accept left it (`after`). An item
+ * the student changed since (moved, resized, a new estimate, a session
+ * ticked or moved) is left as it is, and named in the result's `kept`.
+ */
+export const planItemsRevertInput = z.object({
+  items: z.array(z.object({ before: planItemUndoState, after: planItemUndoState })).min(1).max(50),
+  workspaceId: boardIdInput,
+})
+export type PlanItemsRevert = Omit<z.input<typeof planItemsRevertInput>, 'workspaceId'>
+
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z
   .union([planItemIdInput, z.object({ id: planItemIdInput, workspaceId: boardIdInput })])

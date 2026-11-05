@@ -265,6 +265,27 @@ export const substrateTrpc: SubstrateWriter = {
     return adaptMutation(usePlanItemMutation(trpc.planItems.delete))
   },
 
+  useRestorePlanItem() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.planItems.restore.useMutation({
+      // A class comes back with its lectures linked again.
+      onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate(), utils.lectures.invalidate()]),
+    }))
+  },
+
+  useUndismissPlanItem() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.undismiss), (id: string, workspaceId) => ({ id, workspaceId }))
+  },
+
+  useReadUndoState() {
+    const utils = trpc.useUtils()
+    return useCallback((ids: string[]) => utils.client.planItems.undoState.query(ids), [utils])
+  },
+
+  useRevertPlanItems() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.revert))
+  },
+
   useAutofillPlan() {
     // Advice only: nothing is written, so nothing to invalidate.
     return adaptMutation(trpc.planning.autofill.useMutation())

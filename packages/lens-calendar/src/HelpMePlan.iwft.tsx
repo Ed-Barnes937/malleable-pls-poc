@@ -400,6 +400,160 @@ test('accepting a split to-do saves each session as its own block, and the to-do
   await expect(page.getByTestId('calendar-block').filter({ hasText: 'Lab report write-up' })).toHaveCount(2)
 })
 
+test('Accept draft is confirmed with one Undo, which puts every to-do back as it was', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  const before = structuredClone(simulator.db.planItems)
+  const panel = await draftWithAssumedEstimates(page)
+  await setStudyTimePerDay(page, '180')
+  // Re-drafted at 3h a day: the quiz prep, two lab report sessions and the flashcards.
+  const drafted = 4
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(drafted)
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(0)
+
+  // One toast for the whole Accept.
+  const toast = page.getByTestId('toast')
+  await expect(toast).toHaveCount(1)
+  await expect(toast).toContainText(`Added ${drafted} blocks to your plan`)
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_type === 'plan_item').length).toBeGreaterThan(0)
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  // Every to-do's time and estimate as before (Auto-fill gave the unestimated one 1h), and its sessions gone.
+  await expect.poll(() => simulator.db.planItems.map((p) => [p.id, p.starts_at, p.ends_at, p.duration_min]))
+    .toEqual(before.map((p) => [p.id, p.starts_at, p.ends_at, p.duration_min]))
+  await expect(page.getByTestId('calendar-block').filter({ hasText: 'Lab report write-up' })).toHaveCount(0)
+})
+
+test('accepting one block is undone on its own, leaving a block accepted before it', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  await draftWithAssumedEstimates(page)
+  await ghost(page, 'Biology quiz prep').hover()
+  await page.getByRole('button', { name: 'Accept Biology quiz prep' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Added "Biology quiz prep" to your plan')
+  await expect.poll(() => stored(simulator, 'quiz')?.starts_at).not.toBeNull()
+
+  await ghost(page, 'Flashcards: organelles').hover()
+  await page.getByRole('button', { name: 'Accept Flashcards: organelles' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Added "Flashcards: organelles" to your plan')
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+
+  await page.getByTestId('toast').getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(() => stored(simulator, 'cards')).toMatchObject({ starts_at: null, ends_at: null, duration_min: null })
+  expect(stored(simulator, 'quiz')!.starts_at).not.toBeNull()
+})
+
+/** As another device saves it: the row changes on the server, and this calendar hasn't fetched it yet. */
+function editedElsewhere(simulator: BackendSimulator, id: string, patch: Partial<StoredPlanItem>) {
+  const row = stored(simulator, id)!
+  Object.assign(row, patch, { updated_at: new Date(Date.parse(row.updated_at) + 1000).toISOString() })
+}
+
+test('an accepted block moved afterwards takes its Undo toast with it', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  await draftWithAssumedEstimates(page)
+  await ghost(page, 'Biology quiz prep').hover()
+  await page.getByRole('button', { name: 'Accept Biology quiz prep' }).click()
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Added "Biology quiz prep" to your plan')
+  await expect.poll(() => stored(simulator, 'quiz')?.starts_at).toBe(iso(0, 9))
+
+  // Shortened to 09:30 by its bottom edge: the Undo no longer applies to all of it, so it goes.
+  const quiz = page.getByTestId('calendar-block').filter({ hasText: 'Biology quiz prep' })
+  await quiz.hover()
+  const edge = (await quiz.getByTestId('calendar-block-resize').boundingBox())!
+  const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+  const hourPx = grid.height / 24
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + edge.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(edge.x + edge.width / 2, grid.y + 9.5 * hourPx, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => stored(simulator, 'quiz')?.ends_at).toBe(iso(0, 9, 30))
+  await expect(toast).toHaveCount(0)
+})
+
+test('a stale Undo puts back what is still as accepted, and leaves a block changed since', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  const panel = await draftWithAssumedEstimates(page)
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(2)
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Added 2 blocks to your plan')
+  await expect.poll(() => stored(simulator, 'cards')?.starts_at).toBe(iso(0, 10, 15))
+
+  // Moved on another device before Undo.
+  editedElsewhere(simulator, 'cards', { starts_at: iso(1, 9), ends_at: iso(1, 10) })
+  await toast.getByRole('button', { name: 'Undo' }).click()
+
+  await expect(toast).toHaveText(/Put the rest back\. "Flashcards: organelles" changed since, so it stays as it is\./)
+  await expect.poll(() => stored(simulator, 'quiz')).toMatchObject({ starts_at: null, ends_at: null, duration_min: 60 })
+  expect(stored(simulator, 'cards')).toMatchObject({ starts_at: iso(1, 9), ends_at: iso(1, 10), duration_min: 60 })
+})
+
+test('Undo of a split to-do never deletes a session ticked off since', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  const panel = await draftWithAssumedEstimates(page)
+  await setStudyTimePerDay(page, '180')
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(4)
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Added 4 blocks to your plan')
+  const sessions = () => simulator.db.planItems.filter((p) => p.source_id === 'lab')
+  await expect.poll(() => sessions().length).toBe(2)
+
+  // One session is ticked off on another device before Undo.
+  const ticked = sessions()[0].id
+  editedElsewhere(simulator, ticked, { status: 'done' })
+  await toast.getByRole('button', { name: 'Undo' }).click()
+
+  await expect(toast).toHaveText(/Put the rest back\. "Lab report write-up" changed since, so it stays as it is\./)
+  await expect.poll(() => stored(simulator, 'quiz')?.starts_at).toBeNull()
+  expect(stored(simulator, 'cards')).toMatchObject({ starts_at: null, duration_min: null })
+  // The ticked session, and the rest of its to-do's booking, stay.
+  expect(stored(simulator, ticked)).toMatchObject({ status: 'done' })
+  expect(sessions()).toHaveLength(2)
+})
+
+test('a Shrink saved before its sessions failed is still undone', async ({ mount, page, simulator }) => {
+  // Free Monday to Wednesday 09:00-13:00 (2h a day of study time): 6h for an 8h to-do.
+  seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+    id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 3 ? 13 : 9), ends_at: iso(d, 22),
+  })))
+  seed(simulator, [{ id: 'lab', title: 'Lab report write-up', duration_min: 480, due_at: iso(4, 18) }])
+  await mount(<CalendarHarness toasts />)
+  const panel = await openPlan(page)
+  await panel.getByTestId('autofill').click()
+  const draft = panel.getByTestId('autofill-draft')
+  await draft.getByRole('button', { name: 'Shrink to 6h' }).click()
+  await expect(ghost(page, 'Lab report write-up')).toHaveCount(3)
+
+  // The estimate saves; every session after it fails.
+  await page.route((url) => url.pathname.split(/[/,]/).includes('planItems.create'), (route) => {
+    const calls = new URL(route.request().url()).pathname.split('/').pop()!.split(',').length
+    return route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify(Array.from({ length: calls }, () => ({ error: { json: { message: 'boom', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } } }))),
+    })
+  })
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  await expect(panel).toContainText("Couldn't save")
+  expect(stored(simulator, 'lab')).toMatchObject({ duration_min: 360 })
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toEqual([])
+
+  // The Shrink is offered back with Undo, as part of the Accept.
+  const toast = page.getByTestId('toast')
+  // One error toast, with Undo for the estimate the failed Accept still changed.
+  await expect(toast).toHaveCount(1)
+  await expect(toast).toContainText(`Couldn't book "Lab report write-up". Its estimate changed to 6h`)
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(() => stored(simulator, 'lab')?.duration_min).toBe(480)
+})
+
 test('arrow keys hop a ghost past whatever is in the way, within its day', async ({ mount, page, simulator }) => {
   seedBusyWeek(simulator)
   await mount(<CalendarHarness />)

@@ -32,6 +32,8 @@ import type {
   NewResourceLink,
   NewResourceNote,
   ResourceUpdate,
+  PlanItemsRevert,
+  PlanItemUndoState,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -179,8 +181,12 @@ export function isNotFoundError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 export interface SubstrateWriter extends SubstrateReader {
-  /** Adds a tag; once per (target, label), so a second call returns the tag already there. */
-  useCreateTag: () => MutationHandle<NewTag, Tag>
+  /**
+   * Adds a tag; once per (target, label), so a second call returns the tag
+   * already there. `automations_started`: how many automations it started
+   * (0 when none is on for it, or the tag was already there).
+   */
+  useCreateTag: () => MutationHandle<NewTag, Tag & { automations_started: number }>
   /** Removes a tag by id (a tag toggle turned off). */
   useDeleteTag: () => MutationHandle<string, void>
   /**
@@ -238,7 +244,25 @@ export interface SubstrateWriter extends SubstrateReader {
   useCompletePlanItem: () => MutationHandle<string, PlanItem>
   /** Marks dismissed ("not doing this"). Takes the plan item id. */
   useDismissPlanItem: () => MutationHandle<string, PlanItem>
+  /** Deletes it (a recurring one as a whole series), with a to-do's sessions. Undo with `useRestorePlanItem`. */
   useDeletePlanItem: () => MutationHandle<string, void>
+  /** Undo of a delete: puts the item back exactly (same id, sessions, course, class lectures). Takes the plan item id. */
+  useRestorePlanItem: () => MutationHandle<string, PlanItem>
+  /** Undo of a dismiss: open again, with the sessions it closed. Takes the plan item id. */
+  useUndismissPlanItem: () => MutationHandle<string, PlanItem>
+  /**
+   * Reads each item as an accepted draft can change it, now (time,
+   * estimate, sessions, last change): before an Accept and after it, for
+   * `useRevertPlanItems`. Always from the server, never a cached copy.
+   */
+  useReadUndoState: () => (ids: string[]) => Promise<PlanItemUndoState[]>
+  /**
+   * Undo of an accepted draft (Auto-fill, re-fit, Book the rest), in one
+   * go: each item still as the Accept left it goes back as it was before,
+   * with the sessions the Accept booked gone. One changed since is left as
+   * it is and named in `kept`.
+   */
+  useRevertPlanItems: () => MutationHandle<PlanItemsRevert, { reverted: PlanItem[]; kept: { id: string; title: string }[] }>
   /**
    * Help me plan's Auto-fill advice for a week (priority order, trims when
    * over capacity, a short note). Writes and places nothing: place with
@@ -321,6 +345,13 @@ export interface PanelManifest {
    * e.g. Test Me. Decides where `LensProps.onStartReview` lands.
    */
   runsReviews?: boolean
+  /**
+   * The widget can ask about blocks that didn't happen ("2 blocks didn't
+   * happen. Re-fit them?"). A board asks once (flow-audit decision 4): in
+   * its widget with the lowest number (the Calendar 1, the To-do 2), the
+   * first one if it has several. See `LensProps.asksAboutMissedBlocks`.
+   */
+  missedBlocksPriority?: number
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

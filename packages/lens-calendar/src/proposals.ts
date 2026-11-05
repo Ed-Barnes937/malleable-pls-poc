@@ -108,8 +108,16 @@ export function useProposalLayer({
   validate,
   saveTogether,
   onDismiss,
+  onAccepted,
 }: {
   save: (proposal: Proposal) => Promise<unknown>
+  /**
+   * One Accept (one ghost, or Accept all) has finished: these are the ones
+   * it saved, in order (none if every one failed or was skipped, though a
+   * `save` may still have written part of one). Called once per Accept, so
+   * it can be undone as one change.
+   */
+  onAccepted?: (proposals: Proposal[], source: string) => void
   /**
    * Sources whose accepted proposals are written in one call, all or
    * nothing, instead of one `save` each (re-fit: `planItems.refit`, so the
@@ -292,10 +300,12 @@ export function useProposalLayer({
     const failed: string[] = []
     const skipped: string[] = []
     const accepted: Proposal[] = []
+    let batchSource: string | null = null
     try {
       // One at a time, in order: each is a normal plan item update. Each is
       // checked again right before it is saved, against the latest data and
       // the blocks accepted just before it in this batch.
+      batchSource = sourceRef.current
       const together = sourceRef.current ? saveTogether?.[sourceRef.current] : undefined
       const ready: Proposal[] = []
       for (const id of targets) {
@@ -342,11 +352,12 @@ export function useProposalLayer({
     } finally {
       setSaving((n) => n - 1)
     }
+    if (batchSource) onAccepted?.(accepted, batchSource)
     if (skipped.length > 0) setNotice(skipped.join(' '))
     if (failed.length > 0) {
       setError(`Couldn't save ${failed.map((t) => `"${t}"`).join(', ')}. Still drafted - try again?`)
     }
-  }, [save, saveTogether, saved, check, drop, isLocked, setLocked])
+  }, [save, saveTogether, onAccepted, saved, check, drop, isLocked, setLocked])
 
   const savedIds = useMemo(() => new Set(saved.keys()), [saved])
   const accept = useCallback((id: string) => acceptMany([id]), [acceptMany])
