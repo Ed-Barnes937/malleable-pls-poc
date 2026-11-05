@@ -92,8 +92,13 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
     await db.sql.end()
   })
 
-  /** Runs the review job for a moment as the runner would, and records the run. */
+  /** Marks the moment confusing (once) and runs the review job as the runner would, recording the run. */
   async function markConfused(segmentId: string, using: ExecutorRegistry = executors) {
+    await db.withUser(alice, (tx) => tx`
+      INSERT INTO tags (user_id, target_type, target_id, label)
+      SELECT ${alice}, 'transcript_segment', ${segmentId}, 'confused'
+      WHERE NOT EXISTS (SELECT 1 FROM tags WHERE user_id = ${alice} AND target_id = ${segmentId} AND label = 'confused')
+    `)
     const input = { target_type: 'transcript_segment', target_id: segmentId, label: 'confused', _userId: alice }
     const jobRun = { id: randomUUID(), workflow_id: workflowId, workflow_job_id: workflowJobId } as JobRun
     const result = await using.execute(REVIEW_TASK_JOB, input, { scopeId: null, depth: 1, jobRun })
@@ -577,6 +582,64 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
       // A sorted moment keeps its confusing mark.
       await api.tags.sort({ segmentId: segId })
       await expect(api.tags.unmarkConfused({ segmentId: segId })).rejects.toMatchObject({ code: 'CONFLICT' })
+    })
+
+    it('a confusing mark turned off while its review is being made: no review is made', async () => {
+      const api = caller(alice)
+      const segId = seg(12)
+      await db.withUser(alice, (tx) => tx`
+        INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
+        VALUES (${segId}, ${alice}, ${rec}, 3120000, 3180000, 'Heteroplasmy again.', 'Prof')
+      `)
+      const unmarkingLlm = {
+        name: 'unmarks-mid-run',
+        run: async <I, O>(task: Parameters<typeof ai.llm.run<I, O>>[0], input: I): Promise<O> => {
+          // Nothing to dismiss yet: the review isn't made.
+          expect(await api.tags.unmarkConfused({ segmentId: segId })).toMatchObject({ dismissed: [] })
+          return ai.llm.run(task, input)
+        },
+      }
+      const result = await markConfused(segId, makeExecutors({ ...ai, llm: unmarkingLlm }))
+      expect(result.output).toMatchObject({ skipped: 'mark removed', quiet: true })
+      const reviews = (await api.planItems.list({ sourceId: rec, statuses: ['open', 'done', 'dismissed'] })).filter((r) => r.source_offset_ms === 3120000)
+      expect(reviews).toEqual([])
+    })
+
+    it('an old Undo of turning confused off does nothing once the moment is marked again', async () => {
+      const api = caller(alice)
+      const segId = seg(13)
+      await db.withUser(alice, (tx) => tx`
+        INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text, speaker)
+        VALUES (${segId}, ${alice}, ${rec}, 3180000, 3240000, 'Heteroplasmy once more.', 'Prof')
+      `)
+      const first = (await markConfused(segId)).output.plan_item_id as string
+      const off = await api.tags.unmarkConfused({ segmentId: segId })
+      expect(off.dismissed).toEqual([first])
+      // Marked again: a new review.
+      const second = (await markConfused(segId)).output.plan_item_id as string
+      expect(second).not.toBe(first)
+      // The first toast's Undo, late: nothing doubles.
+      expect(await api.tags.remarkConfused({ segmentId: segId, confusedAt: off.confusedAt!, restore: off.dismissed })).toEqual({ restored: [] })
+      const open = (await api.planItems.list({ sourceId: rec, statuses: ['open'] })).filter((r) => r.source_offset_ms === 3180000)
+      expect(open.map((r) => r.id)).toEqual([second])
+      expect((await api.tags.forTarget({ targetType: 'transcript_segment', targetId: segId })).map((t) => t.label)).toEqual(['confused'])
+
+      // Off again with nothing marked since, but its review still open (e.g. reopened by hand): no Undo either.
+      const off2 = await api.tags.unmarkConfused({ segmentId: segId })
+      await api.planItems.update({ id: second, patch: { status: 'open' } })
+      expect(await api.tags.remarkConfused({ segmentId: segId, confusedAt: off2.confusedAt!, restore: off2.dismissed })).toEqual({ restored: [] })
+      expect(await api.tags.forTarget({ targetType: 'transcript_segment', targetId: segId })).toEqual([])
+    })
+
+    it('turning confused off returns the latest mark, the one the moment status reads', async () => {
+      const api = caller(alice)
+      const segId = seg(13)
+      await db.withUser(alice, (tx) => tx`
+        INSERT INTO tags (user_id, target_type, target_id, label, created_at) VALUES
+          (${alice}, 'transcript_segment', ${segId}, 'confused', '2026-10-01T10:00:00Z'),
+          (${alice}, 'transcript_segment', ${segId}, 'confused', '2026-10-02T10:00:00Z')
+      `)
+      expect((await api.tags.unmarkConfused({ segmentId: segId })).confusedAt).toBe('2026-10-02T10:00:00.000Z')
     })
   })
 })

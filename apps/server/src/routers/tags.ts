@@ -135,7 +135,8 @@ export const tagsRouter = router({
         if (labels.some((t) => t.label === SORTED_TAG)) {
           throw new TRPCError({ code: 'CONFLICT', message: 'A sorted moment keeps its confusing mark' })
         }
-        const confused = labels.find((t) => t.label === CONFUSED_TAG)
+        // The latest mark: the one the moment's status reads (aggregates use MAX).
+        const confused = labels.filter((t) => t.label === CONFUSED_TAG).at(-1)
         if (!confused) return { confusedAt: null, dismissed: [] }
         await tx`
           DELETE FROM tags
@@ -152,25 +153,25 @@ export const tagsRouter = router({
    * Undo for `unmarkConfused`: the confusing mark comes back as it was (when
    * it was made, so the moment's status is what it was), without running the
    * confusion automation again, and `restore` reopens those of its reviews
-   * still dismissed; any other id is ignored.
+   * still dismissed; any other id is ignored. A moment marked again since, or
+   * with an open review since, is left as it is (an Undo now would double it).
    */
   remarkConfused: publicProcedure
     .input(momentInput.extend({ confusedAt: z.string().datetime(), restore: z.array(z.string().max(255)).max(100).optional() }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const moment = await lockMoment(tx, ctx.userId, input.segmentId)
-        const [existing] = await tx`
+        const [marked] = await tx`
           SELECT 1 FROM tags
           WHERE user_id = ${ctx.userId} AND target_type = 'transcript_segment' AND target_id = ${input.segmentId}
             AND label = ${CONFUSED_TAG}
           LIMIT 1
         `
-        if (!existing) {
-          await tx`
-            INSERT INTO tags (user_id, target_type, target_id, label, created_at)
-            VALUES (${ctx.userId}, 'transcript_segment', ${input.segmentId}, ${CONFUSED_TAG}, ${input.confusedAt})
-          `
-        }
+        if (marked || (await momentReviews(tx, ctx.userId, moment, 'open')).length > 0) return { restored: [] }
+        await tx`
+          INSERT INTO tags (user_id, target_type, target_id, label, created_at)
+          VALUES (${ctx.userId}, 'transcript_segment', ${input.segmentId}, ${CONFUSED_TAG}, ${input.confusedAt})
+        `
         const wanted = new Set(input.restore ?? [])
         const restored = (await momentReviews(tx, ctx.userId, moment, 'dismissed')).filter((id) => wanted.has(id))
         for (const id of restored) await changeStatus(tx, ctx.userId, id, 'open', input.workspaceId ?? null)

@@ -71,4 +71,4 @@ export {
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
-export { useMomentMarks } from './sorted'
+export { momentMarksKey, useMomentMarks } from './sorted'

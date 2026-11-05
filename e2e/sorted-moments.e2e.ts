@@ -108,6 +108,61 @@ test.describe('Sorted moments', () => {
     expect(reviews.map((r) => r.id)).toEqual([review.id])
   })
 
+  test('marking a moment confusing counts it to review, turning it off takes it out, and marking again leaves no stale Undo', async ({ page, request }) => {
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    const transcript = grid.panelByLabel('Transcript')
+    const progress = grid.panelByLabel('Your Progress')
+    await expect(progress.getByText('5 moments to review')).toBeVisible({ timeout: 10000 })
+
+    // seg-bio4-01: untagged and never rated.
+    const moment = transcript.locator('[data-segment-id="seg-bio4-01"]')
+    await moment.locator('> button').click()
+    const confused = transcript.getByRole('button', { name: 'Confused', exact: true })
+    await confused.click()
+    await expect(progress.getByText('6 moments to review')).toBeVisible()
+    await expect(moment.getByTestId('review-chip')).toBeVisible({ timeout: 20000 })
+
+    await confused.click()
+    await expect(progress.getByText('5 moments to review')).toBeVisible()
+    const toasts = page.getByTestId('toast-host').getByTestId('toast')
+    await expect(toasts.filter({ hasText: 'No longer marked confusing' })).toBeVisible()
+
+    // Marked again: its toast replaces the one whose Undo would double the mark and review.
+    await confused.click()
+    await expect(progress.getByText('6 moments to review')).toBeVisible()
+    await expect(toasts.filter({ hasText: 'No longer marked confusing' })).toHaveCount(0)
+    await expect(moment.getByTestId('review-chip')).toBeVisible({ timeout: 20000 })
+    await expect.poll(async () => (await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', {
+      sourceType: 'recording', sourceId: 'rec-bio-4', kinds: ['task'], statuses: ['open'],
+    })).filter((r) => r.source_offset_ms === 0).length).toBe(1)
+  })
+
+  test('confused on and straight off again leaves no review behind', async ({ page, request }) => {
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await topBar.switchToWorkspace('Evening Review')
+    const transcript = grid.panelByLabel('Transcript')
+    await expect(transcript.getByText('14 segments')).toBeVisible({ timeout: 10000 })
+    await transcript.locator('[data-segment-id="seg-bio4-02"] > button').click()
+    const confused = transcript.getByRole('button', { name: 'Confused', exact: true })
+    await confused.click()
+    await expect(confused).toHaveAttribute('aria-pressed', 'true')
+    await confused.click()
+    await expect(confused).toHaveAttribute('aria-pressed', 'false')
+    type Run = { job_type: string; status: string; input: { target_id?: string } }
+    await expect.poll(async () => (await trpcQuery<Run[]>(request, 'jobs.recent', 50))
+      .filter((j) => j.job_type === 'plan:review-task' && j.input.target_id === 'seg-bio4-02' && j.status === 'completed').length, { timeout: 20000 }).toBe(1)
+    const open = (await trpcQuery<PlanItemOccurrence[]>(request, 'planItems.list', {
+      sourceType: 'recording', sourceId: 'rec-bio-4', kinds: ['task'], statuses: ['open'],
+    })).filter((r) => r.source_offset_ms === 180000)
+    expect(open).toEqual([])
+    expect(await tagsOn(request, 'seg-bio4-02')).toEqual([])
+  })
+
   test('the to-review chip starts a focused Test Me review of just those moments', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)

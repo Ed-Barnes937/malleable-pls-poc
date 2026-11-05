@@ -2,6 +2,11 @@ import { useCallback } from 'react'
 import { useSubstrateMutations } from './substrate-context'
 import type { LensNotice } from './types'
 
+/** The key every notice about one moment's marks shares, so a newer one replaces an older (and its stale Undo). */
+export function momentMarksKey(segmentId: string): string {
+  return `marks-${segmentId}`
+}
+
 /**
  * A moment's confusing and sorted marks, changed the same way from every
  * widget (Transcript, Test Me). Each says what happened in the shell's
@@ -17,7 +22,7 @@ export function useMomentMarks(onNotify?: (notice: LensNotice) => void) {
   const remarkConfused = mutations.useRemarkConfused()
 
   const failed = useCallback(
-    (segmentId: string, message: string) => onNotify?.({ message, tone: 'error', key: `marks-${segmentId}` }),
+    (segmentId: string, message: string) => onNotify?.({ message, tone: 'error', key: momentMarksKey(segmentId) }),
     [onNotify],
   )
   /** Runs an Undo, saying so if it fails. */
@@ -34,7 +39,7 @@ export function useMomentMarks(onNotify?: (notice: LensNotice) => void) {
         const { dismissed } = await sortMoment.mutateAsync({ segmentId })
         onNotify?.({
           message: dismissed.length > 0 ? 'Marked sorted. Its review is off your plan' : 'Marked sorted',
-          key: `marks-${segmentId}`,
+          key: momentMarksKey(segmentId),
           action: { label: 'Undo', onClick: undo(segmentId, () => unsortMoment.mutateAsync({ segmentId, restore: dismissed })) },
         })
         return true
@@ -50,7 +55,7 @@ export function useMomentMarks(onNotify?: (notice: LensNotice) => void) {
     async (segmentId: string): Promise<boolean> => {
       try {
         await unsortMoment.mutateAsync({ segmentId })
-        onNotify?.({ message: 'Back on your moments to review', key: `marks-${segmentId}` })
+        onNotify?.({ message: 'Back on your moments to review', key: momentMarksKey(segmentId) })
         return true
       } catch {
         failed(segmentId, "Couldn't put it back on your moments to review. Try again.")
@@ -67,7 +72,7 @@ export function useMomentMarks(onNotify?: (notice: LensNotice) => void) {
         if (confusedAt) {
           onNotify?.({
             message: dismissed.length > 0 ? 'No longer marked confusing. Its review is off your plan' : 'No longer marked confusing',
-            key: `marks-${segmentId}`,
+            key: momentMarksKey(segmentId),
             action: { label: 'Undo', onClick: undo(segmentId, () => remarkConfused.mutateAsync({ segmentId, confusedAt, restore: dismissed })) },
           })
         }

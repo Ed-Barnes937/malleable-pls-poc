@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
-import { type LensProps, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, momentMarksKey, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, Check, ChevronRight, CircleCheck, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
@@ -544,6 +544,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     }
     markedAt.current = watchUserScroll()
     createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
+    // Replaces an earlier "No longer marked confusing" toast for this moment,
+    // whose Undo would now double the mark and its review.
+    if (label === 'confused') onNotify?.({ message: 'Marked confusing', key: momentMarksKey(selectedSegmentId) })
   }
   const handleSorted = () => {
     if (!selectedSegmentId || marks.isPending) return
