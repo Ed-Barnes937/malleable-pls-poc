@@ -2,6 +2,7 @@ import { test, expect } from '../../../playwright/fixtures'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import TranscriptLens from './TranscriptLens'
 import { REVIEW_WAIT_MS } from './pending-reviews'
+import { seedPlanItem } from '../../../playwright/plan-items'
 
 const defaultProps = {
   panelId: 'test-panel',
@@ -377,7 +378,7 @@ test.describe('marking a moment confusing shows the review being planned', () =>
     await page.getByRole('button', { name: 'Confused', exact: true }).click()
   }
 
-  test('"Planning a review..." at once, and "No review planned" if none comes', async ({ mount, page, simulator }) => {
+  test('"Planning a review..." at once, and "No review yet" if none comes in time', async ({ mount, page, simulator }) => {
     expect(simulator.db.workflows.find((w) => w.id === 'wf-confused-review')?.enabled).toBe(1)
     await mount(
       <TestProviders>
@@ -390,10 +391,38 @@ test.describe('marking a moment confusing shows the review being planned', () =>
     await markFirstMoment(page)
     await expect(page.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
 
-    // The automation never answers (it failed): the moment stops waiting.
+    // The automation hasn't answered (slow, or it failed): the moment stops saying it is planning.
     await page.clock.runFor(REVIEW_WAIT_MS)
     await expect(page.getByTestId('review-chip-pending')).toHaveCount(0)
-    await expect(page.getByTestId('review-chip-none')).toHaveText('No review planned')
+    const late = page.getByTestId('review-chip-late')
+    await expect(late).toHaveText('No review yet')
+    // Not "planned": one may still come, so no hint to turn the automation on.
+    await expect(late).not.toHaveAttribute('title')
+    await expect(page.getByTestId('review-chip-none')).toHaveCount(0)
+  })
+
+  test('a review that arrives after "No review yet" takes its place', async ({ mount, page, simulator }) => {
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await expect(page.getByText(/Good afternoon. Today we begin organic reactions/)).toBeVisible()
+    await page.clock.install()
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
+    await page.clock.runFor(REVIEW_WAIT_MS)
+    await expect(page.getByTestId('review-chip-late')).toHaveText('No review yet')
+
+    // The slow automation finishes: its review of the moment (seg-chem1-01, at 0:00) lands.
+    seedPlanItem(simulator, {
+      id: 'late-review', kind: 'task', title: 'Review: organic reactions', subtype: 'review', duration_min: 20,
+      starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z',
+      source_type: 'recording', source_id: 'rec-chem-1', source_offset_ms: 0,
+    })
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+    await expect(page.getByTestId('review-chip')).toHaveAttribute('title', 'Review: organic reactions')
+    await expect(page.getByTestId('review-chip-late')).toHaveCount(0)
   })
 
   test('says at once that no review is planned when the review automation is off', async ({ mount, page, simulator }) => {

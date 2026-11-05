@@ -348,7 +348,8 @@ export default function CalendarLens({
       let entry = beforeAcceptRef.current.get(p.taskId)
       if (!entry) {
         const [state] = (await draftUndo.readBefore([p.taskId])) ?? [null]
-        entry = { title: p.title, state: state ?? null, wrote: false }
+        // The to-do's own title: a session's ("... (1 of 3)") is not what an estimate belongs to.
+        entry = { title: state?.title ?? p.title, state: state ?? null, wrote: false }
         beforeAcceptRef.current.set(p.taskId, entry)
       }
       const wrote = <T,>(result: T) => {

@@ -73,8 +73,9 @@ export function RefitBanner({ course, undo }: {
     const before = await undo.readBefore(fits.map((p) => p.item.id))
     missed.accept(fits.map((p) => ({ id: p.item.id, starts_at: p.starts_at!, ends_at: p.ends_at! }))).then(
       () => {
-        // Shown once here, so they don't bring the question straight back.
-        markHandled(noFit)
+        // Answered: the ones that didn't fit are shown once here, and an
+        // Undo bringing the moved ones back doesn't bring the question back.
+        markHandled([...fits, ...noFit])
         if (before) void undo.confirm({ before, ...refitUndoCopy(fits.map((p) => p.item.title)) })
         // The move is atomic: every block with a new time moved.
         setNote(movedNote(fits.map((p) => p.starts_at!), noFit))
