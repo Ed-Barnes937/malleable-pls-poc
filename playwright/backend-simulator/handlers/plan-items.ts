@@ -142,10 +142,13 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
 
   // As the server's `planItems.bookSessions`: all the sessions, or none.
   router.register('planItems.bookSessions', (input) => {
-    const { todoId, blocks, timeZone } = parse(bookSessionsInput, input)
+    // An invalid block (empty, longer than a day, overlapping) is BAD_REQUEST, as tRPC's input check on the server.
+    const checked = bookSessionsInput.safeParse(input)
+    if (!checked.success) throw new SimulatorError('BAD_REQUEST', checked.error.issues.map((i) => i.message).join('; '))
+    const { todoId, blocks, timeZone } = checked.data
     const todo = db.planItems.find((p) => p.id === todoId)
     if (!todo) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
-    if (todo.kind !== 'task' || isSession(todo)) throw new SimulatorError('BAD_REQUEST', 'Only a to-do can be booked in sessions')
+    if (!isPlainTodo(todo) || todo.status !== 'open') throw new SimulatorError('BAD_REQUEST', 'Only an open to-do of your own can be booked in sessions')
     const sessions = blocks.map((b) => newSession(withCourse(todo), b.starts_at, b.ends_at))
     for (const s of sessions) assertValid(s)
     const now = new Date().toISOString()

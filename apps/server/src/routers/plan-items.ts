@@ -196,16 +196,17 @@ export const planItemsRouter = router({
    * Book the rest: sessions of one to-do, saved in one transaction (all or
    * none). A to-do still booked in its own block has that block moved into a
    * session first, as `create` does; the estimate rises if the sessions
-   * outgrow it. NOT_FOUND for a missing to-do; BAD_REQUEST for anything that
-   * isn't a to-do of its own.
+   * outgrow it. NOT_FOUND for a missing to-do; BAD_REQUEST for anything but
+   * an open plain to-do (not a session, not a review of a moment, not done),
+   * and for a block that is empty, longer than a day or overlaps another.
    */
   bookSessions: publicProcedure
     .input(bookSessionsInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const todo = await fetchOne(tx, ctx.userId, input.todoId)
-        if (todo.kind !== 'task' || isSession(todo)) {
-          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only a to-do can be booked in sessions' })
+        if (!isPlainTodo(todo) || todo.status !== 'open') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only an open to-do of your own can be booked in sessions' })
         }
         const made: PlanItem[] = []
         for (const block of input.blocks) {

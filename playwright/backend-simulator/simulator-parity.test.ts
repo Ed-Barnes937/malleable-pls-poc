@@ -701,6 +701,21 @@ describe('simulator parity: sessions', () => {
     expect(booked.error?.data?.code ?? booked.error?.json?.data?.code).toBe('NOT_FOUND')
   })
 
+  it('bookSessions refuses what the server refuses: too long, overlapping, not a plain open to-do', async () => {
+    const r = router()
+    const code = (res: { error?: { data?: { code?: string }; json?: { data?: { code?: string } } } }) => res.error?.data?.code ?? res.error?.json?.data?.code
+    const lab = await mutate(r, 'planItems.create', { kind: 'task', title: 'Lab', duration_min: 180 }) as { id: string }
+    const year = { starts_at: '2027-11-04T09:00:00.000Z', ends_at: '2028-11-04T09:00:00.000Z' }
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [year] }))).toBe('BAD_REQUEST')
+    const overlapping = [{ starts_at: '2027-11-04T09:00:00.000Z', ends_at: '2027-11-04T11:00:00.000Z' }, { starts_at: '2027-11-04T10:00:00.000Z', ends_at: '2027-11-04T12:00:00.000Z' }]
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: overlapping }))).toBe('BAD_REQUEST')
+    const review = await mutate(r, 'planItems.create', { kind: 'task', title: 'Review', subtype: 'review', duration_min: 30, ...block(15), source_type: 'recording', source_id: 'rec-1' }) as { id: string }
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: review.id, blocks: [block(9)] }))).toBe('BAD_REQUEST')
+    await mutate(r, 'planItems.complete', lab.id)
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(9)] }))).toBe('BAD_REQUEST')
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item' })).toEqual([])
+  })
+
   it('bookSessions saves all the sessions or none', async () => {
     const r = router()
     const lab = await mutate(r, 'planItems.create', { kind: 'task', title: 'Lab', duration_min: 180, ...block(9) }) as { id: string }

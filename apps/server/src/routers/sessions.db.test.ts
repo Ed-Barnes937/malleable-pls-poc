@@ -175,6 +175,32 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
     await expect(api.planItems.bookSessions({ todoId: 'missing-to-do', blocks: [{ starts_at: at(4, 9), ends_at: at(4, 10) }] })).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
+  it('bookSessions refuses a block longer than a day, an empty one, and blocks that overlap', async () => {
+    const { api, lab, list } = await labWithSessions([])
+    const book = (blocks: { starts_at: string; ends_at: string }[]) => api.planItems.bookSessions({ todoId: lab.id, blocks })
+    await expect(book([{ starts_at: at(3, 9), ends_at: new Date(Date.UTC(2028, 10, 4, 9)).toISOString() }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(4, 9, 1) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(3, 9) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(3, 11) }, { starts_at: at(3, 10), ends_at: at(3, 12) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(await list()).toEqual([])
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(180)
+    // Back to back is fine, and a full day is the most.
+    expect(await book([{ starts_at: at(3, 9), ends_at: at(3, 10) }, { starts_at: at(3, 10), ends_at: at(3, 11) }])).toHaveLength(2)
+  })
+
+  it('bookSessions books only an open to-do of your own: not a review, a session, or one that is done', async () => {
+    const { api, lab, sessions } = await labWithSessions([[at(3, 9), at(3, 10)]])
+    const block = [{ starts_at: at(4, 9), ends_at: at(4, 10) }]
+    const { api: reviewer, review } = await reviewBlock()
+    await expect(reviewer.planItems.bookSessions({ todoId: review.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await reviewer.planItems.complete({ id: review.id })
+    await expect(reviewer.planItems.bookSessions({ todoId: review.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(api.planItems.bookSessions({ todoId: sessions[0].id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await api.planItems.complete({ id: lab.id })
+    await expect(api.planItems.bookSessions({ todoId: lab.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect((await reviewer.planItems.byId(review.id))!).toMatchObject({ starts_at: at(3, 9), source_type: 'recording' })
+  })
+
   /** A fresh student with a 30m review of a lecture moment, booked Thu 09:00-09:30. */
   async function reviewBlock() {
     const user = `test-sessions-${randomUUID().slice(0, 8)}`
