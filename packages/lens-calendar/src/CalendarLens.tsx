@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
 import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, Presence, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
@@ -22,6 +22,11 @@ import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, st
 import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
+
+/** Which popover is open: a new block's by its start, a block's by its occurrence. */
+function popoverIdOf(popover: Popover): string {
+  return popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`
+}
 
 type Popover =
   | { mode: 'create'; x: number; y: number; span?: Span; draft: Draft }
@@ -47,8 +52,6 @@ interface PendingMove {
 
 /** How much the calendar's width must change while a popover is open to count as the phone turning (more than a scrollbar). */
 const TURN_PX = 16
-/** How many frames a turned calendar has to draw a popover's block before the popover closes. */
-const TURN_WAIT_FRAMES = 30
 /** Air between the grid's prompts (re-fit, suggested blocks) and a Help me plan panel over the grid. */
 const PROMPTS_GAP_PX = 8
 /** Beside Show plan (at the grid's bottom corner) while the Help me plan panel is tucked away. */
@@ -95,6 +98,8 @@ export default function CalendarLens({
   const [view, setViewState] = useState<View>(() => (narrow ? 'day' : savedView))
   const [anchorDay, setAnchorDay] = useState(() => startOfDay(new Date()))
   const [popover, setPopover] = useState<Popover | null>(null)
+  /** The popover open when the calendar last turned, until it is placed again beside its block. */
+  const turnedRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
   const [planOpen, setPlanOpen] = useState(false)
@@ -122,6 +127,8 @@ export default function CalendarLens({
     openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
     setError(null)
     setNotice(null)
+    // A popover opened after the calendar turned is not the one to move.
+    turnedRef.current = null
     setPopover(next)
   }
   /** What focus goes back to once a closed popover has gone from the page. */
@@ -633,7 +640,7 @@ export default function CalendarLens({
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
-  const popoverId = popover ? (popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`) : null
+  const popoverId = popover ? popoverIdOf(popover) : null
   const popoverIdRef = useRef(popoverId)
   useEffect(() => { popoverIdRef.current = popoverId }, [popoverId])
   /** The popover action waiting on the server: its button says so ("Saving...") until the save lands. */
@@ -745,50 +752,57 @@ export default function CalendarLens({
 
   // The calendar much wider or narrower while a popover is open (a phone
   // turned on its side) lays the blocks out afresh: a block's popover is
-  // placed again from where its block is now, so it never covers it (or
-  // closes, if the block is nowhere to be seen once the calendar has been
-  // laid out again), and a new block's from the same point across the
-  // calendar. A frame's small change (a scrollbar) is not a turn, and never
-  // moves it.
-  const popoverRef = useRef(popover)
-  popoverRef.current = popover
+  // placed again beside its block once the block is drawn at the new width
+  // (after a refetch, if the view changed), so it never covers it, and a new
+  // block's from the same point across the calendar. Only the popover open
+  // when the calendar turned is moved: one opened since is left alone. A
+  // frame's small change (a scrollbar) is not a turn, and never moves it.
+  const [turns, setTurns] = useState(0)
   const popoverOpen = popover !== null
+  const popoverIdNow = useRef(popoverId)
+  popoverIdNow.current = popoverId
   useEffect(() => {
     const root = rootRef.current
     if (!popoverOpen || !root || typeof ResizeObserver === 'undefined') return
     let placedWidth = root.clientWidth
-    let frame = 0
-    const replace = (was: number, width: number, tries: number) => {
-      const p = popoverRef.current
-      if (!p) return
-      if (p.mode === 'create') return setPopover({ ...p, x: (p.x * width) / was })
-      const block = root.querySelector(`[data-occurrence-key="${CSS.escape(p.key)}"]`)
-      if (!block) {
-        // Its block may be a frame or two from being drawn at the new width.
-        if (tries > 0) frame = requestAnimationFrame(() => replace(was, width, tries - 1))
-        else leavePopover()
-        return
-      }
-      const at = root.getBoundingClientRect()
-      const box = block.getBoundingClientRect()
-      const span = { top: box.top - at.top, bottom: box.bottom - at.top, left: box.left - at.left, right: box.right - at.left }
-      const into = p.span ? Math.min(Math.max(p.y - p.span.top, 0), span.bottom - span.top) : (span.bottom - span.top) / 2
-      setPopover({ ...p, x: box.left + box.width / 2 - at.left, y: span.top + into, span })
-    }
     const observer = new ResizeObserver(() => {
       const width = root.clientWidth
       if (Math.abs(width - placedWidth) <= TURN_PX) return
       const was = placedWidth
       placedWidth = width
-      cancelAnimationFrame(frame)
-      replace(was, width, TURN_WAIT_FRAMES)
+      const turned = popoverIdNow.current
+      setPopover((cur) => {
+        if (cur?.mode !== 'create' || popoverIdOf(cur) !== turned) return cur
+        return { ...cur, x: (cur.x * width) / was }
+      })
+      turnedRef.current = turned
+      setTurns((n) => n + 1)
     })
     observer.observe(root)
-    return () => {
-      observer.disconnect()
-      cancelAnimationFrame(frame)
+    return () => observer.disconnect()
+  }, [popoverOpen])
+  useLayoutEffect(() => {
+    const turned = turnedRef.current
+    const root = rootRef.current
+    if (turned === null || !root) return
+    if (popover?.mode !== 'edit' || popoverId !== turned) {
+      turnedRef.current = null
+      return
     }
-  }, [popoverOpen, leavePopover])
+    // Not drawn yet (the new view still loading): placed once it is. If the
+    // data says it is gone, the rule above closes the popover.
+    const block = root.querySelector(`[data-occurrence-key="${CSS.escape(popover.key)}"]`)
+    if (!block) return
+    turnedRef.current = null
+    const at = root.getBoundingClientRect()
+    const box = block.getBoundingClientRect()
+    const span = { top: box.top - at.top, bottom: box.bottom - at.top, left: box.left - at.left, right: box.right - at.left }
+    setPopover((cur) => {
+      if (cur?.mode !== 'edit' || popoverIdOf(cur) !== turned) return cur
+      const into = cur.span ? Math.min(Math.max(cur.y - cur.span.top, 0), span.bottom - span.top) : (span.bottom - span.top) / 2
+      return { ...cur, x: box.left + box.width / 2 - at.left, y: span.top + into, span }
+    })
+  }, [turns, popover, popoverId, items])
 
   const step = view === 'week' ? 7 : 1
   const phoneDay = narrow && view === 'day'

@@ -201,29 +201,94 @@ test.describe('Popover on a phone turned on its side', () => {
   })
   test.afterAll(async () => { await reseed() })
 
+  async function openTurnMe(page: Page, request: APIRequestContext, hour: number) {
+    const today = new Date()
+    const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour)
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Turn me', course: 'biology', duration_min: 60,
+      starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('My week')
+    const calendar = new CalendarPom(page)
+    const block = calendar.block('Turn me')
+    await block.scrollIntoViewIfNeeded()
+    const box = await settledBox(page, block)
+    await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
+    await expect(calendar.popover).toBeVisible()
+    return { calendar, block }
+  }
+
+  async function expectBeside(page: Page, block: Locator, popover: Locator) {
+    const after = await settledBox(page, block)
+    const box = await settledBox(page, popover)
+    const overlap = Math.min(after.x + after.width, box.x + box.width) > Math.max(after.x, box.x)
+      && Math.min(after.y + after.height, box.y + box.height) > Math.max(after.y, box.y)
+    expect(overlap, `block ${JSON.stringify(after)}, popover ${JSON.stringify(box)}`).toBe(false)
+  }
+
+  /** Holds the calendar's week from here until `release`, as a slow phone connection would. */
+  async function holdTheWeek(page: Page) {
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route(/planItems\.list/, async (route) => {
+      await held
+      await route.continue()
+    })
+    return release
+  }
+
   for (const hour of [9, 13, 18]) {
     test(`${hour}:00 block: its popover never covers it once the phone turns`, async ({ page, request }) => {
-      const today = new Date()
-      const start = new Date(today.getFullYear(), today.getMonth(), today.getDate(), hour)
-      await trpcMutation(request, 'planItems.create', {
-        kind: 'task', title: 'Turn me', course: 'biology', duration_min: 60,
-        starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
-      })
-      await page.goto('/')
-      await new TopBarPom(page).switchToWorkspace('My week')
-      const calendar = new CalendarPom(page)
-      const block = calendar.block('Turn me')
-      await block.scrollIntoViewIfNeeded()
-      const box = await settledBox(page, block)
-      await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
-      await expect(calendar.popover).toBeVisible()
-
+      const { calendar, block } = await openTurnMe(page, request, hour)
       await page.setViewportSize({ width: 844, height: 390 })
-      const after = await settledBox(page, block)
-      const popover = await settledBox(page, calendar.popover)
-      const overlap = Math.min(after.x + after.width, popover.x + popover.width) > Math.max(after.x, popover.x)
-        && Math.min(after.y + after.height, popover.y + popover.height) > Math.max(after.y, popover.y)
-      expect(overlap, `block ${JSON.stringify(after)}, popover ${JSON.stringify(popover)}`).toBe(false)
+      await expectBeside(page, block, calendar.popover)
     })
   }
+
+  test('the week loading slowly after the turn: the popover stays open and lands beside its block', async ({ page, request }) => {
+    const { calendar, block } = await openTurnMe(page, request, 13)
+    const release = await holdTheWeek(page)
+    await page.setViewportSize({ width: 844, height: 390 })
+    await page.waitForTimeout(1500) // A slow phone connection: the wait is the point.
+    release()
+    // Not closed while its block was missing: it is back once the week is, beside its block.
+    await expect(calendar.popover).toBeVisible()
+    await expectBeside(page, block, calendar.popover)
+  })
+
+  test('a popover opened just after the turn is left where it opened', async ({ page, request }) => {
+    const { calendar } = await openTurnMe(page, request, 13)
+    const release = await holdTheWeek(page)
+    await page.setViewportSize({ width: 844, height: 390 })
+    // Straight away (as soon as Add has stopped moving, quicker than a tap can
+    // be driven), while the week loads: Add, a new block's popover in place
+    // of the block's.
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      const add = document.querySelector<HTMLButtonElement>('[data-testid="calendar"] button[aria-label="Add to calendar"]')!
+      let last = ''
+      let still = 0
+      const frame = () => {
+        const box = JSON.stringify(add.getBoundingClientRect())
+        still = box === last ? still + 1 : 0
+        last = box
+        if (still < 2) return requestAnimationFrame(frame)
+        add.click()
+        resolve()
+      }
+      requestAnimationFrame(frame)
+    }))
+    await expect(calendar.popover.getByLabel('Start time')).toBeVisible()
+    const opened = await settledBox(page, calendar.popover)
+    release()
+    await page.waitForTimeout(1000) // Long enough for any late re-placing to show.
+    await expect(calendar.popover.getByLabel('Start time')).toBeVisible()
+    expect(await settledBox(page, calendar.popover)).toEqual(opened)
+    // And where it opened is where Add opens it with nothing turning.
+    await page.keyboard.press('Escape')
+    await expect(calendar.popover).toHaveCount(0)
+    await calendar.root.getByRole('button', { name: 'Add to calendar' }).tap()
+    await expect(calendar.popover.getByLabel('Start time')).toBeVisible()
+    expect(await settledBox(page, calendar.popover)).toEqual(opened)
+  })
 })
