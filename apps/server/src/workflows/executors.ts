@@ -1,7 +1,8 @@
 import path from 'path'
 import { withUser } from '@pls/db'
 import { createExecutorRegistry, type ExecutorRegistry } from '@pls/workflows'
-import { parseReviewParams, REVIEW_TASK_JOB, LECTURE_SUMMARY_ANCHOR } from '@pls/substrate'
+import { CONFUSED_TAG, parseReviewParams, REVIEW_TASK_JOB, LECTURE_SUMMARY_ANCHOR, SORTED_TAG } from '@pls/substrate'
+import type { TransactionSql } from 'postgres'
 import type { AiDeps } from '../ai/deps'
 import { lectureSummaryTask, summaryBody } from '../ai/tasks/lecture-summary'
 import { reviewTask, reviewTitle } from '../ai/tasks/review-task'
@@ -121,6 +122,8 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
         return { output: { skipped: 'not a transcript moment' } }
       }
       const segmentId = input.target_id as string
+      // The mark that asked for the review (the automation's trigger label).
+      const label = typeof input.label === 'string' ? input.label : CONFUSED_TAG
 
       const found = await withUser(userId, async (tx) => {
         const moment = await loadMoment(tx, segmentId)
@@ -131,10 +134,13 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
           ORDER BY (id = ${ctx.jobRun.workflow_job_id}) DESC, sort_order
           LIMIT 1
         `
-        return { moment, existing: await findOpenReview(tx, userId, moment), params: parseReviewParams(job?.params) }
+        return { moment, existing: await findOpenReview(tx, userId, moment), skip: await whyNoReview(tx, userId, segmentId, label), params: parseReviewParams(job?.params) }
       })
       if (!found) throw new Error(`Transcript moment ${segmentId} not found`)
       const { moment, existing, params } = found
+      // A moment sorted, or no longer marked, gets no review.
+      const skipped = (why: string) => ({ output: { skipped: why, quiet: true } })
+      if (found.skip) return skipped(found.skip)
       // Marking a moment again adds nothing. The run records which review it
       // matched but not where that review is now: only the run that created a
       // review records its placement (see replaceAutomationReviews).
@@ -147,7 +153,16 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       const { topic } = await llm.run(reviewTask, taskInput)
       const title = reviewTitle(topic, taskInput)
 
-      const result = await withUser(userId, (tx) => createReview(tx, userId, { moment, title, params, now: Date.now(), workflowId: ctx.jobRun.workflow_id }))
+      // Checked again under the moment's lock (see tags.sort and
+      // tags.unmarkConfused): it may have been sorted, or its mark turned off,
+      // while the title was written.
+      const result = await withUser(userId, async (tx) => {
+        await tx`SELECT pg_advisory_xact_lock(hashtext(${`review:${userId}:${moment.recordingId}:${moment.startMs}`}))`
+        const skip = await whyNoReview(tx, userId, segmentId, label)
+        if (skip) return skip
+        return createReview(tx, userId, { moment, title, params, now: Date.now(), workflowId: ctx.jobRun.workflow_id })
+      })
+      if (typeof result === 'string') return skipped(result)
       if (!result.created) return alreadyReviewed(result.item.id)
       const { item, slot } = result
       return {
@@ -165,4 +180,20 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
   )
 
   return serverExecutors
+}
+
+/**
+ * Why the moment gets no review now, or null if it does: the student marked
+ * it sorted, or the mark that asked for it (`label`) is off again.
+ */
+async function whyNoReview(tx: TransactionSql, userId: string, segmentId: string, label: string): Promise<string | null> {
+  const rows = await tx`
+    SELECT DISTINCT label FROM tags
+    WHERE user_id = ${userId} AND target_type = 'transcript_segment' AND target_id = ${segmentId}
+      AND label IN (${SORTED_TAG}, ${label})
+  `
+  const labels = new Set(rows.map((r) => r.label as string))
+  if (labels.has(SORTED_TAG)) return 'moment sorted'
+  if (!labels.has(label)) return 'mark removed'
+  return null
 }

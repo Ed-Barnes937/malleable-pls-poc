@@ -153,6 +153,29 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useDeleteTag() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.tags.delete.useMutation({
+      onSuccess: () => Promise.all([utils.tags.invalidate(), utils.aggregates.invalidate()]),
+    }))
+  },
+
+  useSortMoment() {
+    return useOnBoard(useMomentMutation(trpc.tags.sort))
+  },
+
+  useUnsortMoment() {
+    return useOnBoard(useMomentMutation(trpc.tags.unsort))
+  },
+
+  useUnmarkConfused() {
+    return useOnBoard(useMomentMutation(trpc.tags.unmarkConfused))
+  },
+
+  useRemarkConfused() {
+    return useOnBoard(useMomentMutation(trpc.tags.remarkConfused))
+  },
+
   useCreateAnnotation() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.annotations.create.useMutation({
@@ -362,5 +385,14 @@ function usePlanItemMutation(procedure: { useMutation: (opts: { onSuccess: () =>
   const utils = trpc.useUtils()
   return procedure.useMutation({
     onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate()]),
+  })
+}
+
+/** Sorting changes a moment's tags, its progress and its reviews. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useMomentMutation(procedure: { useMutation: (opts: { onSuccess: () => Promise<unknown> }) => any }) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: () => Promise.all([utils.tags.invalidate(), utils.aggregates.invalidate(), utils.planItems.invalidate()]),
   })
 }

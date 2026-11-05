@@ -27,6 +27,15 @@ describe('toast store', () => {
     expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual(['Transcript ready', 'Weakest Topics added'])
   })
 
+  it('dismisses the toast with a key, leaving the others', () => {
+    const { push, dismissKey } = useToastStore.getState()
+    push({ message: 'No longer marked confusing', tone: 'success', key: 'marks-seg-1' })
+    push({ message: 'Review added to your plan', tone: 'success' })
+    dismissKey('marks-seg-1')
+    dismissKey('marks-none')
+    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual(['Review added to your plan'])
+  })
+
   it('expires each toast after 4s', () => {
     useToastStore.getState().push({ message: 'Transcript added', tone: 'success', key: 'widget-added' })
     showAll()

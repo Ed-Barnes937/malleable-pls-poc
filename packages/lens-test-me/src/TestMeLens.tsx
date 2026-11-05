@@ -1,12 +1,23 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { QUESTIONS, type Question } from '@pls/substrate'
-import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { Badge, type BadgeProps, cn, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
-import { Check, X, Eye, ChevronRight, Timer } from 'lucide-react'
+import { CONFUSED_TAG, QUESTIONS, SOLID_FROM, SORTED_TAG, type Question } from '@pls/substrate'
+import { type LensProps, type ReviewMoment, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { Badge, type BadgeProps, cn, EmptyState, HiddenElsewhere, formatTime, TAG_STYLES } from '@pls/shared-ui'
+import { ArrowUpRight, Check, CircleCheck, X, Eye, Timer } from 'lucide-react'
 
-export default function TestMeLens({ scope, config }: LensProps) {
+/** A card: a written question, or (a moment to review with none) "look at it again". */
+type Card = Question & { conf: number; lookAgain?: ReviewMoment }
+
+/** A focused review of the moments to review, started from the "N moments to review" chip. */
+interface FocusedRun {
+  moments: ReviewMoment[]
+  index: number
+  sorted: number
+}
+
+export default function TestMeLens({ scope, config, onNotify, onShowMoment, reviewRun, onReviewStarted }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
+  const marks = useMomentMarks(onNotify)
 
   const mode = (config.mode as string) ?? 'review'
   const timerSeconds = (config.timerSeconds as number) ?? 120
@@ -16,20 +27,50 @@ export default function TestMeLens({ scope, config }: LensProps) {
   const { data: confidence } = substrate.useConfidence(scope)
   const recordConfidence = mutations.useRecordConfidence()
 
-  const [currentIndex, setCurrentIndex] = useState(0)
+  /**
+   * The question on screen, by id: answering can reorder the queue (a mark
+   * changes its priority), and the next question must stay the one that was
+   * next when the student moved on.
+   */
+  const [currentId, setCurrentId] = useState<string | null>(null)
+  /** Bumped per card, so the exam timer restarts on each one. */
+  const [turn, setTurn] = useState(0)
   const [answer, setAnswer] = useState('')
   const [revealed, setRevealed] = useState(false)
   const [timeLeft, setTimeLeft] = useState(timerSeconds)
+  const [run, setRun] = useState<FocusedRun | null>(null)
+  /** "Got it" on a confusing moment: asking whether to mark it sorted. */
+  const [asking, setAsking] = useState(false)
 
+  // A focused review asked for: start it here, once.
+  useEffect(() => {
+    if (!reviewRun) return
+    setRun({ moments: reviewRun.moments, index: 0, sorted: 0 })
+    setAnswer('')
+    setRevealed(false)
+    setAsking(false)
+    setTurn((t) => t + 1)
+    onReviewStarted?.(reviewRun.id)
+  }, [reviewRun, onReviewStarted])
+
+  const sortedSegmentIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const tag of tags ?? []) {
+      if (tag.label === SORTED_TAG && tag.target_type === 'transcript_segment') ids.add(tag.target_id)
+    }
+    return ids
+  }, [tags])
+
+  // Confusing and not sorted since: these come first.
   const confusedSegmentIds = useMemo(() => {
     const ids = new Set<string>()
     for (const tag of tags ?? []) {
-      if (tag.label === 'confused' && tag.target_type === 'transcript_segment') {
+      if (tag.label === CONFUSED_TAG && tag.target_type === 'transcript_segment' && !sortedSegmentIds.has(tag.target_id)) {
         ids.add(tag.target_id)
       }
     }
     return ids
-  }, [tags])
+  }, [tags, sortedSegmentIds])
 
   const confidenceBySegment = useMemo(() => {
     const map = new Map<string, number>()
@@ -54,16 +95,37 @@ export default function TestMeLens({ scope, config }: LensProps) {
     const scored = courseQuestions.map((q) => {
       const isConfused = confusedSegmentIds.has(q.segmentId)
       const conf = confidenceBySegment.get(q.segmentId) ?? 50
-      const priority = (isConfused ? 0 : 1000) + conf
+      // A sorted moment counts as solid whatever its rating (momentStatus).
+      const priority = (isConfused ? 0 : 1000) + (sortedSegmentIds.has(q.segmentId) ? Math.max(conf, SOLID_FROM) : conf)
       return { ...q, priority, conf }
     })
     scored.sort((a, b) => a.priority - b.priority)
     return scored
-  }, [courseQuestions, confusedSegmentIds, confidenceBySegment])
+  }, [courseQuestions, confusedSegmentIds, sortedSegmentIds, confidenceBySegment])
 
-  // The course can change under us; never index past the filtered list.
-  const currentQuestion: (Question & { conf: number }) | undefined =
-    sortedQuestions[sortedQuestions.length > 0 ? currentIndex % sortedQuestions.length : 0]
+  // A focused run's cards, in the order the chip listed the moments.
+  const runCards = useMemo((): Card[] => (run?.moments ?? []).map((moment) => {
+    const conf = confidenceBySegment.get(moment.segmentId) ?? 50
+    const q = QUESTIONS.find((x) => x.segmentId === moment.segmentId)
+    if (q) return { ...q, conf }
+    return {
+      id: `look-${moment.segmentId}`,
+      conceptLabel: moment.label,
+      segmentId: moment.segmentId,
+      course: '',
+      question: `Look again: ${moment.label}`,
+      answer: '',
+      difficulty: 'medium',
+      conf,
+      lookAgain: moment,
+    }
+  }), [run?.moments, confidenceBySegment])
+
+  // The course can change under us: a question no longer listed falls back to the first.
+  const position = Math.max(0, sortedQuestions.findIndex((q) => q.id === currentId))
+  const currentQuestion: Card | undefined = run ? runCards[run.index] : sortedQuestions[position]
+  const currentConfused = !!currentQuestion && confusedSegmentIds.has(currentQuestion.segmentId)
+  const currentSorted = !!currentQuestion && sortedSegmentIds.has(currentQuestion.segmentId)
 
   useEffect(() => {
     if (!isExam) return
@@ -78,7 +140,16 @@ export default function TestMeLens({ scope, config }: LensProps) {
       })
     }, 1000)
     return () => clearInterval(interval)
-  }, [isExam, timerSeconds, currentIndex])
+  }, [isExam, timerSeconds, turn])
+
+  const next = useCallback(() => {
+    setAsking(false)
+    setAnswer('')
+    setRevealed(false)
+    setTurn((t) => t + 1)
+    if (run) setRun((r) => r && { ...r, index: r.index + 1 })
+    else if (sortedQuestions.length > 0) setCurrentId(sortedQuestions[(position + 1) % sortedQuestions.length].id)
+  }, [run, sortedQuestions, position])
 
   const handleResult = useCallback((gotIt: boolean) => {
     if (!currentQuestion) return
@@ -93,10 +164,42 @@ export default function TestMeLens({ scope, config }: LensProps) {
       source_lens_id: 'test-me',
     })
 
-    setAnswer('')
-    setRevealed(false)
-    setCurrentIndex((i) => (i + 1) % sortedQuestions.length)
-  }, [currentQuestion, recordConfidence, sortedQuestions.length])
+    // Got it on a moment still marked confusing: ask before moving on.
+    if (gotIt && currentConfused) return setAsking(true)
+    // Didn't get it on a sorted one: it is one to review again.
+    if (!gotIt && currentSorted) void marks.unsort(currentQuestion.segmentId)
+    next()
+  }, [currentQuestion, recordConfidence, currentConfused, currentSorted, marks, next])
+
+  const answerAsk = (sort: boolean) => {
+    if (sort && currentQuestion) {
+      // Counted for the run's "sorted N" only once it has happened.
+      void marks.sort(currentQuestion.segmentId).then((ok) => {
+        if (ok) setRun((r) => r && { ...r, sorted: r.sorted + 1 })
+      })
+    }
+    next()
+  }
+
+  if (run && run.index >= run.moments.length) {
+    const n = run.moments.length
+    return (
+      <div data-testid="review-run-done" className="flex h-full min-h-0 flex-col items-center justify-center gap-3 text-center">
+        <CircleCheck className="h-8 w-8 text-good" />
+        <p className="text-title font-semibold text-text-primary">Review done</p>
+        <p className="text-body text-text-secondary">
+          You went through {n} moment{n !== 1 ? 's' : ''}{run.sorted > 0 ? ` and sorted ${run.sorted}` : ''}.
+        </p>
+        <button
+          type="button"
+          onClick={() => setRun(null)}
+          className="inline-flex h-10 items-center justify-center rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground hover:opacity-90"
+        >
+          Back to Test Me
+        </button>
+      </div>
+    )
+  }
 
   if (!currentQuestion) {
     return <EmptyState message="No questions available" action={hidden} />
@@ -124,26 +227,64 @@ export default function TestMeLens({ scope, config }: LensProps) {
       )}
 
       <div className="flex items-center justify-between gap-2">
-        <span className="text-meta font-semibold text-text-muted">
-          {isExam ? 'Exam mode' : 'Review'}
-        </span>
-        <span className="flex items-center gap-2">
-          {hidden}
-          <span className="text-meta tabular-nums text-text-muted">
-            {(currentIndex % sortedQuestions.length) + 1}/{sortedQuestions.length}
-          </span>
-        </span>
+        {run ? (
+          <>
+            <span data-testid="review-run-header" className="rounded-full bg-attn-soft px-2.5 py-0.5 text-meta font-semibold text-attn">
+              Moments to review · {run.index + 1} of {run.moments.length}
+            </span>
+            <button type="button" onClick={() => setRun(null)} className="text-meta font-semibold text-accent hover:underline">
+              End review
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="text-meta font-semibold text-text-muted">
+              {isExam ? 'Exam mode' : 'Review'}
+            </span>
+            <span className="flex items-center gap-2">
+              {hidden}
+              <span className="text-meta tabular-nums text-text-muted">
+                {position + 1}/{sortedQuestions.length}
+              </span>
+            </span>
+          </>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-3 overflow-y-auto">
         <div className="flex flex-col items-start gap-2 rounded-item bg-surface-inset p-4">
           <p className="text-title font-medium text-text-primary">{currentQuestion.question}</p>
-          <Badge variant={DIFFICULTY_BADGE[currentQuestion.difficulty] ?? 'neutral'} className="capitalize">
-            {currentQuestion.difficulty}
-          </Badge>
+          <span className="flex flex-wrap items-center gap-1.5">
+            {!currentQuestion.lookAgain && (
+              <Badge variant={DIFFICULTY_BADGE[currentQuestion.difficulty] ?? 'neutral'} className="capitalize">
+                {currentQuestion.difficulty}
+              </Badge>
+            )}
+            {/* The moment's state, so the student knows what answering can do. */}
+            {currentConfused && (
+              <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold', TAG_STYLES.confused.bg, TAG_STYLES.confused.text)}>
+                You marked this confusing
+              </span>
+            )}
+            {currentSorted && (
+              <span data-testid="test-me-sorted" className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold', TAG_STYLES.sorted.bg, TAG_STYLES.sorted.text)}>
+                <CircleCheck className="h-3 w-3" /> Sorted
+              </span>
+            )}
+            {currentQuestion.lookAgain && onShowMoment && (
+              <button
+                type="button"
+                onClick={() => void onShowMoment({ recordingId: currentQuestion.lookAgain!.recordingId, offsetMs: currentQuestion.lookAgain!.offsetMs })}
+                className="inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline"
+              >
+                Open at {formatTime(currentQuestion.lookAgain.offsetMs)}
+                <ArrowUpRight className="h-3 w-3" />
+              </button>
+            )}
+          </span>
         </div>
 
-        {!revealed ? (
+        {!revealed && !currentQuestion.lookAgain ? (
           <>
             <textarea
               value={answer}
@@ -164,10 +305,39 @@ export default function TestMeLens({ scope, config }: LensProps) {
           </>
         ) : (
           <>
-            <div className="flex flex-col gap-1 rounded-item bg-good-soft p-3">
-              <p className="text-meta font-semibold text-good">Answer</p>
-              <p className="text-body text-text-primary">{currentQuestion.answer}</p>
-            </div>
+            {currentQuestion.lookAgain ? (
+              <p data-testid="look-again-hint" className="text-body text-text-secondary">Open it, then say how it went.</p>
+            ) : (
+              <div className="flex flex-col gap-1 rounded-item bg-good-soft p-3">
+                <p className="text-meta font-semibold text-good">Answer</p>
+                <p className="text-body text-text-primary">{currentQuestion.answer}</p>
+              </div>
+            )}
+            {asking ? (
+              <div data-testid="ask-sorted" className={cn('flex flex-col gap-2 rounded-item border p-3', TAG_STYLES.sorted.bg)}>
+                <p className="text-body font-semibold text-text-primary">Mark sorted?</p>
+                <p className="text-meta text-text-secondary">
+                  It leaves your moments to review and gets no more reviews. It stays marked as once confusing.
+                </p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => answerAsk(true)}
+                    className="inline-flex h-10 flex-1 items-center justify-center gap-2 rounded-control bg-good text-body font-semibold text-accent-foreground hover:opacity-90"
+                  >
+                    <CircleCheck className="h-4 w-4" />
+                    Mark sorted
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => answerAsk(false)}
+                    className="inline-flex h-10 flex-1 items-center justify-center rounded-control border border-border bg-surface-raised text-body font-semibold text-text-primary hover:bg-surface-overlay"
+                  >
+                    Not yet
+                  </button>
+                </div>
+              </div>
+            ) : (
             <div className="flex gap-2">
               <button
                 type="button"
@@ -186,11 +356,12 @@ export default function TestMeLens({ scope, config }: LensProps) {
                 Didn't get it
               </button>
             </div>
+            )}
           </>
         )}
       </div>
 
-      {!isExam && (
+      {!isExam && !asking && (
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-meta text-text-muted">
             <span>Confidence</span>

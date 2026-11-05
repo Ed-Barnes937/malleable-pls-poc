@@ -186,7 +186,7 @@ test.describe('Journey: the demo script (mock AI)', () => {
     })
     await transcript.getByText(/let me try to explain maternal inheritance/).click()
     const markedFrom = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const chip = transcript.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned · ', { timeout: 20000 })
     const markedTo = Date.now()
