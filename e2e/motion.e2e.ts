@@ -324,6 +324,51 @@ test.describe('No layout jumps', () => {
     expect(await calendar.grid.boundingBox()).toEqual(before)
   })
 
+  test('on a phone, switching boards or adding the first widget never moves the board under the top bar', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
+    const canvasTop = async () => Math.round((await page.getByTestId('canvas-container').boundingBox())!.y)
+    const names = await tabNames(page)
+    await topBar.switchToWorkspace(names[0])
+    await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+    const top = await canvasTop()
+    // Boards whose pills differ (and while each one's pills load): the board stays put.
+    const watch = () => page.evaluate(() => {
+      const tops = new Set<number>()
+      const tick = () => {
+        const el = document.querySelector('[data-testid="canvas-container"]')
+        if (el) tops.add(Math.round(el.getBoundingClientRect().top))
+        if ((window as unknown as { __watching: boolean }).__watching) requestAnimationFrame(tick)
+      }
+      ;(window as unknown as { __watching: boolean; __tops: Set<number> }).__watching = true
+      ;(window as unknown as { __tops: Set<number> }).__tops = tops
+      tick()
+    })
+    const watched = () => page.evaluate(() => {
+      (window as unknown as { __watching: boolean }).__watching = false
+      return [...(window as unknown as { __tops: Set<number> }).__tops]
+    })
+    await watch()
+    for (const name of [names[1], names[2], names[0]]) {
+      await topBar.switchToWorkspace(name)
+      await topBar.expectActiveWorkspace(name)
+      await expect(page.locator('[data-panel-id]').first()).toBeVisible()
+    }
+    expect(await watched()).toEqual([top])
+
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('Phone board')
+    await topBar.expectActiveWorkspace('Phone board')
+    expect(await canvasTop()).toBe(top)
+    await watch()
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('Calendar')
+    await expect(topBar.root.getByTestId('board-scope')).toBeVisible()
+    expect(await watched()).toEqual([top])
+  })
+
   test('scrolled to the end of the hours, answering the re-fit prompt still moves nothing', async ({ page, request }) => {
     await calendarBoard(request, 'Prompt week')
     await page.goto('/')

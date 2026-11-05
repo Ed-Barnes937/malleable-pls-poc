@@ -183,7 +183,7 @@ export function WorkspaceSwitcher() {
                 onPointerUp={onPointerUp}
                 onLostPointerCapture={onLostPointerCapture}
                 className={cn(
-                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab pl-3 pr-1 text-body transition-[background-color,color,opacity] duration-150 select-none',
+                  'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab pl-2.5 pr-0.5 text-body transition-[background-color,color,opacity] duration-150 select-none',
                   isActive
                     ? 'font-semibold text-text-primary'
                     : 'text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
@@ -208,7 +208,7 @@ export function WorkspaceSwitcher() {
                     aria-label={`Delete ${ws.name}`}
                     title="Delete board"
                     className={cn(
-                      'rounded-item p-[5px] text-text-muted transition-colors hover:bg-confused-soft hover:text-confused',
+                      'rounded-item p-[3px] text-text-muted transition-colors hover:bg-confused-soft hover:text-confused',
                       shown.current && 'motion-safe:animate-enter',
                     )}
                   >
@@ -242,8 +242,8 @@ export function WorkspaceSwitcher() {
   )
 }
 
-/** The delete button's room at a tab's end (24px, then the tab's edge). */
-const TAB_ACTION_ROOM = 'mr-1 h-6 w-6 shrink-0'
+/** The delete button's room at a tab's end (20px, then the tab's edge): every tab's padding comes to about what the open tab's alone used to, so the tabs take no more room. */
+const TAB_ACTION_ROOM = 'mr-1 h-5 w-5 shrink-0'
 
 /**
  * A tab's name, as wide as it is in bold whether it is or not: an invisible
