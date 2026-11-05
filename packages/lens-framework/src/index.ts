@@ -59,6 +59,9 @@ export {
 export {
   useMissedBlocks,
   markMissedBlocksHandled,
+  ANSWERED_STORAGE_KEY,
+  DRAFT_ACCEPTED_KEY,
+  useUndoRefit,
   missedBlockSignature,
   missedQuestion,
   refitAsk,
@@ -68,3 +71,4 @@ export {
   type MissedBlocks,
 } from './missed-blocks'
 export { isLinkedToLecture, useLinkedToLecture } from './lecture'
+export { UndoToastProvider, useUndoToast, type UndoableChange, type ConfirmChange } from './undo-toast'

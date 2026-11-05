@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
-import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations, useUndoToast } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
@@ -13,7 +13,7 @@ import { useStatusWrites } from './useStatusWrites'
 /** Estimates offered when adding a to-do, in minutes. */
 const ESTIMATES = [15, 20, 30, 45, 60, 90, 120]
 
-export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, onShowPlanItem }: LensProps) {
+export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment, onShowPlanItem, asksAboutMissedBlocks }: LensProps) {
   // Rings to-dos made from the board's lecture's moments.
   const fromLecture = useLinkedToLecture(highlight?.lectureId)
   const reader = useSubstrate()
@@ -51,6 +51,18 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   const reopen = (id: string) => {
     justDone.remove(id)
     status.setStatus(id, 'open')
+  }
+  // Removing ("Not doing") is confirmed with Undo, which brings the to-do
+  // back with the sessions it closed. A tick has its own "Done · Undo".
+  const confirmChange = useUndoToast()
+  const undismiss = writer.useUndismissPlanItem()
+  const removeTodo = (item: { id: string; title: string }) => {
+    dismiss.mutateAsync(item.id).then(() => confirmChange({
+      key: 'todo-removed',
+      message: `Removed "${item.title}"`,
+      failMessage: `Couldn't bring back "${item.title}".`,
+      undo: () => undismiss.mutateAsync(item.id),
+    }), () => {})
   }
   // Reopened elsewhere (another device, the Calendar) while its tick was
   // saving: once saved, it shows open, not "Done · Undo".
@@ -118,7 +130,8 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
         {hidden}
       </div>
 
-      <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />
+      {/* A board asks once: here only when it has no Calendar (decision 4). */}
+      {asksAboutMissedBlocks !== false && <RefitBanner course={course} onShowPlanItem={onShowPlanItem} />}
 
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
@@ -134,7 +147,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               fresh={arrived.has(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
-              onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
+              onDismiss={stage ? undefined : () => removeTodo(item)}
               booking={booking}
               onBookRest={booking && bookingRest !== item.id ? () => setBookingRest(item.id) : undefined}
               onScopeChange={onScopeChange}

@@ -400,6 +400,49 @@ test('accepting a split to-do saves each session as its own block, and the to-do
   await expect(page.getByTestId('calendar-block').filter({ hasText: 'Lab report write-up' })).toHaveCount(2)
 })
 
+test('Accept draft is confirmed with one Undo, which puts every to-do back as it was', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  const before = structuredClone(simulator.db.planItems)
+  const panel = await draftWithAssumedEstimates(page)
+  await setStudyTimePerDay(page, '180')
+  const drafted = await page.getByTestId('calendar-ghost').count()
+  expect(drafted).toBeGreaterThan(1)
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(0)
+
+  // One toast for the whole Accept.
+  const toast = page.getByTestId('toast')
+  await expect(toast).toHaveCount(1)
+  await expect(toast).toContainText(`Added ${drafted} blocks to your plan`)
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_type === 'plan_item').length).toBeGreaterThan(0)
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  // Every to-do's time and estimate as before (Auto-fill gave the unestimated one 1h), and its sessions gone.
+  await expect.poll(() => simulator.db.planItems.map((p) => [p.id, p.starts_at, p.ends_at, p.duration_min]))
+    .toEqual(before.map((p) => [p.id, p.starts_at, p.ends_at, p.duration_min]))
+  await expect(page.getByTestId('calendar-block').filter({ hasText: 'Lab report write-up' })).toHaveCount(0)
+})
+
+test('accepting one block is undone on its own, leaving a block accepted before it', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness toasts />)
+  await draftWithAssumedEstimates(page)
+  await ghost(page, 'Biology quiz prep').hover()
+  await page.getByRole('button', { name: 'Accept Biology quiz prep' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Added "Biology quiz prep" to your plan')
+  await expect.poll(() => stored(simulator, 'quiz')?.starts_at).not.toBeNull()
+
+  await ghost(page, 'Flashcards: organelles').hover()
+  await page.getByRole('button', { name: 'Accept Flashcards: organelles' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Added "Flashcards: organelles" to your plan')
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+
+  await page.getByTestId('toast').getByRole('button', { name: 'Undo' }).click()
+  await expect.poll(() => stored(simulator, 'cards')).toMatchObject({ starts_at: null, ends_at: null, duration_min: null })
+  expect(stored(simulator, 'quiz')!.starts_at).not.toBeNull()
+})
+
 test('arrow keys hop a ghost past whatever is in the way, within its day', async ({ mount, page, simulator }) => {
   seedBusyWeek(simulator)
   await mount(<CalendarHarness />)

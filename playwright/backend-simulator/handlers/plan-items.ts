@@ -9,6 +9,7 @@ import {
   planItemIdInput,
   planItemOnBoardInput,
   bookSessionsInput,
+  planItemsRevertInput,
   parsePlanItemInput as parse,
   planAutofillInput,
   planCapacity,
@@ -230,16 +231,70 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   router.register('planItems.complete', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'done'))
   router.register('planItems.dismiss', (input) => setStatus(parse(planItemOnBoardInput, input).id, 'dismissed'))
 
+  router.register('planItems.undismiss', (input) => {
+    const { id } = parse(planItemOnBoardInput, input)
+    const row = find(id)
+    if (row.status !== 'dismissed') return withCourse(row)
+    const at = new Date().toISOString()
+    Object.assign(row, { status: 'open', updated_at: at })
+    if (row.kind === 'task' && !isSession(row)) {
+      for (const s of sessionsOf(id)) if (s.subtype === CLOSED_WITH_TODO) Object.assign(s, { status: 'open', subtype: null, updated_at: at })
+    }
+    return withCourse(row)
+  })
+
+  router.register('planItems.revert', (input) => {
+    const { items } = parse(planItemsRevertInput, input)
+    // All or none, as the server's transaction.
+    const rows = items.map((it) => {
+      const row = find(it.id)
+      assertValid({ ...row, starts_at: it.starts_at, ends_at: it.ends_at, duration_min: it.duration_min })
+      return row
+    })
+    return items.map((it, i) => {
+      if (it.sessions) {
+        for (const s of sessionsOf(it.id)) {
+          if (s.status === 'dismissed' || it.sessions.includes(s.id)) continue
+          db.remove(db.planItems, s.id)
+          setCourse(s.id, null)
+        }
+      }
+      Object.assign(rows[i], { starts_at: it.starts_at, ends_at: it.ends_at, duration_min: it.duration_min, updated_at: new Date().toISOString() })
+      return withCourse(rows[i])
+    })
+  })
+
+  /** As the server's plan_item_trash: what delete took, so restore can put it back. */
+  const trash = new Map<string, { row: StoredPlanItem; parentId: string | null; course: string | null; lectureIds: string[] }>()
+  const toTrash = (row: StoredPlanItem, parentId: string | null) => {
+    const lectureIds = db.lectures.filter((l) => l.class_item_id === row.id).map((l) => l.id)
+    trash.set(row.id, { row: { ...row }, parentId, course: courseOf(row.id), lectureIds })
+    db.remove(db.planItems, row.id)
+    setCourse(row.id, null)
+    // As the server's ON DELETE SET NULL: its lectures keep their date.
+    for (const lecture of db.lectures) if (lecture.class_item_id === row.id) lecture.class_item_id = null
+  }
+
   router.register('planItems.delete', (input) => {
     const id = parse(planItemIdInput, input)
-    if (!db.remove(db.planItems, id)) throw new Error('Plan item not found')
-    setCourse(id, null)
-    for (const s of sessionsOf(id)) {
-      db.remove(db.planItems, s.id)
-      setCourse(s.id, null)
+    const row = db.planItems.find((p) => p.id === id)
+    if (!row) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    const sessions = sessionsOf(id)
+    toTrash(row, null)
+    for (const s of sessions) toTrash(s, id)
+  })
+
+  router.register('planItems.restore', (input) => {
+    const id = parse(planItemIdInput, input)
+    if (!trash.has(id)) throw new SimulatorError('NOT_FOUND', 'Nothing to restore')
+    for (const [key, t] of [...trash]) {
+      if (key !== id && t.parentId !== id) continue
+      db.planItems.push({ ...t.row })
+      setCourse(key, t.course)
+      for (const lecture of db.lectures) if (t.lectureIds.includes(lecture.id) && lecture.class_item_id == null) lecture.class_item_id = key
+      trash.delete(key)
     }
-    // As the server's ON DELETE SET NULL: its lectures keep their date.
-    for (const lecture of db.lectures) if (lecture.class_item_id === id) lecture.class_item_id = null
+    return withCourse(find(id))
   })
 
   /** The student's study hours and budget, and their zone if set (else the caller's), as the server reads them. */

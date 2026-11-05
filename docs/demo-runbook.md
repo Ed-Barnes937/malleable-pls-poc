@@ -21,7 +21,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 - The top bar shows today at a glance: "Tuesday · Chemistry 14:00 · shift 17:00-22:00 · 2h to study" (classes that have ended drop off).
 - Click **+** (New board) in the top bar, name it "My week", **Create board**. The empty board offers three starters ("Plan my time" would add the next three widgets in one click); use the board menu instead.
 - Open the board menu (top-left), click **Calendar**, **To-do**, **Coming up** (the menu stays open), then Escape. All three are in view, headers included (Coming up comes in a little shorter so it fits under To-do).
-- Calendar shows the week with lectures and both shifts as fixed blocks, the planned weekend study, and yesterday's two blocks. Coming up: Biology quiz (Thu), Chemistry lab report (Fri). To-do (and the Calendar) already ask "2 blocks didn't happen. Re-fit them?": **leave it for step 6, don't click Not now** (if you do, reload the tab to bring it back).
+- Calendar shows the week with lectures and both shifts as fixed blocks, the planned weekend study, and yesterday's two blocks. Coming up: Biology quiz (Thu), Chemistry lab report (Fri). The Calendar already asks "2 blocks didn't happen. Re-fit them?" (once per board: the To-do leaves it to the Calendar): **leave it for step 6, don't click Not now** (it is remembered on this browser until another block is missed; reseed to bring it back).
 
 **2. Plan the week**
 - In the Calendar, **Help me plan**. The panel ("Plan your time") floats over days already past mid-week (e.g. Mon-Wed on a Thursday), or over the weekend on a Monday or Tuesday, never over a draft. It reads "About 9 hours of study time left this week (2h a day). Your to-dos need 12."; the bar hatches the 3h short. Free gaps on the grid show their length (e.g. "3h 20m free").
@@ -46,7 +46,7 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 
 **6. Encores**
 - Weakest Topics lists readable topics: Maternal inheritance (today's lecture, "Confusing"), Mitochondrial disease, Maternal inheritance (the seeded lecture), Paternal inheritance, ... Click one: the Transcript jumps to that moment (seeded ones show "Reviewed · 20 min"). A seeded one is in the other lecture, so the board switches to it and a toast says so ("Opened 27:00 in Biology Lecture: Mitochondrial DNA") with **Back to Mitochondrial DNA - today**.
-- To-do: "2 blocks didn't happen. Re-fit them?" > **Re-fit** ("Here is where they could go:" with new times within the 2h a day; the Calendar's own banner steps aside meanwhile) > **Move them**: "Moved 2 blocks. They're in your calendar." From Thursday on they may go to next week instead: "Moved 2 blocks to next week. **Show next week**", which opens next week in the Calendar and glows the first of them. (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
+- Calendar: "2 blocks didn't happen. Re-fit them?" > **Re-fit** (the new times show as ghost blocks within the 2h a day; drag to adjust) > **Move them**: "Moved 2 blocks. They're in your calendar." and a "Moved 2 blocks" toast with **Undo**. From Thursday on they may go to next week instead: the Calendar opens that week and the note says "Moved 2 blocks to next week." (If the demo runs long, study blocks you accepted earlier today may have passed too and join the count.)
 
 ## Fallbacks
 
@@ -62,5 +62,5 @@ The times below are from a rehearsal on **Tuesday at 10:30** (the e2e rehearsal'
 - **Don't scroll during the ripple** (about two seconds after confused): the board stops following it.
 - **Live Whisper splits moments differently** from mock: in mock the maternal-inheritance moment is one 40s segment (1:18-1:59); live it may be two or three shorter ones. Tap the one with "explain maternal inheritance"; the review title comes from the live LLM.
 - Weakest Topics shows two "Maternal inheritance" rows (the seeded lecture and today's); the distinct upload title tells them apart.
-- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the note says so, and **Show next week** opens that week in the Calendar.
+- Re-fit keeps the 2h a day, so late in the week (Thursday on) the missed blocks can go into next week: the Calendar opens that week and the note says so.
 - Keep Test Me off the demo board (its answer field is cut off); the seeded Evening Review and Exam Prep boards have it, so stay on "My week".

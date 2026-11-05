@@ -1,6 +1,27 @@
 import { describe, it, expect } from 'vitest'
-import { chooseMomentBoard, hasMomentViewer, hasPlanItemViewer, hasReviewViewer, openedElsewhereMessage } from './moments'
+import { chooseMomentBoard, hasMomentViewer, hasPlanItemViewer, hasReviewViewer, missedBlocksHost, openedElsewhereMessage } from './moments'
 import { useWorkspaceStore } from './store'
+
+describe('missedBlocksHost', () => {
+  const asking = [{ id: 'calendar', missedBlocksPriority: 1 }, { id: 'todo', missedBlocksPriority: 2 }, { id: 'transcript' }]
+  const panel = (id: string, lens_type: string) => ({ id, lens_type })
+
+  it('asks in the Calendar when the board has one, whatever comes first', () => {
+    expect(missedBlocksHost([panel('t', 'todo'), panel('c', 'calendar')], asking)).toBe('c')
+  })
+
+  it('asks in the To-do when the board has no Calendar', () => {
+    expect(missedBlocksHost([panel('x', 'transcript'), panel('t', 'todo')], asking)).toBe('t')
+  })
+
+  it('asks once on a board with two Calendars: in the first', () => {
+    expect(missedBlocksHost([panel('c1', 'calendar'), panel('c2', 'calendar')], asking)).toBe('c1')
+  })
+
+  it('asks nowhere on a board with neither', () => {
+    expect(missedBlocksHost([panel('x', 'transcript')], asking)).toBeNull()
+  })
+})
 
 const manifests = [
   { id: 'transcript', showsMoments: true },

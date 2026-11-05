@@ -276,19 +276,18 @@ test.describe('Re-fit blocks that did not happen', () => {
     return [readChapter, labWriteUp]
   }
 
-  test('blocks moved past this week: To-do says they went to next week and shows that week in the Calendar', async ({ page, request }) => {
+  test('blocks moved past this week: the To-do says they went to next week', async ({ page, request }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     const missed = await seedMissed(request)
     // Away for the rest of this week, so their new times are next week (as from a Thursday on in the demo).
     const m = weekMonday(Date.now())
     const nextMonday = new Date(m.year, m.month - 1, m.day + 7).toISOString()
     await trpcMutation(request, 'planItems.create', { kind: 'commitment', title: 'Away this week', starts_at: daysFromNow(0, 0), ends_at: nextMonday })
-    await board(request, 'My week', ['calendar', 'todo'])
+    // No Calendar, so the To-do asks (decision 4).
+    await board(request, 'My week', ['todo'])
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('My week')
-    const calendar = new CalendarPom(page)
     const todo = new PanelGridPom(page).panelByLabel('To-do')
-    const thisWeek = await calendar.root.getByTestId('calendar-title').textContent()
 
     const banner = todo.getByTestId('refit-banner')
     await expect(banner).toContainText("2 blocks didn't happen. Re-fit them?", { timeout: 10000 })
@@ -296,23 +295,12 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect(banner.getByTestId('refit-proposal')).toHaveCount(2)
     await banner.getByRole('button', { name: 'Move them' }).click()
 
-    const note = todo.getByTestId('refit-note')
-    await expect(note).toHaveText('Moved 2 blocks to next week. Show next week')
+    await expect(todo.getByTestId('refit-note')).toHaveText('Moved 2 blocks to next week.')
     // The move is saved behind the optimistic UI: wait for it, don't read once.
     await expect.poll(() => trpcQuery(request, 'planItems.refitPreview', { timeZone: 'Europe/London' })).toEqual([])
     const items = await trpcQuery<Item[]>(request, 'planItems.list', {})
     const starts = missed.map((t) => Date.parse(items.find((i) => i.id === t.id)!.starts_at!))
     for (const start of starts) expect(start).toBeGreaterThanOrEqual(Date.parse(nextMonday))
-    // The calendar still shows this week until asked.
-    await expect(calendar.root.getByTestId('calendar-title')).toHaveText(thisWeek!)
-
-    await note.getByRole('button', { name: 'Show next week' }).click()
-    await expect(calendar.root.getByTestId('calendar-title')).not.toHaveText(thisWeek!)
-    const first = missed[starts.indexOf(Math.min(...starts))]
-    const block = calendar.block(first.title)
-    await expect(block).toHaveAttribute('data-revealed', 'true')
-    await expect(block).toBeInViewport()
-    await expect(note).toHaveCount(0)
   })
 
   test('Calendar shows the new times as ghosts and accepting moves them, clear of every commitment', async ({ page, request }) => {
@@ -364,7 +352,7 @@ test.describe('Re-fit blocks that did not happen', () => {
     await expect.poll(() => trpcQuery(request, 'planItems.refitPreview', { timeZone: 'Europe/London' })).toEqual([])
   })
 
-  test('Keep my plan in the Calendar changes nothing, and the To-do does not ask again', async ({ page, request }) => {
+  test('a board asks once, in its Calendar; Keep my plan changes nothing and holds after a reload', async ({ page, request }) => {
     await seedMissed(request)
     const before = await trpcQuery<Item[]>(request, 'planItems.list', {})
     await board(request, 'My week', ['calendar', 'todo'])
@@ -373,19 +361,28 @@ test.describe('Re-fit blocks that did not happen', () => {
     const calendar = new CalendarPom(page)
     const banner = calendar.root.getByTestId('refit-banner')
     const todo = new PanelGridPom(page).panelByLabel('To-do')
-    await expect(todo.getByTestId('refit-banner')).toContainText("2 blocks didn't happen.", { timeout: 10000 })
+    await expect(banner).toContainText("2 blocks didn't happen.", { timeout: 10000 })
+    // Decision 4: not a second time in the To-do beside it.
+    await expect(todo.getByText('Read chapter 5')).toBeVisible()
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
 
     await banner.getByRole('button', { name: 'Re-fit' }).click()
     await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(2)
-    // One question at a time: while the Calendar shows new times, the To-do doesn't ask.
-    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     await banner.getByRole('button', { name: 'Keep my plan' }).click()
 
     await expect(calendar.root.getByTestId('calendar-ghost')).toHaveCount(0)
     await expect(banner).toHaveCount(0)
-    // Answered once, for every widget.
-    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     expect(await trpcQuery<Item[]>(request, 'planItems.list', {})).toEqual(before)
+
+    // Answered for good: a reload, or a board with only a To-do, doesn't ask again.
+    await page.reload()
+    await expect(calendar.block('Read chapter 5')).toBeVisible()
+    await expect(banner).toHaveCount(0)
+    await board(request, 'Lists', ['todo'])
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Lists')
+    await expect(todo.getByText('Read chapter 5')).toBeVisible()
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
   })
 
   test('a block due before any day with study time left goes over the 2h a day rather than off the calendar', async ({ page, request }) => {
@@ -421,26 +418,22 @@ test.describe('Re-fit blocks that did not happen', () => {
     expect(study.reduce((sum, i) => sum + (Date.parse(i.ends_at!) - Date.parse(i.starts_at!)) / 60_000, 0)).toBeGreaterThan(120)
   })
 
-  test("Re-fit in the To-do: the Calendar stops asking while it shows the new times, and the moves keep Help me plan's rules", async ({ page, request }) => {
+  test("Re-fit in the To-do keeps Help me plan's rules", async ({ page, request }) => {
     const missed = await seedMissed(request)
     // Tomorrow already has its 2h of study: re-fit must not add to it.
     const tomorrowStudy = await trpcMutation<Item>(request, 'planItems.create', {
       kind: 'task', title: 'Essay plan', duration_min: 120, starts_at: daysFromNow(1, 9), ends_at: daysFromNow(1, 11),
     })
-    await board(request, 'My week', ['calendar', 'todo'])
+    await board(request, 'My week', ['todo'])
     await page.goto('/')
     await new TopBarPom(page).switchToWorkspace('My week')
-    const calendarBanner = new CalendarPom(page).root.getByTestId('refit-banner')
     const todoBanner = new PanelGridPom(page).panelByLabel('To-do').getByTestId('refit-banner')
-    await expect(calendarBanner).toContainText("2 blocks didn't happen. Re-fit them?", { timeout: 10000 })
+    await expect(todoBanner).toContainText("2 blocks didn't happen. Re-fit them?", { timeout: 10000 })
 
     await todoBanner.getByRole('button', { name: 'Re-fit' }).click()
     await expect(todoBanner).toContainText('Here is where they could go:')
-    // Not a second "Re-fit them?" beside the preview.
-    await expect(calendarBanner).toHaveCount(0)
     await todoBanner.getByRole('button', { name: 'Move them' }).click()
     await expect(todoBanner).toHaveCount(0)
-    await expect(calendarBanner).toHaveCount(0)
 
     // Where they went: Help me plan's rules (2h a day, 10 minutes apart, from 09:00).
     // The move is saved behind the optimistic UI: wait for it, don't read once.

@@ -150,6 +150,8 @@ export {
   planItemOnBoardInput,
   bookSessionsInput,
   type BookSessions,
+  planItemsRevertInput,
+  type PlanItemsRevert,
 } from './plan-item-schemas'
 
 export type {

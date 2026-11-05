@@ -1,6 +1,7 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import TranscriptLens from './TranscriptLens'
+import { REVIEW_WAIT_MS } from './pending-reviews'
 
 const defaultProps = {
   panelId: 'test-panel',
@@ -367,6 +368,45 @@ test("a lecture's own tags and notes show under its course, and new tags appear"
   await confusedButton.click()
   await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-chem1-01' && t.label === 'confused').length).toBe(1)
   await expect(page.locator('text=confused')).toHaveCount(before + 1)
+})
+
+test.describe('marking a moment confusing shows the review being planned', () => {
+  const chemistry = { ...defaultProps, scope: { lectureId: 'lec-rec-chem-1', courseTag: 'chemistry' } }
+  const markFirstMoment = async (page: import('@playwright/test').Page) => {
+    await page.getByText(/Good afternoon. Today we begin organic reactions/).click()
+    await page.getByRole('button', { name: 'confused', exact: true }).click()
+  }
+
+  test('"Planning a review..." at once, and "No review planned" if none comes', async ({ mount, page, simulator }) => {
+    expect(simulator.db.workflows.find((w) => w.id === 'wf-confused-review')?.enabled).toBe(1)
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await expect(page.getByText(/Good afternoon. Today we begin organic reactions/)).toBeVisible()
+    // From here, time passes only when the test says so.
+    await page.clock.install()
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
+
+    // The automation never answers (it failed): the moment stops waiting.
+    await page.clock.runFor(REVIEW_WAIT_MS)
+    await expect(page.getByTestId('review-chip-pending')).toHaveCount(0)
+    await expect(page.getByTestId('review-chip-none')).toHaveText('No review planned')
+  })
+
+  test('says at once that no review is planned when the review automation is off', async ({ mount, page, simulator }) => {
+    simulator.db.workflows.find((w) => w.id === 'wf-confused-review')!.enabled = 0
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-none')).toHaveText('No review planned')
+    await expect(page.getByTestId('review-chip-pending')).toHaveCount(0)
+  })
 })
 
 test('landing on a moment folds the summary to one line and outlines the moment in the lecture course', async ({ mount, page, simulator }) => {

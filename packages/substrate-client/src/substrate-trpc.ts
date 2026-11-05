@@ -242,6 +242,22 @@ export const substrateTrpc: SubstrateWriter = {
     return adaptMutation(usePlanItemMutation(trpc.planItems.delete))
   },
 
+  useRestorePlanItem() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.planItems.restore.useMutation({
+      // A class comes back with its lectures linked again.
+      onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate(), utils.lectures.invalidate()]),
+    }))
+  },
+
+  useUndismissPlanItem() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.undismiss), (id: string, workspaceId) => ({ id, workspaceId }))
+  },
+
+  useRevertPlanItems() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.revert))
+  },
+
   useAutofillPlan() {
     // Advice only: nothing is written, so nothing to invalidate.
     return adaptMutation(trpc.planning.autofill.useMutation())

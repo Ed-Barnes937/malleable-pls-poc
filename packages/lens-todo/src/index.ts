@@ -16,6 +16,8 @@ export const manifest: PanelManifest = {
   writes: ['plan_items'],
   // Unticking and dismissing are updates.
   emits: ['plan-item:created', 'plan-item:completed', 'plan-item:updated'],
+  // Asks about missed blocks when the board has no Calendar.
+  missedBlocksPriority: 2,
   load: () => import('./TodoLens'),
   minWidth: 280,
   minHeight: 220,

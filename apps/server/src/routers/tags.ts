@@ -55,8 +55,10 @@ export const tagsRouter = router({
           VALUES (${ctx.userId}, ${input.target_type}, ${input.target_id}, ${input.label})
           RETURNING *
         `
-        await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, workspaceId ?? null)
-        return tag
+        const jobs = await dispatchWorkflows(tx, ctx.userId, 'tag:created', input, workspaceId ?? null)
+        // How many automations it started, so the moment can say at once that
+        // a review is being planned, or that none will be.
+        return { ...tag, automations_started: jobs.length }
       })
     }),
 

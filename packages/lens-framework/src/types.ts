@@ -285,4 +285,10 @@ export interface LensProps {
    * for the same reason as `onConfigChange`.
    */
   onEditAutomation?: (workflowId: string) => void
+  /**
+   * Whether this widget asks about the blocks that didn't happen: false when
+   * another widget on the board asks instead (`missedBlocksPriority`), so a
+   * board asks once. Undefined (a widget outside a board) asks.
+   */
+  asksAboutMissedBlocks?: boolean
 }

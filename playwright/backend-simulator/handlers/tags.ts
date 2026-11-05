@@ -37,7 +37,12 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
       created_at: new Date().toISOString(),
     }
     db.tags.push(tag)
-    return tag
+    // As the server: how many automations the tag starts (the simulator runs
+    // none of them; jobs are its tests' to fake).
+    const fields: Record<string, string> = { target_type, target_id, label }
+    const started = db.workflows.filter((w) => w.enabled && w.trigger_event === 'tag:created'
+      && (w.condition_field == null || fields[w.condition_field] === w.condition_value)).length
+    return { ...tag, automations_started: started }
   })
 
   router.register('tags.delete', (input) => {

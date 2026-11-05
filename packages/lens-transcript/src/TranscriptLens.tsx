@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
-import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, CalendarX2, ChevronRight, Clock, ListTodo, Loader2, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
+import { usePendingReviews, type PendingReview } from './pending-reviews'
 
 /** A review's length: its block's when it has one (a resize changes the block, not the estimate), else its estimate. */
 function reviewMinutes(review: PlanItemOccurrence): number | null {
@@ -49,6 +50,34 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
       {label}
       <ArrowRight className="h-3 w-3" aria-hidden />
     </button>
+  )
+}
+
+/**
+ * In the review chip's place until the review arrives: "Planning a
+ * review...", or "No review planned" when none is coming (the automation is
+ * off, or didn't finish).
+ */
+function PendingReviewChip({ state }: { state: PendingReview }) {
+  return state === 'planning' ? (
+    <span
+      role="status"
+      data-testid="review-chip-pending"
+      className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn"
+    >
+      <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+      Planning a review...
+    </span>
+  ) : (
+    <span
+      role="status"
+      data-testid="review-chip-none"
+      title="Turn on the review automation to get one next time"
+      className="inline-flex items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted"
+    >
+      <CalendarX2 className="h-3 w-3" aria-hidden />
+      No review planned
+    </span>
   )
 }
 
@@ -467,6 +496,15 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
+  // A moment just marked confusing says a review is being planned, until it
+  // arrives (or none is coming).
+  const segmentStart = useMemo(() => new Map(segments?.map((s) => [s.id, s.start_ms])), [segments])
+  const hasReview = useCallback((segmentId: string) => {
+    const start = segmentStart.get(segmentId)
+    return start !== undefined && reviewByOffset.has(start)
+  }, [segmentStart, reviewByOffset])
+  const pendingReviews = usePendingReviews(hasReview)
+
   // A review that arrives while the lecture is open (the student just marked
   // its moment) gets the ripple once; reviews already there never do.
   const arrived = useArrivals(reviews?.map((r) => r.id), recordingId)
@@ -488,7 +526,14 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
     markedAt.current = watchUserScroll()
-    createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
+    const segmentId = selectedSegmentId
+    // Confusing moments get a review from the automation (decision 24: its toast has no Undo).
+    const planning = label === 'confused' && !hasReview(segmentId)
+    if (planning) pendingReviews.mark(segmentId)
+    createTag.mutateAsync({ target_type: 'transcript_segment', target_id: segmentId, label }).then(
+      (tag) => { if (planning) pendingReviews.started(segmentId, tag.automations_started) },
+      () => { if (planning) pendingReviews.failed(segmentId) },
+    )
   }
 
   const handleAnnotation = () => {
@@ -633,6 +678,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)
+          const pendingReview = pendingReviews.stateOf(seg.id)
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
           const isMoment = momentSegmentId === seg.id
@@ -696,9 +742,10 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                 </div>
               </button>
 
-              {(segTags.length > 0 || review) && (
+              {(segTags.length > 0 || review || pendingReview) && (
                 <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
                   {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                  {!review && pendingReview && <PendingReviewChip state={pendingReview} />}
                   {review && (
                     <ReviewChip
                       review={review}

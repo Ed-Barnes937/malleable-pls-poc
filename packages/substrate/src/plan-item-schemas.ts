@@ -80,6 +80,24 @@ export const bookSessionsInput = z.object({
 })
 export type BookSessions = Omit<z.input<typeof bookSessionsInput>, 'workspaceId' | 'timeZone'>
 
+/**
+ * Undo of an accepted draft (Auto-fill, re-fit): puts each item's time and
+ * estimate back as they were before, all in one go. `sessions`, when given,
+ * are the to-do's sessions from before: any other open or done session of
+ * it (one the draft booked) goes. Without it the sessions are left alone.
+ */
+export const planItemsRevertInput = z.object({
+  items: z.array(z.object({
+    id: planItemIdInput,
+    starts_at: isoDateTime.nullable(),
+    ends_at: isoDateTime.nullable(),
+    duration_min: z.number().int().positive().max(24 * 60 * 7).nullable(),
+    sessions: z.array(planItemIdInput).max(50).optional(),
+  })).min(1).max(50),
+  workspaceId: boardIdInput,
+})
+export type PlanItemsRevert = Omit<z.input<typeof planItemsRevertInput>, 'workspaceId'>
+
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z
   .union([planItemIdInput, z.object({ id: planItemIdInput, workspaceId: boardIdInput })])

@@ -32,6 +32,7 @@ import type {
   NewResourceLink,
   NewResourceNote,
   ResourceUpdate,
+  PlanItemsRevert,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
 
@@ -179,7 +180,11 @@ export function isNotFoundError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 export interface SubstrateWriter extends SubstrateReader {
-  useCreateTag: () => MutationHandle<NewTag>
+  /**
+   * Resolves to the tag, with how many automations it started (0 when none
+   * is on for it, e.g. no review will be planned for a confusing moment).
+   */
+  useCreateTag: () => MutationHandle<NewTag, Tag & { automations_started: number }>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
   /**
@@ -219,7 +224,17 @@ export interface SubstrateWriter extends SubstrateReader {
   useCompletePlanItem: () => MutationHandle<string, PlanItem>
   /** Marks dismissed ("not doing this"). Takes the plan item id. */
   useDismissPlanItem: () => MutationHandle<string, PlanItem>
+  /** Deletes it (a recurring one as a whole series), with a to-do's sessions. Undo with `useRestorePlanItem`. */
   useDeletePlanItem: () => MutationHandle<string, void>
+  /** Undo of a delete: puts the item back exactly (same id, sessions, course, class lectures). Takes the plan item id. */
+  useRestorePlanItem: () => MutationHandle<string, PlanItem>
+  /** Undo of a dismiss: open again, with the sessions it closed. Takes the plan item id. */
+  useUndismissPlanItem: () => MutationHandle<string, PlanItem>
+  /**
+   * Undo of an accepted draft (Auto-fill, re-fit): every item's time and
+   * estimate as before, and the sessions it booked gone, in one go.
+   */
+  useRevertPlanItems: () => MutationHandle<PlanItemsRevert, PlanItem[]>
   /**
    * Help me plan's Auto-fill advice for a week (priority order, trims when
    * over capacity, a short note). Writes and places nothing: place with
@@ -297,7 +312,14 @@ export interface PanelManifest {
    * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
    */
   showsPlanItems?: boolean
-  load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
+  /**
+   * The widget can ask about blocks that didn't happen ("2 blocks didn't
+   * happen. Re-fit them?"). A board asks once (flow-audit decision 4): in
+   * its widget with the lowest number (the Calendar 1, the To-do 2), the
+   * first one if it has several. See `LensProps.asksAboutMissedBlocks`.
+   */
+  missedBlocksPriority?: number
+  load:() => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */
   minWidth?: number

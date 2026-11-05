@@ -6,7 +6,7 @@ import { AudioCapturePom, CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, S
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
 import { expectedReviewSlots } from './review-placement'
-import { movedNote, movedPastThisWeek } from '../packages/lens-framework/src/missed-blocks'
+import { movedNote } from '../packages/lens-framework/src/missed-blocks'
 import { SEED_MISSED_IDS, SEED_TIME_ZONE, weekMonday } from './seed-week'
 
 /**
@@ -273,35 +273,33 @@ test.describe('Journey: the demo script (mock AI)', () => {
 
     // Missed blocks: a calm question, then the blocks move. Yesterday's two
     // seeded ones always count; on the real clock, accepted blocks may too.
-    const banner = todo.getByTestId('refit-banner')
+    // The board asks once, in its Calendar (decision 4), not in the To-do.
+    const banner = calendar.root.getByTestId('refit-banner')
     await expect(banner).toContainText(/\d+ blocks didn't happen\. Re-fit them\?/, { timeout: 10000 })
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     await banner.getByRole('button', { name: 'Re-fit' }).click()
-    const proposals = banner.getByTestId('refit-proposal')
-    for (const title of ['Read lecture notes: cell division', 'Practice questions: cell structure']) {
-      // The seeded two always get a new time.
-      await expect(proposals.filter({ hasText: title })).toHaveCount(1)
-      await expect(proposals.filter({ hasText: title })).not.toContainText('It stays on your list.')
-    }
+    await expect(banner).toContainText('Here is where they could go')
     const missedBefore = (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))
       .filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     expect(missedBefore).toHaveLength(2)
-    // On the real clock, an accepted block that has passed too may have no
-    // room before it is due at 2h a day: the note then says so.
-    const noFit = await proposals.filter({ hasText: 'It stays on your list.' }).count()
-    const movedTitles = await proposals.filter({ hasNotText: 'It stays on your list.' })
-      .evaluateAll((rows) => rows.map((row) => row.querySelector('span')?.textContent ?? ''))
-    expect(movedTitles.length).toBeGreaterThanOrEqual(2)
+    // The preview the ghosts show: the seeded two always get a new time. On
+    // the real clock, an accepted block that has passed too may have no room
+    // before it is due at 2h a day: the note then says so.
+    const preview = await trpcQuery<{ item: PlanItem; starts_at: string | null }[]>(request, 'planItems.refitPreview', { timeZone: SEED_TIME_ZONE })
+    for (const item of missedBefore) expect(preview.find((p) => p.item.id === item.id)?.starts_at, item.title).toBeTruthy()
+    const movedIds = preview.filter((p) => p.starts_at).map((p) => p.item.id)
+    const noFit = preview.length - movedIds.length
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
+    await expect(banner).toHaveCount(0)
     // The note says where they went, as of the browser's "now": "in your
-    // calendar" this week; on the real clock later in the week, "to next
-    // week" with a way to show it (copy unit-tested in missed-blocks.test.tsx).
+    // calendar" this week, or the week they went to (copy unit-tested in
+    // missed-blocks.test.tsx); the Calendar opened that week itself.
+    await expect.poll(async () => (await trpcQuery<unknown[]>(request, 'planItems.refitPreview', { timeZone: SEED_TIME_ZONE })).length).toBe(noFit)
     const tasks = await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] })
-    const moved = movedTitles.map((title) => tasks.find((t) => t.title === title)!)
-    const show = movedPastThisWeek(moved.map((t) => ({ id: t.id, startsAt: t.starts_at! })), NOW)
+    const moved = movedIds.map((id) => tasks.find((t) => t.id === id)!)
     const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    await expect(todo.getByTestId('refit-note')).toHaveText(new RegExp(
-      `^${escape(movedNote(moved.map((t) => t.starts_at!), [], NOW))}${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}${show ? ` ${escape(show.label)}` : ''}$`,
+    await expect(calendar.root.getByTestId('refit-note')).toHaveText(new RegExp(
+      `^${escape(movedNote(moved.map((t) => t.starts_at!), [], NOW))}${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}$`,
     ))
     const missedAfter = tasks.filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     for (const item of missedAfter) {

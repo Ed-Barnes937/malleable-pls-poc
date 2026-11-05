@@ -397,6 +397,30 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
 })
 
+test('deleting a weekly class is confirmed with Undo, which brings back the whole series as it was', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  simulator.db.lectures.push({ id: 'lec-class', title: 'Biology lecture', course: 'biology', starts_at: iso(0, 10), class_item_id: 'bio-lecture', class_date: iso(0, 0).slice(0, 10) } as never)
+  const before = structuredClone(simulator.db.planItems.find((p) => p.id === 'bio-lecture'))
+  await mount(<CalendarHarness toasts />)
+
+  await block(page, 'Biology lecture').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Delete' }).click()
+  await popover.getByRole('button', { name: 'Delete every week?' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(0)
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Deleted "Biology lecture"')
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')).toEqual(before)
+  expect(simulator.db.tags.find((t) => t.target_type === 'plan_item' && t.target_id === 'bio-lecture')?.label).toBe('biology')
+  expect(simulator.db.lectures.find((l) => l.id === 'lec-class')?.class_item_id).toBe('bio-lecture')
+  // Next week has it too.
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
+})
+
 test('while a save is pending the popover fields are read-only, still legible, and take no edits', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)

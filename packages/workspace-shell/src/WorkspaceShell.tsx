@@ -12,8 +12,8 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
-import { getAvailableJobTypes } from '@pls/substrate'
+import { useManifests, splitScope, UndoToastProvider, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { getAvailableJobTypes, type WorkspacePanel } from '@pls/substrate'
 import {
   CanvasEngine,
   WorkspaceBackground,
@@ -31,10 +31,10 @@ import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
 import { AutomationDialog } from './AutomationDialog'
-import { ToastHost, useToastStore } from './toast'
+import { ToastHost, pushUndoToast, useToastStore } from './toast'
 import { usePanelSync, type PanelRow } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
-import { hasPlanItemViewer, useShowMoment } from './moments'
+import { hasPlanItemViewer, missedBlocksHost, useShowMoment } from './moments'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
@@ -358,11 +358,42 @@ export function WorkspaceShell() {
   // Handle panel removal — remove from DB then let query invalidation update canvas store
   const handleRemovePanel = useCallback(
     (panelId: string) => {
+      // Undo puts the widget back where it was, with its settings. A run of
+      // removes is one toast; its Undo brings back the last one.
+      const row = (panels as unknown as Pick<WorkspacePanel, 'id' | 'lens_type' | 'slot_name' | 'config'>[] | undefined)?.find((p) => p.id === panelId)
+      const box = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+      const boardId = activeWorkspaceId
+      if (row && box && boardId) {
+        const label = manifests.find((m) => m.id === row.lens_type)?.label ?? 'Widget'
+        pushUndoToast({
+          key: 'widget-removed',
+          message: `${label} removed`,
+          board: boardId,
+          failMessage: `Couldn't put ${label} back. Add it again from the widget menu.`,
+          undo: () => addPanel.mutateAsync({
+            workspaceId: boardId,
+            lensType: row.lens_type,
+            slotName: row.slot_name,
+            config: row.config ?? {},
+            pos_x: Math.round(box.pos_x),
+            pos_y: Math.round(box.pos_y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+            z_index: box.z_index,
+          }),
+        })
+      }
       // Also remove from canvas store immediately for snappy UX
       useCanvasStore.getState().removePanel(panelId)
       removePanel.mutate(panelId)
     },
-    [removePanel],
+    [removePanel, addPanel, panels, activeWorkspaceId, manifests],
+  )
+
+  // A board asks about blocks that didn't happen once (decision 4).
+  const missedBlocksPanel = useMemo(
+    () => missedBlocksHost((panels as unknown as PanelRow[] | undefined) ?? [], manifests),
+    [panels, manifests],
   )
 
   // Render lens content for a given panel
@@ -406,11 +437,12 @@ export function WorkspaceShell() {
             // The viewer brings the block itself into view on the board
             // (not the whole widget), so it is not scrolled here.
             onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
+            asksAboutMissedBlocks={missedBlocksPanel === panel.id}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, missedBlocksPanel],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -459,55 +491,57 @@ export function WorkspaceShell() {
   }, [handleLayoutChange])
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-surface">
-      <TopBar
-        onMenuClick={() => setDrawerOpen((v) => !v)}
-        menuOpen={drawerOpen}
-        onOrganize={activeWorkspaceId ? handleOrganize : undefined}
-      />
-      <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
-      <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-        {workspaces?.length === 0 ? (
-          <NoBoards />
-        ) : !panels ? (
-          <CanvasSkeleton />
-        ) : (
-          <div
-            className="relative min-h-0 flex-1 transition-opacity duration-150"
-            style={{ opacity: transitioning ? 0 : 1 }}
-          >
-            <WorkspaceBackground />
-            <CanvasEngine
-              onLayoutChange={handleLayoutChange}
-              onDragOver={handleDragOver}
-              onDrop={handleDrop}
-              onRemovePanel={handleRemovePanel}
-              renderPanel={renderPanel}
-              getIcon={getIcon}
-              getLabel={getLabel}
-              renderHeaderActions={renderHeaderActions}
-            />
-            {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
-            {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
-              <div
-                data-testid="workspace-empty-state"
-                className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
-              >
-                <BoardStarters
-                  manifests={manifests}
-                  onStart={addStarter}
-                  onAddWidgets={() => setDrawerOpen(true)}
-                />
-              </div>
-            )}
-          </div>
+    <UndoToastProvider value={pushUndoToast}>
+      <div className="flex h-dvh flex-col overflow-hidden bg-surface">
+        <TopBar
+          onMenuClick={() => setDrawerOpen((v) => !v)}
+          menuOpen={drawerOpen}
+          onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+        />
+        <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
+        <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+          {workspaces?.length === 0 ? (
+            <NoBoards />
+          ) : !panels ? (
+            <CanvasSkeleton />
+          ) : (
+            <div
+              className="relative min-h-0 flex-1 transition-opacity duration-150"
+              style={{ opacity: transitioning ? 0 : 1 }}
+            >
+              <WorkspaceBackground />
+              <CanvasEngine
+                onLayoutChange={handleLayoutChange}
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+                onRemovePanel={handleRemovePanel}
+                renderPanel={renderPanel}
+                getIcon={getIcon}
+                getLabel={getLabel}
+                renderHeaderActions={renderHeaderActions}
+              />
+              {/* No starters while an add is on its way, or a starter could add a second Calendar. */}
+              {panels.length === 0 && !pendingAdds.some((a) => a.workspaceId === activeWorkspaceId) && (
+                <div
+                  data-testid="workspace-empty-state"
+                  className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center"
+                >
+                  <BoardStarters
+                    manifests={manifests}
+                    onStart={addStarter}
+                    onAddWidgets={() => setDrawerOpen(true)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </main>
+        {automationId && activeWorkspaceId && (
+          <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
         )}
-      </main>
-      {automationId && activeWorkspaceId && (
-        <AutomationDialog workflowId={automationId} workspaceId={activeWorkspaceId} onClose={() => setAutomationId(null)} />
-      )}
-      <ToastHost />
-    </div>
+        <ToastHost />
+      </div>
+    </UndoToastProvider>
   )
 }
 

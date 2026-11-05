@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { RefitProposal } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from './substrate-context'
+import { useUndoToast } from './undo-toast'
 
 /**
  * "2 blocks didn't happen. Re-fit them?": the shared side of re-fitting
@@ -10,10 +11,12 @@ import { useSubstrate, useSubstrateMutations } from './substrate-context'
  * the student-facing copy and which blocks the student already answered for.
  *
  * Answering ("Not now", "Keep my plan", moving them, or being told one
- * doesn't fit) holds in every widget until the page is reloaded (it is
- * module state), so the question is never raised twice. Only a newly missed block
- * (a new miss of the same to-do counts) brings it back. While one widget
- * shows new times ("Re-fit"), the others stop asking about those blocks.
+ * doesn't fit) holds in every widget and across reloads (kept in this
+ * browser, see ANSWERED_STORAGE_KEY), so the question is never raised twice.
+ * Only a newly missed block (a new miss of the same to-do counts) brings it
+ * back. While one widget shows new times ("Re-fit"), the others stop asking
+ * about those blocks. A board asks in one widget only (see
+ * `PanelManifest.missedBlocksPriority`).
  */
 
 /** One missed block as it is now: a new miss of the same to-do is a new signature. */
@@ -125,8 +128,35 @@ export function movedPastThisWeek(
   return later ? { id: later.id, startsAt: later.startsAt, label: `Show ${weekName(Date.parse(later.startsAt), now)}` } : null
 }
 
-// Answered blocks, shared by every widget until the page is reloaded.
-let handled: ReadonlySet<string> = new Set()
+/**
+ * Where answers are kept: this browser's storage (flow-audit decision 4:
+ * "Not now" holds until a further block is missed, across reloads). Per
+ * device, as there is no per-user store for it without a migration.
+ * Signatures name one miss of one block, so they never mean anything for
+ * another student.
+ */
+export const ANSWERED_STORAGE_KEY = 'pls.missed-blocks.answered'
+
+function loadAnswered(): ReadonlySet<string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(ANSWERED_STORAGE_KEY)
+    const parsed: unknown = raw ? JSON.parse(raw) : []
+    return new Set(Array.isArray(parsed) ? parsed.filter((s): s is string => typeof s === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+function saveAnswered(signatures: ReadonlySet<string>) {
+  try {
+    globalThis.localStorage?.setItem(ANSWERED_STORAGE_KEY, JSON.stringify([...signatures]))
+  } catch {
+    // Storage is off or full: the answer still holds until a reload.
+  }
+}
+
+// Answered blocks, shared by every widget and kept across reloads.
+let handled: ReadonlySet<string> = loadAnswered()
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
@@ -137,10 +167,29 @@ const notify = () => {
   for (const listener of listeners) listener()
 }
 
-/** Marks blocks as answered for: no widget asks about them again until a reload. */
+/** Marks blocks as answered for: no widget asks about them again, until another block is missed. */
 export function markMissedBlocksHandled(ps: ReadonlyArray<RefitProposal>) {
   if (ps.every((p) => handled.has(missedBlockSignature(p)))) return
   handled = new Set([...handled, ...ps.map(missedBlockSignature)])
+  saveAnswered(handled)
+  notify()
+}
+
+/**
+ * Forgets answers for blocks that aren't missed any more (done, moved,
+ * deleted), so what is kept stays as small as the list of missed blocks.
+ */
+function forgetAnsweredExcept(all: ReadonlyArray<RefitProposal>) {
+  const live = new Set(all.map(missedBlockSignature))
+  if ([...handled].every((s) => live.has(s))) return
+  handled = new Set([...handled].filter((s) => live.has(s)))
+  saveAnswered(handled)
+  notify()
+}
+
+/** Test seam: reads the kept answers again, as a page load does. */
+export function reloadMissedBlockAnswers() {
+  handled = loadAnswered()
   notify()
 }
 
@@ -171,6 +220,36 @@ function previewedElsewhere(p: RefitProposal, owner: symbol, claims: ReadonlyMap
   const signature = missedBlockSignature(p)
   for (const [other, signatures] of claims) if (other !== owner && signatures.has(signature)) return true
   return false
+}
+
+/** The Undo toast key every accepted draft shares (Auto-fill, re-fit). */
+export const DRAFT_ACCEPTED_KEY = 'draft-accepted'
+
+/**
+ * Confirms re-fitted blocks with Undo, which puts each back at the time it
+ * didn't happen in (in one go) and counts that as the student's answer, so
+ * the question isn't raised again straight away.
+ */
+export function useUndoRefit(): (moved: ReadonlyArray<RefitProposal>) => void {
+  const confirm = useUndoToast()
+  const revert = useSubstrateMutations().useRevertPlanItems()
+  const revertRef = useRef(revert)
+  revertRef.current = revert
+  return useCallback((moved: ReadonlyArray<RefitProposal>) => {
+    if (moved.length === 0) return
+    const n = moved.length
+    confirm({
+      key: DRAFT_ACCEPTED_KEY,
+      message: n === 1 ? `Moved "${moved[0].item.title}"` : `Moved ${n} blocks`,
+      failMessage: plural(n, "Couldn't put that block back.", "Couldn't put those blocks back."),
+      undo: async () => {
+        await revertRef.current.mutateAsync({
+          items: moved.map((p) => ({ id: p.item.id, starts_at: p.item.starts_at, ends_at: p.item.ends_at, duration_min: p.item.duration_min })),
+        })
+        markMissedBlocksHandled(moved)
+      },
+    })
+  }, [confirm])
 }
 
 /** The browser's zone: the student's study day is read in it. */
@@ -238,6 +317,9 @@ export function useMissedBlocks({ course }: { course?: string | null } = {}): Mi
     (blocks: { id: string; starts_at: string; ends_at: string }[]) => acceptRefit.mutateAsync({ timeZone, blocks }),
     [acceptRefit, timeZone],
   )
+  useEffect(() => {
+    if (data) forgetAnsweredExcept(data)
+  }, [data])
   const startPreview = useCallback((ps: ReadonlyArray<RefitProposal>) => claimMissedBlocksPreview(owner, ps), [owner])
   const endPreview = useCallback(() => releaseMissedBlocksPreview(owner), [owner])
   useEffect(() => endPreview, [endPreview])

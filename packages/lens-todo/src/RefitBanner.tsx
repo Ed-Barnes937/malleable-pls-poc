@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, movedPastThisWeek, noFitLabel, refitAsk, useMissedBlocks, type LensProps, type PlanItemRef } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, movedNote, movedPastThisWeek, noFitLabel, refitAsk, useMissedBlocks, useUndoRefit, type LensProps, type PlanItemRef } from '@pls/lens-framework'
 import { cn, dayAndTime } from '@pls/shared-ui'
 import { CalendarClock, RotateCcw, X } from 'lucide-react'
 
@@ -24,6 +24,7 @@ export function RefitBanner({ course, onShowPlanItem }: {
   onShowPlanItem?: LensProps['onShowPlanItem']
 }) {
   const missed = useMissedBlocks({ course })
+  const confirmMoved = useUndoRefit()
 
   const [step, setStep] = useState<Step>('ask')
   const [problem, setProblem] = useState<Problem>(null)
@@ -114,6 +115,7 @@ export function RefitBanner({ course, onShowPlanItem }: {
       () => {
         // Shown once here, so they don't bring the question straight back.
         markHandled(noFit)
+        confirmMoved(fits)
         // The move is atomic: every block with a new time moved.
         const moved = fits.map((p) => ({ id: p.item.id, startsAt: p.starts_at! }))
         const later = onShowPlanItem ? movedPastThisWeek(moved) : null

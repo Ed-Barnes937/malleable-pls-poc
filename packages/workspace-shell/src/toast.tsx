@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { CheckCircle2, XCircle, X, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Undo2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
+import type { UndoableChange } from '@pls/lens-framework'
 import { useActiveWorkspaceId } from './activeBoard'
 
 export type ToastTone = 'success' | 'error'
@@ -140,6 +141,33 @@ export const useToastStore = create<ToastState>((set, get) => {
     },
   }
 })
+
+/**
+ * Confirms one of the student's big changes with an Undo toast (see
+ * `UndoableChange` in @pls/lens-framework, which lenses reach through
+ * `useUndoToast`). Undo dismisses the toast and runs the change's `undo`;
+ * if that fails, an error toast says so.
+ */
+export function pushUndoToast(change: UndoableChange) {
+  const { push } = useToastStore.getState()
+  push({
+    message: change.message,
+    tone: 'success',
+    key: change.key,
+    board: change.board,
+    action: {
+      label: 'Undo',
+      icon: Undo2,
+      onClick: () => {
+        change.undo().catch(() => push({
+          message: change.failMessage ?? "Couldn't undo that. Try again from where you made the change.",
+          tone: 'error',
+          key: `${change.key}:undo-failed`,
+        }))
+      },
+    },
+  })
+}
 
 /**
  * What a screen reader hears for a toast: its message, and its action when

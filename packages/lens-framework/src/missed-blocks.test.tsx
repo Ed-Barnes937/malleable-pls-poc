@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type { PlanItem, RefitProposal } from '@pls/substrate'
-import { movedNote, movedPastThisWeek, noFitLabel, useMissedBlocks } from './missed-blocks'
+import { ANSWERED_STORAGE_KEY, movedNote, movedPastThisWeek, noFitLabel, reloadMissedBlockAnswers, useMissedBlocks } from './missed-blocks'
 import { SubstrateProvider } from './substrate-context'
 import type { SubstrateReader, SubstrateWriter } from './substrate-contract'
 
@@ -58,6 +58,49 @@ describe('useMissedBlocks: one preview at a time', () => {
     const again = renderBoth()
     expect(ids(again.result.current.todo.proposals)).toEqual(['notes', 'practice'])
     again.unmount()
+  })
+})
+
+describe('useMissedBlocks: answers are kept (decision 4)', () => {
+  afterEach(() => {
+    localStorage.clear()
+    reloadMissedBlockAnswers()
+  })
+
+  it('"Not now" holds after a reload, until a further block is missed', () => {
+    const first = renderBoth()
+    act(() => first.result.current.calendar.markHandled(first.result.current.calendar.proposals))
+    expect(first.result.current.calendar.proposals).toEqual([])
+    first.unmount()
+
+    // A reload reads what was kept.
+    reloadMissedBlockAnswers()
+    const again = renderBoth()
+    expect(again.result.current.calendar.proposals).toEqual([])
+    again.unmount()
+
+    // The lab block is missed again (a new miss of it): only that is asked about.
+    const missedAgain = proposal('lab', 'chemistry', { item: { ...preview[2].item, ends_at: '2026-10-28T10:00:00.000Z' } })
+    const later = [preview[0], preview[1], missedAgain]
+    const laterReader = { useRefitPreview: () => ({ data: later, isLoading: false, error: null, refetch: async () => later }) } as unknown as SubstrateReader
+    const third = renderHook(() => useMissedBlocks(), {
+      wrapper: ({ children }) => <SubstrateProvider reader={laterReader} writer={writer}>{children}</SubstrateProvider>,
+    })
+    expect(ids(third.result.current.proposals)).toEqual(['lab'])
+    // What is kept shrinks to the blocks still missed (the old miss of lab is gone).
+    expect(JSON.parse(localStorage.getItem(ANSWERED_STORAGE_KEY)!)).toEqual(['notes@2026-10-27T10:00:00.000Z', 'practice@2026-10-27T10:00:00.000Z'])
+    third.unmount()
+  })
+
+  it('still answers for this page when storage is unavailable', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    const { result, unmount } = renderBoth()
+    act(() => result.current.calendar.markHandled(result.current.calendar.proposals))
+    expect(result.current.calendar.proposals).toEqual([])
+    setItem.mockRestore()
+    unmount()
   })
 })
 

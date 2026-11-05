@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, type MissedBlocks } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, useUndoRefit, type MissedBlocks } from '@pls/lens-framework'
 import { RotateCcw } from 'lucide-react'
 import type { Proposal, ProposalLayer } from './proposals'
 
@@ -61,12 +61,16 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
   const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
   const latest = useRef(missed)
   latest.current = missed
+  const confirmMoved = useUndoRefit()
   const save = useCallback(async (proposals: Proposal[]) => {
-    const { accept, refresh } = latest.current
+    const { accept, refresh, all } = latest.current
+    // As they were before the move, for Undo.
+    const before = proposals.flatMap((p) => all.find((m) => m.item.id === p.taskId) ?? [])
     try {
       await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
       setMoved((prev) => [...prev, ...proposals.map((p) => p.startsAt)])
       answer(proposals.map((p) => p.taskId))
+      confirmMoved(before)
     } catch (err) {
       if (isConflictError(err)) {
         setStale({ fresh: null })
@@ -75,7 +79,7 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
       }
       throw err
     }
-  }, [answer])
+  }, [answer, confirmMoved])
   return {
     missed,
     save,
