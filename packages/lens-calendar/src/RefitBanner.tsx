@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, useUndoRefit, type MissedBlocks } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, useUndoRefit, type LensProps, type MissedBlocks } from '@pls/lens-framework'
 import { RotateCcw } from 'lucide-react'
 import type { Proposal, ProposalLayer } from './proposals'
 
@@ -54,14 +54,14 @@ export interface RefitDraft {
  * goes through `planItems.refit` (never per-item updates), so the server's
  * atomic, stale-preview check covers every block.
  */
-export function useRefitDraft(missed: MissedBlocks): RefitDraft {
+export function useRefitDraft(missed: MissedBlocks, onNotify?: LensProps['onNotify']): RefitDraft {
   const [moved, setMoved] = useState<ReadonlyArray<string>>([])
   const [stale, setStale] = useState<{ fresh: RefitProposal[] | null } | null>(null)
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
   const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
   const latest = useRef(missed)
   latest.current = missed
-  const confirmMoved = useUndoRefit()
+  const confirmMoved = useUndoRefit(onNotify)
   const save = useCallback(async (proposals: Proposal[]) => {
     const { accept, refresh, all } = latest.current
     // As they were before the move, for Undo.

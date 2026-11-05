@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FocusedPlanItem, PlanItemRef, Scope, ShowMomentResult } from '@pls/lens-framework'
 import CalendarLens from '@pls/lens-calendar'
+import { notifyToast } from '@pls/workspace-shell'
 import { TestProviders } from './mount-wrapper'
 
 /**
@@ -48,6 +49,7 @@ export function CalendarHarness({
         <CalendarLens
           panelId="calendar-test"
           asksAboutMissedBlocks={asksAboutMissedBlocks}
+          onNotify={toasts ? notifyToast : undefined}
           scope={{}}
           highlight={highlight}
           config={config}

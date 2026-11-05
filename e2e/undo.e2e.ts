@@ -130,7 +130,7 @@ test.describe('A review being planned', () => {
 
     const moment = transcript.locator('[data-segment-id="seg-chem1-01"]')
     await moment.getByText(/Good afternoon. Today we begin organic reactions/).click()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     await expect(moment.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
     // The automation's answer takes its place: when the review is planned.
     await expect(moment.getByTestId('review-chip')).toContainText(/Review (planned · .+|on your to-do list)/, { timeout: 15000 })

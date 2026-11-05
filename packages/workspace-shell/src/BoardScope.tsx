@@ -17,7 +17,7 @@ import { useToastStore } from './toast'
 
 export interface BoardScopeProps {
   workspaceId: string
-  /** Phone layout: no "Showing" word, the pills share their row with the today line. */
+  /** Phone layout: no "Showing" word, the pills share their row with Up next. */
   compact?: boolean
 }
 
@@ -65,7 +65,7 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
   return (
     <ScopeGroup compact={compact} arrive={shownBefore.current}>
       {/* Only where the bar has room for it; the pills say enough without. */}
-      {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary lg:inline">Showing</span>}
+      {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary xl:inline">Showing</span>}
       {showCourse && (
         <CoursePill courseTag={scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}
