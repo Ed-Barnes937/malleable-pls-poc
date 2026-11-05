@@ -36,6 +36,14 @@ describe('sessions', () => {
     expect(todosToPlan([{ id: 'gym', duration_min: 60, starts_at: own.starts_at }], booked)).toEqual([])
   })
 
+  it('never counts the block of a review of a moment as booked time: its block is its booking', () => {
+    const review = { id: 'r', kind: 'task' as const, source_type: 'recording', source_id: 'rec-1', status: 'open' as const, starts_at: '2026-10-28T09:00:00Z', ends_at: '2026-10-28T09:15:00Z' }
+    const booked = bookedMinutes([review])
+    expect(booked).toEqual(new Map())
+    expect(partBooking({ id: 'r', duration_min: 30 }, booked)).toBeNull()
+    expect(todosToPlan([{ id: 'r', duration_min: 30, starts_at: review.starts_at }], booked)).toEqual([])
+  })
+
   it('says a to-do is partly booked only when some but not all of its estimate is booked', () => {
     const booked = new Map([['a', 60], ['b', 120], ['c', 150]])
     expect(partBooking({ id: 'a', duration_min: 120 }, booked)).toEqual({ bookedMin: 60, totalMin: 120, restMin: 60 })

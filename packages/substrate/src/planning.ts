@@ -628,10 +628,31 @@ export type PlanAutofillInput = z.input<typeof planAutofillInput>
 
 type PendingBooking = { id: string; starts_at: string; ends_at: string }
 
+/** The longest pending booking taken on trust: one study day. */
+const MAX_PENDING_MS = 24 * 60 * MINUTE_MS
+
 /**
- * `rows` with the pending bookings of an Auto-fill request added, each as a
- * session of its to-do at that time, unless a row already holds it (the save
- * landed first). Booked and busy like any saved block.
+ * The pending bookings of an Auto-fill request worth believing: a real block
+ * (ends after it starts, a day at most) inside the week asked about, for one
+ * of the student's own open to-dos (`todoIds`). The rest are dropped: the
+ * client says what is saving, but never decides what is booked.
+ */
+export function trustedPendingBookings(
+  pending: ReadonlyArray<PendingBooking> = [],
+  opts: { week: Interval; todoIds: ReadonlySet<string> },
+): PendingBooking[] {
+  return pending.filter((p) => {
+    const start = Date.parse(p.starts_at)
+    const end = Date.parse(p.ends_at)
+    return end > start && end - start <= MAX_PENDING_MS && start >= opts.week.start && end <= opts.week.end && opts.todoIds.has(p.id)
+  })
+}
+
+/**
+ * `rows` with the pending bookings of an Auto-fill request added (pass them
+ * through `trustedPendingBookings` first), each as a session of its to-do at
+ * that time, unless a row already holds it (the save landed first). Booked
+ * and busy like any saved block.
  */
 export function withPendingBookings<T extends Pick<PlanItem, 'id' | 'kind' | 'status' | 'starts_at' | 'ends_at' | 'source_type' | 'source_id'>>(
   rows: ReadonlyArray<T>,

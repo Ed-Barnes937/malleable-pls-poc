@@ -57,6 +57,18 @@ const browserZoneInput = timeZoneInput.optional()
 export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
 export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
 
+/**
+ * Book the rest: sessions of one to-do (`todoId`) at these times, saved
+ * together in one go: all of them or, on any failure, none.
+ */
+export const bookSessionsInput = z.object({
+  todoId: planItemIdInput,
+  blocks: z.array(z.object({ starts_at: isoDateTime, ends_at: isoDateTime })).min(1).max(10),
+  workspaceId: boardIdInput,
+  timeZone: browserZoneInput,
+})
+export type BookSessions = Omit<z.input<typeof bookSessionsInput>, 'workspaceId' | 'timeZone'>
+
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z
   .union([planItemIdInput, z.object({ id: planItemIdInput, workspaceId: boardIdInput })])

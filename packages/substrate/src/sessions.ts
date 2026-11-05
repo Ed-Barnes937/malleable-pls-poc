@@ -44,6 +44,17 @@ export function isSession(item: Provenance): boolean {
   return sessionParentId(item) !== null
 }
 
+/**
+ * A to-do of the student's own (no source: not a session, not a review of a
+ * lecture moment). Only its own block counts as booked time towards its
+ * estimate, and only it is turned into sessions on a second booking. Anything
+ * with a source keeps its block as its booking: a review's estimate is its
+ * block, and its block stays linked to its moment.
+ */
+export function isPlainTodo(item: Pick<PlanItem, 'kind' | 'source_type'>): boolean {
+  return item.kind === 'task' && item.source_type == null
+}
+
 type Booking = Provenance & Pick<PlanItem, 'id' | 'status' | 'starts_at' | 'ends_at'> & Partial<Pick<PlanItem, 'recurrence'>>
 
 /**
@@ -55,7 +66,7 @@ export function bookedMinutes(rows: ReadonlyArray<Booking>): Map<string, number>
   const out = new Map<string, number>()
   for (const row of rows) {
     if (row.kind !== 'task' || row.status === 'dismissed' || !row.starts_at || !row.ends_at) continue
-    const owner = sessionParentId(row) ?? (row.recurrence ? null : row.id)
+    const owner = sessionParentId(row) ?? (isPlainTodo(row) && !row.recurrence ? row.id : null)
     if (!owner) continue
     const min = (Date.parse(row.ends_at) - Date.parse(row.starts_at)) / 60_000
     out.set(owner, (out.get(owner) ?? 0) + min)

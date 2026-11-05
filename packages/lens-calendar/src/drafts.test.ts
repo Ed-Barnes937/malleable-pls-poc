@@ -78,6 +78,13 @@ describe('movePatch', () => {
     })
   })
 
+  it('resizes a review of a moment with its estimate, as its block is its booking', () => {
+    const review = row({ starts_at: iso('2026-10-27T09:00:00Z'), ends_at: iso('2026-10-27T09:30:00Z'), duration_min: 30, subtype: 'review', source_type: 'recording', source_id: 'rec-1' })
+    expect(movePatch(review, new Date('2026-10-27T09:00:00Z'), new Date('2026-10-27T09:15:00Z'))).toEqual({
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T09:15:00.000Z', duration_min: 15,
+    })
+  })
+
   it('shifts a recurring series by the occurrence delta', () => {
     const lecture = row({
       kind: 'commitment', occurrence_key: 'p1@2026-11-03',

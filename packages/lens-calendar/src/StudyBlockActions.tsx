@@ -9,10 +9,12 @@ import { slotLabel } from './time'
  * time), worked out when asked. Picking one moves the block there; the
  * popover's own fields stay for an exact time.
  */
-export function FindAnotherTime({ title, now, busy, saving, slots, onPick, within }: {
+export function FindAnotherTime({ title, now, busy, saving, slots, onPick, within, due }: {
   title: string
-  /** What the slots are drawn from, for when there are none: "this week", "that day". */
+  /** What the slots are drawn from: "this week", "that day". */
   within: string
+  /** Its due time: none, still ahead (the slots end by it), or already past (the slots are just free time). */
+  due: 'none' | 'ahead' | 'past'
   now: number
   /** The popover is saving: the slots refuse presses. */
   busy?: boolean
@@ -40,8 +42,15 @@ export function FindAnotherTime({ title, now, busy, saving, slots, onPick, withi
   return (
     <div data-testid="another-time" role="group" aria-label={`Other times for ${title}`} className="flex flex-col gap-1.5">
       <p className="text-meta font-semibold text-text-muted">
-        {shown.length > 0 ? 'Other free times' : `No other free time fits before it is due ${within}.`}
+        {shown.length > 0
+          ? 'Other free times'
+          : due === 'ahead' ? `No other free time fits before it is due ${within}.` : `No other free time fits ${within}.`}
       </p>
+      {due === 'past' && (
+        <p data-testid="another-time-overdue" className="text-meta text-text-secondary">
+          {shown.length > 0 ? `It's past its due time. These are ${within === 'this week' ? "this week's" : "that day's"} free slots.` : "It's past its due time."}
+        </p>
+      )}
       {shown.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {shown.map((start) => {

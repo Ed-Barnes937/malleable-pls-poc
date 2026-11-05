@@ -104,7 +104,7 @@ test.describe('Help me plan', () => {
     for (const minutes of perDay.values()) expect(minutes).toBeLessThanOrEqual(120)
   })
 
-  test('Auto-fill pressed while a to-do just given a time is still saving waits for it, so the advice never ranks it', async ({ page, request }) => {
+  test('Auto-fill pressed while a to-do just given a time is still saving sends it as booked, so the advice never ranks it', async ({ page, request }) => {
     await seedWeek(request)
     const { calendar, panel } = await openPlanner(page)
     await expect(panel.getByTestId('plan-capacity')).toContainText('Your to-dos need 8.')

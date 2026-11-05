@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { DEFAULT_PREFERENCES, draftRest, formatMinutes, localDayRange, newSession, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, draftRest, formatMinutes, localDayRange, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { clockTime, dayAndTime } from '@pls/shared-ui'
 import { Loader2, Sparkles } from 'lucide-react'
@@ -11,7 +11,7 @@ const DAY_MS = 24 * 3_600_000
  * placed by the same planner as Auto-fill (inside study hours and the daily
  * budget, before it is due, split into sessions when no one block fits),
  * over the next seven days. A draft until the student says "Book it"; then
- * each block is saved as a session of the to-do.
+ * its blocks are saved together as sessions of the to-do, all or none.
  */
 export function BookTheRest({ todo, restMin, now, onClose }: {
   todo: PlanItemOccurrence
@@ -20,7 +20,7 @@ export function BookTheRest({ todo, restMin, now, onClose }: {
   onClose: () => void
 }) {
   const reader = useSubstrate()
-  const create = useSubstrateMutations().useCreatePlanItem()
+  const bookSessions = useSubstrateMutations().useBookSessions()
   const preferences = reader.usePreferences()
   const prefs = preferences.data ?? (preferences.error ? DEFAULT_PREFERENCES : undefined)
   const timeZone = prefs?.time_zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -48,8 +48,11 @@ export function BookTheRest({ todo, restMin, now, onClose }: {
     setSaving(true)
     setFailed(false)
     try {
-      // One at a time: the first turns the to-do's own block, if it has one, into a session too.
-      for (const b of blocks) await create.mutateAsync(newSession(todo, new Date(b.start).toISOString(), new Date(b.end).toISOString()))
+      // In one go, on the server: all of them or none (and the to-do's own block, if it has one, becomes a session too).
+      await bookSessions.mutateAsync({
+        todoId: todo.id,
+        blocks: blocks.map((b) => ({ starts_at: new Date(b.start).toISOString(), ends_at: new Date(b.end).toISOString() })),
+      })
       onClose()
     } catch {
       setFailed(true)
@@ -63,7 +66,7 @@ export function BookTheRest({ todo, restMin, now, onClose }: {
         <p className="text-meta text-text-muted">Finding time for the other {formatMinutes(restMin)}...</p>
       ) : blocks.length === 0 ? (
         <p className="text-meta text-text-secondary">
-          No free time in the next week fits the other {formatMinutes(restMin)} before it's due.
+          No free time in the next week fits the other {formatMinutes(restMin)}{todo.due_at ? " before it's due" : ''}.
         </p>
       ) : (
         <>

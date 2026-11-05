@@ -12,6 +12,7 @@ import {
   draftPlan,
   draftRest,
   withPendingBookings,
+  trustedPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   planAutofillInput,
@@ -515,5 +516,33 @@ describe('withPendingBookings', () => {
     const saved = { ...quiz, starts_at: iso(0, 9), ends_at: iso(0, 11) }
     expect(withPendingBookings([saved], pending)).toEqual([saved])
     expect(withPendingBookings([quiz])).toEqual([quiz])
+  })
+})
+
+describe('trustedPendingBookings', () => {
+  const opts = { week, todoIds: new Set(['quiz']) }
+  const ok = { id: 'quiz', starts_at: iso(0, 9), ends_at: iso(0, 11) }
+
+  it('keeps a real block in the week for one of the student\'s open to-dos', () => {
+    expect(trustedPendingBookings([ok], opts)).toEqual([ok])
+    expect(trustedPendingBookings(undefined, opts)).toEqual([])
+  })
+
+  it('drops a block that ends before (or as) it starts', () => {
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(0, 9) }, { ...ok, ends_at: iso(0, 8) }], opts)).toEqual([])
+  })
+
+  it('drops a block longer than a day', () => {
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(1, 9, 1) }], opts)).toEqual([])
+    expect(trustedPendingBookings([{ ...ok, ends_at: iso(1, 9) }], opts)).toHaveLength(1)
+  })
+
+  it('drops a block outside the week asked about', () => {
+    expect(trustedPendingBookings([{ ...ok, starts_at: iso(-1, 9), ends_at: iso(-1, 10) }], opts)).toEqual([])
+    expect(trustedPendingBookings([{ ...ok, starts_at: iso(6, 23), ends_at: iso(7, 1) }], opts)).toEqual([])
+  })
+
+  it('drops a block for anything but one of the student\'s open to-dos', () => {
+    expect(trustedPendingBookings([{ ...ok, id: 'someone-else' }], opts)).toEqual([])
   })
 })

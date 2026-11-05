@@ -222,6 +222,10 @@ export const substrateTrpc: SubstrateWriter = {
     return useOnBoard(usePlanItemMutation(trpc.planItems.create), withBrowserZone)
   },
 
+  useBookSessions() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.bookSessions), withBrowserZone)
+  },
+
   useUpdatePlanItem() {
     return useOnBoard(usePlanItemMutation(trpc.planItems.update), withBrowserZone)
   },

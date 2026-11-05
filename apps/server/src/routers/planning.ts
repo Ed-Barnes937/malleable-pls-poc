@@ -10,6 +10,7 @@ import {
   todosToPlan,
   weekLayout,
   withPendingBookings,
+  trustedPendingBookings,
   type PlanAdvice,
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
@@ -66,15 +67,17 @@ export const planningRouter = router({
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
       }))
-      // To-dos given a time a moment ago count as booked even if their save hasn't landed.
-      const booked = bookedMinutes(withPendingBookings(loaded.tasks, input.pending))
       const open = loaded.tasks.filter((t) => t.status === 'open' && !isSession(t))
+      // To-dos given a time a moment ago count as booked even if their save
+      // hasn't landed: only real blocks in this week, for the student's own open to-dos.
+      const pending = trustedPendingBookings(input.pending, { week, todoIds: new Set(open.map((t) => t.id)) })
+      const booked = bookedMinutes(withPendingBookings(loaded.tasks, pending))
       const todos = todosToPlan(open, booked)
       const tasks = planTasks(todos, week, { now, estimates: input.estimates, weakTopics: loaded.weak })
       if (tasks.length === 0) return { order: [], trims: [], note: null }
       const { prefs } = loaded
       const timeZone = placementTimeZone(prefs, input.timeZone)
-      const layout = weekLayout(withPendingBookings(loaded.rows, input.pending), week, {
+      const layout = weekLayout(withPendingBookings(loaded.rows, pending), week, {
         timeZone,
         studyHours: prefs.study_hours,
         studyMinPerDay: prefs.study_min_per_day,

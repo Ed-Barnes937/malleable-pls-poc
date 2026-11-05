@@ -910,3 +910,33 @@ test('"Not yet" leaves the to-do open; a session that is not the last one just t
   await expect(popover).toHaveCount(0)
   expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('open')
 })
+
+test('Find another time on a block past its due time offers this week\'s free slots and says why', async ({ mount, page, simulator }) => {
+  // Wed 28 Oct, 09:00; due Tue 27 Oct 17:00, booked Thu 14:00.
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seed(simulator, [
+    { id: 'late', kind: 'task', title: 'Late essay plan', duration_min: 60, due_at: new Date(2026, 9, 27, 17).toISOString(), starts_at: new Date(2026, 9, 29, 14).toISOString(), ends_at: new Date(2026, 9, 29, 15).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Late essay plan').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time-overdue')).toHaveText("It's past its due time. These are this week's free slots.")
+  await expect(popover.getByTestId('another-time-slot')).toHaveCount(3)
+  // Its due time has passed, so the slots run to the week's end, not stop at it.
+  await expect(popover.getByTestId('another-time-slot').first()).toHaveText('Today 09:00')
+})
+
+test('Find another time on a block with no due date never mentions one', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 6), 21)
+  seed(simulator, [
+    { id: 'busy', kind: 'commitment', title: 'Night shift', starts_at: new Date(2026, 10, 1, 21, 30).toISOString(), ends_at: new Date(2026, 10, 1, 22).toISOString() },
+    { id: 'notes', kind: 'task', title: 'Tidy notes', duration_min: null, starts_at: new Date(2026, 10, 1, 21).toISOString(), ends_at: new Date(2026, 10, 1, 21, 30).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Tidy notes').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time')).toContainText('No other free time fits this week.')
+  await expect(popover.getByTestId('another-time')).not.toContainText('due')
+})

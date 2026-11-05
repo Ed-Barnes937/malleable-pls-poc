@@ -683,3 +683,34 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(await call('lectures.byId', lecture.id)).toMatchObject({ class_item_id: null, class_date: '2026-10-26' })
   })
 })
+
+describe('simulator parity: sessions', () => {
+  const router = () => makeRouter()
+  const mutateRaw = async (r: ProcedureRouter, path: string, input: unknown) => {
+    const result = await handleTrpcRequest(`${BASE_URL}/${path}?batch=1`, 'POST', JSON.stringify({ '0': { json: input } }), r)
+    const parsed = JSON.parse(result.body)
+    return Array.isArray(parsed) ? parsed[0] : parsed
+  }
+  const block = (h: number) => ({ starts_at: `2027-11-04T${String(h).padStart(2, '0')}:00:00.000Z`, ends_at: `2027-11-04T${String(h + 1).padStart(2, '0')}:00:00.000Z` })
+
+  it('a session for a missing to-do is NOT_FOUND, as on the server, by create and by bookSessions', async () => {
+    const r = router()
+    const created = await mutateRaw(r, 'planItems.create', { kind: 'task', title: 'Lab', ...block(9), source_type: 'plan_item', source_id: 'missing-to-do' })
+    expect(created.error?.data?.code ?? created.error?.json?.data?.code).toBe('NOT_FOUND')
+    const booked = await mutateRaw(r, 'planItems.bookSessions', { todoId: 'missing-to-do', blocks: [block(9)] })
+    expect(booked.error?.data?.code ?? booked.error?.json?.data?.code).toBe('NOT_FOUND')
+  })
+
+  it('bookSessions saves all the sessions or none', async () => {
+    const r = router()
+    const lab = await mutate(r, 'planItems.create', { kind: 'task', title: 'Lab', duration_min: 180, ...block(9) }) as { id: string }
+    const bad = await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(11), { starts_at: block(13).ends_at, ends_at: block(13).starts_at }] })
+    expect(bad.error).toBeTruthy()
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item', sourceId: lab.id })).toEqual([])
+    const made = await mutate(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(11), block(13)] }) as unknown[]
+    expect(made).toHaveLength(2)
+    // The own block became a session too.
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item', sourceId: lab.id })).toHaveLength(3)
+  })
+})
+

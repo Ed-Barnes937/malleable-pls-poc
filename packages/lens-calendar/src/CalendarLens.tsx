@@ -644,6 +644,7 @@ export default function CalendarLens({
         title={row.title}
         // Slots come from the days on screen, whose rows are loaded.
         within={view === 'week' ? 'this week' : 'that day'}
+        due={!row.due_at ? 'none' : Date.parse(row.due_at) > Date.now() ? 'ahead' : 'past'}
         now={now.getTime()}
         busy={busy}
         saving={popoverPending === 'save'}

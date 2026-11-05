@@ -7,12 +7,14 @@ import {
   planItemListInput,
   newPlanItemOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
   CLOSED_WITH_TODO,
   SESSION_SOURCE_TYPE,
   bookedMinutes,
+  isPlainTodo,
   isSession,
   newSession,
   sessionParentId,
@@ -96,7 +98,8 @@ async function ownBlockToSession(tx: TransactionSql, userId: string, session: { 
   const parentId = sessionParentId({ kind: session.kind, source_type: session.source_type ?? null, source_id: session.source_id ?? null })
   if (!parentId) return
   const todo = await fetchOne(tx, userId, parentId)
-  if (todo.kind !== 'task' || isSession(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+  // Only a plain to-do: a review's block stays its own, linked to its moment.
+  if (!isPlainTodo(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
   const moved = await insertPlanItem(tx, userId, newSession(todo, todo.starts_at, todo.ends_at), todo.time_zone)
   if (todo.status !== 'open') {
     await tx`UPDATE plan_items SET status = ${todo.status} WHERE id = ${moved.id} AND user_id = ${userId}`
@@ -189,6 +192,34 @@ export const planItemsRouter = router({
    * the fields that change; `null` clears one. See PlanItemOccurrence for
    * editing from a list row.
    */
+  /**
+   * Book the rest: sessions of one to-do, saved in one transaction (all or
+   * none). A to-do still booked in its own block has that block moved into a
+   * session first, as `create` does; the estimate rises if the sessions
+   * outgrow it. NOT_FOUND for a missing to-do; BAD_REQUEST for anything that
+   * isn't a to-do of its own.
+   */
+  bookSessions: publicProcedure
+    .input(bookSessionsInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const todo = await fetchOne(tx, ctx.userId, input.todoId)
+        if (todo.kind !== 'task' || isSession(todo)) {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only a to-do can be booked in sessions' })
+        }
+        const made: PlanItem[] = []
+        for (const block of input.blocks) {
+          const session = newSession(todo, block.starts_at, block.ends_at)
+          await ownBlockToSession(tx, ctx.userId, session)
+          const item = await insertPlanItem(tx, ctx.userId, session, input.timeZone)
+          await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), input.workspaceId ?? null)
+          made.push(item)
+        }
+        await raiseEstimateToBooked(tx, ctx.userId, made[0])
+        return made
+      })
+    }),
+
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {

@@ -789,7 +789,7 @@ function TodoRow({
             onClick={onBookRest}
             disabled={!onBookRest}
             aria-label={`Book the rest of ${todo.title}`}
-            title={onBookRest ? `Draft ${formatMinutes(task.durationMin)} more before it's due` : 'Accept or keep the draft first'}
+            title={onBookRest ? `Draft ${formatMinutes(task.durationMin)} more${todo.due_at ? " before it's due" : ''}` : 'Accept or keep the draft first'}
             className="inline-flex h-7 items-center gap-1 rounded-item border border-accent-line bg-accent-soft px-2 text-meta font-semibold text-accent transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles className="h-3 w-3" aria-hidden />

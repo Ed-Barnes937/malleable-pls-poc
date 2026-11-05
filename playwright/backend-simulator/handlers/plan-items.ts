@@ -8,6 +8,7 @@ import {
   planItemListInput,
   planItemIdInput,
   planItemOnBoardInput,
+  bookSessionsInput,
   parsePlanItemInput as parse,
   planAutofillInput,
   planCapacity,
@@ -24,11 +25,13 @@ import {
   withDefaults,
   CLOSED_WITH_TODO,
   bookedMinutes,
+  isPlainTodo,
   isSession,
   newSession,
   sessionParentId,
   todosToPlan,
   withPendingBookings,
+  trustedPendingBookings,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -90,7 +93,8 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
   const ownBlockToSession = (fields: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }, now: string) => {
     const parentId = sessionParentId({ kind: fields.kind, source_type: fields.source_type ?? null, source_id: fields.source_id ?? null })
     const todo = parentId ? db.planItems.find((p) => p.id === parentId) : undefined
-    if (!todo || todo.kind !== 'task' || isSession(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+    if (parentId && !todo) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    if (!todo || !isPlainTodo(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
     const session = newSession(withCourse(todo), todo.starts_at, todo.ends_at)
     db.planItems.push({
       id: `pi-${crypto.randomUUID().slice(0, 8)}`,
@@ -134,6 +138,31 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     setCourse(row.id, course ?? null)
     raiseEstimateToBooked(row)
     return withCourse(row)
+  })
+
+  // As the server's `planItems.bookSessions`: all the sessions, or none.
+  router.register('planItems.bookSessions', (input) => {
+    const { todoId, blocks, timeZone } = parse(bookSessionsInput, input)
+    const todo = db.planItems.find((p) => p.id === todoId)
+    if (!todo) throw new SimulatorError('NOT_FOUND', 'Plan item not found')
+    if (todo.kind !== 'task' || isSession(todo)) throw new SimulatorError('BAD_REQUEST', 'Only a to-do can be booked in sessions')
+    const sessions = blocks.map((b) => newSession(withCourse(todo), b.starts_at, b.ends_at))
+    for (const s of sessions) assertValid(s)
+    const now = new Date().toISOString()
+    const made = sessions.map((s) => {
+      ownBlockToSession(s, now)
+      const row: StoredPlanItem = {
+        id: `pi-${crypto.randomUUID().slice(0, 8)}`, kind: 'task', title: s.title, starts_at: s.starts_at ?? null, ends_at: s.ends_at ?? null,
+        due_at: s.due_at ?? null, duration_min: s.duration_min ?? null, status: 'open', recurrence: null, subtype: null,
+        source_type: s.source_type ?? null, source_id: s.source_id ?? null, source_offset_ms: null, created_by_workflow_id: null,
+        time_zone: studentTimeZone(timeZone), created_at: now, updated_at: now,
+      }
+      db.planItems.push(row)
+      setCourse(row.id, s.course ?? null)
+      return row
+    })
+    raiseEstimateToBooked(made[0])
+    return made.map(withCourse)
   })
 
   router.register('planItems.update', (input) => {
@@ -223,9 +252,10 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const now = clock()
     const week = { start: Date.parse(q.from), end: Date.parse(q.to) }
     const all = db.planItems.map(withCourse)
-    const rows = withPendingBookings(expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }), q.pending)
     const open = all.filter((p) => p.kind === 'task' && p.status === 'open' && !isSession(p))
-    const todos = todosToPlan(open, bookedMinutes(withPendingBookings(all, q.pending)))
+    const pending = trustedPendingBookings(q.pending, { week, todoIds: new Set(open.map((t) => t.id)) })
+    const rows = withPendingBookings(expandPlanItems(all.filter((p) => matchesPlanItemFilters(p, { statuses: ['open', 'done'] })), { from: q.from, to: q.to }), pending)
+    const todos = todosToPlan(open, bookedMinutes(withPendingBookings(all, pending)))
     const tasks = planTasks(todos, week, { now, estimates: q.estimates })
     if (tasks.length === 0) return { order: [], trims: [], note: null }
     const placement = placementOpts(q.timeZone)

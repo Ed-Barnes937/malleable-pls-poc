@@ -126,6 +126,30 @@ test.describe('Partly booked to-dos', () => {
     await expect(todo.getByTestId('todo-booked')).toHaveText('1h 30m of 2h 30m booked')
   })
 
+  test('a review of a moment shortened to 15m stays its own block, with its moment, and is never partly booked', async ({ page, request }) => {
+    const review = await trpcMutation<PlanItem>(request, 'planItems.create', {
+      kind: 'task', title: 'Review: maternal inheritance', subtype: 'review', duration_min: 30,
+      starts_at: '2026-10-29T14:00:00Z', ends_at: '2026-10-29T14:30:00Z',
+      course: 'biology', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 2_200_000,
+    })
+    const { calendar } = await openWeek(page, request)
+    // Too short to have a resize edge: shortened in its popover (Edit time, then the end time).
+    await calendar.block('Review: maternal inheritance').click()
+    await calendar.popover.getByRole('button', { name: 'Edit time' }).click()
+    await calendar.popover.getByLabel('End time').fill('14:15')
+    await calendar.popover.getByRole('button', { name: 'Save' }).click()
+    await expect.poll(async () => (await byId(request, review.id)).ends_at).toBe('2026-10-29T14:15:00.000Z')
+    // Its block is its booking: the estimate follows, and nothing offers to book "the rest".
+    expect(await byId(request, review.id)).toMatchObject({ duration_min: 15, source_type: 'recording', source_id: 'rec-bio-4' })
+    const row = page.getByTestId('todo-item').filter({ hasText: 'Review: maternal inheritance' })
+    await expect(row.getByTestId('todo-booked')).toHaveCount(0)
+    await calendar.root.getByTestId('help-me-plan').click()
+    await expect(calendar.root.getByTestId('help-me-plan-panel').getByTestId('plan-todo').filter({ hasText: 'Review: maternal inheritance' })).toHaveCount(0)
+    await calendar.root.getByRole('button', { name: 'Close Help me plan' }).click()
+    await calendar.block('Review: maternal inheritance').click()
+    await expect(calendar.popover.getByRole('button', { name: 'Go to moment' })).toBeVisible()
+  })
+
   test('Find another time on the Saturday block offers free slots elsewhere, and picking one moves it', async ({ page, request }) => {
     const { calendar } = await openWeek(page, request)
     const reading = calendar.block('Biology reading: chapter 4')

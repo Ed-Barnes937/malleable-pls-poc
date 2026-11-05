@@ -681,3 +681,59 @@ test('study time made on the calendar has no estimate, so it never reads as part
   await expect(row.getByTitle('Time estimate')).toHaveCount(0)
   await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
 })
+
+test('a review of a moment shortened to 15m is not partly booked: its block is its booking', async ({ mount, page, simulator }) => {
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, {
+    id: 'review', kind: 'task', title: 'Review: maternal inheritance', subtype: 'review', duration_min: 30,
+    starts_at: start, ends_at: new Date(Date.parse(start) + 15 * 60_000).toISOString(),
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000,
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const row = page.getByTestId('todo-item').filter({ hasText: 'Review: maternal inheritance' })
+  await expect(row.getByTitle('Scheduled')).toBeVisible()
+  await expect(row.getByTestId('todo-booked')).toHaveCount(0)
+  await expect(row.getByRole('button', { name: /Book the rest/ })).toHaveCount(0)
+})
+
+test('Book the rest that fails to save saves nothing, says so, and books it all on a retry', async ({ mount, page, simulator }) => {
+  // 3h due in four days, booked for 30m: the rest splits into sessions.
+  const start = daysFromNow(1, 9)
+  seedPlanItem(simulator, {
+    id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: daysFromNow(4, 17),
+    starts_at: start, ends_at: new Date(Date.parse(start) + 30 * 60_000).toISOString(),
+  })
+  await mount(
+    <TestProviders>
+      <TodoLens {...defaultProps} />
+    </TestProviders>,
+  )
+  const lab = page.getByTestId('todo-item').filter({ hasText: 'Lab report write-up' })
+  await lab.getByRole('button', { name: 'Book the rest of Lab report write-up' }).click()
+  const draft = lab.getByTestId('book-the-rest')
+  await expect(draft.getByTestId('book-the-rest-block').first()).toBeVisible()
+  const blocks = await draft.getByTestId('book-the-rest-block').count()
+  expect(blocks).toBeGreaterThan(1)
+
+  let failNext = true
+  await page.route(/planItems\.bookSessions/, async (route) => {
+    if (!failNext) return route.fallback()
+    failNext = false
+    await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify([{ error: { json: { message: 'boom', code: -32603, data: { code: 'INTERNAL_SERVER_ERROR', httpStatus: 500 } } } }]) })
+  })
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft.getByRole('status')).toHaveText("Couldn't book it just now. Nothing changed - try again?")
+  // Truly nothing: no session, and the to-do still has its own block.
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toEqual([])
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')).toMatchObject({ starts_at: start })
+
+  await draft.getByRole('button', { name: 'Book it' }).click()
+  await expect(draft).toHaveCount(0)
+  // Every block once (no double booking), plus the own block as a session.
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'lab')).toHaveLength(blocks + 1)
+  await expect(lab.getByTestId('todo-booked')).toHaveCount(0)
+})
