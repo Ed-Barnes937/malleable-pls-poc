@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, SESSION_SOURCE_TYPE, bookedMinutes, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
 import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -10,6 +10,7 @@ import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
 import { ClassLectureSection, type ClassLectureState } from './ClassLectureSection'
 import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
+import { FindAnotherTime, TickTodoToo } from './StudyBlockActions'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
@@ -32,6 +33,8 @@ type Popover =
       mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean
       /** A class block's lecture, focused on the board as the popover opens. */
       lecture?: ClassLectureState
+      /** The last open session of this to-do was just ticked here: "Tick off <to-do> too?". */
+      tickTodo?: { id: string; title: string }
     }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
@@ -197,16 +200,15 @@ export default function CalendarLens({
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
-  // Open to-dos with no time yet: what Help me plan offers, and what an
-  // Auto-fill ghost's to-do must still be when it is accepted. A to-do
-  // booked in sessions offers only the time not booked yet (`todosToPlan`).
-  const { data: unscheduledData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open'], scheduled: false })
-  const { data: sessionData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE })
-  const booked = useMemo(() => bookedMinutes((sessionData ?? []) as PlanItemOccurrence[]), [sessionData])
-  const todoData = useMemo(
-    () => (unscheduledData && sessionData ? todosToPlan(unscheduledData as PlanItemOccurrence[], booked) : undefined),
-    [unscheduledData, sessionData, booked],
-  )
+  // Open to-dos with time still to book: what Help me plan offers, and what
+  // an Auto-fill ghost's to-do must still be when it is accepted. A to-do
+  // booked in part (its own block, or sessions) offers only the time not
+  // booked yet (`todosToPlan`).
+  const { data: taskData } = substrate.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'] })
+  const taskRows = taskData as PlanItemOccurrence[] | undefined
+  const booked = useMemo(() => bookedMinutes(taskRows ?? []), [taskRows])
+  const openTodos = useMemo(() => taskRows?.filter((t) => t.status === 'open' && !isSession(t)), [taskRows])
+  const todoData = useMemo(() => (openTodos ? todosToPlan(openTodos, booked) : undefined), [openTodos, booked])
 
   /**
    * To-dos being given a time by hand (a suggested slot, a drop, Pick a
@@ -262,11 +264,16 @@ export default function CalendarLens({
     [todoData, assigning],
   )
 
-  /** The block a study block for `taskId` at [start, end) would overlap (commitments and other study time). */
+  /**
+   * The block a study block at [start, end) would overlap (commitments and
+   * other study time). `self` is the row being moved there, which doesn't
+   * count; null when the block is a new session (the to-do's own block, if
+   * it has one, counts like any other).
+   */
   const clashAt = useCallback(
-    (taskId: string, start: number, end: number) =>
+    (self: string | null, start: number, end: number) =>
       items.find((r) =>
-        r.id !== taskId && r.status !== 'dismissed' && r.kind !== 'deadline' && r.starts_at && r.ends_at
+        r.id !== self && r.status !== 'dismissed' && r.kind !== 'deadline' && r.starts_at && r.ends_at
         && Date.parse(r.starts_at) < end && start < Date.parse(r.ends_at)) ?? null,
     [items],
   )
@@ -282,7 +289,7 @@ export default function CalendarLens({
       if (missedIds && !missedIds.has(p.taskId)) return 'it was already moved, done or removed'
       if (Date.parse(p.startsAt) < Date.now()) return 'that time has already started'
     }
-    const clash = clashAt(p.taskId, Date.parse(p.startsAt), Date.parse(p.endsAt))
+    const clash = clashAt(p.session ? null : p.taskId, Date.parse(p.startsAt), Date.parse(p.endsAt))
     return clash ? `that time overlaps ${clash.title}` : null
   }, [todos, clashAt, missedIds])
 
@@ -301,7 +308,7 @@ export default function CalendarLens({
       if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
       // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
       const estimate = p.session.estimateMin
-      const stored = (unscheduledData as PlanItemOccurrence[] | undefined)?.find((t) => t.id === p.taskId)
+      const stored = openTodos?.find((t) => t.id === p.taskId)
       const key = `${p.taskId}:${estimate}`
       if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
         await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
@@ -370,20 +377,34 @@ export default function CalendarLens({
    * its block straight away, unless it would land on a commitment or other
    * study time: then nothing is saved and the promise rejects saying why.
    */
+  /**
+   * Hand bookings still saving. Auto-fill sends them with its request, so the
+   * server's advice counts them as booked and never ranks, trims or names a
+   * to-do the student has just given a time (the draft itself already drafts
+   * around them, see `assigning`).
+   */
+  const savingRef = useRef(new Map<Promise<unknown>, { id: string; starts_at: string; ends_at: string }>())
+  const tracked = <T,>(save: Promise<T>, booking: { id: string; starts_at: string; ends_at: string }): Promise<T> => {
+    savingRef.current.set(save, booking)
+    save.then(() => savingRef.current.delete(save), () => savingRef.current.delete(save))
+    return save
+  }
+  const pendingBookings = useCallback(() => [...savingRef.current.values()], [])
+
   const scheduleTodo = async (todo: { id: string; title: string }, start: Date, durationMin: number) => {
     const end = start.getTime() + durationMin * 60_000
-    const clash = clashAt(todo.id, start.getTime(), end)
+    const clash = clashAt(booked.has(todo.id) ? null : todo.id, start.getTime(), end)
     if (clash) throw new ScheduleClash(`"${todo.title}" would overlap ${clash.title} there. Pick a free time.`)
     const patch = { starts_at: start.toISOString(), ends_at: new Date(end).toISOString(), duration_min: durationMin }
     const row = todos?.find((t) => t.id === todo.id)
     // A to-do already booked in sessions gets another session: its own row keeps its total.
     if (row && booked.has(todo.id)) {
-      await createItem.mutateAsync(newSession(row, patch.starts_at, patch.ends_at))
+      await tracked(createItem.mutateAsync(newSession(row, patch.starts_at, patch.ends_at)), { id: todo.id, starts_at: patch.starts_at, ends_at: patch.ends_at })
       return
     }
     if (row) setAssigning((prev) => new Map(prev).set(todo.id, { ...row, ...patch, occurrence_key: todo.id }))
     try {
-      await updateItem.mutateAsync({ id: todo.id, patch })
+      await tracked(updateItem.mutateAsync({ id: todo.id, patch }), { id: todo.id, starts_at: patch.starts_at, ends_at: patch.ends_at })
     } catch (e) {
       setAssigning((prev) => {
         const next = new Map(prev)
@@ -544,8 +565,9 @@ export default function CalendarLens({
     setLostSave(null)
     setPendingSave({ popover: started, kind })
     try {
-      await action()
-      if (popoverIdRef.current === started) closePopover()
+      // An action with something more to ask (Tick off the to-do too?) keeps its popover open.
+      const result = await action()
+      if (result !== KEEP_OPEN && popoverIdRef.current === started) closePopover()
     } catch (e) {
       if (popoverIdRef.current === started) {
         setError(e instanceof Error && e.message ? `Couldn't save: ${e.message}` : "Couldn't save - try again")
@@ -558,6 +580,82 @@ export default function CalendarLens({
   }
 
   const editing = popover?.mode === 'edit' ? items.find((r) => r.occurrence_key === popover.key) : undefined
+
+  /**
+   * Mark done / Not done yet from a block's popover. Ticking a session ticks
+   * only that session (flow-audit decision 10); when it was the to-do's last
+   * open one, the popover stays to offer "Tick off <to-do> too?".
+   */
+  const toggleDone = (row: PlanItemOccurrence) => run('done', doneFailed(row), async () => {
+    if (row.status === 'done') return updateItem.mutateAsync({ id: row.id, patch: { status: 'open' } })
+    const parent = sessionParentId(row)
+    const todo = parent ? openTodos?.find((t) => t.id === parent) : undefined
+    const last = !!todo && !taskRows?.some((r) => r.id !== row.id && r.status === 'open' && sessionParentId(r) === parent)
+    await completeItem.mutateAsync(row.id)
+    if (!todo || !last) return
+    setPopover((p) => (p?.mode === 'edit' && p.key === row.occurrence_key ? { ...p, tickTodo: { id: todo.id, title: todo.title } } : p))
+    return KEEP_OPEN
+  })
+
+  /**
+   * "Find another time": up to 3 other slots for `row` in the week (or day) shown, from the
+   * planner (inside study hours and the daily budget, ending by its due
+   * time), none overlapping where it is now.
+   */
+  const anotherTimes = (row: PlanItemOccurrence): number[] => {
+    const p = prefs ?? DEFAULT_PREFERENCES
+    const week = { start: Date.parse(range.from), end: Date.parse(range.to) }
+    const layout = weekLayout(items, week, {
+      timeZone: p.time_zone ?? browserZone, studyHours: p.study_hours, studyMinPerDay: p.study_min_per_day, except: new Set([row.id]),
+    })
+    const start = Date.parse(row.starts_at!)
+    const end = Date.parse(row.ends_at!)
+    const at = Date.now()
+    const due = row.due_at ? Date.parse(row.due_at) : null
+    const latest = due != null && due > Math.max(at, week.start) && due < week.end ? due : week.end
+    return suggestTaskSlots({ id: row.id, durationMin: Math.round((end - start) / 60_000), latest }, layout, { now: at, n: 4 })
+      .filter((slot) => !(slot.start < end && start < slot.end))
+      .slice(0, 3)
+      .map((slot) => slot.start)
+  }
+
+  /**
+   * A study block's extras in its time-editing popover: Find another time
+   * (next to the Day / From / To fields; a block from a moment reaches it
+   * through Edit time), or the offer to tick its to-do off.
+   */
+  const blockActions = (row: PlanItemOccurrence) => {
+    if (popover?.mode === 'edit' && popover.tickTodo) {
+      const todo = popover.tickTodo
+      return (
+        <TickTodoToo
+          title={todo.title}
+          busy={busy}
+          saving={popoverPending === 'done'}
+          onTick={() => void run('done', `Couldn't mark "${todo.title}" done.`, () => completeItem.mutateAsync(todo.id))}
+          onNotYet={closePopover}
+        />
+      )
+    }
+    if (row.kind !== 'task' || row.status !== 'open' || row.recurrence || !row.starts_at || !row.ends_at) return null
+    const length = Date.parse(row.ends_at) - Date.parse(row.starts_at)
+    return (
+      <FindAnotherTime
+        title={row.title}
+        // Slots come from the days on screen, whose rows are loaded.
+        within={view === 'week' ? 'this week' : 'that day'}
+        due={!row.due_at ? 'none' : Date.parse(row.due_at) > Date.now() ? 'ahead' : 'past'}
+        now={now.getTime()}
+        busy={busy}
+        saving={popoverPending === 'save'}
+        slots={() => anotherTimes(row)}
+        onPick={(start) => {
+          const patch = movePatch(row, new Date(start), new Date(start + length))
+          void run('save', `Couldn't move "${row.title}".`, () => updateItem.mutateAsync({ id: row.id, patch }))
+        }}
+      />
+    )
+  }
   // A deleted or moved-away row closes its popover.
   useEffect(() => {
     if (popover?.mode === 'edit' && data && !editing) setPopover(null)
@@ -799,6 +897,7 @@ export default function CalendarLens({
               }}
               onCollapse={() => setPlanCollapsed(true)}
               onSchedule={(todo, start, durationMin) => scheduleTodo(todo, start, durationMin)}
+              pendingBookings={pendingBookings}
               onDragTodo={setIncoming}
               studyHours={planPrefs.study_hours}
               onStudyRhythmChange={(change) => {
@@ -850,11 +949,7 @@ export default function CalendarLens({
           error={error}
           onClose={closePopover}
           onGoToMoment={() => void showMoment(editing, editing.occurrence_key)}
-          onToggleDone={() => run('done', doneFailed(editing), () =>
-            editing.status === 'done'
-              ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
-              : completeItem.mutateAsync(editing.id),
-          )}
+          onToggleDone={() => void toggleDone(editing)}
           onEditTime={() => {
             setError(null)
             setPopover((p) => (p?.mode === 'edit' ? { ...p, editingTime: true } : p))
@@ -886,7 +981,7 @@ export default function CalendarLens({
           }}
           onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
           // As children, so it isn't remounted when the board's scope changes under it.
-          children={popover.lecture && (
+          children={popover.lecture ? (
             <ClassLectureSection
               lecture={popover.lecture}
               occurrence={editing}
@@ -906,16 +1001,8 @@ export default function CalendarLens({
                 onAddWidget()
               })}
             />
-          )}
-          onToggleDone={
-            editing.kind === 'commitment'
-              ? undefined
-              : () => run('done', doneFailed(editing), () =>
-                  editing.status === 'done'
-                    ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
-                    : completeItem.mutateAsync(editing.id),
-                )
-          }
+          ) : blockActions(editing)}
+          onToggleDone={editing.kind === 'commitment' ? undefined : () => void toggleDone(editing)}
         />
       )}
     </div>
@@ -923,6 +1010,9 @@ export default function CalendarLens({
 }
 
 const navButton = 'inline-flex items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'
+
+/** Returned by a popover action that has more to ask, so `run` keeps the popover open. */
+const KEEP_OPEN = Symbol('keep the popover open')
 
 /** What a failed "Mark done" (or "Not done yet") says once its popover has closed. */
 function doneFailed(row: PlanItemOccurrence): string {

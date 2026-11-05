@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { bookedMinutes, isSession, newSession, sessionParentId, todosToPlan } from './sessions'
+import { bookedMinutes, isSession, newSession, partBooking, sessionParentId, todosToPlan } from './sessions'
 
 const session = (parent: string, start: string, end: string, status: 'open' | 'done' | 'dismissed' = 'open') => ({
-  kind: 'task' as const, source_type: 'plan_item', source_id: parent, status, starts_at: start, ends_at: end,
+  id: `${parent}@${start}`, kind: 'task' as const, source_type: 'plan_item', source_id: parent, status, starts_at: start, ends_at: end,
 })
 
 describe('sessions', () => {
@@ -13,15 +13,44 @@ describe('sessions', () => {
     expect(isSession({ kind: 'task', source_type: 'plan_item', source_id: null })).toBe(false)
   })
 
-  it('adds up booked minutes per to-do, leaving out dismissed sessions and other rows', () => {
+  it('adds up booked minutes per to-do, leaving out dismissed sessions and rows with no time', () => {
     const rows = [
       session('lab', '2026-11-05T09:00:00Z', '2026-11-05T11:00:00Z'),
       session('lab', '2026-11-06T09:00:00Z', '2026-11-06T09:45:00Z', 'done'),
       session('lab', '2026-11-07T09:00:00Z', '2026-11-07T10:00:00Z', 'dismissed'),
       session('quiz', '2026-11-05T12:00:00Z', '2026-11-05T12:30:00Z'),
-      { kind: 'task' as const, source_type: null, source_id: null, status: 'open' as const, starts_at: '2026-11-05T13:00:00Z', ends_at: '2026-11-05T14:00:00Z' },
+      { id: 'lab', kind: 'task' as const, source_type: null, source_id: null, status: 'open' as const, starts_at: null, ends_at: null },
+      { id: 'class', kind: 'commitment' as const, source_type: null, source_id: null, status: 'open' as const, starts_at: '2026-11-05T13:00:00Z', ends_at: '2026-11-05T14:00:00Z' },
     ]
     expect(bookedMinutes(rows)).toEqual(new Map([['lab', 165], ['quiz', 30]]))
+  })
+
+  it("counts a to-do's own block as booked, at its length (a resize never changes the estimate)", () => {
+    const own = { id: 'quiz', kind: 'task' as const, source_type: null, source_id: null, status: 'open' as const, starts_at: '2026-10-28T14:00:00Z', ends_at: '2026-10-28T15:00:00Z' }
+    const weekly = { ...own, id: 'gym', recurrence: { freq: 'weekly' as const, timeZone: 'Europe/London' } }
+    const booked = bookedMinutes([own, weekly])
+    expect(booked).toEqual(new Map([['quiz', 60]]))
+    expect(partBooking({ id: 'quiz', duration_min: 120 }, booked)).toEqual({ bookedMin: 60, totalMin: 120, restMin: 60 })
+    expect(todosToPlan([{ id: 'quiz', duration_min: 120, starts_at: own.starts_at }], booked)).toEqual([{ id: 'quiz', duration_min: 60, starts_at: own.starts_at }])
+    // A row with a time that books nothing (repeating) is not waiting for a time.
+    expect(todosToPlan([{ id: 'gym', duration_min: 60, starts_at: own.starts_at }], booked)).toEqual([])
+  })
+
+  it('never counts the block of a review of a moment as booked time: its block is its booking', () => {
+    const review = { id: 'r', kind: 'task' as const, source_type: 'recording', source_id: 'rec-1', status: 'open' as const, starts_at: '2026-10-28T09:00:00Z', ends_at: '2026-10-28T09:15:00Z' }
+    const booked = bookedMinutes([review])
+    expect(booked).toEqual(new Map())
+    expect(partBooking({ id: 'r', duration_min: 30 }, booked)).toBeNull()
+    expect(todosToPlan([{ id: 'r', duration_min: 30, starts_at: review.starts_at }], booked)).toEqual([])
+  })
+
+  it('says a to-do is partly booked only when some but not all of its estimate is booked', () => {
+    const booked = new Map([['a', 60], ['b', 120], ['c', 150]])
+    expect(partBooking({ id: 'a', duration_min: 120 }, booked)).toEqual({ bookedMin: 60, totalMin: 120, restMin: 60 })
+    expect(partBooking({ id: 'b', duration_min: 120 }, booked)).toBeNull()
+    expect(partBooking({ id: 'c', duration_min: 120 }, booked)).toBeNull()
+    expect(partBooking({ id: 'd', duration_min: 120 }, booked)).toBeNull()
+    expect(partBooking({ id: 'a', duration_min: null }, booked)).toBeNull()
   })
 
   it('plans only what is not booked yet, and drops a to-do once it is all booked', () => {

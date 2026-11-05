@@ -179,6 +179,9 @@ test('Auto-fill straight after picking a slot drafts around the block still savi
   await expect(ghosts.first()).toBeVisible()
   // Nothing drafted for the quiz again, nor over its block.
   await expect(ghosts.filter({ hasText: 'Biology quiz prep' })).toHaveCount(0)
+  // Nor does the advice rank it: the request says it is booked, though its save hasn't landed.
+  await expect(panel.getByTestId('autofill-note')).toBeVisible()
+  await expect(panel.getByTestId('autofill-note')).not.toContainText('Biology quiz prep')
   await expect(ghost(page, 'Flashcards')).not.toHaveAttribute('aria-label', /09:00 - 10:00/)
   const drafted = await ghosts.count()
 
@@ -854,4 +857,68 @@ test('the demo on a Tuesday: over the weekend the narrow panel keeps its heading
   // Accept draft and Keep my plan side by side.
   const keep = await inside('Keep my plan', panel.getByRole('button', { name: 'Keep my plan' }))
   expect(Math.abs(keep.y + keep.height / 2 - (accept.y + accept.height / 2))).toBeLessThan(2)
+})
+
+/** Busy all week except Monday and Tuesday 09:00-13:00, with a 2h quiz revision booked Mon 09:00-10:00 (resized from 2h). */
+function seedPartlyBookedWeek(simulator: BackendSimulator) {
+  seed(simulator, Array.from({ length: 7 }, (_, d) => ({
+    id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 2 ? 13 : 9), ends_at: iso(d, 22),
+  })))
+  seed(simulator, [
+    { id: 'revise', title: 'Revise for the quiz', duration_min: 120, due_at: iso(2, 10), starts_at: iso(0, 9), ends_at: iso(0, 10), course: 'biology' },
+    { id: 'reading', title: 'Chemistry reading', duration_min: 60, course: 'chemistry' },
+  ])
+}
+
+test('a partly booked to-do reads "1h of 2h booked", and Book the rest drafts only its other hour, saved on Accept', async ({ mount, page, simulator }) => {
+  seedPartlyBookedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  await expect(panel.getByText("Drag a to-do onto a free gap or pick a time, and it's booked straight away. Auto-fill drafts the rest for you to accept.")).toBeVisible()
+  const revise = panel.getByTestId('plan-todo').filter({ hasText: 'Revise for the quiz' })
+  await expect(revise.getByTestId('plan-booked')).toHaveText('1h of 2h booked')
+  await expect(panel.getByTestId('plan-todo').filter({ hasText: 'Chemistry reading' }).getByTestId('plan-booked')).toHaveCount(0)
+
+  await revise.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  // Just this to-do, and only its unbooked hour: the reading isn't drafted.
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(1)
+  await expect(ghost(page, 'Revise for the quiz')).toHaveAttribute('aria-label', /10:15 - 11:15/)
+  await expect(panel.getByTestId('autofill-block')).toHaveCount(1)
+  expect(simulator.db.planItems.filter((p) => p.source_id === 'revise')).toEqual([])
+
+  await panel.getByRole('button', { name: 'Accept draft' }).click()
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(0)
+  await expect.poll(() => simulator.db.planItems.filter((p) => p.source_id === 'revise').map((p) => [p.starts_at, p.ends_at]))
+    .toEqual([[iso(0, 9), iso(0, 10)], [iso(0, 10, 15), iso(0, 11, 15)]])
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: null, ends_at: null, duration_min: 120 })
+  await expect(revise).toHaveCount(0)
+  // The reading is still there to plan, with Auto-fill.
+  await expect(panel.getByTestId('plan-todo').filter({ hasText: 'Chemistry reading' })).toBeVisible()
+  await expect(panel.getByTestId('autofill')).toBeEnabled()
+})
+
+test('Book the rest waits while another draft is open', async ({ mount, page, simulator }) => {
+  seedPartlyBookedWeek(simulator)
+  seed(simulator, [{ id: 'sheet', title: 'Problem sheet', duration_min: 90, starts_at: iso(1, 9), ends_at: iso(1, 9, 30), course: 'chemistry' }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  const sheet = panel.getByRole('button', { name: 'Book the rest of Problem sheet' })
+  await panel.getByRole('button', { name: 'Book the rest of Revise for the quiz' }).click()
+  await expect(ghost(page, 'Revise for the quiz')).toBeVisible()
+  await expect(sheet).toBeDisabled()
+  await panel.getByRole('button', { name: 'Keep my plan' }).click()
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(0)
+  await expect(sheet).toBeEnabled()
+  expect(simulator.db.planItems.filter((p) => p.source_type === 'plan_item')).toEqual([])
+})
+
+test('"Pick a time" for a due to-do starts at the latest free gap that fits before it is due', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  seed(simulator, [{ id: 'notes', title: 'Tidy lecture notes', duration_min: 60, due_at: iso(1, 12) }])
+  await mount(<CalendarHarness />)
+  const panel = await openPlan(page)
+  const notes = panel.getByTestId('plan-todo').filter({ hasText: 'Tidy lecture notes' })
+  await notes.getByRole('button', { name: /Other time|Pick a time/ }).click()
+  // Free Mon and Tue 09:00-13:00; due Tue 12:00: Tue 11:00-12:00, leaving the time before it free.
+  await expect(notes.getByLabel('Start time for Tidy lecture notes')).toHaveValue(toLocalInput(at(1, 11)))
 })

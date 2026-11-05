@@ -44,6 +44,9 @@ export {
   dueTimes,
   noteWithoutAmounts,
   draftPlan,
+  draftRest,
+  withPendingBookings,
+  trustedPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   openTime,
@@ -72,8 +75,10 @@ export {
   MIN_SESSION_MIN,
   SESSION_SOURCE_TYPE,
   bookedMinutes,
+  isPlainTodo,
   isSession,
   newSession,
+  partBooking,
   sessionParentId,
   todosToPlan,
 } from './sessions'
@@ -143,6 +148,8 @@ export {
   newPlanItemOnBoardInput,
   planItemUpdateOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
+  type BookSessions,
 } from './plan-item-schemas'
 
 export type {

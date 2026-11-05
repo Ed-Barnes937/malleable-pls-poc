@@ -35,11 +35,11 @@ describe('newItemFromDraft', () => {
     })
   })
 
-  it('makes study time with a duration and never a recurrence', () => {
+  it('makes study time with no estimate (just its block) and never a recurrence', () => {
     const item = newItemFromDraft(draft({ kind: 'task', title: ' Revise ', repeatsWeekly: true, course: null }), 'UTC')
     expect(item).toEqual({
       kind: 'task', title: 'Revise', course: null,
-      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z', duration_min: 60,
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z', duration_min: null,
     })
   })
 
@@ -68,9 +68,20 @@ describe('movePatch', () => {
     })
   })
 
-  it('resizes a study block and updates its duration', () => {
+  it("resizes a study block without touching its to-do's estimate", () => {
     expect(movePatch(block, new Date('2026-10-27T09:00:00Z'), new Date('2026-10-27T10:30:00Z'))).toEqual({
-      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:30:00.000Z', duration_min: 90,
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:30:00.000Z',
+    })
+    const twoHours = row({ starts_at: iso('2026-10-27T09:00:00Z'), ends_at: iso('2026-10-27T11:00:00Z'), duration_min: 120 })
+    expect(movePatch(twoHours, new Date('2026-10-27T09:00:00Z'), new Date('2026-10-27T10:00:00Z'))).toEqual({
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T10:00:00.000Z',
+    })
+  })
+
+  it('resizes a review of a moment with its estimate, as its block is its booking', () => {
+    const review = row({ starts_at: iso('2026-10-27T09:00:00Z'), ends_at: iso('2026-10-27T09:30:00Z'), duration_min: 30, subtype: 'review', source_type: 'recording', source_id: 'rec-1' })
+    expect(movePatch(review, new Date('2026-10-27T09:00:00Z'), new Date('2026-10-27T09:15:00Z'))).toEqual({
+      starts_at: '2026-10-27T09:00:00.000Z', ends_at: '2026-10-27T09:15:00.000Z', duration_min: 15,
     })
   })
 

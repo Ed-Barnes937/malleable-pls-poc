@@ -7,11 +7,16 @@
  * off once; ticking it, dismissing it or deleting it does the same to its
  * open sessions (and a new title, course or due time carries over), while a
  * session can still be ticked on its own. A to-do's booked time is the sum
- * of its sessions' lengths. Each session fires its own plan-item workflow
+ * of its sessions' lengths (`bookedMinutes`). Each session fires its own plan-item workflow
  * events when it is changed directly; changes cascaded from the to-do fire
  * none.
  *
- * A to-do booked in one block is unchanged: its own row carries the time.
+ * A to-do booked in one block is unchanged: its own row carries the time,
+ * and its booked time is that block's length (resizing the block never
+ * changes the estimate, flow-audit decision 8). It becomes sessions only when
+ * a second booking is needed: creating a session for a to-do that has its
+ * own block first moves that block into a session of its own, so every
+ * booked piece can be ticked on its own.
  */
 import type { NewPlanItem, PlanItem } from './types'
 
@@ -39,32 +44,66 @@ export function isSession(item: Provenance): boolean {
   return sessionParentId(item) !== null
 }
 
-/** Booked minutes per to-do id, from session rows (dismissed ones don't count). */
-export function bookedMinutes(
-  rows: ReadonlyArray<Provenance & Pick<PlanItem, 'status' | 'starts_at' | 'ends_at'>>,
-): Map<string, number> {
+/**
+ * A to-do of the student's own (no source: not a session, not a review of a
+ * lecture moment). Only its own block counts as booked time towards its
+ * estimate, and only it is turned into sessions on a second booking. Anything
+ * with a source keeps its block as its booking: a review's estimate is its
+ * block, and its block stays linked to its moment.
+ */
+export function isPlainTodo(item: Pick<PlanItem, 'kind' | 'source_type'>): boolean {
+  return item.kind === 'task' && item.source_type == null
+}
+
+type Booking = Provenance & Pick<PlanItem, 'id' | 'status' | 'starts_at' | 'ends_at'> & Partial<Pick<PlanItem, 'recurrence'>>
+
+/**
+ * Booked minutes per to-do id: its sessions' lengths, plus its own block when
+ * it is booked in one (a one-off task row with a time). Dismissed rows don't
+ * count; done ones do.
+ */
+export function bookedMinutes(rows: ReadonlyArray<Booking>): Map<string, number> {
   const out = new Map<string, number>()
   for (const row of rows) {
-    const parent = sessionParentId(row)
-    if (!parent || row.status === 'dismissed' || !row.starts_at || !row.ends_at) continue
+    if (row.kind !== 'task' || row.status === 'dismissed' || !row.starts_at || !row.ends_at) continue
+    const owner = sessionParentId(row) ?? (isPlainTodo(row) && !row.recurrence ? row.id : null)
+    if (!owner) continue
     const min = (Date.parse(row.ends_at) - Date.parse(row.starts_at)) / 60_000
-    out.set(parent, (out.get(parent) ?? 0) + min)
+    out.set(owner, (out.get(owner) ?? 0) + min)
   }
   return out
 }
 
 /**
- * The to-dos still to plan, given the sessions already booked: a to-do with
- * sessions is planned only for the time not booked yet (`duration_min` is
- * what is left), and drops out once it is all booked. Others pass through.
+ * "1h of 2h booked": a to-do with an estimate that is booked for some of it
+ * but not all, or null (nothing booked, all of it booked, or no estimate).
+ * `duration_min` is the to-do's total, as stored.
  */
-export function todosToPlan<T extends Pick<PlanItem, 'id' | 'duration_min'>>(
+export function partBooking(
+  todo: Pick<PlanItem, 'id' | 'duration_min'>,
+  booked: ReadonlyMap<string, number>,
+): { bookedMin: number; totalMin: number; restMin: number } | null {
+  const done = booked.get(todo.id) ?? 0
+  const total = todo.duration_min
+  if (total == null || done <= 0 || done >= total) return null
+  return { bookedMin: done, totalMin: total, restMin: total - done }
+}
+
+/**
+ * The to-dos still to plan, given what is already booked (`bookedMinutes`):
+ * a to-do with booked time is planned only for the time not booked yet
+ * (`duration_min` is what is left), and drops out once it is all booked.
+ * Others pass through. Pass every open to-do, with or without a time.
+ */
+export function todosToPlan<T extends Pick<PlanItem, 'id' | 'duration_min'> & Partial<Pick<PlanItem, 'starts_at'>>>(
   todos: ReadonlyArray<T>,
   booked: ReadonlyMap<string, number>,
 ): T[] {
   const out: T[] = []
   for (const todo of todos) {
     const done = booked.get(todo.id)
+    // A row with a time that books nothing (a repeating one) isn't waiting for one.
+    if (!done && todo.starts_at) continue
     if (!done) out.push(todo)
     else if (todo.duration_min != null && todo.duration_min > done) out.push({ ...todo, duration_min: todo.duration_min - done })
   }

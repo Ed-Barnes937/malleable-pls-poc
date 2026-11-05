@@ -6,9 +6,16 @@ import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMoment
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
 
+/** A review's length: its block's when it has one (a resize changes the block, not the estimate), else its estimate. */
+function reviewMinutes(review: PlanItemOccurrence): number | null {
+  if (review.starts_at && review.ends_at) return Math.round((Date.parse(review.ends_at) - Date.parse(review.starts_at)) / 60_000)
+  return review.duration_min
+}
+
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
 function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (chip: HTMLElement) => void }) {
-  const minutes = review.duration_min ? `${review.duration_min} min` : null
+  const length = reviewMinutes(review)
+  const minutes = length ? `${length} min` : null
   const done = review.status === 'done'
   const Icon = done ? CalendarCheck : review.starts_at ? CalendarClock : ListTodo
   const when = done
@@ -217,7 +224,7 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
           <p className="truncate text-body font-semibold text-text-primary">{review.title}</p>
           <p className="flex min-w-0 items-center gap-1.5 text-meta text-text-secondary">
             <Clock className="h-3 w-3 shrink-0" />
-            {review.duration_min ? <span className="shrink-0">{review.duration_min} min</span> : null}
+            {reviewMinutes(review) ? <span className="shrink-0">{reviewMinutes(review)} min</span> : null}
             <span className="truncate">{fromMomentLabel(recordingTitle, review.source_offset_ms)}</span>
           </p>
         </div>,

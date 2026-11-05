@@ -1,7 +1,8 @@
 import type { LensProps } from '@pls/lens-framework'
-import type { PlanItemOccurrence } from '@pls/substrate'
+import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, dayAndTime, doByLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
-import { CalendarClock, Check, Clock, Hourglass, Undo2, X } from 'lucide-react'
+import { CalendarClock, Check, Clock, Hourglass, Sparkles, Undo2, X } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { slippedAt } from './todo-items'
 import { SourceLink } from './SourceLink'
 
@@ -19,11 +20,17 @@ export interface TodoRowProps {
   onToggle: () => void
   /** Omitted for done to-dos (untick instead). */
   onDismiss?: () => void
+  /** Booked for some of its estimate but not all: "1h of 2h booked". */
+  booking?: { bookedMin: number; totalMin: number } | null
+  /** "Book the rest" (only while partly booked and open). */
+  onBookRest?: () => void
+  /** Under the row's details, e.g. Book the rest's draft. */
+  children?: ReactNode
   onScopeChange: LensProps['onScopeChange']
   onShowMoment: LensProps['onShowMoment']
 }
 
-export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, onToggle, onDismiss, onScopeChange, onShowMoment }: TodoRowProps) {
+export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, onToggle, onDismiss, booking, onBookRest, children, onScopeChange, onShowMoment }: TodoRowProps) {
   // A just-ticked row is done straight away, before the save comes back.
   const done = item.status === 'done' || !!justDone
   const slipped = done ? null : slippedAt(item, now)
@@ -78,7 +85,12 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, o
             ) : item.due_at ? (
               <span>{doByLabel(item.due_at, now)}</span>
             ) : null}
-            {item.duration_min != null && (
+            {booking && !done ? (
+              <span data-testid="todo-booked" className="flex items-center gap-1 font-semibold text-text-secondary" title="Time booked of the estimate">
+                <Clock className="h-3.5 w-3.5" />
+                {formatMinutes(booking.bookedMin)} of {formatMinutes(booking.totalMin)} booked
+              </span>
+            ) : item.duration_min != null && (
               <span className="flex items-center gap-1" title="Time estimate">
                 <Clock className="h-3.5 w-3.5" />
                 {formatDuration(item.duration_min)}
@@ -96,6 +108,17 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, o
               </span>
             )}
             {!justDone && <SourceLink item={item} onScopeChange={onScopeChange} onShowMoment={onShowMoment} />}
+            {booking && !done && onBookRest && (
+              <button
+                type="button"
+                onClick={onBookRest}
+                aria-label={`Book the rest of ${item.title}`}
+                className="inline-flex h-6 items-center gap-1 rounded-item px-1.5 font-semibold text-accent transition-colors hover:bg-accent-soft pointer-coarse:h-8"
+              >
+                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                Book the rest
+              </button>
+            )}
             {justDone && (
               <span className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-item bg-good-soft px-2.5 font-semibold text-good">
                 <Check className="h-3.5 w-3.5" aria-hidden />
@@ -114,6 +137,7 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, o
             )}
           </div>
         )}
+        {children}
       </div>
 
       {onDismiss && (

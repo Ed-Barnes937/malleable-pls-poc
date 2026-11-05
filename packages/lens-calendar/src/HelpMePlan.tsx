@@ -27,7 +27,7 @@ import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, 
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
 import type { ProposalLayer } from './proposals'
-import { firstFreeStart, formatClock, formatWeekday, startOfDay } from './time'
+import { firstFreeStart, formatWeekday, latestFreeStart, slotLabel } from './time'
 import { StudyHoursEditor, type StudyRhythmChange } from './StudyHoursEditor'
 
 /** The Help me plan toggle in the week view header. */
@@ -75,9 +75,9 @@ export interface HelpMePlanPanelProps {
   weekLabel: string
   now: number
   layer: ProposalLayer
-  /** Open to-dos with no time yet (null while loading). */
+  /** Open to-dos with time still to book (null while loading); a partly booked one's `duration_min` is what is left. */
   todos: PlanItemOccurrence[] | null
-  /** To-do id -> minutes already booked in sessions (their `todos` row holds what is left). */
+  /** To-do id -> minutes already booked (its own block or its sessions; see `bookedMinutes`). */
   booked: ReadonlyMap<string, number>
   /** Auto-fill's state, owned by the Calendar so it survives closing the panel. */
   autofill: AutofillState
@@ -90,6 +90,8 @@ export interface HelpMePlanPanelProps {
    * student-facing message when the time overlaps something.
    */
   onSchedule: (todo: PlanItemOccurrence, start: Date, durationMin: number) => Promise<unknown>
+  /** To-dos given a time by hand whose save hasn't landed yet: sent with Auto-fill's request so its advice counts them as booked. */
+  pendingBookings?: () => { id: string; starts_at: string; ends_at: string }[]
   onDragTodo: (todo: DraggedTodo | null) => void
   /** The student's study hours (their preference, defaults filled in). */
   studyHours: StudyHours
@@ -111,7 +113,7 @@ const SOURCE = 'autofill'
  */
 export function HelpMePlanPanel({
   layout, weekLabel, now, layer, todos: loaded, booked, autofill, onAutofillChange: setAutofill,
-  onClose, onCollapse, onSchedule, onDragTodo, studyHours, onStudyRhythmChange,
+  onClose, onCollapse, onSchedule, pendingBookings, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
   const mutations = useSubstrateMutations()
   const updateItem = mutations.useUpdatePlanItem()
@@ -141,7 +143,7 @@ export function HelpMePlanPanel({
   /** Re-draft (after a trim, or new study hours or study time per day), keeping ghosts the student dragged. */
   const redraft = (from: Drafted, trims: Map<string, number>, keepAdjusted = true) => {
     const pinned = keepAdjusted ? layer.proposals.filter((p) => p.adjusted && !trims.has(p.taskId) && !layer.savedIds.has(p.id)) : []
-    const draft = buildAutofillDraft({ todos, layout, now, advice: from.advice, trims, estimates: from.estimates, pinned, booked })
+    const draft = buildAutofillDraft({ todos: inDraft(from, todos), layout, now, advice: from.advice, trims, estimates: from.estimates, pinned, booked })
     layer.propose(SOURCE, draft.proposals)
     setAutofill({ ...from, minutesPerDay: layout.budget.minutesPerDay, trims, draft })
   }
@@ -175,6 +177,8 @@ export function HelpMePlanPanel({
         to: new Date(asked.week.end).toISOString(),
         timeZone: asked.timeZone,
         estimates,
+        // The server reads what is saved: a to-do given a time a moment ago may not be yet.
+        pending: pendingBookings?.(),
       })
       // The same week, as it is now (the student may have moved to another week meanwhile: keep the one asked about).
       const current = latest.current
@@ -187,6 +191,18 @@ export function HelpMePlanPanel({
     } catch {
       setAutofill({ state: 'error', message: "Auto-fill didn't work just now. Nothing changed - try again?" })
     }
+  }
+
+  /**
+   * Book the rest: the same planner as Auto-fill, for one partly booked
+   * to-do's unbooked time only (no AI: there is nothing to rank). The draft
+   * waits for Accept like any other.
+   */
+  const bookRest = (todo: PlanItemOccurrence) => {
+    const advice = { order: [todo.id], trims: [], note: null }
+    const draft = buildAutofillDraft({ todos: [todo], layout, now, advice, booked })
+    layer.propose(SOURCE, draft.proposals)
+    setAutofill({ state: 'drafted', week: layout.week.start, minutesPerDay: layout.budget.minutesPerDay, advice, estimates: {}, trims: new Map(), draft, only: [todo.id] })
   }
 
   const startAutofill = () => {
@@ -233,10 +249,14 @@ export function HelpMePlanPanel({
     [layer.proposals, layer.savedIds],
   )
   const open = useMemo(() => openTime(layout, now, draftBlocks), [layout, now, draftBlocks])
-  const pickDefaultFor = (durationMin: number) => firstFreeStart(open, durationMin) ?? layout.week.start + 9 * 3_600_000
+  // A to-do due this week starts at the latest free gap that fits before it is due, leaving the time before free.
+  const pickDefaultFor = (task: Pick<PlanTask, 'durationMin' | 'dueAt' | 'latest'>) =>
+    (task.dueAt && Date.parse(task.dueAt) === task.latest ? latestFreeStart(open, task.durationMin, task.latest) : null)
+    ?? firstFreeStart(open, task.durationMin) ?? layout.week.start + 9 * 3_600_000
 
   const ghostFor = (id: string) => layer.proposals.find((p) => p.taskId === id)
   const showDraft = draftHere && drafted ? drafted : null
+  const draftTodos = showDraft ? inDraft(showDraft, todos) : todos
   const keepPlan = () => {
     layer.dismissAll()
     setAutofill({ state: 'idle' })
@@ -316,7 +336,7 @@ export function HelpMePlanPanel({
       <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 @max-[17rem]:gap-3 @max-[17rem]:px-3">
         {!showDraft && (
           <p className="text-body text-text-secondary">
-            Drag a to-do onto a free gap, or let Auto-fill draft the rest. Nothing is saved until you accept.
+            Drag a to-do onto a free gap or pick a time, and it's booked straight away. Auto-fill drafts the rest for you to accept.
           </p>
         )}
 
@@ -325,10 +345,10 @@ export function HelpMePlanPanel({
             autofill={showDraft}
             layer={layer}
             now={now}
-            todos={todos}
+            todos={draftTodos}
             minutesPerDay={layout.budget.minutesPerDay}
-            overCapacity={!planCapacity(layout, planTasks(todos, layout.week, { now, estimates: showDraft.estimates }), now).fits}
-            originalTasks={planTasks(todos, layout.week, { now, estimates: showDraft.estimates })}
+            overCapacity={!planCapacity(layout, planTasks(draftTodos, layout.week, { now, estimates: showDraft.estimates }), now).fits}
+            originalTasks={planTasks(draftTodos, layout.week, { now, estimates: showDraft.estimates })}
             onTrim={setTrim}
             pickDefaultFor={pickDefaultFor}
             onPick={(todo, start, durationMin) => void schedule(todo, start, durationMin)}
@@ -367,7 +387,7 @@ export function HelpMePlanPanel({
         )}
 
         <section className="flex flex-col gap-2">
-          <h4 className={sectionLabel}>To-dos without a time</h4>
+          <h4 className={sectionLabel}>To-dos to book</h4>
           {rowError && <p role="status" className="text-meta text-text-secondary">{rowError}</p>}
           {isLoading && <p className="text-meta text-text-muted">Loading your to-dos...</p>}
           {!isLoading && todos.length === 0 && (
@@ -385,11 +405,13 @@ export function HelpMePlanPanel({
                   task={task}
                   now={now}
                   ghost={ghostFor(task.id)?.startsAt}
+                  booked={booked.get(task.id) ?? 0}
                   suggestions={over || ghostFor(task.id) ? [] : suggestTaskSlots(task, layout, { now, n: 3 })}
                   onEstimate={(min) => void saveEstimate(todo, min)}
                   onPick={(start) => void schedule(todo, start, task.durationMin)}
+                  onBookRest={over || otherDraft || !!drafted || autofill.state === 'loading' ? undefined : () => bookRest(todo)}
                   onDragTodo={onDragTodo}
-                  pickDefault={pickDefaultFor(task.durationMin)}
+                  pickDefault={pickDefaultFor(task)}
                 />
               )
             })}
@@ -431,6 +453,11 @@ export function HelpMePlanPanel({
       )}
     </aside>
   )
+}
+
+/** The to-dos a draft is for: all of them, or the one Book the rest drafted. */
+function inDraft(d: Pick<Drafted, 'only'>, todos: PlanItemOccurrence[]): PlanItemOccurrence[] {
+  return d.only ? todos.filter((t) => d.only!.includes(t.id)) : todos
 }
 
 const primaryButton = 'inline-flex h-10 items-center gap-2 rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50'
@@ -504,14 +531,14 @@ function DraftSummary({
   minutesPerDay: number
   overCapacity: boolean
   now: number
-  /** Open to-dos with no time yet: one picked by hand leaves "didn't fit". */
+  /** Open to-dos with time still to book: one picked by hand leaves "didn't fit". */
   todos: PlanItemOccurrence[]
   /** The to-dos as they are (before any trim the student applied). */
   originalTasks: PlanTask[]
   autofill: Drafted
   layer: ProposalLayer
   onTrim: (taskId: string, durationMin: number | null) => void
-  pickDefaultFor: (durationMin: number) => number
+  pickDefaultFor: (task: PlanTask) => number
   onPick: (todo: PlanItemOccurrence, start: Date, durationMin: number) => void
 }) {
   const { advice, draft, trims, estimates } = autofill
@@ -639,7 +666,7 @@ function DraftSummary({
                 {picking === u.taskId && (
                   <PickTime
                     title={u.task.title}
-                    defaultStart={pickDefaultFor(u.task.durationMin)}
+                    defaultStart={pickDefaultFor(u.task)}
                     onPick={(start) => {
                       setPicking(null)
                       onPick(todo, start, u.task.durationMin)
@@ -669,15 +696,22 @@ function TodoRow({
   task,
   now,
   ghost,
+  booked,
   suggestions,
   onEstimate,
   onPick,
+  onBookRest,
   onDragTodo,
   pickDefault,
 }: {
+  /** Its `duration_min` is the time still to book. */
   todo: PlanItemOccurrence
   task: PlanTask
   now: number
+  /** Minutes already booked: more than 0 makes it partly booked ("1h of 2h booked"). */
+  booked: number
+  /** Drafts its unbooked time (absent while another draft is open). */
+  onBookRest?: () => void
   /** Where "Pick a time" starts: the first free gap that fits it. */
   pickDefault: number
   /** Where its draft ghost is, if it has one. */
@@ -689,6 +723,7 @@ function TodoRow({
 }) {
   const tone = toneFor(todo.course)
   const [picking, setPicking] = useState(false)
+  const partly = booked > 0
   const handleDragStart = (e: DragEvent) => {
     e.dataTransfer.setData('text/plain', todo.title)
     e.dataTransfer.effectAllowed = 'move'
@@ -712,8 +747,13 @@ function TodoRow({
             {todo.due_at ? doByLabel(todo.due_at, now) : 'No due date'}
             {task.weakTopic && ' · from a confusing moment'}
           </p>
+          {partly && (
+            <p data-testid="plan-booked" className="text-meta font-semibold text-text-secondary">
+              {formatMinutes(booked)} of {formatMinutes(booked + task.durationMin)} booked
+            </p>
+          )}
         </div>
-        {todo.duration_min != null && (
+        {todo.duration_min != null && !partly && (
           <span className="shrink-0 rounded-full bg-surface-overlay px-2 py-0.5 text-meta font-semibold tabular-nums text-text-secondary">
             {formatMinutes(todo.duration_min)}
           </span>
@@ -742,6 +782,21 @@ function TodoRow({
           <Sparkles className="h-3 w-3" />
           Suggested {slotLabel(Date.parse(ghost), now)}
         </p>
+      ) : partly ? (
+        <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
+          <button
+            type="button"
+            onClick={onBookRest}
+            disabled={!onBookRest}
+            aria-label={`Book the rest of ${todo.title}`}
+            title={onBookRest ? `Draft ${formatMinutes(task.durationMin)} more${todo.due_at ? " before it's due" : ''}` : 'Accept or keep the draft first'}
+            className="inline-flex h-7 items-center gap-1 rounded-item border border-accent-line bg-accent-soft px-2 text-meta font-semibold text-accent transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Sparkles className="h-3 w-3" aria-hidden />
+            Book the rest
+          </button>
+          <button type="button" onClick={() => setPicking((v) => !v)} className={pickButton}>Pick a time</button>
+        </div>
       ) : suggestions.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 pl-[22px]">
           <CalendarClock className="h-3.5 w-3.5 text-text-muted" aria-hidden />
@@ -829,11 +884,6 @@ function PickTime({ title, defaultStart, onPick, onCancel, className = 'pl-[22px
   )
 }
 
-function slotLabel(start: number, now: number): string {
-  const d = new Date(start)
-  const day = startOfDay(d).getTime() === startOfDay(new Date(now)).getTime() ? 'Today' : formatWeekday(d)
-  return `${day} ${formatClock(d)}`
-}
 
 /** " · " between the parts of a line, read as a comma. */
 function Dot() {

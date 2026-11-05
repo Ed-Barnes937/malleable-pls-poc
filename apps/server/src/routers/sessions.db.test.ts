@@ -103,4 +103,125 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
     await api.planItems.delete(lab.id)
     expect(await api.planItems.byId(sessions[1].id)).toBeNull()
   })
+
+  it("a to-do booked in one block keeps its total when the block is resized, and Auto-fill plans the rest", async () => {
+    const { api, lab } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ duration_min: 180 })
+    expect((await api.planning.autofill(week)).order).toEqual([lab.id])
+  })
+
+  it('a second booking moves the to-do\'s own block into a session, so each can be ticked on its own', async () => {
+    const { api, lab, list } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    const rest = await api.planItems.create(newSession(lab, at(4, 9), at(4, 11)))
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ starts_at: null, ends_at: null, duration_min: 180, status: 'open' })
+    expect((await list()).map((s) => [s.starts_at, s.ends_at, s.duration_min, s.course])).toEqual([
+      [at(3, 9), at(3, 10), 60, 'chemistry'],
+      [at(4, 9), at(4, 11), 120, 'chemistry'],
+    ])
+    await api.planItems.complete({ id: rest.id })
+    expect((await api.planItems.byId(lab.id))!.status).toBe('open')
+    expect((await api.planning.autofill(week)).order).toEqual([])
+  })
+
+  it('lengthening a booking past the estimate raises the estimate to the booked total; shortening never lowers it', async () => {
+    const { api, lab } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 13) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(240)
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(240)
+  })
+
+  it("lengthening a session raises its to-do's estimate to the sum of its sessions", async () => {
+    const { api, lab, sessions } = await labWithSessions([[at(3, 9), at(3, 11)], [at(4, 9), at(4, 10)]])
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(180)
+    await api.planItems.update({ id: sessions[1].id, patch: { starts_at: at(4, 9), ends_at: at(4, 11, 30) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(270)
+    // Moving it (same length) or shortening it leaves the estimate alone.
+    await api.planItems.update({ id: sessions[1].id, patch: { starts_at: at(4, 12), ends_at: at(4, 13) } })
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(270)
+  })
+
+  it('study time made on the calendar has no estimate, and a resize never gives it one', async () => {
+    const user = `test-sessions-${randomUUID().slice(0, 8)}`
+    users.push(user)
+    const api = caller(user)
+    const block = await api.planItems.create({ kind: 'task', title: 'Revise', starts_at: at(3, 9), ends_at: at(3, 10), duration_min: null })
+    await api.planItems.update({ id: block.id, patch: { starts_at: at(3, 9), ends_at: at(3, 9, 30) } })
+    await api.planItems.update({ id: block.id, patch: { starts_at: at(3, 9), ends_at: at(3, 11) } })
+    expect((await api.planItems.byId(block.id))!.duration_min).toBeNull()
+    expect((await api.planning.autofill(week)).order).toEqual([])
+  })
+
+  it('bookSessions saves every session in one go, or none: a bad block leaves nothing behind', async () => {
+    const { api, lab, list } = await labWithSessions([])
+    await api.planItems.update({ id: lab.id, patch: { starts_at: at(3, 9), ends_at: at(3, 10) } })
+    // The second block ends before it starts: nothing is saved, and the own block stays.
+    await expect(api.planItems.bookSessions({ todoId: lab.id, blocks: [{ starts_at: at(4, 9), ends_at: at(4, 10) }, { starts_at: at(5, 10), ends_at: at(5, 9) }] }))
+      .rejects.toThrow()
+    expect(await list()).toEqual([])
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ starts_at: at(3, 9), ends_at: at(3, 10) })
+
+    const made = await api.planItems.bookSessions({ todoId: lab.id, blocks: [{ starts_at: at(4, 9), ends_at: at(4, 10) }, { starts_at: at(5, 9), ends_at: at(5, 10) }] })
+    expect(made).toHaveLength(2)
+    expect((await list()).map((s) => s.starts_at)).toEqual([at(3, 9), at(4, 9), at(5, 9)])
+    expect((await api.planItems.byId(lab.id))!).toMatchObject({ starts_at: null, duration_min: 180 })
+  })
+
+  it('a session for a to-do that does not exist is NOT_FOUND, by create and by bookSessions', async () => {
+    const { api, lab } = await labWithSessions([])
+    await expect(api.planItems.create(newSession({ ...lab, id: 'missing-to-do' }, at(4, 9), at(4, 10)))).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(api.planItems.bookSessions({ todoId: 'missing-to-do', blocks: [{ starts_at: at(4, 9), ends_at: at(4, 10) }] })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  it('bookSessions refuses a block longer than a day, an empty one, and blocks that overlap', async () => {
+    const { api, lab, list } = await labWithSessions([])
+    const book = (blocks: { starts_at: string; ends_at: string }[]) => api.planItems.bookSessions({ todoId: lab.id, blocks })
+    await expect(book([{ starts_at: at(3, 9), ends_at: new Date(Date.UTC(2028, 10, 4, 9)).toISOString() }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(4, 9, 1) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(3, 9) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(book([{ starts_at: at(3, 9), ends_at: at(3, 11) }, { starts_at: at(3, 10), ends_at: at(3, 12) }])).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(await list()).toEqual([])
+    expect((await api.planItems.byId(lab.id))!.duration_min).toBe(180)
+    // Back to back is fine, and a full day is the most.
+    expect(await book([{ starts_at: at(3, 9), ends_at: at(3, 10) }, { starts_at: at(3, 10), ends_at: at(3, 11) }])).toHaveLength(2)
+  })
+
+  it('bookSessions books only an open to-do of your own: not a review, a session, or one that is done', async () => {
+    const { api, lab, sessions } = await labWithSessions([[at(3, 9), at(3, 10)]])
+    const block = [{ starts_at: at(4, 9), ends_at: at(4, 10) }]
+    const { api: reviewer, review } = await reviewBlock()
+    await expect(reviewer.planItems.bookSessions({ todoId: review.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await reviewer.planItems.complete({ id: review.id })
+    await expect(reviewer.planItems.bookSessions({ todoId: review.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(api.planItems.bookSessions({ todoId: sessions[0].id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await api.planItems.complete({ id: lab.id })
+    await expect(api.planItems.bookSessions({ todoId: lab.id, blocks: block })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect((await reviewer.planItems.byId(review.id))!).toMatchObject({ starts_at: at(3, 9), source_type: 'recording' })
+  })
+
+  /** A fresh student with a 30m review of a lecture moment, booked Thu 09:00-09:30. */
+  async function reviewBlock() {
+    const user = `test-sessions-${randomUUID().slice(0, 8)}`
+    users.push(user)
+    const api = caller(user)
+    const review = await api.planItems.create({
+      kind: 'task', title: 'Review: maternal inheritance', subtype: 'review', duration_min: 30, course: 'biology',
+      starts_at: at(3, 9), ends_at: at(3, 9, 30), source_type: 'recording', source_id: 'rec-1', source_offset_ms: 540000,
+    })
+    return { api, review }
+  }
+
+  it('a review block shortened to 15m is not partly booked: its block is its booking', async () => {
+    const { api, review } = await reviewBlock()
+    await api.planItems.update({ id: review.id, patch: { starts_at: at(3, 9), ends_at: at(3, 9, 15) } })
+    expect((await api.planning.autofill(week)).order).toEqual([])
+  })
+
+  it('a session aimed at a review never takes its block or its moment', async () => {
+    const { api, review } = await reviewBlock()
+    await api.planItems.create(newSession(review, at(4, 9), at(4, 9, 15)))
+    expect((await api.planItems.byId(review.id))!).toMatchObject({ starts_at: at(3, 9), ends_at: at(3, 9, 30), source_type: 'recording', source_id: 'rec-1' })
+  })
 })

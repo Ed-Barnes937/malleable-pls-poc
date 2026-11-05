@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
-import { isSession } from '@pls/substrate'
+import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
 import { type LensProps, useLinkedToLecture, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
 import { RefitBanner } from './RefitBanner'
+import { BookTheRest } from './BookTheRest'
 import { useJustDone } from './useJustDone'
 import { useStatusWrites } from './useStatusWrites'
 
@@ -22,6 +23,10 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   // Sessions (study blocks of a to-do split by Auto-fill) are its time, not to-dos of their own.
   const { data: taskRows, isLoading } = reader.usePlanItems({ kinds: ['task'], statuses: ['open', 'done'], courseTag: course })
   const items = useMemo(() => taskRows?.filter((item) => !isSession(item)), [taskRows])
+  // Time booked per to-do (its own block or its sessions): a resize never changes the estimate.
+  const booked = useMemo(() => bookedMinutes(taskRows ?? []), [taskRows])
+  /** The to-do whose rest is being drafted here (Book the rest). */
+  const [bookingRest, setBookingRest] = useState<string | null>(null)
   // Unfiltered counterpart, only to say what the course filter leaves out.
   const { data: allTaskRows } = reader.usePlanItems({ kinds: ['task'], statuses: ['open'] })
   const allOpen = useMemo(() => allTaskRows?.filter((item) => !isSession(item)), [allTaskRows])
@@ -118,6 +123,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
       <ul ref={listRef} className="flex min-h-0 flex-1 flex-col overflow-y-auto" aria-label="To-dos">
         {listed.map((item) => {
           const stage = justDone.stages.get(item.id)
+          const booking = stage ? null : partBooking(item, booked)
           return (
             <TodoRow
               key={item.occurrence_key}
@@ -129,9 +135,15 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => dismiss.mutate(item.id)}
+              booking={booking}
+              onBookRest={booking && bookingRest !== item.id ? () => setBookingRest(item.id) : undefined}
               onScopeChange={onScopeChange}
               onShowMoment={onShowMoment}
-            />
+            >
+              {booking && bookingRest === item.id && (
+                <BookTheRest todo={item} restMin={booking.restMin} now={now} onClose={() => setBookingRest(null)} />
+              )}
+            </TodoRow>
           )
         })}
         {done.length > 0 && (

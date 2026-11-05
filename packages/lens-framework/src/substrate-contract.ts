@@ -15,6 +15,7 @@ import type {
   PlanItem,
   PlanItemOccurrence,
   PlanItemQuery,
+  BookSessions,
   NewPlanItem,
   PlanItemUpdate,
   PlanAdvice,
@@ -206,6 +207,8 @@ export interface SubstrateWriter extends SubstrateReader {
   /** Reports a capture into a lecture (see `useLiveCapture`); null when it is over. */
   useSetLiveCapture: () => (lectureId: string, phase: LiveCapturePhase | null) => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
+  /** Book the rest: sessions of one to-do, saved together (all or none). See @pls/substrate sessions. */
+  useBookSessions: () => MutationHandle<BookSessions, PlanItem[]>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only
    * changed fields, never a list row's occurrence times; to move an occurrence,

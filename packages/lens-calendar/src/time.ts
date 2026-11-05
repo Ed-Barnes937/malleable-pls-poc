@@ -145,3 +145,26 @@ export function firstFreeStart(free: ReadonlyArray<{ start: number; end: number 
   const gap = free.find((f) => fits(f, durationMin)) ?? free.find((f) => fits(f, SNAP_MIN))
   return gap ? aligned(gap) : null
 }
+
+/**
+ * Where "Pick a time" starts for a to-do of `durationMin` due at `due` (UTC
+ * ms): the latest free gap (in order) that fits it and ends by then, at a
+ * 15-minute boundary, so the default leaves the time before it free; else
+ * null.
+ */
+export function latestFreeStart(free: ReadonlyArray<{ start: number; end: number }>, durationMin: number, due: number): number | null {
+  const step = SNAP_MIN * 60_000
+  for (let i = free.length - 1; i >= 0; i--) {
+    const gap = free[i]
+    const start = Math.floor((Math.min(gap.end, due) - durationMin * 60_000) / step) * step
+    if (start >= gap.start) return start
+  }
+  return null
+}
+
+/** "Today 20:45", "Thu 09:00": a suggested start, local time. */
+export function slotLabel(start: number, now: number): string {
+  const d = new Date(start)
+  const day = startOfDay(d).getTime() === startOfDay(new Date(now)).getTime() ? 'Today' : formatWeekday(d)
+  return `${day} ${formatClock(d)}`
+}
