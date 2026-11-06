@@ -18,23 +18,30 @@ interface Box { x: number; y: number; width: number; height: number }
 const BOARD = 'Canvas board'
 
 /** The demo board's three planning widgets, as laid out by the demo runbook. */
-async function planningBoard(request: APIRequestContext) {
+async function planningBoard(request: APIRequestContext, extra: { lensType: string; pos_x: number; pos_y: number; width: number; height: number }[] = []) {
   const ws = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: BOARD })
   const panels = [
     { lensType: 'calendar', pos_x: 20, pos_y: 20, width: 900, height: 760 },
     { lensType: 'todo', pos_x: 940, pos_y: 20, width: 360, height: 440 },
     { lensType: 'coming-up', pos_x: 940, pos_y: 480, width: 360, height: 320 },
+    ...extra,
   ]
-  for (const p of panels) await trpcMutation(request, 'workspaces.addPanel', { workspaceId: ws.id, slotName: p.lensType, ...p })
+  // All at z 0, as the seeded boards are.
+  for (const p of panels) await trpcMutation(request, 'workspaces.addPanel', { workspaceId: ws.id, slotName: p.lensType, z_index: 0, ...p })
   return ws.id
 }
 
-async function open(page: Page) {
+async function open(page: Page, count = 3) {
   await page.goto('/')
   await new TopBarPom(page).switchToWorkspace(BOARD)
   const grid = new PanelGridPom(page)
-  await grid.expectPanelCount(3)
+  await grid.expectPanelCount(count)
   return grid
+}
+
+/** Which widget is on top at the middle of `box`. */
+function onTopAt(page: Page, box: Box) {
+  return page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-panel-id]')?.querySelector('[data-testid="panel-title"]')?.textContent, { x: box.x + box.width / 2, y: box.y + box.height / 2 })
 }
 
 /** Each layout save the page sends, as the panel ids it names. */
@@ -106,6 +113,9 @@ test.describe('The canvas', () => {
     await expect.poll(() => layoutOf(todo)).toMatchObject({ x: 640, y: 120 })
     expect(overlap(await layoutOf(todo), await layoutOf(calendar))).toBe(true)
     expect(await layoutOf(calendar)).toMatchObject({ x: 20, y: 20 })
+    // The widget dropped is on top of the one it covers, though both started at z 0.
+    const header = (await todo.getByTestId('panel-header').boundingBox())!
+    expect(await onTopAt(page, { ...header, x: header.x, width: 200 })).toBe('To-do')
 
     await expect.poll(async () => (await savedLayout(request, id)).get('todo')).toMatchObject({ x: 640, y: 120 })
     expect(saves).toEqual([[await todo.getAttribute('data-panel-id')]])
@@ -176,7 +186,7 @@ test.describe('The canvas', () => {
 
     await page.getByRole('button', { name: 'Tidy up widgets' }).click()
     const calendar = await layoutOf(grid.panelByLabel('Calendar'))
-    expect(calendar).toMatchObject({ x: 20, y: 20, width: 900, height: Math.round(main.height) - 40 })
+    expect(calendar).toMatchObject({ x: 20, y: 20, height: Math.round(main.height) - 40 })
     const boxes = await Promise.all(['Calendar', 'To-do', 'Coming up'].map((l) => layoutOf(grid.panelByLabel(l))))
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) expect(overlap(boxes[i]!, boxes[j]!)).toBe(false)
@@ -194,6 +204,82 @@ test.describe('The canvas', () => {
     await page.reload()
     await expect.poll(() => layoutOf(grid.panelByLabel('To-do'))).toMatchObject({ x: 300, y: 300 })
     await expectNoneCutOff(grid)
+  })
+
+  test('a widget a Shift resize sends below the fold is scrolled into view once it lands', async ({ page, request }) => {
+    await planningBoard(request)
+    const grid = await open(page)
+    const todo = grid.panelByLabel('To-do')
+    const comingUp = grid.panelByLabel('Coming up')
+    await todo.hover()
+    const handle = (await todo.getByTestId('resize-handle-s').boundingBox())!
+    await page.keyboard.down('Shift')
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle.x + handle.width / 2, 860, { steps: 10 })
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+    await expect.poll(async () => overlap(await layoutOf(comingUp), await layoutOf(todo))).toBe(false)
+    const landed = await layoutOf(comingUp)
+    expect(landed.y + landed.height).toBeGreaterThan(await grid.root.evaluate((el) => el.clientHeight))
+    await expect(comingUp).toBeInViewport({ ratio: 1 })
+    await page.screenshot({ path: test.info().outputPath('nudged-below-revealed.png') })
+    await expectNoneCutOff(grid)
+  })
+
+  test('Tidy up with five widgets: none squeezed, titles whole', async ({ page, request }) => {
+    await planningBoard(request, [
+      { lensType: 'weakest-topics', pos_x: 300, pos_y: 300, width: 340, height: 400 },
+      { lensType: 'resources', pos_x: 500, pos_y: 200, width: 360, height: 440 },
+    ])
+    const grid = await open(page, 5)
+    await page.screenshot({ path: test.info().outputPath('five-before.png') })
+    await page.getByRole('button', { name: 'Tidy up widgets' }).click()
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: test.info().outputPath('five-after.png') })
+    const titles = grid.root.getByTestId('panel-title')
+    for (let i = 0; i < 5; i++) {
+      expect(await titles.nth(i).evaluate((el) => el.scrollWidth <= el.clientWidth), await titles.nth(i).textContent() ?? '').toBe(true)
+    }
+    await expectNoneCutOff(grid)
+  })
+
+  test('a board whose widgets all sit at one spot is tidied as it opens, nothing oversized', async ({ page, request }) => {
+    const ws = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name: BOARD })
+    for (const [lensType, width, height] of [['calendar', 520, 420], ['todo', 360, 440], ['coming-up', 360, 320]] as const) {
+      await trpcMutation(request, 'workspaces.addPanel', { workspaceId: ws.id, slotName: lensType, lensType, pos_x: 0, pos_y: 0, width, height, z_index: 0 })
+    }
+    const grid = await open(page)
+    const calendar = grid.panelByLabel('Calendar')
+    await expect.poll(async () => (await layoutOf(calendar)).x).toBe(20)
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: test.info().outputPath('stacked-board-tidied.png') })
+    const cal = await layoutOf(calendar)
+    const todo = await layoutOf(grid.panelByLabel('To-do'))
+    // Shared in proportion to their own widths (520 and 360): the side column is the narrower.
+    expect(todo.width).toBeLessThan(cal.width)
+    expect(cal.width / todo.width).toBeCloseTo(520 / 360, 1)
+  })
+
+  test("Tidy up's Undo goes once a widget is moved, and an already tidy board offers none", async ({ page, request }) => {
+    await planningBoard(request)
+    const grid = await open(page)
+    const tidy = page.getByRole('button', { name: 'Tidy up widgets' })
+    const toast = page.getByTestId('toast').filter({ hasText: 'Widgets tidied up' })
+    await tidy.click()
+    await expect(toast).toBeVisible()
+    await drag(page, grid.panelByLabel('To-do'), -40, 30)
+    await drop(page)
+    await expect(toast).toHaveCount(0)
+
+    await tidy.click()
+    await expect(toast).toBeVisible()
+    await toast.getByRole('button', { name: 'Dismiss' }).click()
+    await expect(toast).toHaveCount(0)
+    // Nothing to tidy: nothing to undo.
+    await tidy.click()
+    await page.waitForTimeout(300)
+    await expect(toast).toHaveCount(0)
   })
 
   test("Tidy up's Undo goes once a widget is added", async ({ page, request }) => {

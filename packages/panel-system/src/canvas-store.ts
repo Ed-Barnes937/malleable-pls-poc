@@ -220,8 +220,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ? Math.max(...state.panels.map((p) => p.z_index))
         : 0
 
-      // Already on top — skip to avoid unbounded z-index growth
-      if (panel.z_index === maxZ) return state
+      // Already alone on top: skip, to avoid unbounded z-index growth. One
+      // sharing the top (a seeded board is all z 0) still comes above the rest.
+      if (panel.z_index === maxZ && !state.panels.some((p) => p.id !== id && p.z_index === maxZ)) return state
 
       return {
         panels: state.panels.map((p) =>

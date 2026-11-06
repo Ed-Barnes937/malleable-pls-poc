@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { PanelItem } from './canvas-store'
 import { PLACEMENT_GAP as G } from './geometry'
-import { boxOf, nearestFreeSpot, nudgeCovered, overlaps, snapMove, snapResize, tidyLayout, type Box } from './layout'
+import { boxOf, nearestFreeSpot, nudgeCovered, overlaps, shareWidth, snapMove, snapResize, tidyLayout, type Box } from './layout'
 
 function panel(id: string, x: number, y: number, width: number, height: number, extra: Partial<PanelItem> = {}): PanelItem {
   return { id, pos_x: x, pos_y: y, width, height, z_index: 1, ...extra }
@@ -28,10 +28,14 @@ function expectNoOverlaps(boxes: Box[]) {
 }
 
 describe('snapMove', () => {
-  it('snaps to the grid and keeps the widget on the canvas across and below its top', () => {
+  it('snaps to the grid', () => {
     expect(snapMove({ x: 33, y: 47, width: 300, height: 200 }, 1000)).toEqual({ x: 40, y: 40, width: 300, height: 200 })
-    expect(snapMove({ x: -45, y: -30, width: 300, height: 200 }, 1000)).toMatchObject({ x: 0, y: 0 })
-    expect(snapMove({ x: 905, y: 20, width: 300, height: 200 }, 1000)).toMatchObject({ x: 700 })
+  })
+
+  it('keeps the gap from the canvas edges, like nudges and Tidy up', () => {
+    expect(snapMove({ x: -45, y: -30, width: 300, height: 200 }, 1000)).toMatchObject({ x: G, y: G })
+    expect(snapMove({ x: 5, y: 8, width: 300, height: 200 }, 1000)).toMatchObject({ x: G, y: G })
+    expect(snapMove({ x: 905, y: 20, width: 300, height: 200 }, 1000)).toMatchObject({ x: 680 })
   })
 })
 
@@ -47,8 +51,9 @@ describe('snapResize', () => {
     expect(box).toEqual({ x: 280, y: 100, width: 280, height: 300 })
   })
 
-  it('stops at the canvas edge', () => {
-    expect(snapResize({ x: 1000, y: 20, width: 500, height: 300 }, { dx: 1, dy: 0 }, undefined, 1400)).toMatchObject({ x: 1000, width: 400 })
+  it('stops the gap short of the canvas edges', () => {
+    expect(snapResize({ x: 1000, y: 20, width: 500, height: 300 }, { dx: 1, dy: 0 }, undefined, 1400)).toMatchObject({ x: 1000, width: 380 })
+    expect(snapResize({ x: 4, y: 3, width: 400, height: 300 }, { dx: -1, dy: -1 }, undefined, 1400)).toMatchObject({ x: G, y: G })
   })
 })
 
@@ -93,7 +98,8 @@ describe('nudgeCovered', () => {
     const panels = [calendar(20, 20, 900, 796), todo(), comingUp()]
     const box = { x: 940, y: 20, width: 480, height: 796 }
     const moves = nudgeCovered('todo', box, panels, VIEW)
-    expect([...moves]).toEqual([['up', { x: 940, y: 816 + G }]])
+    // On the grid, the gap below the Calendar (which ends at 816).
+    expect([...moves]).toEqual([['up', { x: 940, y: 840 }]])
   })
 
   it('finds the free spot in the part of the board scrolled into view', () => {
@@ -115,27 +121,62 @@ describe('nudgeCovered', () => {
   })
 })
 
+describe('shareWidth', () => {
+  it('shares spare room in proportion to what each wants', () => {
+    expect(shareWidth(1300, [{ want: 900, min: 520 }, { want: 360, min: 280 }])).toEqual([928, 372])
+  })
+
+  it('takes back what is short from how far each is above its minimum', () => {
+    expect(shareWidth(1000, [{ want: 900, min: 500 }, { want: 400, min: 300 }])).toEqual([660, 340])
+  })
+})
+
 describe('tidyLayout', () => {
-  it('fills the view with the Calendar leading, keeping its width, and the rest beside it', () => {
+  it('fills the view with the Calendar leading, and the rest beside it', () => {
     // A messy board: everything overlapping.
     const panels = [todo(200, 300), calendar(400, 100), comingUp(100, 100)]
     const out = applied(panels, tidyLayout(panels, VIEW))
     const [t, c, u] = out
-    expect(c).toMatchObject({ pos_x: G, pos_y: G, width: 900, height: VIEW.height - 2 * G, z_index: 1 })
-    // Reading order beside it: Coming up (higher up) first, then To-do, one column.
-    expect(u).toMatchObject({ pos_x: 940, pos_y: G, width: VIEW.width - G - 940, height: 320 })
-    expect(t).toMatchObject({ width: VIEW.width - G - 940 })
-    expect(t).toMatchObject({ pos_x: 940, pos_y: G + 320 + G })
+    expect(c).toMatchObject({ pos_x: G, pos_y: G, height: VIEW.height - 2 * G, z_index: 1 })
+    // The spare width is shared in proportion to their own widths (900 and 360).
+    expect(c!.width / u!.width).toBeCloseTo(900 / 360, 1)
+    // Reading order beside it: Coming up (higher up) first, then To-do, one column, to the right edge.
+    const x = G + c!.width + G
+    expect(u).toMatchObject({ pos_x: x, pos_y: G, width: VIEW.width - G - x, height: 320 })
+    expect(t).toMatchObject({ pos_x: x, pos_y: G + 320 + G, width: VIEW.width - G - x })
     // The last reaches the bottom.
     expect(t!.pos_y + t!.height).toBe(VIEW.height - G)
     expectNoOverlaps(out.map(boxOf))
+  })
+
+  it('leaves neither the Calendar nor a side column oversized (a board whose widgets were stacked)', () => {
+    // The migration default: every widget at the same spot, at its default size.
+    const panels = [calendar(20, 20, 520, 420), todo(20, 20), comingUp(20, 20)]
+    const out = applied(panels, tidyLayout(panels, VIEW))
+    const [c, t] = out
+    expect(c!.width / t!.width).toBeCloseTo(520 / 360, 1)
+    expect(t!.width).toBeLessThan(c!.width)
   })
 
   it('leads with the largest widget when there is no Calendar', () => {
     const big = panel('big', 600, 400, 700, 500)
     const panels = [todo(20, 20), big, comingUp(20, 480)]
     const out = tidyLayout(panels, VIEW)
-    expect(out.get('big')).toMatchObject({ pos_x: G, pos_y: G, width: 700 })
+    expect(out.get('big')).toMatchObject({ pos_x: G, pos_y: G })
+    expect(out.get('big')!.width).toBeGreaterThan(out.get('todo')!.width)
+  })
+
+  it('puts a widget under the Calendar rather than squeezing the columns beside it', () => {
+    // Six widgets beside the Calendar would need three columns at their minimum.
+    const side = ['todo', 'weak', 'res', 'up', 'tm', 'tr'].map((id, i) => panel(id, 940, 20 + i * 200, 360, 440, { constraints: { minWidth: 280, minHeight: 220 } }))
+    const panels = [calendar(), ...side]
+    const out = applied(panels, tidyLayout(panels, VIEW))
+    expectNoOverlaps(out.map(boxOf))
+    const cal = out[0]!
+    const under = out.filter((p) => p.id !== 'cal' && p.pos_y > cal.pos_y + cal.height)
+    expect(under.length).toBeGreaterThan(0)
+    for (const p of out.filter((q) => q.id !== 'cal' && !under.includes(q))) expect(p.width).toBeGreaterThanOrEqual(360 * 0.85)
+    for (const p of out) expect(p.pos_y + p.height).toBeLessThanOrEqual(VIEW.height - G)
   })
 
   it('fills the view with a lone widget', () => {

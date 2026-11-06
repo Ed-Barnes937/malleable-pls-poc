@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
 import { AnimatePresence, animate, frame as nextFrame, motion, useDragControls, useIsPresent, useMotionValue, useTransform, type MotionValue } from 'motion/react'
-import { ENTER_FROM, MOTION_EASE, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, Presence, boardSlideKeyframes, useReducedMotion } from '@pls/shared-ui'
+import { ENTER_FROM, MOTION_EASE, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, Presence, boardSlideKeyframes, prefersReducedMotion, useReducedMotion } from '@pls/shared-ui'
 import { useCanvasStore, clampDimensions, persistableLayout, LAYOUT_KEYS, type PanelItem } from './canvas-store'
 import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { PanelChrome } from './PanelChrome'
 import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
+import { scrollPanelIntoView } from './reveal'
 import { boxOf, nudgeCovered, snapMove, snapResize, type Box, type CanvasView } from './layout'
 
 export interface CanvasEngineProps {
@@ -40,8 +41,12 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const selectPanel = useCanvasStore((s) => s.selectPanel)
   const gesturePanelId = useCanvasStore((s) => s.gesturePanelId)
   // Letting go of Shift mid-gesture is back to free placement: no outline.
+  // Pressing Shift mid-gesture shows where the widget would land at once;
+  // letting go of it is back to free placement: no outline.
   const shiftRef = useShiftKey(useCallback((held: boolean) => {
-    if (!held) useCanvasStore.getState().setShiftPreview(null)
+    const state = useCanvasStore.getState()
+    if (!held) state.setShiftPreview(null)
+    else if (liveGesture && state.gesturePanelId === liveGesture.panelId) previewShift(liveGesture.panelId, liveGesture.snapped(), liveGesture.canvas)
   }, []))
   const canvasRef = useRef<HTMLDivElement>(null)
 
@@ -265,13 +270,28 @@ function previewShift(panelId: string, box: Box, canvas: HTMLElement | null) {
 }
 
 /** Puts down a Shift gesture's widget at `box`: whatever it covers glides to a free spot. */
+/**
+ * Puts down a Shift gesture's widget at `box`: whatever it covers glides to a
+ * free spot. One sent below the fold is scrolled to once it has landed (the
+ * topmost, when several were), so it never vanishes without a cue.
+ */
 function landShift(panelId: string, box: Box, canvas: HTMLElement | null) {
+  liveGesture = null
   const state = useCanvasStore.getState()
   state.setShiftPreview(null)
   if (!canvas) return
   const nudges = nudgeCovered(panelId, box, state.panels, viewOf(canvas))
   state.arrangePanels(new Map([...nudges].map(([id, at]) => [id, { pos_x: at.x, pos_y: at.y }])))
+  const topmost = [...nudges].sort(([, a], [, b]) => a.y - b.y || a.x - b.x)[0]?.[0]
+  if (topmost) setTimeout(() => scrollPanelIntoView(canvas, topmost), prefersReducedMotion() ? 0 : MOTION_MS)
 }
+
+/**
+ * The drag or resize under way, and where its widget would land with Shift
+ * held, so pressing Shift mid-gesture shows the outline before the pointer
+ * moves again. Set as the pointer moves, cleared as the gesture ends.
+ */
+let liveGesture: { panelId: string; snapped: () => Box; canvas: HTMLElement | null } | null = null
 
 /* ── Narrow layout ── */
 
@@ -518,8 +538,11 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
       const shift = shiftRef.current
       const box = boxAt(e, shift)
       if (!box) return
+      const canvas = (e.currentTarget as HTMLElement).closest<HTMLElement>('[data-canvas-scroll]')
+      const snapped = shift ? box : boxAt(e, true)
+      liveGesture = { panelId, snapped: () => snapped ?? box, canvas }
       resizePanel(panelId, box.x, box.y, box.width, box.height)
-      if (shift) previewShift(panelId, box, (e.currentTarget as HTMLElement).closest('[data-canvas-scroll]'))
+      if (shift) previewShift(panelId, box, canvas)
       else useCanvasStore.getState().setShiftPreview(null)
     },
     [boxAt, panelId, resizePanel, shiftRef],
@@ -534,12 +557,13 @@ function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeH
         if (current) landShift(panelId, boxOf(current), (e.currentTarget as HTMLElement).closest('[data-canvas-scroll]'))
       }
       startRef.current = null
+      liveGesture = null
       onGestureChange(false)
       useCanvasStore.getState().setGesture(null)
       const target = e.currentTarget as HTMLElement
       if (target.hasPointerCapture?.(e.pointerId)) target.releasePointerCapture(e.pointerId)
     },
-    [onGestureChange, panelId, shiftRef],
+    [onGestureChange, panelId],
   )
 
   return (
@@ -637,6 +661,8 @@ export function usePanelDrag(
       if (!current) return
       const shift = shiftRef.current
       const box = dropBox(current, info.offset, shift)
+      const offset = info.offset
+      liveGesture = { panelId: panel.id, snapped: () => dropBox(current, offset, true), canvas: canvasRef.current }
       x.set(box.x - current.pos_x)
       y.set(box.y - current.pos_y)
       if (shift) previewShift(panel.id, box, canvasRef.current)
@@ -648,6 +674,7 @@ export function usePanelDrag(
   const onDragEnd = useCallback(
     (event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
       const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
+      liveGesture = null
       if (!current) {
         dragging.current = false
         useCanvasStore.getState().setGesture(null)
@@ -674,8 +701,16 @@ export function usePanelDrag(
     (e: React.PointerEvent) => {
       if (isFullscreen) return
       // The gesture starts as the header is pressed, so a press that becomes
-      // a drag saves once, at its end. A press that never moves far enough to
-      // drag ends as the button comes up.
+      // a drag (raising the widget included) saves once, at its end. Who ends
+      // it depends on whether a drag started:
+      // - a drag: motion/react calls onDragStart (setting `dragging`) once
+      //   the pointer has moved a few pixels, and onDragEnd as the button
+      //   comes up, which ends the gesture;
+      // - a press that never moved that far: no onDragEnd comes, so the
+      //   button coming up (window, capture phase) ends it a frame later,
+      //   unless a drag is under way by then (`dragging`). The frame's wait
+      //   lets a drag's onDragEnd, which motion/react may run a frame late,
+      //   go first.
       const store = useCanvasStore.getState()
       store.setGesture(panel.id)
       const release = () => {

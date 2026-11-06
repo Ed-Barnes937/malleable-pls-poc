@@ -106,6 +106,33 @@ test.describe('Canvas gestures', () => {
     await expect.poll(async () => overlap(await layoutOf(component.getByTestId('panel-b')), await layoutOf(a))).toBe(false)
   })
 
+  test('pressing Shift mid-resize shows the outline at once, before the pointer moves again', async ({ mount, page }) => {
+    const component = await mount(<CanvasHarness panels={[A, B]} />)
+    const a = component.getByTestId('panel-a')
+    await a.hover()
+    const handle = (await a.getByTestId('resize-handle-e').boundingBox())!
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle.x + 143, handle.y + handle.height / 2, { steps: 8 })
+    await expect(component.getByTestId('snap-outline')).toHaveCount(0)
+    await page.keyboard.down('Shift')
+    await expect(component.getByTestId('snap-outline')).toBeVisible()
+    await expect(component.getByTestId('snap-outline-nudge')).toHaveAttribute('data-panel-for', 'b')
+    await page.keyboard.up('Shift')
+    await expect(component.getByTestId('snap-outline')).toHaveCount(0)
+    await page.mouse.up()
+  })
+
+  test('a Shift drop keeps the gap from the canvas edge', async ({ mount, page }) => {
+    const component = await mount(<CanvasHarness panels={[{ ...A, pos_x: 200, pos_y: 200 }]} />)
+    const a = component.getByTestId('panel-a')
+    await page.keyboard.down('Shift')
+    await startDrag(page, a, -400, -400)
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 20, y: 20 })
+  })
+
   test('with reduced motion, a nudged widget is put straight down where it lands', async ({ mount, page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     const component = await mount(<CanvasHarness panels={[A, B]} />)
