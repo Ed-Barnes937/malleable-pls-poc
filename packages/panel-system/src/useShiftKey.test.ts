@@ -61,4 +61,22 @@ describe('useShiftKey', () => {
     fireWindowKey('keydown', 'a')
     expect(result.current.current).toBe(false)
   })
+
+  it('follows the Shift state pointer events carry (pressed before the page had focus)', () => {
+    const { result } = mount()
+    window.dispatchEvent(new MouseEvent('pointermove', { shiftKey: true }))
+    expect(result.current.current).toBe(true)
+    window.dispatchEvent(new MouseEvent('pointermove', { shiftKey: false }))
+    expect(result.current.current).toBe(false)
+  })
+
+  it('tells onChange of each press and release, once', () => {
+    const changes: boolean[] = []
+    const { unmount } = renderHook(() => useShiftKey((held) => changes.push(held)))
+    cleanup = unmount
+    fireWindowKey('keydown', 'Shift')
+    fireWindowKey('keydown', 'Shift')
+    fireWindowKey('keyup', 'Shift')
+    expect(changes).toEqual([true, false])
+  })
 })

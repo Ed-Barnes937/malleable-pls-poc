@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from 'react'
 import type { PanelManifest } from '@pls/lens-framework'
-import { useCanvasStore, type PanelItem } from '@pls/panel-system'
+import { STACK_BREAKPOINT, tidyLayout, useCanvasStore, type PanelItem } from '@pls/panel-system'
 
 export type PanelRow = {
   id: string
@@ -53,11 +53,14 @@ export function usePanelSync(
       const items = panels.map((p) => buildItem(p, manifests))
       setPanels(items)
 
-      // Auto-organize if all panels are stacked at the same position (migration default)
+      // Tidy up a board whose widgets all sit at the same spot (the migration
+      // default). Only on the desktop layout: a phone shows them stacked
+      // anyway, and must not save a layout worked out for its width.
       if (items.length > 1 && items.every((p) => p.pos_x === items[0].pos_x && p.pos_y === items[0].pos_y)) {
         const el = canvasRef.current
-        if (el) {
-          useCanvasStore.getState().organizePanels(el.clientWidth, el.clientHeight)
+        if (el && el.clientWidth >= STACK_BREAKPOINT) {
+          const store = useCanvasStore.getState()
+          store.arrangePanels(tidyLayout(store.panels, { width: el.clientWidth, height: el.clientHeight }))
         }
       }
       return
