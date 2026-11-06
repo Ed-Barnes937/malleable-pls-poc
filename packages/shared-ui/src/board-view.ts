@@ -183,7 +183,3 @@ export function showOnBoard(
   return true
 }
 
-/** The user asked for less motion: jump instead of gliding or flying. */
-export function prefersReducedMotion(): boolean {
-  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
-}

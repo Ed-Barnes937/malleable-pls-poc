@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect, useRef } from 'react'
 import type { PanelManifest } from '@pls/lens-framework'
 import { useCanvasStore, type PanelItem } from '@pls/panel-system'
 
@@ -33,6 +33,8 @@ function buildItem(p: PanelRow, manifests: PanelManifest[]): PanelItem {
  * Syncs DB panel rows into the canvas store.
  * Full sync on workspace switch; incremental add/remove thereafter so
  * user-dragged positions aren't overwritten before they're persisted.
+ * Before the browser paints, so another board never shows the last one's
+ * widgets for a frame.
  */
 export function usePanelSync(
   activeWorkspaceId: string | null,
@@ -43,7 +45,7 @@ export function usePanelSync(
   const setPanels = useCanvasStore((s) => s.setPanels)
   const syncedWorkspaceRef = useRef<string | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!panels) return
 
     if (syncedWorkspaceRef.current !== activeWorkspaceId) {

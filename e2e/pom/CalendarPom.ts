@@ -39,6 +39,21 @@ export class CalendarPom {
     return { x: day.x + day.width / 2, y: grid.y + (hours / 24) * grid.height }
   }
 
+  /**
+   * Scrolls the hours so every one of `hours` is in view, the way a student
+   * would before pressing there: a prompt at the grid's foot covers the last
+   * hours shown.
+   */
+  async showHours(...hours: number[]) {
+    const scroll = this.root.getByTestId('calendar-scroll')
+    const ys = await Promise.all(hours.map(async (h) => (await this.point(0, h)).y))
+    const box = (await scroll.boundingBox())!
+    const margin = 24
+    if (ys.every((y) => y >= box.y + margin && y <= box.y + box.height - margin)) return
+    const mid = (Math.min(...ys) + Math.max(...ys)) / 2
+    await scroll.evaluate((el, dy) => { el.scrollTop += dy }, mid - (box.y + box.height / 2))
+  }
+
   async clickAt(dayIndex: number, hours: number) {
     const p = await this.point(dayIndex, hours)
     await this.page.mouse.click(p.x, p.y)
@@ -46,6 +61,7 @@ export class CalendarPom {
 
   /** Presses at one grid point and releases at another (moves a study block, or drag-creates). */
   async drag(from: { dayIndex: number; hours: number }, to: { dayIndex: number; hours: number }) {
+    await this.showHours(from.hours, to.hours)
     const a = await this.point(from.dayIndex, from.hours)
     const b = await this.point(to.dayIndex, to.hours)
     await this.page.mouse.move(a.x, a.y)

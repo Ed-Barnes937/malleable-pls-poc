@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
 import { isConflictError, missedQuestion, noFitLabel, noFitNote, refitAsk, refitUndoCopy, type DraftUndo, type MissedBlocks } from '@pls/lens-framework'
 import { RotateCcw } from 'lucide-react'
+import { Presence } from '@pls/shared-ui'
 import type { Proposal, ProposalLayer } from './proposals'
 
 /** The proposal layer source for re-fitted blocks. */
@@ -162,7 +163,8 @@ export function RefitBanner({
 
   const asking = missed.proposals
   if (!previewing && asking.length === 0) {
-    return note ? <p role="status" data-testid="refit-note" className="shrink-0 text-meta text-text-secondary">{note}</p> : null
+    // The banner leaves with the shared motion (the same Presence as below).
+    return <Presence>{note ? <p role="status" data-testid="refit-note" className="shrink-0 px-1 text-meta text-text-secondary motion-safe:animate-enter">{note}</p> : null}</Presence>
   }
 
   // The times shown come from a preview fetched now, never one that may lag
@@ -204,10 +206,11 @@ export function RefitBanner({
   const open = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
 
   return (
+    <Presence>
     <section
       data-testid="refit-banner"
       aria-label="Blocks that didn't happen"
-      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5"
+      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5 motion-safe:animate-enter"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <RotateCcw className="h-4 w-4 shrink-0 text-attn" aria-hidden />
@@ -259,6 +262,7 @@ export function RefitBanner({
         </ul>
       )}
     </section>
+    </Presence>
   )
 }
 

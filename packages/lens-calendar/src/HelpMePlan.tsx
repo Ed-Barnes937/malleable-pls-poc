@@ -22,7 +22,7 @@ import {
   type WeekLayout,
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
-import { cn, doByLabel } from '@pls/shared-ui'
+import { MOTION_TIMING, SWAP_KEYFRAMES, cn, doByLabel, prefersReducedMotion } from '@pls/shared-ui'
 import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, X } from 'lucide-react'
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
@@ -112,9 +112,21 @@ const SOURCE = 'autofill'
  * the student accepts them.
  */
 export function HelpMePlanPanel({
-  layout, weekLabel, now, layer, todos: loaded, booked, autofill, onAutofillChange: setAutofill,
+  layout: liveLayout, weekLabel, now, layer: liveLayer, todos: liveTodos, booked, autofill, onAutofillChange: setAutofill,
   onClose, onCollapse, onSchedule, pendingBookings, onDragTodo, studyHours, onStudyRhythmChange,
 }: HelpMePlanPanelProps) {
+  // Once every drafted block is accepted the draft is ending, and its to-dos,
+  // blocks and the week change one by one as each block saves. The panel
+  // shows them as they were at that moment until the draft closes and the
+  // panel changes over (see bodyRef), rather than re-laying out under the
+  // student at every save.
+  const ending = autofill.state === 'drafted' && liveLayer.proposals.length > 0
+    && liveLayer.proposals.every((p) => liveLayer.lockedIds.has(p.id))
+  const held = useRef({ layout: liveLayout, layer: liveLayer, todos: liveTodos })
+  if (!ending) held.current = { layout: liveLayout, layer: liveLayer, todos: liveTodos }
+  const layout = ending ? held.current.layout : liveLayout
+  const loaded = ending ? held.current.todos : liveTodos
+  const layer = ending ? { ...held.current.layer, saving: true } : liveLayer
   const mutations = useSubstrateMutations()
   const updateItem = mutations.useUpdatePlanItem()
   const autofillPlan = mutations.useAutofillPlan()
@@ -135,10 +147,11 @@ export function HelpMePlanPanel({
   const draftHere = drafted?.week === layout.week.start
   const otherDraft = layer.proposals.length > 0 && (!draftHere || layer.source !== SOURCE)
 
-  // The draft ends when its ghosts are all accepted or dismissed.
-  useEffect(() => {
-    if (drafted && drafted.draft.proposals.length > 0 && layer.proposals.length === 0) setAutofill({ state: 'idle' })
-  }, [drafted, layer.proposals.length, setAutofill])
+  // The draft ends when its ghosts are all accepted or dismissed (before the
+  // browser paints, so the draft is never seen without its blocks).
+  useLayoutEffect(() => {
+    if (drafted && drafted.draft.proposals.length > 0 && liveLayer.proposals.length === 0) setAutofill({ state: 'idle' })
+  }, [drafted, liveLayer.proposals.length, setAutofill])
 
   /** Re-draft (after a trim, or new study hours or study time per day), keeping ghosts the student dragged. */
   const redraft = (from: Drafted, trims: Map<string, number>, keepAdjusted = true) => {
@@ -263,6 +276,17 @@ export function HelpMePlanPanel({
   }
   const openDraftBlocks = draftBlocks.length
 
+  // The panel changing over to a draft, or back, slides its new content in
+  // (hidden as it is laid out, so nothing in it is seen to jump).
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const drafting = !!showDraft
+  const wasDrafting = useRef(drafting)
+  useLayoutEffect(() => {
+    if (wasDrafting.current === drafting) return
+    wasDrafting.current = drafting
+    if (!prefersReducedMotion()) bodyRef.current?.animate(SWAP_KEYFRAMES, MOTION_TIMING)
+  }, [drafting])
+
   // Focus follows the panel: into it when it opens (or is shown again), to the
   // draft when Auto-fill finishes, and back to Auto-fill when the draft ends,
   // so keyboard users never land on the page body.
@@ -333,7 +357,7 @@ export function HelpMePlanPanel({
         />
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 @max-[17rem]:gap-3 @max-[17rem]:px-3">
+      <div ref={bodyRef} className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 pb-4 @max-[17rem]:gap-3 @max-[17rem]:px-3">
         {!showDraft && (
           <p className="text-body text-text-secondary">
             Drag a to-do onto a free gap or pick a time, and it's booked straight away. Auto-fill drafts the rest for you to accept.

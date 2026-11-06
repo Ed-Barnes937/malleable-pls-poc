@@ -388,6 +388,42 @@ describe('canvas-store', () => {
     })
   })
 
+  /* ── What the canvas animates ── */
+
+  describe('panel sets and arranging changes', () => {
+    it('counts each new panel set (another board), not adds or removes on this one', () => {
+      const { setPanels, addPanel, removePanel } = useCanvasStore.getState()
+      const start = useCanvasStore.getState().panelSet
+      setPanels([makePanel()])
+      expect(useCanvasStore.getState().panelSet).toBe(start + 1)
+      addPanel(makePanel({ id: 'p-2' }))
+      removePanel('p-1')
+      expect(useCanvasStore.getState().panelSet).toBe(start + 1)
+    })
+
+    it('counts fullscreen in and out and Tidy up, never a drag or resize', () => {
+      useCanvasStore.getState().setPanels([makePanel(), makePanel({ id: 'p-2', pos_x: 600 })])
+      const arranged = () => useCanvasStore.getState().arranged
+      const start = arranged()
+      useCanvasStore.getState().movePanel('p-1', 10, 10)
+      useCanvasStore.getState().resizePanel('p-1', 10, 10, 500, 400)
+      expect(arranged()).toBe(start)
+
+      useCanvasStore.getState().enterFullscreen('p-1', 1200, 800)
+      expect(arranged()).toBe(start + 1)
+      // Already fullscreen: nothing changes, so nothing to glide.
+      useCanvasStore.getState().enterFullscreen('p-2', 1200, 800)
+      expect(arranged()).toBe(start + 1)
+      useCanvasStore.getState().exitFullscreen()
+      expect(arranged()).toBe(start + 2)
+      useCanvasStore.getState().exitFullscreen()
+      expect(arranged()).toBe(start + 2)
+
+      useCanvasStore.getState().organizePanels(1200, 800)
+      expect(arranged()).toBe(start + 3)
+    })
+  })
+
   /* ── setBackground ── */
 
   describe('setBackground', () => {

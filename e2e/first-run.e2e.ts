@@ -2,6 +2,7 @@ import { test, expect, type Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
+import { motionSettled } from './settle'
 
 type Box = { x: number; y: number; width: number; height: number }
 
@@ -24,6 +25,8 @@ async function newBoard(page: Page, name = 'My week') {
  * canvas sets, not mid-animation geometry) offset by the canvas's position.
  */
 async function box(grid: PanelGridPom, label: string): Promise<Box> {
+  // The board may still be sliding in (a new board arrives with the shared motion).
+  await motionSettled(grid.root)
   const canvas = await grid.root.boundingBox()
   if (!canvas) throw new Error('no canvas')
   const layout = await grid.panelByLabel(label).evaluate((el: HTMLElement) => ({

@@ -104,26 +104,15 @@ export function WorkspaceShell() {
   const updatePanelConfig = useUpdatePanelConfig()
   const setBoardScope = useSetBoardScope()
 
-  const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** An automation a widget asked to open (`LensProps.onEditAutomation`). */
   const [automationId, setAutomationId] = useState<string | null>(null)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
-  const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   usePanelSync(activeWorkspaceId, panels, manifests, canvasRef)
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
-
-  // Workspace transition animation
-  useEffect(() => {
-    if (prevWorkspaceRef.current !== activeWorkspaceId) {
-      setTransitioning(true)
-      const timer = setTimeout(() => setTransitioning(false), 150)
-      prevWorkspaceRef.current = activeWorkspaceId
-      return () => clearTimeout(timer)
-    }
-  }, [activeWorkspaceId])
+  const slideFrom = useBoardSlide(activeWorkspaceId, workspaces as unknown as { id: string }[] | undefined)
 
   const scope = useMemo(
     () => decodeScope((dbScopes ?? []) as { scope_type: string; scope_value: string }[]),
@@ -613,12 +602,10 @@ export function WorkspaceShell() {
         ) : !panels ? (
           <CanvasSkeleton />
         ) : (
-          <div
-            className="relative min-h-0 flex-1 transition-opacity duration-150"
-            style={{ opacity: transitioning ? 0 : 1 }}
-          >
+          <div className="relative min-h-0 flex-1">
             <WorkspaceBackground />
             <CanvasEngine
+              slideFrom={slideFrom}
               onLayoutChange={handleLayoutChange}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -650,6 +637,24 @@ export function WorkspaceShell() {
       <ToastHost />
     </div>
   )
+}
+
+/**
+ * Which side the board just switched to comes in from: the right for a tab
+ * to the right of the last board's (tab order is the board list's), the
+ * left for one to its left. Null on the first load, or when either board
+ * isn't in the list (one just deleted).
+ */
+function useBoardSlide(boardId: string | null, boards: ReadonlyArray<{ id: string }> | undefined): 'left' | 'right' | null {
+  // Worked out as the board changes, from a ref only, so a repeated render agrees.
+  const last = useRef<{ id: string | null; from: 'left' | 'right' | null }>({ id: boardId, from: null })
+  if (last.current.id !== boardId) {
+    const ids = boards?.map((b) => b.id) ?? []
+    const was = last.current.id ? ids.indexOf(last.current.id) : -1
+    const now = boardId ? ids.indexOf(boardId) : -1
+    last.current = { id: boardId, from: was < 0 || now < 0 ? null : now > was ? 'right' : 'left' }
+  }
+  return last.current.from
 }
 
 function CanvasSkeleton() {

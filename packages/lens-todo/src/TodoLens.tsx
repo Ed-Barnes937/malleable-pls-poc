@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
 import { type LensProps, useDraftUndo, useLinkedToLecture, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals } from '@pls/shared-ui'
+import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals, useEnterOnce, useListGlide } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
@@ -88,6 +88,11 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
 
   // To-dos that arrive while the list is open (e.g. a review just added) slide in.
   const arrived = useArrivals(items?.map((i) => i.id), course ?? '')
+  const entering = useEnterOnce(arrived)
+  // A to-do ticked here drops into "Done today" (and the heading, the first
+  // time) with the same motion; what was done before the list opened doesn't.
+  const doneArrived = useArrivals(items && [...done.map((i) => i.occurrence_key), ...(done.length ? [DONE_HEADING] : [])], course ?? '')
+  const doneEntering = useEnterOnce(doneArrived)
 
   const [title, setTitle] = useState('')
   const [estimate, setEstimate] = useState('')
@@ -119,6 +124,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
   )
 
   const listRef = useRef<HTMLUListElement>(null)
+  useListGlide(listRef, [...listed, ...done].map((item) => item.occurrence_key))
   const moreBelow = useMoreBelow(listRef, listed.length + done.length)
 
   return (
@@ -146,6 +152,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
               showCourse={!course}
               highlighted={!stage && fromLecture(item)}
               fresh={arrived.has(item.id)}
+              enter={entering(item.id)}
               justDone={stage && { fading: stage === 'fading', onUndo: () => reopen(item.id) }}
               onToggle={() => (stage ? reopen(item.id) : tick(item.id))}
               onDismiss={stage ? undefined : () => removeTodo(item)}
@@ -161,7 +168,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
           )
         })}
         {done.length > 0 && (
-          <li className="pb-1 pt-4 text-meta font-semibold text-text-muted">Done today</li>
+          <DoneHeading enter={doneEntering(DONE_HEADING)} />
         )}
         {done.map((item) => (
           <TodoRow
@@ -170,6 +177,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
             now={now}
             showCourse={!course}
             highlighted={false}
+            enter={doneEntering(item.occurrence_key)}
             onToggle={() => reopen(item.id)}
             onScopeChange={onScopeChange}
             onShowMoment={onShowMoment}
@@ -251,4 +259,17 @@ function useMoreBelow(ref: RefObject<HTMLElement | null>, rows: number): number 
     }
   }, [ref, rows])
   return more
+}
+
+/** The key "Done today" arrives under (see `doneArrived`). */
+const DONE_HEADING = 'done-today-heading'
+
+function DoneHeading({ enter }: { enter: boolean }) {
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(enter)
+  return (
+    <li data-testid="todo-done-heading" className={entering ? 'origin-top pb-1 pt-4 text-meta font-semibold text-text-muted motion-safe:animate-enter' : 'pb-1 pt-4 text-meta font-semibold text-text-muted'}>
+      Done today
+    </li>
+  )
 }

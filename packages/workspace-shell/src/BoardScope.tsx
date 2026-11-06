@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, Pencil } from 'lucide-react'
 import {
   decodeScope,
@@ -7,6 +7,7 @@ import {
   usePreferences,
   useSetBoardScope,
   useUpdateLecture,
+  useWorkspacePanels,
   useWorkspaceScopes,
 } from '@pls/substrate-client'
 import type { Lecture } from '@pls/substrate'
@@ -49,33 +50,41 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
     [workspaceId, mutateAsync, pushToast],
   )
 
-  if (!rows || dims.size === 0) return null
-  const showCourse = dims.has('courseTag')
-  const showLecture = dims.has('lectureId')
+  // Shown once already: when it shows again (another board, or the first
+  // widget that uses it) it arrives with the shared motion; not as the app
+  // first opens.
+  const { data: panels } = useWorkspacePanels(workspaceId)
+  const loaded = !!rows && !!panels
+  const visible = loaded && dims.size > 0
+  const shownBefore = useRef(false)
+  useLayoutEffect(() => {
+    if (visible) shownBefore.current = true
+  })
+  // Another board still loading: the pills shown stay (out of reach) until
+  // its own arrive, rather than leave a gap that moves Up next and come back.
+  const lastShown = useRef<{ scope: typeof scope; dims: typeof dims } | null>(null)
+  if (loaded) lastShown.current = visible ? { scope, dims } : null
+  const shown = loaded ? (visible ? { scope, dims } : null) : lastShown.current
+  if (!shown) return null
+  const showCourse = shown.dims.has('courseTag')
+  const showLecture = shown.dims.has('lectureId')
 
   return (
-    <div
-      role="group"
-      aria-label="What this board shows"
-      data-testid="board-scope"
-      // Never narrower than its pills can go (the course whole, a few words
-      // of the lecture): the tabs give way first.
-      className={cn('flex items-center gap-1.5', compact ? 'max-w-full' : 'shrink')}
-    >
+    <ScopeGroup compact={compact} arrive={shownBefore.current} stale={!loaded}>
       {/* Only where the bar has room for it; the pills say enough without. */}
       {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary xl:inline">Showing</span>}
       {showCourse && (
-        <CoursePill courseTag={scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
+        <CoursePill courseTag={shown.scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}
       {showCourse && showLecture && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
       {showLecture && (
         <LecturePill
-          courseTag={scope.courseTag}
-          lectureId={scope.lectureId}
+          courseTag={shown.scope.courseTag}
+          lectureId={shown.scope.lectureId}
           onChange={(value) => write({ lectureId: value || null })}
         />
       )}
-    </div>
+    </ScopeGroup>
   )
 }
 
@@ -102,11 +111,43 @@ function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; on
   )
 }
 
+/** Whether a pill mounting now joins pills already on screen (so it should arrive with the shared motion). */
+const JoinsShown = createContext(false)
+
+function ScopeGroup({ compact, arrive, stale, children }: { compact: boolean; arrive: boolean; stale: boolean; children: ReactNode }) {
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(arrive)
+  const mounted = useRef(false)
+  useLayoutEffect(() => {
+    mounted.current = true
+  }, [])
+  return (
+    <div
+      role="group"
+      aria-label="What this board shows"
+      data-testid="board-scope"
+      // Another board's pills, kept while this one's load: nothing to press yet.
+      inert={stale || undefined}
+      aria-busy={stale || undefined}
+      // Never narrower than its pills can go (the course whole, a few words
+      // of the lecture). In the top bar, short of room, it gives its own up
+      // (down to that) well before the board tabs do, so a lecture's name
+      // loading or changing never moves the tabs, or New board from under a
+      // pointer.
+      className={cn('flex origin-left items-center gap-1.5', compact ? 'min-w-0 shrink' : 'shrink-[1000]', entering && 'motion-safe:animate-enter')}
+    >
+      <JoinsShown.Provider value={mounted.current}>{children}</JoinsShown.Provider>
+    </div>
+  )
+}
+
 function LecturePill({ courseTag, lectureId, onChange }: {
   courseTag: string | undefined
   lectureId: string | undefined
   onChange: (value: string) => void
 }) {
+  // A widget starting to use lectures: the pill arrives with the shared motion.
+  const [entering] = useState(useContext(JoinsShown))
   // The course's lectures, newest first (every lecture on "All courses").
   const { data: courseLectures } = useLectures(courseTag)
   // The selected lecture is always in the course, but the list may not have
@@ -155,8 +196,10 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         onChange={onChange}
         describe={describe}
         // A title is cut short before anything else in the bar, but always
-        // keeps a few words; "No lecture" is short and never cut.
-        className={current ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0'}
+        // keeps a few words; "No lecture" is short and never cut. Loading,
+        // it already takes a title's least room, so the title arriving never
+        // moves what is beside it in a full bar.
+        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}
@@ -178,6 +221,8 @@ function LecturePill({ courseTag, lectureId, onChange }: {
           <Pencil aria-hidden className="h-3.5 w-3.5" />
         </button>
       )}
+      {/* Its room, kept while the lecture loads. */}
+      {!current && loading && <span aria-hidden className="h-10 w-8 shrink-0 sm:h-9 sm:w-7" />}
     </>
   )
 }

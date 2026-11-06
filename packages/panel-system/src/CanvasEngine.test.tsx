@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, renderHook, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { CanvasEngine } from './CanvasEngine'
+import { CanvasEngine, usePanelDrag } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
 
 /**
@@ -345,7 +345,7 @@ describe('CanvasEngine', () => {
   })
 
   describe('focus mode', () => {
-    it('dims non-focused panels to 0.3 opacity when focus mode is active', () => {
+    it('dims non-focused panels to 0.3 opacity when focus mode is active', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -357,12 +357,14 @@ describe('CanvasEngine', () => {
       const bluePanel = screen.getByTestId('panel-blue')
       const greenPanel = screen.getByTestId('panel-green')
 
-      expect(redPanel.style.opacity).toBe('0.3')
-      expect(bluePanel.style.opacity).toBe('0.3')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('0.3')
+        expect(bluePanel.style.opacity).toBe('0.3')
+      })
       expect(greenPanel.style.opacity).toBe('1')
     })
 
-    it('restores full opacity when focus mode is exited', () => {
+    it('restores full opacity when focus mode is exited', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -377,8 +379,10 @@ describe('CanvasEngine', () => {
       const redPanel = screen.getByTestId('panel-red')
       const bluePanel = screen.getByTestId('panel-blue')
 
-      expect(redPanel.style.opacity).toBe('1')
-      expect(bluePanel.style.opacity).toBe('1')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('1')
+        expect(bluePanel.style.opacity).toBe('1')
+      })
     })
 
     it('clicking canvas background exits focus mode', () => {
@@ -398,13 +402,13 @@ describe('CanvasEngine', () => {
       expect(useCanvasStore.getState().focusModePanelId).toBeNull()
     })
 
-    it('opacity transition is included in transition style', () => {
+    it('fades with motion/react alone: no CSS transition on its opacity or box', () => {
       seedPanels()
       render(<CanvasEngine />)
 
-      const redPanel = screen.getByTestId('panel-red')
-      const transition = redPanel.style.transition
-      expect(transition).toContain('opacity')
+      // One engine per element, so a dim, an arrival and a glide never fight.
+      const transition = screen.getByTestId('panel-red').style.transition
+      expect(transition).not.toMatch(/opacity|left|top|width|height/)
     })
   })
 
@@ -457,6 +461,25 @@ describe('CanvasEngine', () => {
       fireEvent.mouseEnter(panel)
       const handlesContainer = screen.getByTestId('resize-handles-fs-test')
       expect(handlesContainer.style.pointerEvents).toBe('none')
+    })
+
+    it('puts the panels behind a fullscreen one out of reach until it leaves fullscreen', () => {
+      const { addPanel } = useCanvasStore.getState()
+      addPanel({ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 })
+      addPanel({ id: 'b', pos_x: 250, pos_y: 0, width: 200, height: 200, z_index: 2 })
+      render(<CanvasEngine />)
+      expect(screen.getByTestId('panel-b')).not.toHaveAttribute('inert')
+
+      act(() => {
+        useCanvasStore.getState().enterFullscreen('a', 800, 600)
+      })
+      expect(screen.getByTestId('panel-b')).toHaveAttribute('inert')
+      expect(screen.getByTestId('panel-a')).not.toHaveAttribute('inert')
+
+      act(() => {
+        useCanvasStore.getState().exitFullscreen()
+      })
+      expect(screen.getByTestId('panel-b')).not.toHaveAttribute('inert')
     })
 
     it('renders the fullscreen panel above every other, even one sharing its z_index', () => {
@@ -584,5 +607,46 @@ describe('CanvasEngine', () => {
 
       expect(useCanvasStore.getState().focusModePanelId).toBe('green')
     })
+  })
+})
+
+describe('a drag during a glide', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ panels: [] })
+    useCanvasStore.getState().addPanel({ id: 'p', pos_x: 100, pos_y: 100, width: 200, height: 200, z_index: 1 })
+  })
+
+  it('carries on from where the glide has the panel, never jumping by the rest of it, and stops the glide', () => {
+    const onSettle = vi.fn()
+    const panel = useCanvasStore.getState().panels[0]
+    const { result } = renderHook(() => usePanelDrag(panel, {
+      shiftRef: { current: false }, canvasRef: { current: null }, isFullscreen: false, onSettle,
+    }))
+    // Leaving fullscreen: drawn 60px left and 30px up of its box, gliding home.
+    act(() => {
+      result.current.x.set(-60)
+      result.current.y.set(-30)
+    })
+    const event = new PointerEvent('pointermove')
+    act(() => result.current.onDragStart())
+    expect(onSettle).toHaveBeenCalled()
+    act(() => result.current.onDrag(event, { offset: { x: 10, y: 5 } }))
+    expect(result.current.x.get()).toBe(-50)
+    expect(result.current.y.get()).toBe(-25)
+    act(() => result.current.onDragEnd(event, { offset: { x: 20, y: 10 } }))
+    const moved = useCanvasStore.getState().panels[0]
+    expect([moved.pos_x, moved.pos_y]).toEqual([60, 80])
+  })
+
+  it('a resize starting mid-glide takes the panel to its box first', () => {
+    const onSettle = vi.fn()
+    const panel = useCanvasStore.getState().panels[0]
+    const { result } = renderHook(() => usePanelDrag(panel, {
+      shiftRef: { current: false }, canvasRef: { current: null }, isFullscreen: false, onSettle,
+    }))
+    act(() => result.current.x.set(-60))
+    act(() => result.current.onGestureChange(true))
+    expect(onSettle).toHaveBeenCalled()
+    expect(result.current.x.get()).toBe(0)
   })
 })

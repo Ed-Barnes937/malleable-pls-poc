@@ -24,7 +24,9 @@ const ICON_BUTTON =
  * The board tabs between a menu button and the widgets button. On a phone
  * (below 640px) that is all the first row holds: Activity, theme and board
  * appearance move into the board menu, and a second row has the scope
- * pills and Up next.
+ * pills and Up next, on one line of a fixed height whatever the board shows
+ * (the lecture pill and Up next shorten instead), so switching boards or
+ * adding a widget never moves the board under it.
  */
 export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCalendar, onPlanWeek, onAddCalendar }: TopBarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
@@ -61,10 +63,11 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
           <div className="min-w-0 flex-1">{tabs}</div>
           {organizeButton}
         </div>
-        {/* Up next wraps under the scope pills rather than cut them short. */}
-        <div data-testid="top-bar-row-2" className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        {/* One line, never wrapping: its height is the same on every board. */}
+        <div data-testid="top-bar-row-2" className="flex h-10 items-center gap-2">
           {scope}
-          {upNext('min-w-[40%] flex-1 basis-0 justify-end')}
+          {/* The room the pills leave: as they come or go, it glides to its new width. */}
+          {upNext('min-w-24 flex-1 basis-0 justify-end')}
         </div>
       </header>
     )

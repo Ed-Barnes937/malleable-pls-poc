@@ -73,6 +73,11 @@ export const DEFAULT_BACKGROUND: BackgroundConfig = { type: 'none', value: '' }
 
 interface CanvasState {
   panels: PanelItem[]
+  /**
+   * Bumped by every `setPanels` (another board, or the first load): the
+   * panels are a new set, shown at once rather than each arriving.
+   */
+  panelSet: number
   setPanels: (panels: PanelItem[]) => void
   addPanel: (item: PanelItem) => void
   removePanel: (id: string) => void
@@ -101,6 +106,13 @@ interface CanvasState {
   /** Auto-organize panels into a non-overlapping grid layout */
   organizePanels: (canvasWidth: number, canvasHeight: number) => void
 
+  /**
+   * Bumped by every change that moves widgets without the student dragging
+   * them (fullscreen in and out, Tidy up), so the canvas glides them from
+   * where they were instead of jumping.
+   */
+  arranged: number
+
   /** Workspace background */
   background: BackgroundConfig
   setBackground: (background: BackgroundConfig) => void
@@ -120,11 +132,13 @@ export function persistableLayout(
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   panels: [],
+  panelSet: 0,
+  arranged: 0,
 
   // A new panel set (e.g. switching boards) starts with no selection, focus
   // mode or fullscreen: those are per-visit view state, never persisted.
   setPanels: (panels) =>
-    set({ panels, selectedPanelId: null, focusModePanelId: null, fullscreenPanelId: null, preFullscreenLayout: null }),
+    set((state) => ({ panels, panelSet: state.panelSet + 1, selectedPanelId: null, focusModePanelId: null, fullscreenPanelId: null, preFullscreenLayout: null })),
 
   addPanel: (item) =>
     set((state) => {
@@ -233,6 +247,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       return {
         fullscreenPanelId: id,
+        arranged: state.arranged + 1,
         preFullscreenLayout: {
           pos_x: panel.pos_x,
           pos_y: panel.pos_y,
@@ -263,6 +278,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return {
         fullscreenPanelId: null,
         preFullscreenLayout: null,
+        arranged: state.arranged + 1,
         panels: state.panels.map((p) =>
           p.id === panelId
             ? { ...p, pos_x, pos_y, width, height }
@@ -307,6 +323,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       if (totalHeight > canvasHeight && canvasHeight > 0) {
         const scale = canvasHeight / totalHeight
         return {
+          arranged: state.arranged + 1,
           panels: placed.map((p) => ({
             ...p,
             pos_x: p.pos_x * scale,
@@ -317,7 +334,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         }
       }
 
-      return { panels: placed }
+      return { panels: placed, arranged: state.arranged + 1 }
     }),
 
   /* ── Workspace background ── */

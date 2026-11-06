@@ -14,7 +14,12 @@ function reviewMinutes(review: PlanItemOccurrence): number | null {
 }
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
-function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (chip: HTMLElement) => void }) {
+function ReviewChip({ review, fresh, onShow }: {
+  review: PlanItemOccurrence
+  /** Just arrived (e.g. in the pending chip's place): it comes in with the shared motion. */
+  fresh?: boolean
+  onShow?: (chip: HTMLElement) => void
+}) {
   const length = reviewMinutes(review)
   const minutes = length ? `${length} min` : null
   const done = review.status === 'done'
@@ -28,6 +33,7 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
   const className = cn(
     'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold',
     done ? 'border-transparent bg-good-soft text-good' : 'border-attn-line bg-attn-soft text-attn',
+    fresh && 'origin-left motion-safe:animate-enter',
   )
   if (!onShow || done || !review.starts_at) {
     return (
@@ -57,6 +63,8 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
  * In the review chip's place until the review arrives: "Planning a
  * review...", then "No review yet" if the automation is slow (or failed),
  * or "No review planned" when none is coming (no automation started).
+ * Only ever there after the student marks a moment, so it always arrives
+ * with the shared motion.
  */
 function PendingReviewChip({ state }: { state: PendingReview }) {
   if (state === 'planning') {
@@ -64,7 +72,7 @@ function PendingReviewChip({ state }: { state: PendingReview }) {
       <span
         role="status"
         data-testid="review-chip-pending"
-        className="inline-flex items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn"
+        className="inline-flex origin-left items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn motion-safe:animate-enter"
       >
         <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
         Planning a review...
@@ -76,7 +84,7 @@ function PendingReviewChip({ state }: { state: PendingReview }) {
       role="status"
       data-testid={state === 'late' ? 'review-chip-late' : 'review-chip-none'}
       title={state === 'none' ? 'Turn on the review automation to get one next time' : undefined}
-      className="inline-flex items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted"
+      className="inline-flex origin-left items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted motion-safe:animate-enter"
     >
       {state === 'late' ? <Clock className="h-3 w-3" aria-hidden /> : <CalendarX2 className="h-3 w-3" aria-hidden />}
       {state === 'late' ? 'No review yet' : 'No review planned'}
@@ -852,6 +860,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                   {review && (
                     <ReviewChip
                       review={review}
+                      fresh={arrived.has(review.id)}
                       onShow={onShowPlanItem && review.starts_at
                         ? (chip) => onShowPlanItem({ id: review.id, startsAt: review.starts_at!, keepInView: chip })
                         : undefined}

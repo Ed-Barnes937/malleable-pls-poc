@@ -5,6 +5,7 @@ import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredPlanItem } from '../../../playwright/backend-simulator/in-memory-db'
 import { startOfWeek } from './time'
 import { priyaWeek } from '../../../e2e/seed-week'
+import { motionSettled } from '../../../e2e/settle'
 
 // Plans next week, so "now" never eats into the free time being tested.
 const monday = startOfWeek(new Date())
@@ -278,6 +279,8 @@ async function draftWithAssumedEstimates(page: Page) {
   await panel.getByTestId('autofill').click()
   await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
   await expect(panel.getByTestId('autofill-draft')).toBeVisible()
+  // The panel changes over to the draft with the shared motion: drag from it once it has landed.
+  await motionSettled(panel)
   return panel
 }
 
