@@ -35,6 +35,8 @@ describe('CanvasEngine', () => {
       focusModePanelId: null,
       fullscreenPanelId: null,
       preFullscreenLayout: null,
+      gesturePanelId: null,
+      shiftPreview: null,
     })
   })
 
@@ -109,9 +111,49 @@ describe('CanvasEngine', () => {
     const redPanel = screen.getByTestId('panel-red')
     fireEvent.pointerDown(redPanel)
 
-    expect(onLayoutChange).toHaveBeenCalled()
-    const lastCall = onLayoutChange.mock.calls[onLayoutChange.mock.calls.length - 1][0]
-    expect(lastCall.find((p: { id: string }) => p.id === 'red').z_index).toBe(4)
+    // Only the panel that changed is saved.
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'red', z_index: 4 })])
+  })
+
+  it('saves nothing for a new panel set, or a panel added to the board', () => {
+    const onLayoutChange = vi.fn()
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    act(() => {
+      useCanvasStore.getState().setPanels([{ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 }])
+    })
+    act(() => {
+      useCanvasStore.getState().addPanel({ id: 'b', pos_x: 300, pos_y: 0, width: 200, height: 200, z_index: 2 })
+    })
+    expect(onLayoutChange).not.toHaveBeenCalled()
+  })
+
+  it('saves a layout arranged as the panel set arrives (a migrated board tidied up)', () => {
+    const onLayoutChange = vi.fn()
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    act(() => {
+      const store = useCanvasStore.getState()
+      store.setPanels([{ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 }])
+      store.arrangePanels(new Map([['a', { pos_x: 20, pos_y: 20 }]]))
+    })
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'a', pos_x: 20, pos_y: 20 })])
+  })
+
+  it('saves once, at the end of a resize, however many steps it took', () => {
+    const onLayoutChange = vi.fn()
+    useCanvasStore.getState().addPanel({ id: 'r', pos_x: 20, pos_y: 20, width: 300, height: 200, z_index: 1 })
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    const handle = screen.getAllByTestId('resize-handle-se')[0]!
+    // jsdom has no pointer capture.
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    fireEvent.pointerDown(handle, { clientX: 320, clientY: 220, pointerId: 1 })
+    for (const d of [10, 20, 30, 40]) fireEvent.pointerMove(handle, { clientX: 320 + d, clientY: 220 + d, pointerId: 1 })
+    expect(onLayoutChange).not.toHaveBeenCalled()
+    fireEvent.pointerUp(handle, { clientX: 360, clientY: 260, pointerId: 1 })
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'r', width: 340, height: 240 })])
   })
 
   it('uses design token background instead of meta colour', () => {
@@ -497,7 +539,7 @@ describe('CanvasEngine', () => {
       )
     })
 
-    it('reports the pre-fullscreen layout to onLayoutChange, so fullscreen is never saved', () => {
+    it('saves nothing as a panel goes fullscreen, so fullscreen is never saved', () => {
       useCanvasStore.getState().addPanel({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150, z_index: 1 })
       const onLayoutChange = vi.fn()
       render(<CanvasEngine onLayoutChange={onLayoutChange} />)
@@ -505,9 +547,16 @@ describe('CanvasEngine', () => {
       act(() => {
         useCanvasStore.getState().enterFullscreen('fs', 800, 600)
       })
+      expect(onLayoutChange).not.toHaveBeenCalled()
 
+      // Moved while fullscreen (it can't be, but say it were): saved at its own place.
+      act(() => {
+        useCanvasStore.getState().bringToFront('fs')
+        useCanvasStore.getState().addPanel({ id: 'other', pos_x: 0, pos_y: 0, width: 200, height: 150, z_index: 5 })
+        useCanvasStore.getState().bringToFront('fs')
+      })
       const saved = onLayoutChange.mock.calls.at(-1)![0]
-      expect(saved[0]).toMatchObject({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150 })
+      expect(saved).toEqual([expect.objectContaining({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150, z_index: 6 })])
     })
   })
 

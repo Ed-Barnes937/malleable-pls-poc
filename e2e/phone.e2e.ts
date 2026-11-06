@@ -279,20 +279,19 @@ test.describe('Phone top bar', () => {
   })
   test.afterAll(async () => { await reseed() })
 
-  test('holds the menu, the tabs and the widgets button; Activity, the theme and board appearance are in the board menu', async ({ page }) => {
+  test('holds the menu and the tabs; Activity, the theme and board appearance are in the board menu, and there is no Tidy up', async ({ page }) => {
     const topBar = new TopBarPom(page)
-    const widgets = topBar.root.getByRole('button', { name: 'Tidy up widgets' })
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     await expect(topBar.drawerTrigger).toBeVisible()
-    await expect(widgets).toBeVisible()
+    // The widgets are stacked on a phone: nothing to tidy.
+    await expect(page.getByRole('button', { name: 'Tidy up widgets' })).toHaveCount(0)
     await expect(topBar.root.getByTestId('activity-button')).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: /^Switch to (dark|light) mode$/ })).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toHaveCount(0)
-    // One row: the widgets button sits level with the menu button, on screen.
+    // One row: the tabs sit level with the menu button, on screen.
     const menuBox = (await topBar.drawerTrigger.boundingBox())!
-    const widgetsBox = (await widgets.boundingBox())!
-    expect(Math.abs(widgetsBox.y - menuBox.y)).toBeLessThan(2)
-    expect(widgetsBox.x + widgetsBox.width).toBeLessThanOrEqual(400)
+    const tabsBox = (await topBar.workspaceTabs.first().boundingBox())!
+    expect(Math.abs(tabsBox.y + tabsBox.height / 2 - (menuBox.y + menuBox.height / 2))).toBeLessThan(2)
 
     // Keyboard: open the menu, and the controls are in it.
     await topBar.drawerTrigger.focus()

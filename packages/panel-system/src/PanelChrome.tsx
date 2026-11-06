@@ -21,6 +21,9 @@ export interface PanelChromeProps {
   headerActions?: ReactNode
 }
 
+/** The drag handle's tooltip: how to move a widget, and how to place it tidily. */
+export const DRAG_HINT = 'Drag to move. Hold Shift to snap to the grid and keep clear of other widgets.'
+
 /* ── Component ── */
 
 export function PanelChrome({
@@ -45,6 +48,7 @@ export function PanelChrome({
         className={`flex shrink-0 items-center gap-2.5 pt-3.5 pr-3.5 pb-1.5 pl-5 select-none ${onDragHandlePointerDown && !isFullscreen ? 'cursor-grab active:cursor-grabbing' : ''}`}
         style={{ touchAction: 'none' }}
         onPointerDown={onDragHandlePointerDown}
+        title={onDragHandlePointerDown && !isFullscreen ? DRAG_HINT : undefined}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-item bg-surface-overlay text-text-secondary">
           {Icon ? (

@@ -19,7 +19,10 @@ import {
   WorkspaceBackground,
   useCanvasStore,
   placeNewPanel,
+  persistableLayout,
   scrollPanelIntoView,
+  tidyLayout,
+  STACK_BREAKPOINT,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -38,6 +41,14 @@ import { hasPlanItemViewer, missedBlocksHost, useShowMoment } from './moments'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
+
+/** Tidy up's toast: one at a time, and gone once a widget is added or removed. */
+const TIDY_UP_TOAST = 'tidy-up'
+
+/** The board's widgets, whatever their order: tells an add or remove from a move. */
+function idsOf(panels: ReadonlyArray<PanelItem>): string {
+  return panels.map((p) => p.id).sort().join(' ')
+}
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -538,16 +549,36 @@ export function WorkspaceShell() {
     [panels, activeWorkspaceId],
   )
 
-  // Auto-organize panels into a tidy grid
+  // Tidy up fills the board's area, the Calendar leading (see tidyLayout); the
+  // canvas glides the widgets there and saves the ones that moved. Undo puts
+  // the layout from before back (and saves it), until a widget is added or
+  // removed. Only on the desktop layout: a phone stacks the widgets anyway.
   const handleOrganize = useCallback(() => {
     const el = canvasRef.current
-    if (!el) return
-    const { organizePanels } = useCanvasStore.getState()
-    organizePanels(el.clientWidth, el.clientHeight)
-    // Persist the new layout to DB
-    const updated = useCanvasStore.getState().panels
-    handleLayoutChange(updated)
-  }, [handleLayoutChange])
+    const boardId = activeWorkspaceId
+    if (!el || !boardId || el.clientWidth < STACK_BREAKPOINT) return
+    const store = useCanvasStore.getState()
+    const before = new Map(persistableLayout(store).map((p) => [p.id, { pos_x: p.pos_x, pos_y: p.pos_y, width: p.width, height: p.height, z_index: p.z_index }]))
+    if (store.fullscreenPanelId) store.exitFullscreen()
+    store.arrangePanels(tidyLayout(useCanvasStore.getState().panels, { width: el.clientWidth, height: el.clientHeight }))
+    const ids = idsOf(useCanvasStore.getState().panels)
+    pushUndoToast({
+      key: TIDY_UP_TOAST,
+      message: 'Widgets tidied up',
+      undo: async () => {
+        if (idsOf(useCanvasStore.getState().panels) !== ids) throw new Error('The widgets on the board changed')
+        useCanvasStore.getState().arrangePanels(before)
+      },
+      failMessage: "Couldn't undo Tidy up: the widgets on the board have changed.",
+    }, { board: boardId })
+  }, [activeWorkspaceId])
+
+  // Tidy up's Undo stops being offered once a widget is added or removed.
+  useEffect(() => useCanvasStore.subscribe((state, prev) => {
+    if (state.panels !== prev.panels && idsOf(state.panels) !== idsOf(prev.panels)) {
+      useToastStore.getState().dismissKey(TIDY_UP_TOAST)
+    }
+  }), [])
 
   // The top bar's Up next: plan the week on this board, never switching boards.
   // The Calendar that opens Help me plan is named by its panelId (the board and

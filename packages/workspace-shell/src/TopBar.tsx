@@ -14,6 +14,7 @@ export interface TopBarProps extends UpNextProps {
   onMenuClick: () => void
   /** Whether the board menu (drawer) is open, for the menu button's state. */
   menuOpen?: boolean
+  /** Tidy up. Offered on the desktop layout only: a phone stacks the widgets anyway. */
   onOrganize?: () => void
 }
 
@@ -21,8 +22,9 @@ const ICON_BUTTON =
   'flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
 
 /**
- * The board tabs between a menu button and the widgets button. On a phone
- * (below 640px) that is all the first row holds: Activity, theme and board
+ * The board tabs between a menu button and the Tidy up button. On a phone
+ * (below 640px) the first row holds the menu button and the tabs (no Tidy
+ * up: the widgets are stacked there): Activity, theme and board
  * appearance move into the board menu, and a second row has the scope
  * pills and Up next, on one line of a fixed height whatever the board shows
  * (the lecture pill and Up next shorten instead), so switching boards or
@@ -61,7 +63,6 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
         <div className="flex items-center gap-1.5">
           {menuButton}
           <div className="min-w-0 flex-1">{tabs}</div>
-          {organizeButton}
         </div>
         {/* One line, never wrapping: its height is the same on every board. */}
         <div data-testid="top-bar-row-2" className="flex h-10 items-center gap-2">

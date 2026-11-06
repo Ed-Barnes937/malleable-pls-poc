@@ -327,64 +327,35 @@ describe('canvas-store', () => {
     })
   })
 
-  /* ── organizePanels ── */
+  /* ── arrangePanels ── */
 
-  describe('organizePanels', () => {
-    it('handles 0 panels without error', () => {
-      useCanvasStore.getState().organizePanels(1920, 1080)
-      expect(useCanvasStore.getState().panels).toEqual([])
+  describe('arrangePanels', () => {
+    it('gives each named panel what is given for it, and leaves the rest', () => {
+      useCanvasStore.getState().setPanels([makePanel({ id: 'a' }), makePanel({ id: 'b', pos_x: 600 })])
+      useCanvasStore.getState().arrangePanels(new Map([['a', { pos_x: 20, pos_y: 40, width: 500, z_index: 3 }]]))
+      const [a, b] = useCanvasStore.getState().panels
+      expect(a).toMatchObject({ pos_x: 20, pos_y: 40, width: 500, height: 300, z_index: 3 })
+      expect(b).toMatchObject({ pos_x: 600, pos_y: 100 })
     })
 
-    it('positions a single panel at GAP offset', () => {
-      useCanvasStore.getState().setPanels([makePanel({ id: 'solo', width: 400, height: 300 })])
-      useCanvasStore.getState().organizePanels(1920, 1080)
-
-      const panel = useCanvasStore.getState().panels[0]
-      expect(panel.pos_x).toBe(20) // GAP = 20
-      expect(panel.pos_y).toBe(20)
-      expect(panel.z_index).toBe(1)
+    it('changes nothing (and glides nothing) when every panel is already there', () => {
+      useCanvasStore.getState().setPanels([makePanel({ id: 'a' })])
+      const before = useCanvasStore.getState()
+      useCanvasStore.getState().arrangePanels(new Map([['a', { pos_x: 100, pos_y: 100 }], ['gone', { pos_x: 1 }]]))
+      expect(useCanvasStore.getState().panels).toBe(before.panels)
+      expect(useCanvasStore.getState().arranged).toBe(before.arranged)
     })
+  })
 
-    it('wraps panels to next row when they exceed canvas width', () => {
-      useCanvasStore.getState().setPanels([
-        makePanel({ id: 'a', width: 500, height: 300 }),
-        makePanel({ id: 'b', width: 500, height: 300 }),
-        makePanel({ id: 'c', width: 500, height: 300 }),
-      ])
-      // Canvas width 1100: first two panels fit (20 + 500 + 20 + 500 + 20 = 1060), third wraps
-      useCanvasStore.getState().organizePanels(1100, 2000)
+  /* ── Gestures ── */
 
-      const panels = useCanvasStore.getState().panels
-      // Panels are sorted by area (all same area, so original order preserved)
-      const third = panels[2]
-      expect(third.pos_y).toBeGreaterThan(20) // wrapped to a new row
-    })
-
-    it('assigns sequential z_index values', () => {
-      useCanvasStore.getState().setPanels([
-        makePanel({ id: 'a', z_index: 99, width: 600, height: 400 }),
-        makePanel({ id: 'b', z_index: 1, width: 300, height: 200 }),
-      ])
-      useCanvasStore.getState().organizePanels(2000, 2000)
-
-      const panels = useCanvasStore.getState().panels
-      // sorted by area descending: 'a' (240000) first, 'b' (60000) second
-      expect(panels[0].z_index).toBe(1)
-      expect(panels[1].z_index).toBe(2)
-    })
-
-    it('scales panels down when total height exceeds canvas', () => {
-      useCanvasStore.getState().setPanels([
-        makePanel({ id: 'tall', width: 200, height: 500 }),
-      ])
-      // Canvas height 100 is smaller than total height (20 + 500 + 20 = 540)
-      useCanvasStore.getState().organizePanels(1000, 100)
-
-      const panel = useCanvasStore.getState().panels[0]
-      // Scaled down, but width/height stay at least minWidth/minHeight
-      expect(panel.pos_y).toBeLessThan(20)
-      expect(panel.height).toBeGreaterThanOrEqual(DEFAULT_SIZE_CONSTRAINTS.minHeight)
-      expect(panel.width).toBeGreaterThanOrEqual(DEFAULT_SIZE_CONSTRAINTS.minWidth)
+  describe('gestures', () => {
+    it('ending a gesture clears the Shift outline', () => {
+      const { setGesture, setShiftPreview } = useCanvasStore.getState()
+      setGesture('a')
+      setShiftPreview({ moving: { id: 'a', x: 0, y: 0, width: 10, height: 10 }, nudged: [] })
+      setGesture(null)
+      expect(useCanvasStore.getState()).toMatchObject({ gesturePanelId: null, shiftPreview: null })
     })
   })
 
@@ -419,7 +390,7 @@ describe('canvas-store', () => {
       useCanvasStore.getState().exitFullscreen()
       expect(arranged()).toBe(start + 2)
 
-      useCanvasStore.getState().organizePanels(1200, 800)
+      useCanvasStore.getState().arrangePanels(new Map([['p-2', { pos_x: 20 }]]))
       expect(arranged()).toBe(start + 3)
     })
   })
