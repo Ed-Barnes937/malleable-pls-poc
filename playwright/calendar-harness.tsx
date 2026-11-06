@@ -45,7 +45,7 @@ export function CalendarHarness({
   const [configCalls, setConfigCalls] = useState<string[]>([])
   return (
     <TestProviders toasts={toasts}>
-      <div className="flex flex-col bg-surface p-3" style={{ width, height }}>
+      <div data-testid="calendar-panel" className="flex flex-col bg-surface p-3" style={{ width, height }}>
         <CalendarLens
           panelId="calendar-test"
           asksAboutMissedBlocks={asksAboutMissedBlocks}

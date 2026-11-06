@@ -112,6 +112,15 @@ export function gridScrollFor(
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
+
+/** The hour height that fits the working day in the grid's room now. */
+function fittedHourPx(scroll: HTMLElement, footer: HTMLElement | null): number {
+  // A little headroom so the 08:00 and 22:00 labels are not clipped. The
+  // footer's room counts as the grid's, so the hours never re-fit as it changes.
+  const room = scroll.clientHeight + (footer?.offsetHeight ?? 0)
+  return Math.max(MIN_HOUR_PX, (room - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
+}
+
 /** The glow around a revealed compact block: at least this tall, centred on it. */
 const REVEAL_HALO_PX = 24
 
@@ -168,6 +177,20 @@ export function TimeGrid({
   const userScrolled = useRef(false)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
+  /**
+   * The hour a block shown ("See it") is taking the grid's top to, until the
+   * scroll gets there or the student scrolls. The hours re-fitting on the
+   * way (a row above the grid going as the block's week lands, the panel
+   * resized) keep this hour at the top, not wherever the scroll had got to.
+   */
+  const scrollGoalHour = useRef<number | null>(null)
+  const hourPxNow = useRef(hourPx)
+  hourPxNow.current = hourPx
+  /** Carries on to the goal hour at the hours' size now, from wherever the scroll is. */
+  const scrollToGoal = (el: HTMLElement) => {
+    if (scrollGoalHour.current === null) return
+    el.scrollTo({ top: scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  }
   const [drag, setDrag] = useState<Drag | null>(null)
   /**
    * A touch tap just opened a popover. The tap's mouse events and click come
@@ -188,13 +211,10 @@ export function TimeGrid({
     if (!el) return
     let fitted = 0
     const fit = () => {
-      // A little headroom so the 08:00 and 22:00 labels are not clipped. The
-      // footer's room counts as the grid's, so the hours never re-fit as it changes.
-      const room = el.clientHeight + (footerRef.current?.offsetHeight ?? 0)
-      const px = Math.max(MIN_HOUR_PX, (room - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
+      const px = fittedHourPx(el, footerRef.current)
       // The hour to keep at the top: the day's start until the student (or a
       // block shown) scrolls, then whatever is there, as the hours resize.
-      const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
+      const topHour = scrollGoalHour.current ?? (!userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null)
       if (px !== fitted) {
         // Scrolled once the grid has re-rendered at the new size, so the scroll isn't clamped to the old height.
         keepTopHour.current = topHour
@@ -204,24 +224,37 @@ export function TimeGrid({
       }
       fitted = px
     }
-    const markScrolled = () => { userScrolled.current = true }
+    const markScrolled = () => {
+      userScrolled.current = true
+      scrollGoalHour.current = null
+    }
+    // There: from now on, the hours keep whatever the student scrolls to.
+    const onScroll = () => {
+      if (scrollGoalHour.current === null) return
+      const goal = Math.min(scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, el.scrollHeight - el.clientHeight)
+      if (Math.abs(el.scrollTop - goal) < 1) scrollGoalHour.current = null
+    }
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
     el.addEventListener('wheel', markScrolled, { passive: true })
     el.addEventListener('touchmove', markScrolled, { passive: true })
     el.addEventListener('keydown', markScrolled)
+    el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       observer.disconnect()
       el.removeEventListener('wheel', markScrolled)
       el.removeEventListener('touchmove', markScrolled)
       el.removeEventListener('keydown', markScrolled)
+      el.removeEventListener('scroll', onScroll)
     }
   }, [])
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el || keepTopHour.current === null) return
-    el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    // On the way to a block shown: carry on there, at the new size.
+    if (scrollGoalHour.current !== null) scrollToGoal(el)
+    else el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
     keepTopHour.current = null
   }, [hourPx])
 
@@ -254,7 +287,9 @@ export function TimeGrid({
       const next = foot.offsetHeight
       if (next < footHeight) {
         setRoom(Math.max(room, overhang(lastTop)))
-        el.scrollTop = lastTop
+        // On the way to a block shown, it carries on there rather than stopping.
+        if (scrollGoalHour.current !== null) scrollToGoal(el)
+        else el.scrollTop = lastTop
       }
       footHeight = next
     })
@@ -296,11 +331,16 @@ export function TimeGrid({
     const el = scrollRef.current
     const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
     if (!el || !seg) return
+    // The grid just resized (a row above it going as the block's week
+    // lands) and its hours are still to re-fit: shown once they have, at
+    // their new size, not measured against the old one.
+    if (fittedHourPx(el, footerRef.current) !== hourPx) return
     handledReveal.current = reveal.requestId
     const smooth = !prefersReducedMotion()
     const gridTop = gridScrollFor(seg, hourPx, { scrollTop: el.scrollTop, height: el.clientHeight })
     if (gridTop !== null) {
       userScrolled.current = true
+      scrollGoalHour.current = Math.abs(gridTop - el.scrollTop) < 1 ? null : (gridTop + LABEL_ROOM_PX) / hourPx
       el.scrollTo({ top: gridTop, behavior: smooth ? 'smooth' : 'auto' })
     }
     // Where the block will be on screen once the grid has scrolled.

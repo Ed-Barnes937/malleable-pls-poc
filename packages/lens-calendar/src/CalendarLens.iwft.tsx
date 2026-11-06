@@ -605,6 +605,55 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
   await expect(callout).toHaveCount(0)
 })
 
+// The hours re-fit (a row above the grid going as the block's week lands,
+// the panel resized) just as "See it" starts, or while the grid is on its
+// way to the block: it still lands on the block.
+for (const when of ['just before', 'while'] as const) {
+  test(`"See it" lands on the block when the hours re-fit ${when} the grid scrolls to it`, async ({ mount, page, simulator }) => {
+    seedWeek(simulator)
+    seed(simulator, [{
+      id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(4, 21, 15), ends_at: iso(4, 21, 35),
+      duration_min: 20, subtype: 'review', course: 'biology',
+    }])
+    await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(4, 21, 15) }]} />)
+    await expect(block(page, 'Biology lecture')).toBeVisible()
+    // The grid has settled at the day's start.
+    const scroll = page.getByTestId('calendar-scroll')
+    let last = -1
+    await expect.poll(async () => {
+      const top = await scroll.evaluate((el) => el.scrollTop)
+      const settled = top === last
+      last = top
+      return settled
+    }, { intervals: [100] }).toBe(true)
+
+    await page.evaluate((when) => new Promise<void>((resolve) => {
+      const grid = document.querySelector<HTMLElement>('[data-testid="calendar-scroll"]')!
+      const panel = document.querySelector<HTMLElement>('[data-testid="calendar-panel"]')!
+      const reveal = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Reveal later-review')!
+      if (when === 'just before') {
+        // Taller in the same task as the click: the hours haven't re-fitted yet as the block is shown.
+        panel.style.height = '700px'
+        reveal.click()
+        resolve()
+        return
+      }
+      const from = grid.scrollTop
+      const onScroll = () => {
+        if (grid.scrollTop <= from) return
+        grid.removeEventListener('scroll', onScroll)
+        panel.style.height = '700px'
+        resolve()
+      }
+      grid.addEventListener('scroll', onScroll)
+      reveal.click()
+    }), when)
+    const target = block(page, 'Review: paternal leakage')
+    await expect(target).toHaveAttribute('data-revealed', 'true')
+    await expect(target).toBeInViewport()
+  })
+}
+
 test('with reduced motion a revealed block holds a still ring instead of glowing', async ({ mount, page, simulator }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   seedWeek(simulator)
