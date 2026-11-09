@@ -1,6 +1,4 @@
 import http from 'http'
-import { createReadStream, statSync } from 'fs'
-import path from 'path'
 import { createHTTPHandler } from '@trpc/server/adapters/standalone'
 import cors from 'cors'
 import { appRouter } from './router'
@@ -9,10 +7,9 @@ import { trpcErrorLine } from './trpc-error-log'
 import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
 import { createServerExecutors } from './workflows/executors'
-import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
+import { handleUpload } from './upload'
+import { handleUploadedFile } from './serve-upload'
 import { handleResourceFile, handleResourceUpload } from './resource-upload'
-
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
 const port = Number(process.env.PORT ?? 3001)
 const isProduction = process.env.NODE_ENV === 'production'
@@ -213,27 +210,7 @@ const server = http.createServer((req, res) => {
     if (req.url.startsWith('/upload') && req.method === 'POST') {
       handleUpload(req, res)
     } else if (req.url.startsWith('/uploads/')) {
-      const filename = path.basename(req.url)
-      const filePath = path.join(UPLOADS_DIR, filename)
-
-      // Path traversal protection: resolved path must stay inside UPLOADS_DIR
-      if (!path.resolve(filePath).startsWith(path.resolve(UPLOADS_DIR))) {
-        res.writeHead(403, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Forbidden' }))
-        return
-      }
-
-      try {
-        const stat = statSync(filePath)
-        res.writeHead(200, {
-          'Content-Type': AUDIO_CONTENT_TYPES[path.extname(filename).slice(1)] ?? 'application/octet-stream',
-          'Content-Length': stat.size,
-        })
-        createReadStream(filePath).pipe(res)
-      } catch {
-        res.writeHead(404)
-        res.end()
-      }
+      handleUploadedFile(req, res)
     }
   } else {
     trpcHandler(req, res)
