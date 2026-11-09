@@ -250,7 +250,16 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useUpdatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.update), withBrowserZone)
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.planItems.update.useMutation({
+      onSuccess: (_item, input) => Promise.all([
+        utils.planItems.invalidate(),
+        utils.tags.invalidate(),
+        // A class changing course takes its future lectures with it, and
+        // the boards showing them follow (planItems.update).
+        ...(input.patch.course !== undefined ? [utils.lectures.invalidate(), utils.workspaces.scopes.invalidate()] : []),
+      ]),
+    }), withBrowserZone)
   },
 
   useCompletePlanItem() {
