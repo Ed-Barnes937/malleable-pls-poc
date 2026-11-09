@@ -174,8 +174,8 @@ test.describe('Header scope pickers', () => {
     await expect(transcript.getByTestId('lecture-title')).toHaveText('mtDNA and inheritance')
   })
 
-  // From the phone layout's edge (640px) to a small laptop: the pills keep
-  // their minimum and the tabs give way, so nothing sits on top of anything
+  // From the phone layout's edge (640px) to a small laptop: the lecture title
+  // gives way first, down to its minimum, then the tabs, so nothing sits on top of anything
   // (a tap on Activity must not open the Lecture picker).
   for (const width of [640, 700, 768, 1024]) {
     test(`at ${width}px the header fits and nothing overlaps: tabs, both pills, the right-hand buttons`, async ({ page }) => {
@@ -208,15 +208,19 @@ test.describe('Header scope pickers', () => {
       // The lecture title is cut short rather than pushing anything out, and still readable
       // (5rem from 640 to 768, where the one-row header is tightest);
       // the tabs keep a floor (7rem) so the active board's name stays readable.
-      expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 80)
+      const floor = width >= 768 ? 144 : 80
+      expect(lecture.width).toBeGreaterThanOrEqual(floor)
       expect(tabs.width).toBeGreaterThanOrEqual(112)
-      // The tabs give way first: the lecture is above its floor where there
-      // is room for it, and while its title is cut short the tabs are at
-      // theirs. (Shrinking is proportional, so the pill gives up a few px
-      // alongside the tabs: "cut short" is more than about two characters.)
-      if (width < 768) expect(lecture.width).toBeGreaterThan(80)
-      const titleCut = await topBar.lecturePill.evaluate((text) => text.scrollWidth - text.clientWidth > 16)
-      if (titleCut) expect(tabs.width).toBeLessThanOrEqual(112.5)
+      // The lecture title gives way first, so a title loading or changing
+      // never moves the tabs: while the pill is above its floor the tabs keep
+      // their whole width (every tab shown, nothing to scroll). Shrinking is
+      // proportional (the pills' 1000 to the tabs' 1), so the tabs may give
+      // up a fraction of a pixel alongside.
+      const tabsSqueezed = await topBar.root.getByTestId('board-tabs').evaluate((el) => {
+        const strip = el.querySelector<HTMLElement>('[aria-label="Boards"]') ?? el
+        return strip.scrollWidth - strip.clientWidth > 1
+      })
+      if (lecture.width > floor + 1) expect(tabsSqueezed).toBe(false)
       // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
       expect(right(lastButton)).toBeLessThanOrEqual(width)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -249,6 +253,19 @@ test.describe('Header scope pickers on a phone', () => {
   })
 })
 
+for (const width of [360, 390]) {
+  test(`a filed lecture at ${width}px: pills, the lecture's "..." and Up next share one line, clear of each other`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    const topBar = await openBoard(page, 'In Lecture')
+    await topBar.expectScope('Biology', DNA, { timeout: 10000 })
+    await topBar.expectControlsFit()
+    // One line: the pills, the "..." and Up next sit side by side.
+    const row = (await topBar.root.getByTestId('top-bar-row-2').boundingBox())!
+    expect(row.height).toBeLessThanOrEqual(40)
+    await expect(topBar.scopeGroup.getByTestId('scope-lecture')).toHaveAttribute('title', DNA)
+  })
+}
+
 for (const width of [360, 390, 640, 768, 1024]) {
   test.describe(`An unfiled lecture at ${width}px`, () => {
     const phone = width < 640
@@ -264,30 +281,13 @@ for (const width of [360, 390, 640, 768, 1024]) {
       if (width >= 1024) await expect(page.getByTestId('lecture-file-course')).toBeVisible()
       else await expect(page.getByTestId('lecture-file-course')).toBeHidden()
       await expect(topBar.lectureMenuButton).toBeVisible()
-      // Every control in the header whole and in view, except the board tabs,
-      // which scroll on their own by design; nothing scrolls sideways.
-      const controls = await topBar.root.evaluate((bar) => {
-        const inScroller = (el: HTMLElement) => {
-          for (let up = el.parentElement; up && up !== bar; up = up.parentElement) {
-            const overflowX = getComputedStyle(up).overflowX
-            if (overflowX === 'auto' || overflowX === 'scroll') return true
-          }
-          return false
-        }
-        return [...bar.querySelectorAll<HTMLElement>('button, select, a, input')]
-          .filter((el) => el.getClientRects().length > 0 && !inScroller(el))
-          .map((el) => {
-            const box = el.getBoundingClientRect()
-            return { name: el.getAttribute('aria-label') ?? el.textContent ?? el.tagName, left: box.left, right: box.right }
-          })
-      })
-      expect(controls.map((c) => c.name)).toEqual(expect.arrayContaining(['Course', 'Lecture', 'Lecture options']))
-      for (const control of controls) {
-        expect(control.left, control.name).toBeGreaterThanOrEqual(0)
-        expect(control.right, control.name).toBeLessThanOrEqual(width)
-      }
-      expect(await topBar.scopeGroup.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
-      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+      // Every control whole, in view and clear of the others, the "..." in
+      // reach of a tap, Up next with its words on a phone (the pills cut
+      // their names short instead); nothing scrolls sideways.
+      await topBar.expectControlsFit()
+      // The whole names stay readable in the pills' tooltips.
+      await expect(topBar.scopeGroup.getByTestId('scope-course')).toHaveAttribute('title', 'All courses')
+      await expect(topBar.scopeGroup.getByTestId('scope-lecture')).toHaveAttribute('title', 'Guest talk on inherited disease')
 
       const saved = page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
       await topBar.chooseLectureAction('Choose a course...')

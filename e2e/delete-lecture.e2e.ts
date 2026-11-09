@@ -146,6 +146,8 @@ test.describe('Deleting a lecture', () => {
     const topBar = new TopBarPom(page)
     await topBar.switchToWorkspace('In Lecture')
     await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    // The "..." is in view, clear of the pills and Up next, and takes the tap.
+    await topBar.expectControlsFit()
     await topBar.chooseLectureAction('Delete this lecture...')
 
     const dialog = page.getByRole('dialog', { name: 'Delete "Biology Lecture: Mitochondrial DNA"?' })

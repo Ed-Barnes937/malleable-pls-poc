@@ -80,11 +80,12 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
       {/* Only where the bar has room for it; the pills say enough without. */}
       {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary xl:inline">Showing</span>}
       {showCourse && (
-        <CoursePill courseTag={shown.scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
+        <CoursePill compact={compact} courseTag={shown.scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}
-      {/* Decoration only: it gives way first where the one-row header is tightest (sm to md), so a
-          wide course ("All courses", "Chemistry") and the lecture still leave the buttons in view. */}
-      {showCourse && showLecture && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted sm:max-md:hidden" />}
+      {/* Decoration only: it gives way first where the header is tightest (a
+          phone, and sm to md), so a wide course ("All courses", "Chemistry")
+          and the lecture still leave every button in view. */}
+      {showCourse && showLecture && !compact && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted sm:max-md:hidden" />}
       {showLecture && (
         <LecturePill
           courseTag={shown.scope.courseTag}
@@ -100,7 +101,7 @@ function courseLabel(courseTag: string): string {
   return courseTag ? (COURSES.find((c) => c.value === courseTag)?.label ?? courseTag) : 'All courses'
 }
 
-function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; onChange: (value: string) => void }) {
+function CoursePill({ compact, courseTag, onChange }: { compact: boolean; courseTag: string | undefined; onChange: (value: string) => void }) {
   return (
     <ScopePill
       label="Course"
@@ -108,8 +109,11 @@ function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; on
       value={courseTag ?? ''}
       onChange={onChange}
       describe={(value) => ({ text: courseLabel(value), dotClassName: courseTone(value || null).stripe })}
-      // Never narrower than its dot and its course name.
-      className="min-w-max shrink-0"
+      // Never narrower than its dot and its course name; on a phone's one
+      // line, cut short (the whole name in its tooltip and the list) down to
+      // 5rem, so with the lecture pill at its floor, the lecture's menu and
+      // Up next all fit from 360px.
+      className={compact ? 'min-w-20 shrink' : 'min-w-max shrink-0'}
     >
       <option value="">All courses</option>
       {COURSES.map((c) => (
@@ -217,8 +221,9 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         // header is tightest: a wide course such as "All courses" beside it
         // must still leave the buttons in view); "No lecture" is short and
         // never cut. Loading, it already takes a title's least room, so the
-        // title arriving never moves what is beside it in a full bar.
-        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink sm:min-w-20 md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
+        // title arriving never moves what is beside it in a full bar. It is
+        // cut before the course (on a phone, where the course can be cut too).
+        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink-[1000] sm:min-w-20 md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}

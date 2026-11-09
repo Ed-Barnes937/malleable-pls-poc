@@ -139,4 +139,49 @@ export class TopBarPom {
     await this.expectActiveWorkspace(name)
     await this.root.getByRole('button', { name: `Delete ${name}`, exact: true }).click()
   }
+
+  /**
+   * Every control in the bar is whole, in view and clear of the others
+   * (the board tabs are left out: they scroll on their own by design), the
+   * "..." beside the lecture takes a tap at its centre, Up next shows its
+   * words, and nothing scrolls sideways.
+   */
+  async expectControlsFit() {
+    await motionSettled(this.root)
+    const width = this.page.viewportSize()!.width
+    const controls = await this.root.evaluate((bar) => {
+      const inScroller = (el: HTMLElement) => {
+        for (let up = el.parentElement; up && up !== bar; up = up.parentElement) {
+          const overflowX = getComputedStyle(up).overflowX
+          if (overflowX === 'auto' || overflowX === 'scroll') return true
+        }
+        return false
+      }
+      return [...bar.querySelectorAll<HTMLElement>('button, select, a, input')]
+        .filter((el) => el.getClientRects().length > 0 && !inScroller(el))
+        .map((el) => {
+          const box = el.getBoundingClientRect()
+          return { name: el.getAttribute('aria-label') ?? el.getAttribute('data-testid') ?? el.tagName, left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+        })
+    })
+    expect(controls.map((c) => c.name)).toEqual(expect.arrayContaining(['Course', 'Lecture', 'Lecture options', 'up-next']))
+    for (const [i, a] of controls.entries()) {
+      expect(a.left, a.name).toBeGreaterThanOrEqual(0)
+      expect(a.right, a.name).toBeLessThanOrEqual(width)
+      for (const b of controls.slice(i + 1)) {
+        const overlap = Math.min(a.right, b.right) - Math.max(a.left, b.left) > 0.5 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 0.5
+        expect(overlap, `${a.name} overlaps ${b.name}`).toBe(false)
+      }
+    }
+    const menu = (await this.lectureMenuButton.boundingBox())!
+    const hit = await this.page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label') ?? null,
+      [menu.x + menu.width / 2, menu.y + menu.height / 2])
+    expect(hit).toBe('Lecture options')
+    // On a phone Up next keeps its words: a few characters of its label show.
+    if ((await this.root.getAttribute('data-layout')) === 'phone') {
+      expect(await this.upNext.getByTestId('up-next-label').evaluate((el) => el.parentElement!.getBoundingClientRect().width)).toBeGreaterThan(24)
+    }
+    expect(await this.scopeGroup.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0)
+    expect(await this.page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  }
 }

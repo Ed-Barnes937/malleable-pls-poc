@@ -87,9 +87,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCale
     >
       {menuButton}
 
-      {/* Board tabs: they give way first (they scroll), down to their floor,
-          before the lecture pill is cut short. */}
-      <div data-testid="board-tabs" className="min-w-28 shrink-[100]">{tabs}</div>
+      {/* Board tabs: short of room, the lecture title gives way first (see
+          BoardScope), so a title loading or changing never moves the tabs or
+          New board. They scroll, down to their floor, only after that. */}
+      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
 
       {/* What the board shows: the course and lecture pickers */}
       {scope}
