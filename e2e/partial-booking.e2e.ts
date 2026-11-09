@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import type { PlanItem } from '../packages/substrate/src'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'

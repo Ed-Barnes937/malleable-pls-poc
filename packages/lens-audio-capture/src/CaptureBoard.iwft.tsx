@@ -162,7 +162,7 @@ test.describe('Record and Transcript on one board', () => {
     release()
     await mount(<CaptureBoardHarness />)
     await page.getByRole('button', { name: 'Start recording' }).click()
-    await expect(page.getByText('REC')).toBeVisible()
+    await expect(page.getByText('REC', { exact: true })).toBeVisible()
     await page.getByRole('button', { name: 'Stop recording' }).click()
 
     // Still waiting for the lecture at 9 seconds.
@@ -176,7 +176,8 @@ test.describe('Record and Transcript on one board', () => {
     expect(uploads[0]['x-upload-id']).toMatch(/^[0-9a-f-]{36}$/)
   })
 
-  test('mic refused: the new lecture stays, empty, and nothing says it is recording', async ({ mount, page, simulator }) => {
+  test('mic refused: the new lecture stays, empty, and nothing says it is recording', async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allow(/^mic error: Error: NotAllowedError/)
     await injectMocks(page, { denyMic: true })
     boardOn(simulator, 'chemistry')
     await mount(<CaptureBoardHarness />)

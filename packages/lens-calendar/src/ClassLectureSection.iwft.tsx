@@ -138,7 +138,8 @@ test('only class blocks focus a lecture: not a shift, a task, a deadline, a stud
   await expect(page.getByTestId('board-scope')).toHaveText('chemistry / no lecture')
 })
 
-test('a focus that fails leaves the board alone and offers to try again; the rest of the popover still works', async ({ mount, page, simulator }) => {
+test('a focus that fails leaves the board alone and offers to try again; the rest of the popover still works', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
   await freezeAt(page, simulator, at(2, 12))
   seedWeek(simulator)
   let fail = true
@@ -478,7 +479,8 @@ test.describe('on a phone', () => {
   })
 
   for (const outcome of ['answered', 'failed'] as const) {
-    test(`pending -> ${outcome}: no button in the popover moves`, async ({ mount, page, simulator }) => {
+    test(`pending -> ${outcome}: no button in the popover moves`, async ({ mount, page, simulator, consoleErrors }) => {
+      if (outcome === 'failed') consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
       await freezeAt(page, simulator, at(0, 8))
       seedWeek(simulator)
       let release: () => void = () => {}
@@ -499,7 +501,8 @@ test.describe('on a phone', () => {
     })
   }
 
-  test("Undo's outcome and a board that couldn't open are said in place: nothing moves", async ({ mount, page, simulator }) => {
+  test("Undo's outcome and a board that couldn't open are said in place: nothing moves", async ({ mount, page, simulator, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.restoreBoardScope')
     await freezeAt(page, simulator, at(0, 8))
     seedWeek(simulator)
     await page.route('**/workspaces.restoreBoardScope**', (route) => route.abort())

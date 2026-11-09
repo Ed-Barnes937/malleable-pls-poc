@@ -1,6 +1,8 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { untilFontsLoaded } from './fonts'
 import { trpcMutation } from './api'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import { SEED_TIME_ZONE } from './seed-week'
@@ -24,8 +26,12 @@ const VIEWPORTS = [
   { name: 'desktop', size: { width: 1280, height: 800 }, touch: false },
 ]
 
-/** Where an element is once it has stopped moving (the grid is still scrolling it into view just after). */
+/**
+ * Where an element is once it has stopped moving (the grid is still
+ * scrolling it into view just after), in the web font (see ./fonts.ts).
+ */
 async function settledBox(page: Page, el: Locator) {
+  await untilFontsLoaded(page)
   let last = ''
   await expect.poll(async () => {
     await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -84,6 +90,7 @@ for (const viewport of VIEWPORTS) {
           const markDone = calendar.popover.getByRole('button', { name: 'Mark done' })
           await expect(markDone).toBeVisible()
           await expect(calendar.popover.getByTestId('calendar-moment-quote')).toBeVisible()
+          await untilFontsLoaded(page)
           const before = (await markDone.boundingBox())!
 
           release()
@@ -124,7 +131,8 @@ for (const viewport of CLASS_VIEWPORTS) {
 
     for (const outcome of CLASS_OUTCOMES) {
       for (const hour of HOURS) {
-        test(`${hour}:00 class: its buttons stay where they are while ${outcome.name}`, async ({ page, request }) => {
+        test(`${hour}:00 class: its buttons stay where they are while ${outcome.name}`, async ({ page, request, consoleErrors }) => {
+          if (outcome.fails) consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
           const start = startOfLocalDay(Date.now(), SEED_TIME_ZONE) + hour * 3_600_000
           await trpcMutation(request, 'planItems.create', {
             kind: 'commitment', title: 'Tap then wait', subtype: 'class', course: 'biology',

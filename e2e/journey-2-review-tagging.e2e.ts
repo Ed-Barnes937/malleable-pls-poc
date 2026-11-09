@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Evening review with tagging', () => {

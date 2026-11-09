@@ -1,13 +1,13 @@
 import path from 'path'
-import { withUser } from '@pls/db'
+import { withUser, type TxSql } from '@pls/db'
 import { createExecutorRegistry, type ExecutorRegistry } from '@pls/workflows'
 import { CONFUSED_TAG, parseReviewParams, REVIEW_TASK_JOB, LECTURE_SUMMARY_ANCHOR, SORTED_TAG } from '@pls/substrate'
-import type { TransactionSql } from 'postgres'
 import type { AiDeps } from '../ai/deps'
 import { lectureSummaryTask, summaryBody } from '../ai/tasks/lecture-summary'
 import { reviewTask, reviewTitle } from '../ai/tasks/review-task'
 import { eventPayload } from '../plan-items/store'
 import { createReview, findOpenReview, loadMoment } from '../planning/review-automation'
+import { uploadsDir } from '../uploaded-files'
 
 /** The owning user, injected into every job's input at dispatch (see pg-adapter). */
 function requireUser(input: Record<string, unknown>, jobType: string): string {
@@ -16,11 +16,27 @@ function requireUser(input: Record<string, unknown>, jobType: string): string {
   return userId
 }
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
-
 // Recording status once its transcript is written. Matches the seeded,
 // already-transcribed recordings (see chk_recordings_status for the allowed set).
 const TRANSCRIBED_STATUS = 'ready'
+
+/**
+ * A run whose recording is gone (its lecture was deleted, before or while it
+ * ran): done, with nothing to do, rather than a failed job in Activity.
+ */
+function recordingDeleted(recordingId: string) {
+  return { output: { recording_id: recordingId, skipped: 'recording deleted', quiet: true } }
+}
+
+/**
+ * Whether the recording is still there, held (FOR KEY SHARE) until the
+ * transaction ends so it can't be deleted under the writes that follow:
+ * an AI call can take a while, and the lecture may be deleted meanwhile.
+ */
+async function holdRecording(tx: TxSql, recordingId: string): Promise<boolean> {
+  const [row] = await tx`SELECT 1 FROM recordings WHERE id = ${recordingId} FOR KEY SHARE`
+  return !!row
+}
 
 /**
  * Builds the executor registry for the server runtime. Executor bodies remain
@@ -46,7 +62,7 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
                EXISTS (SELECT 1 FROM transcript_segments WHERE recording_id = ${recordingId}) AS transcribed
         FROM recordings WHERE id = ${recordingId}
       `)
-      if (!recording) throw new Error(`Recording ${recordingId} not found`)
+      if (!recording) return recordingDeleted(recordingId)
       // Already transcribed, even if nothing was said ('ready'), or has its
       // segments (e.g. a failed run retried after a manual "Transcribe it"
       // worked): don't bill the provider or duplicate segments. This check is
@@ -56,9 +72,19 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       }
 
       const audioUrl = (recording.audio_url as string | null) ?? ''
-      const segments = await transcriber.transcribe(path.join(UPLOADS_DIR, path.basename(audioUrl)))
+      let segments: Awaited<ReturnType<typeof transcriber.transcribe>>
+      try {
+        segments = await transcriber.transcribe(path.join(uploadsDir(), path.basename(audioUrl)))
+      } catch (err) {
+        // Its lecture deleted while this ran: the audio file went with it,
+        // so a transcriber that reads it late fails. Not a failed job.
+        const [still] = await withUser(userId, (tx) => tx`SELECT 1 FROM recordings WHERE id = ${recordingId}`)
+        if (!still) return recordingDeleted(recordingId)
+        throw err
+      }
 
-      await withUser(userId, async (tx) => {
+      const written = await withUser(userId, async (tx) => {
+        if (!(await holdRecording(tx, recordingId))) return false
         for (const seg of segments) {
           await tx`
             INSERT INTO transcript_segments (user_id, recording_id, start_ms, end_ms, text, speaker)
@@ -66,7 +92,9 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
           `
         }
         await tx`UPDATE recordings SET status = ${TRANSCRIBED_STATUS} WHERE id = ${recordingId}`
+        return true
       })
+      if (!written) return recordingDeleted(recordingId)
 
       return {
         output: { recording_id: recordingId, segment_count: segments.length, status: 'transcribed' },
@@ -85,14 +113,16 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       const recordingId = (input.recording_id ?? input.target_id) as string
       const userId = requireUser(input, 'ai:summarize-lecture')
 
-      const { title, transcript } = await withUser(userId, async (tx) => {
+      const found = await withUser(userId, async (tx) => {
         const [recording] = await tx`SELECT title FROM recordings WHERE id = ${recordingId}`
-        if (!recording) throw new Error(`Recording ${recordingId} not found`)
+        if (!recording) return null
         const segments = await tx`
           SELECT text FROM transcript_segments WHERE recording_id = ${recordingId} ORDER BY start_ms
         `
         return { title: recording.title as string, transcript: segments.map((s) => s.text as string).join('\n') }
       })
+      if (!found) return recordingDeleted(recordingId)
+      const { title, transcript } = found
       if (!transcript.trim()) {
         return { output: { recording_id: recordingId, skipped: 'no transcript' } }
       }
@@ -102,13 +132,16 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
       if (!body) throw new Error('lecture-summary returned no usable lines')
 
       // One summary per lecture: an annotation anchored to the whole recording.
-      await withUser(userId, async (tx) => {
+      const written = await withUser(userId, async (tx) => {
+        if (!(await holdRecording(tx, recordingId))) return false
         await tx`DELETE FROM annotations WHERE anchor_type = ${LECTURE_SUMMARY_ANCHOR} AND anchor_id = ${recordingId}`
         await tx`
           INSERT INTO annotations (user_id, anchor_type, anchor_id, body)
           VALUES (${userId}, ${LECTURE_SUMMARY_ANCHOR}, ${recordingId}, ${body})
         `
+        return true
       })
+      if (!written) return recordingDeleted(recordingId)
       return { output: { recording_id: recordingId, lines: body.split('\n').length } }
     },
     { label: 'Summarise lecture', category: 'ai', maxRetries: 0 },
@@ -136,7 +169,8 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
         `
         return { moment, existing: await findOpenReview(tx, userId, moment), skip: await whyNoReview(tx, userId, segmentId, label), params: parseReviewParams(job?.params) }
       })
-      if (!found) throw new Error(`Transcript moment ${segmentId} not found`)
+      // The moment went (its lecture was deleted) before this ran.
+      if (!found) return { output: { skipped: 'moment deleted', quiet: true } }
       const { moment, existing, params } = found
       // A moment sorted, or no longer marked, gets no review.
       const skipped = (why: string) => ({ output: { skipped: why, quiet: true } })
@@ -155,8 +189,10 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
 
       // Checked again under the moment's lock (see tags.sort and
       // tags.unmarkConfused): it may have been sorted, or its mark turned off,
-      // while the title was written.
+      // while the title was written. Or its lecture deleted: no study block
+      // for a moment that is gone.
       const result = await withUser(userId, async (tx) => {
+        if (!(await holdRecording(tx, moment.recordingId))) return 'moment deleted'
         await tx`SELECT pg_advisory_xact_lock(hashtext(${`review:${userId}:${moment.recordingId}:${moment.startMs}`}))`
         const skip = await whyNoReview(tx, userId, segmentId, label)
         if (skip) return skip
@@ -186,7 +222,7 @@ export function createServerExecutors(ai: AiDeps): ExecutorRegistry {
  * Why the moment gets no review now, or null if it does: the student marked
  * it sorted, or the mark that asked for it (`label`) is off again.
  */
-async function whyNoReview(tx: TransactionSql, userId: string, segmentId: string, label: string): Promise<string | null> {
+async function whyNoReview(tx: TxSql, userId: string, segmentId: string, label: string): Promise<string | null> {
   const rows = await tx`
     SELECT DISTINCT label FROM tags
     WHERE user_id = ${userId} AND target_type = 'transcript_segment' AND target_id = ${segmentId}

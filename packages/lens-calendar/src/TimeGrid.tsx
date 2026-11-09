@@ -175,6 +175,8 @@ export function TimeGrid({
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** Where the grid last put its own scroll: any other scroll is someone else's (touch, wheel, keys, the scrollbar, scrollIntoView). */
+  const ownScrollTop = useRef<number | null>(null)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   /**
@@ -221,31 +223,35 @@ export function TimeGrid({
         setHourPx(px)
       } else if (!userScrolled.current) {
         el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+        ownScrollTop.current = el.scrollTop
       }
       fitted = px
     }
-    const markScrolled = () => {
-      userScrolled.current = true
-      scrollGoalHour.current = null
-    }
-    // There: from now on, the hours keep whatever the student scrolls to.
+    // The student taking over (wheel, touch, keys) stops the way to a block shown.
+    const dropGoal = () => { scrollGoalHour.current = null }
     const onScroll = () => {
-      if (scrollGoalHour.current === null) return
-      const goal = Math.min(scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, el.scrollHeight - el.clientHeight)
-      if (Math.abs(el.scrollTop - goal) < 1) scrollGoalHour.current = null
+      if (scrollGoalHour.current !== null) {
+        // The grid's own scroll on the way to a block shown. There: from now
+        // on, the hours keep whatever the student scrolls to.
+        const goal = Math.min(scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, el.scrollHeight - el.clientHeight)
+        if (Math.abs(el.scrollTop - goal) < 1) scrollGoalHour.current = null
+        return
+      }
+      // Any other scroll the grid didn't make itself is the student's.
+      if (ownScrollTop.current === null || Math.abs(el.scrollTop - ownScrollTop.current) > 1) userScrolled.current = true
     }
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
-    el.addEventListener('wheel', markScrolled, { passive: true })
-    el.addEventListener('touchmove', markScrolled, { passive: true })
-    el.addEventListener('keydown', markScrolled)
+    el.addEventListener('wheel', dropGoal, { passive: true })
+    el.addEventListener('touchmove', dropGoal, { passive: true })
+    el.addEventListener('keydown', dropGoal)
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       observer.disconnect()
-      el.removeEventListener('wheel', markScrolled)
-      el.removeEventListener('touchmove', markScrolled)
-      el.removeEventListener('keydown', markScrolled)
+      el.removeEventListener('wheel', dropGoal)
+      el.removeEventListener('touchmove', dropGoal)
+      el.removeEventListener('keydown', dropGoal)
       el.removeEventListener('scroll', onScroll)
     }
   }, [])
@@ -254,7 +260,10 @@ export function TimeGrid({
     if (!el || keepTopHour.current === null) return
     // On the way to a block shown: carry on there, at the new size.
     if (scrollGoalHour.current !== null) scrollToGoal(el)
-    else el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    else {
+      el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+      ownScrollTop.current = el.scrollTop
+    }
     keepTopHour.current = null
   }, [hourPx])
 

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { ThemeToggle } from './ThemeToggle'
 
 test('renders toggle button', async ({ mount, page }) => {

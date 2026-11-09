@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
@@ -48,7 +49,7 @@ async function demoLikeBoard(request: APIRequestContext, { calendar = true } = {
   for (const p of panels.filter((panel) => calendar || panel.lensType !== 'calendar')) {
     await trpcMutation(request, 'workspaces.addPanel', { workspaceId: board.id, slotName: p.lensType, ...p })
   }
-  // The lecture brings its course (Biology).
+  // The board shows the Biology lecture and stays "All courses".
   await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: board.id, lectureId: 'lec-rec-bio-4' })
 }
 
@@ -85,7 +86,7 @@ async function selectMomentHalfScrolled(page: Page, { withCalendar = true } = {}
   await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight })
   await settledScrollTop(grid.root)
   const moment = transcript.locator('[data-segment-id]').filter({ hasText: MOMENT })
-  const list = await moment.evaluate((el) => {
+  const list = await moment.evaluate((el: HTMLElement) => {
     const l = el.parentElement!
     l.scrollTop = el.offsetTop + 20
     const r = l.getBoundingClientRect()
@@ -275,39 +276,54 @@ test.describe('The confused-to-calendar ripple', () => {
   test('a scroll of the board while it glides to the block stops the glide, and the scroll takes', async ({ page, request }) => {
     await demoLikeBoard(request)
     const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    // Event-driven, not timed: the glide's first scroll event releases the
+    // wheel, and the board's `scrollend` says whether the glide had stopped
+    // before the wheel came (a wall-time limit fails on a loaded machine).
     await grid.root.evaluate((board) => {
-      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number | null; topAtWheel: number | null }
-      w.glide = []
-      w.wheelAt = null
+      const w = window as unknown as {
+        glideStarted: Promise<void>
+        glideEnded: boolean
+        wheeled: boolean
+        endedBeforeWheel: boolean | null
+        topAtWheel: number | null
+      }
+      w.glideEnded = false
+      w.wheeled = false
+      w.endedBeforeWheel = null
       w.topAtWheel = null
-      board.addEventListener('scroll', () => w.glide.push({ at: performance.now(), top: board.scrollTop }))
+      w.glideStarted = new Promise((resolve) => board.addEventListener('scroll', () => resolve(), { once: true }))
+      board.addEventListener('scrollend', () => { if (!w.wheeled) w.glideEnded = true })
       // Read the board's position as the wheel arrives: scroll events are batched
       // to frames, so the last one lags the glide by up to a frame of its travel.
       document.addEventListener('wheel', () => {
-        if (w.wheelAt !== null) return
-        w.wheelAt = performance.now()
+        if (w.wheeled) return
+        w.wheeled = true
+        w.endedBeforeWheel = w.glideEnded
         w.topAtWheel = board.scrollTop
       }, { capture: true })
     })
     const markedAt = Date.now()
     await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
-    // As soon as the board starts gliding up to the block, the student scrolls it up further, past it.
-    await expect.poll(() => page.evaluate(() => (window as unknown as { glide: unknown[] }).glide.length), { intervals: [5], timeout: 15000 }).toBeGreaterThan(0)
+    // In place before the glide, so the wheel follows its start by one round trip.
     await page.mouse.move(1380, 600)
-    await page.mouse.wheel(0, -300)
+    // As soon as the board starts gliding up to the block, the student scrolls it up further, past it.
+    await page.evaluate(() => (window as unknown as { glideStarted: Promise<void> }).glideStarted)
+    // 100px: from anywhere along the glide (the board's bottom up to the
+    // block) that stays clear of the board's top, where a longer scroll would
+    // stop short by however far the glide had got.
+    await page.mouse.wheel(0, -100)
     const final = await settledScrollTop(grid.root)
     const review = await newReview(request, markedAt)
     await expect(calendar.root.locator(`[data-plan-item-id="${review.id}"]`)).toHaveAttribute('data-revealed', 'true')
-    const { glide, wheelAt, atWheel } = await page.evaluate(() => {
-      const w = window as unknown as { glide: { at: number; top: number }[]; wheelAt: number; topAtWheel: number }
-      return { glide: w.glide, wheelAt: w.wheelAt, atWheel: w.topAtWheel }
+    const { endedBeforeWheel, atWheel } = await page.evaluate(() => {
+      const w = window as unknown as { endedBeforeWheel: boolean; topAtWheel: number }
+      return { endedBeforeWheel: w.endedBeforeWheel, atWheel: w.topAtWheel }
     })
     // The wheel came while the glide was under way...
-    expect(wheelAt - glide[0].at).toBeLessThan(150)
-    // ...and moved the board its 300px from where it was then (once, not
-    // lost to the glide, which would have stopped about 170px up).
-    expect(final).toBeLessThan(atWheel - 250)
-    expect(final).toBeGreaterThan(atWheel - 350)
+    expect(endedBeforeWheel).toBe(false)
+    // ...and moved the board its 100px from where it was then: once (not
+    // twice), and not lost to the glide, which would have stopped at the block.
+    expect(Math.abs(final - (atWheel - 100))).toBeLessThanOrEqual(1)
     expect(await grid.root.evaluate((el) => el.scrollTop)).toBe(final)
   })
 

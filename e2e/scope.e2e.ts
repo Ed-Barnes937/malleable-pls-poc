@@ -1,7 +1,9 @@
-import { test, expect, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
+import { trpcMutation, trpcQuery } from './api'
 
 /**
  * The board header's scope pickers: a course pill for every board with a
@@ -13,8 +15,9 @@ import { apiUrl } from './ports'
  * ignore the lecture, so it shows Course only.
  *
  * Every choice is one `setBoardScope`, and the server keeps the board rule:
- * a selected lecture brings its course, and a course change (including
- * "All courses") clears a lecture outside it.
+ * a board's lecture belongs to its course, unless the board is "All
+ * courses", which stays so whatever lecture is chosen; a course change
+ * clears a lecture outside it; "All courses" keeps any lecture.
  *
  * Also run in WebKit (`playwright.config.ts`): the pills are transparent
  * native selects over a styled label, so this checks Safari hits them too.
@@ -25,6 +28,14 @@ const ORGANIC = 'Chemistry Lecture: Organic Reactions'
 
 test.beforeEach(async () => { await reseed() })
 test.afterAll(async () => { await reseed() })
+
+async function boardScope(request: APIRequestContext, workspaceId: string) {
+  const rows = await trpcQuery<{ scope_type: string; scope_value: string }[]>(request, 'workspaces.scopes', workspaceId)
+  return {
+    course: rows.find((r) => r.scope_type === 'tag')?.scope_value ?? null,
+    lecture: rows.find((r) => r.scope_type === 'lecture')?.scope_value ?? null,
+  }
+}
 
 async function openBoard(page: Page, name: string) {
   await page.goto('/')
@@ -82,34 +93,66 @@ test.describe('Header scope pickers', () => {
     await topBar.expectScope('Chemistry', null, { timeout: 10000 })
   })
 
-  test('"All courses" clears a lecture filed under a course', async ({ page }) => {
+  test('"All courses" keeps a lecture filed under a course; the lecture pill clears it', async ({ page, request }) => {
     const topBar = await openBoard(page, 'Evening Review')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
     await topBar.selectCourse('All courses')
-    await topBar.expectScope('All courses', null)
+    await topBar.expectScope('All courses', DNA)
     await expect(topBar.courseSelect).toHaveValue('')
-    await expect(topBar.lectureSelect).toHaveValue('')
+    await expect(topBar.lectureSelect).toHaveValue('lec-rec-bio-4')
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: 'lec-rec-bio-4' })
+    await page.reload()
+    await topBar.expectScope('All courses', DNA, { timeout: 10000 })
+    await topBar.selectLecture('No lecture')
+    await topBar.expectScope('All courses', null)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: null })
   })
 
-  test('on an "All courses" board, choosing a lecture brings its course and persists', async ({ page }) => {
+  test('on an "All courses" board, choosing a lecture keeps "All courses" and persists', async ({ page, request }) => {
     const topBar = await openBoard(page, 'Evening Review')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
     await topBar.selectCourse('All courses')
-    await topBar.expectScope('All courses', null)
+    await topBar.expectScope('All courses', DNA)
 
-    // Every lecture is listed; choosing Chemistry's brings its course.
+    // Every lecture is listed; choosing Chemistry's keeps "All courses".
     await topBar.selectLecture(ORGANIC)
-    await topBar.expectScope('Chemistry', ORGANIC)
-    // Only Chemistry's lectures are offered now.
-    await expect(topBar.lectureSelect.locator('option')).toHaveText(['No lecture', `${ORGANIC} · 9 Apr`])
+    await topBar.expectScope('All courses', ORGANIC)
+    // Every course's lectures are still offered.
+    await expect(topBar.lectureSelect.locator('option', { hasText: DNA })).toHaveCount(1)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: 'lec-rec-chem-1' })
 
-    // And back to a Biology one from "All courses".
-    await topBar.selectCourse('All courses')
+    // And a Biology one, still "All courses".
     await topBar.selectLecture(DNA)
-    await topBar.expectScope('Biology', DNA)
+    await topBar.expectScope('All courses', DNA)
 
     await page.reload()
-    await topBar.expectScope('Biology', DNA, { timeout: 10000 })
+    await topBar.expectScope('All courses', DNA, { timeout: 10000 })
+
+    // Choosing the lecture's own course keeps it; the board now has that course.
+    await topBar.selectCourse('Biology')
+    await topBar.expectScope('Biology', DNA)
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: 'biology', lecture: 'lec-rec-bio-4' })
+  })
+
+  test('a lecture filed under no course offers "Choose a course"; filing it keeps the board "All courses"', async ({ page, request }) => {
+    const unfiled = await trpcMutation<{ id: string }>(request, 'lectures.create', { course: null, title: 'Guest talk' })
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: unfiled.id })
+    const topBar = await openBoard(page, 'Evening Review')
+    await topBar.expectScope('All courses', 'Guest talk', { timeout: 10000 })
+    const fileUnder = topBar.scopeGroup.getByRole('combobox', { name: 'File this lecture under a course' })
+    await expect(page.getByTestId('lecture-file-course').getByTestId('scope-pill-text')).toHaveText('Choose a course')
+
+    const saved = page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
+    await fileUnder.selectOption({ label: 'Physics' })
+    expect((await saved).ok()).toBe(true)
+    await expect(fileUnder).toHaveCount(0)
+    await topBar.expectScope('All courses', 'Guest talk')
+    expect((await trpcQuery<{ course: string | null }>(request, 'lectures.byId', unfiled.id)).course).toBe('physics')
+    expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: unfiled.id })
+
+    await page.reload()
+    await topBar.expectScope('All courses', 'Guest talk', { timeout: 10000 })
+    await expect(fileUnder).toHaveCount(0)
   })
 
   test('renaming the lecture inline renames it in the pill and the Transcript', async ({ page }) => {
@@ -117,7 +160,7 @@ test.describe('Header scope pickers', () => {
     const transcript = new PanelGridPom(page).panelByLabel('Transcript')
     await topBar.expectScope('Biology', DNA, { timeout: 10000 })
 
-    await topBar.renameLectureButton.click()
+    await topBar.chooseLectureAction('Rename this lecture...')
     const name = topBar.scopeGroup.getByRole('textbox', { name: 'Lecture name' })
     await expect(name).toBeFocused()
     await expect(name).toHaveValue(DNA)
@@ -131,10 +174,10 @@ test.describe('Header scope pickers', () => {
     await expect(transcript.getByTestId('lecture-title')).toHaveText('mtDNA and inheritance')
   })
 
-  // From the phone layout's edge (640px) to a small laptop: the pills keep
-  // their minimum and the tabs give way, so nothing sits on top of anything
+  // From the phone layout's edge (640px) to a small laptop: the lecture title
+  // gives way first, down to its minimum, then the tabs, so nothing sits on top of anything
   // (a tap on Activity must not open the Lecture picker).
-  for (const width of [640, 768, 1024]) {
+  for (const width of [640, 700, 768, 1024]) {
     test(`at ${width}px the header fits and nothing overlaps: tabs, both pills, the right-hand buttons`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       const topBar = await openBoard(page, 'In Lecture')
@@ -146,7 +189,7 @@ test.describe('Header scope pickers', () => {
       const tabs = await box(topBar.root.getByTestId('board-tabs'))
       const course = await box(topBar.scopeGroup.getByTestId('scope-course'))
       const lecture = await box(topBar.scopeGroup.getByTestId('scope-lecture'))
-      const rename = await box(topBar.renameLectureButton)
+      const rename = await box(topBar.lectureMenuButton)
       const activity = await box(page.getByTestId('activity-button'))
       const lastButton = await box(page.getByTestId('organize-button'))
 
@@ -162,10 +205,22 @@ test.describe('Header scope pickers', () => {
         [activity.x + activity.width / 2, activity.y + activity.height / 2])
       expect(hit).toBe('activity-button')
 
-      // The lecture title is cut short rather than pushing anything out, and still readable;
+      // The lecture title is cut short rather than pushing anything out, and still readable
+      // (5rem from 640 to 768, where the one-row header is tightest);
       // the tabs keep a floor (7rem) so the active board's name stays readable.
-      expect(lecture.width).toBeGreaterThanOrEqual(width >= 768 ? 144 : 96)
+      const floor = width >= 768 ? 144 : 80
+      expect(lecture.width).toBeGreaterThanOrEqual(floor)
       expect(tabs.width).toBeGreaterThanOrEqual(112)
+      // The lecture title gives way first, so a title loading or changing
+      // never moves the tabs: while the pill is above its floor the tabs keep
+      // their whole width (every tab shown, nothing to scroll). Shrinking is
+      // proportional (the pills' 1000 to the tabs' 1), so the tabs may give
+      // up a fraction of a pixel alongside.
+      const tabsSqueezed = await topBar.root.getByTestId('board-tabs').evaluate((el) => {
+        const strip = el.querySelector<HTMLElement>('[aria-label="Boards"]') ?? el
+        return strip.scrollWidth - strip.clientWidth > 1
+      })
+      if (lecture.width > floor + 1) expect(tabsSqueezed).toBe(false)
       // Nothing scrolls sideways (boxes, not scrollWidth: WebKit counts a hidden select's option text).
       expect(right(lastButton)).toBeLessThanOrEqual(width)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
@@ -197,6 +252,56 @@ test.describe('Header scope pickers on a phone', () => {
       .toBeVisible({ timeout: 10000 })
   })
 })
+
+for (const width of [360, 390]) {
+  test(`a filed lecture at ${width}px: pills, the lecture's "..." and Up next share one line, clear of each other`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 800 })
+    const topBar = await openBoard(page, 'In Lecture')
+    await topBar.expectScope('Biology', DNA, { timeout: 10000 })
+    await topBar.expectControlsFit()
+    // One line: the pills, the "..." and Up next sit side by side.
+    const row = (await topBar.root.getByTestId('top-bar-row-2').boundingBox())!
+    expect(row.height).toBeLessThanOrEqual(40)
+    await expect(topBar.scopeGroup.getByTestId('scope-lecture')).toHaveAttribute('title', DNA)
+  })
+}
+
+for (const width of [360, 390, 640, 768, 1024]) {
+  test.describe(`An unfiled lecture at ${width}px`, () => {
+    const phone = width < 640
+    test.use({ viewport: { width, height: 800 }, hasTouch: phone })
+
+    test('the header fits, and "Choose a course..." in the lecture menu files it', async ({ page, request }) => {
+      const unfiled = await trpcMutation<{ id: string }>(request, 'lectures.create', { course: null, title: 'Guest talk on inherited disease' })
+      await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: unfiled.id })
+      const topBar = await openBoard(page, 'Evening Review')
+      await topBar.expectScope('All courses', 'Guest talk on inherited disease', { timeout: 10000 })
+
+      // The "Choose a course" pill only where the header has room (lg); the menu offers it everywhere.
+      if (width >= 1024) await expect(page.getByTestId('lecture-file-course')).toBeVisible()
+      else await expect(page.getByTestId('lecture-file-course')).toBeHidden()
+      await expect(topBar.lectureMenuButton).toBeVisible()
+      // Every control whole, in view and clear of the others, the "..." in
+      // reach of a tap, Up next with its words on a phone (the pills cut
+      // their names short instead); nothing scrolls sideways.
+      await topBar.expectControlsFit()
+      // The whole names stay readable in the pills' tooltips.
+      await expect(topBar.scopeGroup.getByTestId('scope-course')).toHaveAttribute('title', 'All courses')
+      await expect(topBar.scopeGroup.getByTestId('scope-lecture')).toHaveAttribute('title', 'Guest talk on inherited disease')
+
+      const saved = page.waitForResponse((r) => r.url().includes('lectures.update') && r.request().method() === 'POST')
+      await topBar.chooseLectureAction('Choose a course...')
+      await page.getByRole('menu', { name: 'File this lecture under' }).getByRole('menuitem', { name: 'Physics' }).click()
+      expect((await saved).ok()).toBe(true)
+      expect((await trpcQuery<{ course: string | null }>(request, 'lectures.byId', unfiled.id)).course).toBe('physics')
+      expect(await boardScope(request, 'ws-evening-review')).toEqual({ course: null, lecture: unfiled.id })
+      await topBar.expectScope('All courses', 'Guest talk on inherited disease')
+      await expect(page.getByTestId('lecture-file-course')).toHaveCount(0)
+      await topBar.lectureMenuButton.click()
+      await expect(page.getByRole('menuitem', { name: 'Choose a course...' })).toHaveCount(0)
+    })
+  })
+}
 
 test.describe('Course scope filters every widget', () => {
   test('a Biology Exam Prep board shows only Biology and highlights it in All Courses', async ({ page }) => {

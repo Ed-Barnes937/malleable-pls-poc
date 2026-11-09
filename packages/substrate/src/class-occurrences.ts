@@ -61,16 +61,18 @@ export function occurrenceOn(item: PlanItem, date: string, timeZone: string): Pl
 
 /**
  * Which class a capture started at `at` joins, silently: an open class block
- * of the capture's course (none: a class with no course) that is on at `at`,
- * counting from `CLASS_CAPTURE_LEAD_MIN` before its start up to its end.
- * When several are, the one that started last (then by occurrence key).
+ * that is on at `at`, counting from `CLASS_CAPTURE_LEAD_MIN` before its start
+ * up to its end.
+ *
+ * With a course (a board with a course), only classes of that course count;
+ * with none (an "All courses" board), every class does, whatever its course
+ * (none included). When several are on (a changeover), the one that starts
+ * last, counting the 15-minute lead-in as started (then by occurrence key).
  *
  * `rows` are plan item list rows already expanded over a range around `at`.
  *
  * This is the one place that decides class matching on Record, so the
- * still-open product question (decision Q8: match silently, or ask "Is this
- * Tuesday's Biology lecture?" the first time) changes here only. Today it
- * matches silently.
+ * matching rule changes here only. It matches silently (decision Q1, round 4).
  */
 export function classForCapture(
   rows: PlanItemOccurrence[],
@@ -80,7 +82,7 @@ export function classForCapture(
   const on = rows.filter((row) =>
     isClassBlock(row)
     && row.status === 'open'
-    && (row.course ?? null) === capture.course
+    && (capture.course === null || row.course === capture.course)
     && row.starts_at != null && row.ends_at != null
     && Date.parse(row.starts_at) - lead <= capture.at
     && capture.at <= Date.parse(row.ends_at))

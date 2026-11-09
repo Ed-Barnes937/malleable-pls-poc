@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { TopBarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
@@ -40,7 +41,7 @@ test.describe('First run on an empty board', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   test.beforeEach(async () => { await reseed() })
 
-  test('"Plan my time" adds Calendar, To-do and Coming up, laid out side by side in view', async ({ page }) => {
+  test('"Plan my time" adds Calendar, To-do and Coming up, side by side in view (see starter-layout.e2e.ts)', async ({ page }) => {
     const { grid } = await newBoard(page)
     await expect(grid.emptyState.getByRole('heading', { name: 'This board is yours to build.' })).toBeVisible()
     await expect(grid.emptyState.getByRole('button', { name: 'Add widgets' })).toBeVisible()
@@ -51,10 +52,11 @@ test.describe('First run on an empty board', () => {
     await expect(grid.emptyState).toBeHidden()
     await expect(page.getByTestId('toast-host')).toContainText('Calendar, To-do and Coming up added')
 
-    // Calendar on the left; To-do and Coming up stacked in the column beside it.
+    // Calendar on the left at its default width; To-do and Coming up stacked in the column beside it.
     const calendar = await box(grid, 'Calendar')
     const todo = await box(grid, 'To-do')
     const comingUp = await box(grid, 'Coming up')
+    expect(calendar.width).toBe(900)
     expect(todo.x).toBeGreaterThan(calendar.x + calendar.width)
     expect(comingUp.x).toBe(todo.x)
     expect(comingUp.y).toBeGreaterThan(todo.y + todo.height)
@@ -69,9 +71,10 @@ test.describe('First run on an empty board', () => {
   test('"Capture a lecture" and "Find what to revise" add their widgets and nothing else', async ({ page }) => {
     const { grid } = await newBoard(page)
     await grid.starter('Capture a lecture').click()
-    await grid.expectPanelCount(2)
+    await grid.expectPanelCount(3)
     await grid.expectHasPanel('Audio Capture')
     await grid.expectHasPanel('Transcript')
+    await grid.expectHasPanel('Resources')
 
     await newBoard(page, 'Revision')
     await grid.starter('Find what to revise').click()
@@ -150,18 +153,19 @@ test.describe('First run on an empty board', () => {
     await expectStillAtBottomAsToastLeaves(page, grid)
   })
 
-  test('a starter that fails says so once and comes back', async ({ page }) => {
+  test('a starter that fails says so once and comes back', async ({ page, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.addPanel')
     const { grid } = await newBoard(page)
     await page.route('**/workspaces.addPanel**', (route) => route.fulfill({ status: 500, body: 'down' }))
 
     await grid.starter('Capture a lecture').click()
     const toasts = page.getByTestId('toast-host').getByRole('button', { name: 'Dismiss' })
-    await expect(page.getByTestId('toast-host')).toContainText("Couldn't add Audio Capture and Transcript. Try again.")
+    await expect(page.getByTestId('toast-host')).toContainText("Couldn't add Audio Capture, Transcript and Resources. Try again.")
     await expect(toasts).toHaveCount(1)
     await grid.expectPanelCount(0)
     // Try again: the starters are back and work once the server does.
     await page.unroute('**/workspaces.addPanel**')
     await grid.starter('Capture a lecture').click()
-    await grid.expectPanelCount(2)
+    await grid.expectPanelCount(3)
   })
 })

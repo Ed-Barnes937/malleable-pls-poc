@@ -1,5 +1,5 @@
 import type { Page, Route } from '@playwright/test'
-import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
+import { ProcedureRouter, SimulatorError, handleTrpcRequest } from './trpc-protocol'
 import { InMemoryDb, type SeedData } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
@@ -54,6 +54,20 @@ export class BackendSimulator {
    */
   freezeNow(at: Date): void {
     this.frozenNow = at.getTime()
+  }
+
+  /**
+   * Makes `path` answer with an INTERNAL_SERVER_ERROR from now on, inside
+   * whatever batch it is sent in; the other calls in the batch still answer.
+   * Unlike failing the request in a route, nothing batched with it fails.
+   *
+   * Differs from the server: the simulator always answers HTTP 200, so the
+   * browser logs nothing. The server answers a lone failing call (or a batch
+   * whose calls all fail) with the error's status, which the browser logs as
+   * "Failed to load resource"; a mixed batch gets 207, which it doesn't.
+   */
+  failProcedure(path: string): void {
+    this.router.register(path, () => { throw new SimulatorError('INTERNAL_SERVER_ERROR', `${path} failed (simulated)`) })
   }
 
   async handleNetworking(page: Page): Promise<void> {

@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { PlanItem, PlanItemOccurrence, Tag } from '@pls/substrate'
 import { TopBarPom, PanelGridPom, SidebarPom, PanelContainerPom } from './pom'
 import { trpcMutation, trpcQuery } from './api'

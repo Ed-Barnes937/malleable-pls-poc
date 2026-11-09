@@ -1,8 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronRight, Pencil } from 'lucide-react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
+import { ChevronRight, MoreHorizontal } from 'lucide-react'
 import {
   decodeScope,
+  useDeleteLecture,
   useLecture,
+  useLectureDeletePreview,
   useLectures,
   usePreferences,
   useSetBoardScope,
@@ -10,11 +13,12 @@ import {
   useWorkspacePanels,
   useWorkspaceScopes,
 } from '@pls/substrate-client'
-import type { Lecture } from '@pls/substrate'
+import { isEmptyLectureDeletion, type Lecture, type LectureDeletePreview } from '@pls/substrate'
 import { COURSES, cn, courseTone } from '@pls/shared-ui'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { ScopePill, type ScopePillFace } from './ScopePill'
 import { useToastStore } from './toast'
+import { DeleteLectureDialog } from './DeleteLectureDialog'
 
 export interface BoardScopeProps {
   workspaceId: string
@@ -28,8 +32,10 @@ export interface BoardScopeProps {
  * ("Showing [Biology] > [Mitochondrial DNA]"). Only the dimensions some
  * widget uses are offered (`useBoardScopeDims`); nothing renders when no
  * widget uses any. Each choice is one `setBoardScope` write, shown at once
- * (optimistic); the server's rules clear a lecture outside a new course and
- * bring a chosen lecture's course.
+ * (optimistic); the server's rules clear a lecture outside a new course and,
+ * on a board with a course, bring a chosen lecture's course. An "All
+ * courses" board stays "All courses" whatever lecture is chosen. A lecture
+ * filed under no course offers "Choose a course" beside it.
  */
 export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
   const dims = useBoardScopeDims(workspaceId)
@@ -74,9 +80,12 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
       {/* Only where the bar has room for it; the pills say enough without. */}
       {!compact && <span aria-hidden className="hidden shrink-0 pr-0.5 text-body text-text-secondary xl:inline">Showing</span>}
       {showCourse && (
-        <CoursePill courseTag={shown.scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
+        <CoursePill compact={compact} courseTag={shown.scope.courseTag} onChange={(value) => write({ courseTag: value || null })} />
       )}
-      {showCourse && showLecture && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted" />}
+      {/* Decoration only: it gives way first where the header is tightest (a
+          phone, and sm to md), so a wide course ("All courses", "Chemistry")
+          and the lecture still leave every button in view. */}
+      {showCourse && showLecture && !compact && <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0 text-text-muted sm:max-md:hidden" />}
       {showLecture && (
         <LecturePill
           courseTag={shown.scope.courseTag}
@@ -92,7 +101,7 @@ function courseLabel(courseTag: string): string {
   return courseTag ? (COURSES.find((c) => c.value === courseTag)?.label ?? courseTag) : 'All courses'
 }
 
-function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; onChange: (value: string) => void }) {
+function CoursePill({ compact, courseTag, onChange }: { compact: boolean; courseTag: string | undefined; onChange: (value: string) => void }) {
   return (
     <ScopePill
       label="Course"
@@ -100,8 +109,11 @@ function CoursePill({ courseTag, onChange }: { courseTag: string | undefined; on
       value={courseTag ?? ''}
       onChange={onChange}
       describe={(value) => ({ text: courseLabel(value), dotClassName: courseTone(value || null).stripe })}
-      // Never narrower than its dot and its course name.
-      className="min-w-max shrink-0"
+      // Never narrower than its dot and its course name; on a phone's one
+      // line, cut short (the whole name in its tooltip and the list) down to
+      // 5rem, so with the lecture pill at its floor, the lecture's menu and
+      // Up next all fit from 360px.
+      className={compact ? 'min-w-20 shrink' : 'min-w-max shrink-0'}
     >
       <option value="">All courses</option>
       {COURSES.map((c) => (
@@ -150,20 +162,28 @@ function LecturePill({ courseTag, lectureId, onChange }: {
   const [entering] = useState(useContext(JoinsShown))
   // The course's lectures, newest first (every lecture on "All courses").
   const { data: courseLectures } = useLectures(courseTag)
-  // The selected lecture is always in the course, but the list may not have
-  // caught up with one made a moment ago (an upload): never show it as unset.
+  // The selected lecture is in the list (in the course, or any on "All
+  // courses"), but the list may not have caught up with one made a moment
+  // ago (an upload): never show it as unset.
   const { data: selected } = useLecture(lectureId)
   const current = lectureId && selected?.id === lectureId ? selected : undefined
   const lectures = current && !courseLectures?.some((l) => l.id === current.id)
     ? [current, ...(courseLectures ?? [])]
     : (courseLectures ?? [])
   const dateOf = useLectureDate()
-  const renameRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLButtonElement>(null)
+  const selectRef = useRef<HTMLSelectElement>(null)
   // The lecture being renamed. The field goes if the board moves to another
   // lecture meanwhile (from elsewhere: a moment opened, another tab), rather
   // than rename the wrong one.
   const [renamingId, setRenamingId] = useState<string | null>(null)
   if (renamingId !== null && renamingId !== lectureId) setRenamingId(null)
+  const fileUnder = useFileLectureUnderCourse()
+  const deletion = useLectureDeletion({
+    onCancel: () => menuRef.current?.focus(),
+    // The menu goes with the lecture: focus the pill, which now reads "No lecture".
+    onDeleted: () => requestAnimationFrame(() => selectRef.current?.focus()),
+  })
 
   // Selected but not loaded yet: say so rather than flash "No lecture".
   const loading = !!lectureId && selected === undefined
@@ -181,7 +201,7 @@ function LecturePill({ courseTag, lectureId, onChange }: {
         onDone={() => {
           setRenamingId(null)
           // Back on the button it came from, for the keyboard.
-          requestAnimationFrame(() => renameRef.current?.focus())
+          requestAnimationFrame(() => menuRef.current?.focus())
         }}
       />
     )
@@ -190,16 +210,20 @@ function LecturePill({ courseTag, lectureId, onChange }: {
   return (
     <>
       <ScopePill
+        ref={selectRef}
         label="Lecture"
         data-testid="scope-lecture"
         value={current || loading ? lectureId! : ''}
         onChange={onChange}
         describe={describe}
         // A title is cut short before anything else in the bar, but always
-        // keeps a few words; "No lecture" is short and never cut. Loading,
-        // it already takes a title's least room, so the title arriving never
-        // moves what is beside it in a full bar.
-        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
+        // keeps a few words (a little less from sm to md, where the one-row
+        // header is tightest: a wide course such as "All courses" beside it
+        // must still leave the buttons in view); "No lecture" is short and
+        // never cut. Loading, it already takes a title's least room, so the
+        // title arriving never moves what is beside it in a full bar. It is
+        // cut before the course (on a phone, where the course can be cut too).
+        className={cn(current || loading ? 'max-w-[32ch] min-w-24 shrink-[1000] sm:min-w-20 md:min-w-36' : 'shrink-0', entering && 'origin-left motion-safe:animate-enter')}
       >
         <option value="">No lecture</option>
         {loading && <option value={lectureId}>Loading...</option>}
@@ -209,21 +233,274 @@ function LecturePill({ courseTag, lectureId, onChange }: {
       </ScopePill>
       {/* A button, not an option in the list, so no arrow key or type-ahead lands on it. */}
       {current && (
-        <button
-          ref={renameRef}
-          type="button"
-          data-testid="lecture-rename-button"
-          aria-label="Rename lecture"
-          title="Rename this lecture"
-          onClick={() => setRenamingId(current.id)}
-          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:h-9 sm:w-7"
-        >
-          <Pencil aria-hidden className="h-3.5 w-3.5" />
-        </button>
+        <LectureMenu
+          buttonRef={menuRef}
+          busy={deletion.checking}
+          onRename={() => setRenamingId(current.id)}
+          onDelete={() => deletion.start(current)}
+          onFileUnder={current.course === null ? (course) => fileUnder(current, course) : undefined}
+        />
       )}
       {/* Its room, kept while the lecture loads. */}
       {!current && loading && <span aria-hidden className="h-10 w-8 shrink-0 sm:h-9 sm:w-7" />}
+      {/* Beside the menu where the header has room; on a phone only in the menu. */}
+      {current && current.course === null && (
+        <FileUnderCoursePill
+          onFile={(course) => {
+            fileUnder(current, course)
+            // The pill goes once the lecture has a course: keep the keyboard on the lecture.
+            requestAnimationFrame(() => selectRef.current?.focus())
+          }}
+        />
+      )}
+      {deletion.dialog}
     </>
+  )
+}
+
+/**
+ * The lecture's own actions, beside its pill: one small button (so the
+ * header has room for it at every width) opening a menu of "Rename this
+ * lecture...", "Delete this lecture..." and, for a lecture filed under no
+ * course, "Choose a course..." (which lists the courses in its place). Arrow keys move through it,
+ * Escape or a press elsewhere closes it, and focus goes back to the button.
+ * Rendered over the page (a portal), so the header never clips it.
+ */
+function LectureMenu({ buttonRef, busy, onRename, onDelete, onFileUnder }: {
+  buttonRef: RefObject<HTMLButtonElement | null>
+  /** A delete is being worked out: Delete waits. */
+  busy: boolean
+  onRename: () => void
+  onDelete: () => void
+  /** For a lecture filed under no course: "Choose a course...", then the courses. */
+  onFileUnder?: (course: string) => void
+}) {
+  const [at, setAt] = useState<{ top: number; right: number } | null>(null)
+  // "Choose a course..." swaps the actions for the courses, in the same menu.
+  const [choosingCourse, setChoosingCourse] = useState(false)
+  const menu = useRef<HTMLDivElement>(null)
+  const open = at !== null
+  const items: { label: string; run: () => void; disabled: boolean; keepOpen?: boolean }[] = choosingCourse && onFileUnder
+    ? COURSES.map((c) => ({ label: c.label, run: () => onFileUnder(c.value), disabled: false }))
+    : [
+        { label: 'Rename this lecture...', run: onRename, disabled: false },
+        ...(onFileUnder ? [{ label: 'Choose a course...', run: () => setChoosingCourse(true), disabled: false, keepOpen: true }] : []),
+        { label: 'Delete this lecture...', run: onDelete, disabled: busy },
+      ]
+
+  const close = useCallback((refocus: boolean) => {
+    setAt(null)
+    setChoosingCourse(false)
+    if (refocus) buttonRef.current?.focus()
+  }, [buttonRef])
+
+  useLayoutEffect(() => {
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[role="menuitem"]:not(:disabled)')?.focus()
+  }, [open, choosingCourse])
+
+  useEffect(() => {
+    if (!open) return
+    const outside = (e: PointerEvent) => {
+      const target = e.target as Node
+      if (!menu.current?.contains(target) && !buttonRef.current?.contains(target)) close(false)
+    }
+    // It is placed once, under the button: anything that moves the button closes it.
+    const moved = () => close(false)
+    document.addEventListener('pointerdown', outside)
+    window.addEventListener('resize', moved)
+    window.addEventListener('scroll', moved, true)
+    return () => {
+      document.removeEventListener('pointerdown', outside)
+      window.removeEventListener('resize', moved)
+      window.removeEventListener('scroll', moved, true)
+    }
+  }, [open, close, buttonRef])
+
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const enabled = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]:not(:disabled)') ?? [])]
+    const index = enabled.indexOf(document.activeElement as HTMLButtonElement)
+    const move = (to: number) => {
+      e.preventDefault()
+      enabled[(to + enabled.length) % enabled.length]?.focus()
+    }
+    if (e.key === 'ArrowDown') move(index + 1)
+    else if (e.key === 'ArrowUp') move(index - 1)
+    else if (e.key === 'Home') move(0)
+    else if (e.key === 'End') move(enabled.length - 1)
+    else if (e.key === 'Escape') {
+      // Not the board menu's or a dialog's Escape.
+      e.preventDefault()
+      e.stopPropagation()
+      close(true)
+    } else if (e.key === 'Tab') {
+      // Back on the button, rather than focus falling out of the page with the menu.
+      e.preventDefault()
+      close(true)
+    }
+  }
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        data-testid="lecture-menu-button"
+        aria-label="Lecture options"
+        title="Rename or delete this lecture"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => {
+          if (open) return close(false)
+          const box = buttonRef.current!.getBoundingClientRect()
+          setAt({ top: box.bottom + 4, right: Math.max(8, window.innerWidth - box.right) })
+        }}
+        className={cn(
+          'flex h-10 w-8 shrink-0 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:ring-2 focus-visible:ring-accent focus-visible:outline-none sm:h-9 sm:w-7',
+          open && 'bg-surface-overlay text-text-primary',
+        )}
+      >
+        <MoreHorizontal aria-hidden className="h-4 w-4" />
+      </button>
+      {at && createPortal(
+        <div
+          ref={menu}
+          role="menu"
+          aria-label={choosingCourse ? 'File this lecture under' : 'Lecture options'}
+          data-testid="lecture-menu"
+          onKeyDown={onKeyDown}
+          style={{ top: at.top, right: at.right }}
+          // Above the top bar (z 9999), under the activity drawer and dialogs.
+          className="fixed z-[10002] flex min-w-48 flex-col rounded-widget border border-border-subtle bg-surface-raised p-1 shadow-pop"
+        >
+          {items.map((item) => (
+            <button
+              key={item.label}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => {
+                if (!item.keepOpen) close(true)
+                item.run()
+              }}
+              className="flex h-10 items-center rounded-item px-3 text-left text-body text-text-primary hover:bg-surface-overlay focus-visible:bg-surface-overlay focus-visible:outline-none disabled:opacity-40 sm:h-9"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )}
+    </>
+  )
+}
+
+/**
+ * Deleting a lecture from the header: asks the server what it would remove
+ * (`lectures.deletePreview`); an empty lecture (nothing recorded, no
+ * resources or plan items from it) goes at once, anything else waits for
+ * the confirm step (`DeleteLectureDialog`). Either way the toast names it.
+ * `onCancel` puts focus back where it came from when the student keeps it,
+ * `onDeleted` somewhere that is still there once it is gone.
+ */
+function useLectureDeletion({ onCancel, onDeleted }: { onCancel: () => void; onDeleted: () => void }) {
+  const fetchPreview = useLectureDeletePreview()
+  const deleteLecture = useDeleteLecture()
+  const pushToast = useToastStore((s) => s.push)
+  const [checking, setChecking] = useState(false)
+  const [confirming, setConfirming] = useState<{ preview: LectureDeletePreview; hasClass: boolean } | null>(null)
+
+  const deleted = (title: string) => {
+    pushToast({ message: `Deleted ${title}`, tone: 'success', key: 'lecture-delete' })
+    onDeleted()
+  }
+  const failed = () => pushToast({ message: "Couldn't delete the lecture - try again", tone: 'error', key: 'lecture-delete' })
+
+  const start = async (lecture: Lecture) => {
+    setChecking(true)
+    try {
+      // Twice at most: an empty lecture that gained something meanwhile (CONFLICT) is shown for confirming.
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const preview = await fetchPreview(lecture.id)
+        if (!isEmptyLectureDeletion(preview)) {
+          setConfirming({ preview, hasClass: lecture.class_item_id !== null })
+          return
+        }
+        try {
+          await deleteLecture.mutateAsync({ id: lecture.id, fingerprint: preview.fingerprint })
+          deleted(lecture.title)
+          return
+        } catch (err) {
+          if ((err as { data?: { code?: string } | null }).data?.code !== 'CONFLICT') throw err
+        }
+      }
+      failed()
+    } catch (err) {
+      // Gone already (another tab): what the student wanted.
+      if ((err as { data?: { code?: string } | null }).data?.code === 'NOT_FOUND') deleted(lecture.title)
+      else failed()
+    } finally {
+      setChecking(false)
+    }
+  }
+
+  const dialog = confirming && (
+    <DeleteLectureDialog
+      preview={confirming.preview}
+      hasClass={confirming.hasClass}
+      onClose={() => {
+        setConfirming(null)
+        onCancel()
+      }}
+      onDeleted={(title) => {
+        setConfirming(null)
+        deleted(title)
+      }}
+    />
+  )
+  return { start: (lecture: Lecture) => void start(lecture), checking, dialog }
+}
+
+/**
+ * Files a lecture filed under none under `course` (`lectures.update`, shown
+ * at once). The board keeps its course ("All courses", the only board that
+ * shows an unfiled lecture). A failure says so, and the offers come back.
+ */
+function useFileLectureUnderCourse(): (lecture: Lecture, course: string) => void {
+  const { mutateAsync } = useUpdateLecture()
+  const pushToast = useToastStore((s) => s.push)
+  return useCallback((lecture: Lecture, course: string) => {
+    // A promise: the offers are gone once the lecture has its course.
+    mutateAsync({ id: lecture.id, course }).catch(() =>
+      pushToast({ message: "Couldn't file the lecture - try again", tone: 'error', key: 'lecture-file-course' }),
+    )
+  }, [mutateAsync, pushToast])
+}
+
+/**
+ * "Choose a course" beside a lecture filed under none (from `lg` up; the
+ * lecture menu offers it at every width): picking one files it there. Gone
+ * once the lecture has a course.
+ */
+function FileUnderCoursePill({ onFile }: { onFile: (course: string) => void }) {
+  return (
+    <ScopePill
+      label="File this lecture under a course"
+      data-testid="lecture-file-course"
+      value=""
+      onChange={(course) => {
+        if (course) onFile(course)
+      }}
+      describe={(value) => (value
+        ? { text: courseLabel(value), dotClassName: courseTone(value).stripe }
+        : { text: 'Choose a course', muted: true })}
+      // Only where the header has room for it (lg up): below that the menu offers it.
+      className="hidden min-w-max shrink-0 lg:inline-flex"
+    >
+      <option value="" disabled>Choose a course</option>
+      {COURSES.map((c) => (
+        <option key={c.value} value={c.value}>{c.label}</option>
+      ))}
+    </ScopePill>
   )
 }
 

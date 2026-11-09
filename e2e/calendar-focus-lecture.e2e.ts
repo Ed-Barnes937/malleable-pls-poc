@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { classLectureTitle } from '../packages/substrate/src/class-occurrences'
 import { startOfLocalDay } from '../packages/scheduler/src'
@@ -8,11 +9,13 @@ import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { trpcMutation, trpcQuery } from './api'
 import { apiUrl } from './ports'
 import { reseed } from './reseed'
+import { untilFontsLoaded } from './fonts'
 import { SEED_TIME_ZONE } from './seed-week'
 
 /**
- * Opening a class on the calendar focuses its lecture, with its course, on
- * the board in view (03, decisions.md): no navigation, no new board. The
+ * Opening a class on the calendar focuses its lecture on the board in view,
+ * with its course unless the board is "All courses", which stays so (03, 08,
+ * decisions.md): no navigation, no new board. The
  * popover names the lecture (Undo puts the board back) and lists "Also open
  * in" for the student's other boards that can show a lecture, found by what
  * they contain; with none, a quiet "Add a widget".
@@ -128,6 +131,51 @@ test.describe('A calendar class focuses its lecture', () => {
     await expect(page.getByTestId('widget-palette')).toBeVisible()
   })
 
+  test('on an "All courses" board: the lecture focuses here, the board stays "All courses", Undo puts it back', async ({ page, request }) => {
+    const plan = await board(request, 'Plan', ['calendar', 'todo'])
+    // "Also open in" a board that is "All courses" keeps it so too.
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null, lectureId: null })
+    const cls = await geneticsClass(request)
+    const topBar = await openBoard(page, 'Plan')
+    const calendar = new CalendarPom(page)
+    const todo = new PanelGridPom(page).panelByLabel('To-do')
+    const block = calendar.block('Genetics lecture')
+    await topBar.expectScope('All courses', null)
+    await expect(todo.getByText('Chemistry problem sheet')).toBeVisible()
+    await expect(todo.getByText('Plan the Biology essay')).toBeVisible()
+
+    await block.click()
+    const section = calendar.popover.getByTestId('class-lecture')
+    await expect(section.getByRole('status')).toContainText(cls.title)
+    const [lecture] = await lecturesOf(request, cls.id)
+    expect(lecture).toMatchObject({ course: 'biology', class_date: cls.date })
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: lecture.id })
+    await topBar.expectScope('All courses', cls.title)
+    // The calendar rings the class; the To-do still shows every course.
+    await expect(block).toHaveAttribute('data-linked', 'true')
+    await expect(todo.getByText('Chemistry problem sheet')).toBeVisible()
+    await expect(todo.getByText('Plan the Biology essay')).toBeVisible()
+
+    await section.getByRole('button', { name: 'Undo' }).click()
+    await expect(section.getByText('Undone')).toBeVisible()
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: null })
+    await topBar.expectScope('All courses', null)
+    await expect(block).not.toHaveAttribute('data-linked')
+
+    await page.reload()
+    await topBar.switchToWorkspace('Plan')
+    await topBar.expectScope('All courses', null, { timeout: 10000 })
+    await calendar.block('Genetics lecture').click()
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: lecture.id })
+    await calendar.popover.getByRole('group', { name: 'Also open in' }).getByRole('button', { name: 'In Lecture' }).click()
+    await topBar.expectActiveWorkspace('In Lecture')
+    await expect.poll(() => boardScope(request, 'ws-in-lecture')).toEqual({ course: null, lecture: lecture.id })
+    await topBar.expectScope('All courses', cls.title)
+    await page.reload()
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.expectScope('All courses', cls.title, { timeout: 10000 })
+  })
+
   test('Also open in: lists the boards that can show a lecture by name, and opens the lecture there with a way back', async ({ page, request }) => {
     await board(request, 'Plan', ['calendar', 'todo'], 'chemistry')
     const cls = await geneticsClass(request)
@@ -241,7 +289,7 @@ test.describe('A calendar class focuses its lecture', () => {
 
   test('Undo keeps a change made elsewhere while the popover was open, and says the board has changed', async ({ page, request }) => {
     const plan = await board(request, 'Plan', ['calendar', 'todo'], 'chemistry')
-    await geneticsClass(request)
+    const cls = await geneticsClass(request)
     await openBoard(page, 'Plan')
     const calendar = new CalendarPom(page)
     await calendar.block('Genetics lecture').click()
@@ -249,12 +297,13 @@ test.describe('A calendar class focuses its lecture', () => {
     const undo = section.getByRole('button', { name: 'Undo' })
     await expect(undo).toBeVisible()
 
-    // Another tab moves the board to all courses meanwhile.
+    // Another tab moves the board to all courses meanwhile (keeping the lecture).
     await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: plan, courseTag: null })
     await undo.click()
     await expect(section.getByRole('status')).toContainText('The board has changed since.')
     await expect(undo).toHaveCount(0)
-    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: null })
+    const [lecture] = await lecturesOf(request, cls.id)
+    await expect.poll(() => boardScope(request, plan)).toEqual({ course: null, lecture: lecture.id })
   })
 
   test('two quick opens: Undo puts back the board from before the first, not the class passed through', async ({ page, request }) => {
@@ -365,7 +414,8 @@ test.describe('A calendar class on a phone', () => {
     await expect.poll(() => boardScope(request, 'ws-in-lecture')).toEqual({ course: 'biology', lecture: lecture.id })
   })
   for (const outcome of ['answered', 'failed'] as const) {
-    test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request }) => {
+    test(`pending -> ${outcome}: no button in the popover moves`, async ({ page, request, consoleErrors }) => {
+      if (outcome === 'failed') consoleErrors.allowFailedRequest('lectures.forClassOccurrence')
       await board(request, 'Plan', ['calendar'], 'chemistry')
       await geneticsClass(request)
       let release: () => void = () => {}
@@ -383,6 +433,8 @@ test.describe('A calendar class on a phone', () => {
       await page.touchscreen.tap(box.x + box.width / 2, box.y + Math.min(10, box.height / 2))
       const section = calendar.popover.getByTestId('class-lecture')
       await expect(section.getByText('Finding this lecture...')).toBeVisible()
+      // Measured in the web font: its late swap moves text, not this popover's doing.
+      await untilFontsLoaded(page)
       const boxes = async () => ({
         board: await section.getByRole('button', { name: 'In Lecture' }).boundingBox(),
         save: await calendar.popover.getByRole('button', { name: 'Save' }).boundingBox(),

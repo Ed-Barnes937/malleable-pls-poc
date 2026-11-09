@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import type { Locator, Page } from '@playwright/test'
 import { CanvasHarness } from './test-helpers'
 import type { PanelItem } from './canvas-store'

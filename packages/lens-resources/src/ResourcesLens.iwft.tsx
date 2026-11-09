@@ -2,22 +2,13 @@ import { StrictMode } from 'react'
 import type { Page, Route } from '@playwright/test'
 import type { Scope } from '@pls/lens-framework'
 import { test, expect } from '../../../playwright/fixtures'
-import { watchConsole } from '../../../playwright/console-guard'
+import type { ConsoleErrors } from '../../../playwright/console-guard'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredResource } from '../../../playwright/backend-simulator/in-memory-db'
 import ResourcesLens from './ResourcesLens'
 
 const defaultProps = { panelId: 'test-panel', scope: {}, config: {} }
-
-// Any React error (a render loop, a bad hook) fails the test.
-let consoleErrors: ReturnType<typeof watchConsole>
-test.beforeEach(({ page }) => {
-  consoleErrors = watchConsole(page)
-})
-test.afterEach(() => {
-  expect(consoleErrors.unexpected()).toEqual([])
-})
 
 /** Holds every `resources.update` request back for `ms` before the simulator answers it. */
 async function slowSaves(page: Page, ms: number) {
@@ -28,8 +19,8 @@ async function slowSaves(page: Page, ms: number) {
 }
 
 /** Every `resources.update` fails as if offline, until the returned function is called. */
-async function offlineSaves(page: Page) {
-  consoleErrors.allow(/Failed to load resource/)
+async function offlineSaves(page: Page, consoleErrors: ConsoleErrors) {
+  consoleErrors.allowFailedRequest('resources.update')
   const handler = (route: Route) => route.abort('internetdisconnected')
   await page.route('**/*resources.update*', handler)
   return () => page.unroute('**/*resources.update*', handler)
@@ -336,9 +327,9 @@ test('leaving a note in conflict asks first; its text is kept as "Not saved" and
   await expect(row.getByText(/^Note · edited/)).toBeVisible()
 })
 
-test('the last save failing offline after leaving: the row says "Not saved", and the note has the text to save again', async ({ mount, page, simulator }) => {
+test('the last save failing offline after leaving: the row says "Not saved", and the note has the text to save again', async ({ mount, page, simulator, consoleErrors }) => {
   seedResource(simulator, { id: 'r-note', title: 'Offline', body_md: '', course: 'biology' })
-  const online = await offlineSaves(page)
+  const online = await offlineSaves(page, consoleErrors)
   await mount(<StrictMode><TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders></StrictMode>)
   await page.getByRole('button', { name: 'Offline', exact: true }).click()
   await page.getByRole('textbox', { name: 'Offline' }).click()
@@ -370,9 +361,9 @@ test('the page being hidden saves at once, without waiting for typing to pause',
   await expect.poll(() => simulator.db.resources[0].body_md, { timeout: 600 }).toBe('Switching apps\n')
 })
 
-test('a rename or move that fails says so', async ({ mount, page, simulator }) => {
+test('a rename or move that fails says so', async ({ mount, page, simulator, consoleErrors }) => {
   seedResource(simulator, { id: 'r-note', title: 'Draft', course: 'biology' })
-  await offlineSaves(page)
+  await offlineSaves(page, consoleErrors)
   await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
   await page.getByRole('button', { name: 'More for Draft' }).click()
   await page.getByRole('button', { name: 'Rename' }).click()
@@ -390,9 +381,9 @@ test('a rename or move that fails says so', async ({ mount, page, simulator }) =
   expect(simulator.db.resources[0]).toMatchObject({ title: 'Draft', course: 'biology', lecture_id: null })
 })
 
-test('deleting a note whose last save failed drops its unsaved text: nothing is left to ask about on close', async ({ mount, page, simulator }) => {
+test('deleting a note whose last save failed drops its unsaved text: nothing is left to ask about on close', async ({ mount, page, simulator, consoleErrors }) => {
   seedResource(simulator, { id: 'r-note', title: 'Doomed', body_md: '', course: 'biology' })
-  await offlineSaves(page)
+  await offlineSaves(page, consoleErrors)
   await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
   await page.getByRole('button', { name: 'Doomed', exact: true }).click()
   await page.getByRole('textbox', { name: 'Doomed' }).click()

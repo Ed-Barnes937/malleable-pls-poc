@@ -9,8 +9,8 @@ export interface Scope {
   courseTag?: string
   /**
    * The selected lecture (`lectures.id`). Invariant, enforced by the server:
-   * when set, `courseTag` is that lecture's course (unset for a lecture filed
-   * under none).
+   * when set with a `courseTag`, that is the lecture's course. Without one
+   * ("All courses") the lecture may be of any course, or none.
    */
   lectureId?: string
 }
@@ -187,7 +187,7 @@ export interface ClassFocusBoard {
 
 /**
  * - `focused`: the occurrence's lecture (found or made) is now the board's
- *   lecture, with its course; `board` is what the board showed before and
+ *   lecture (with its course, unless the board is "All courses"); `board` is what the board showed before and
  *   shows now (the same when it already showed it). `recordingCount` and
  *   `durationMs` are its audio as the answer found it, so its status is
  *   right before the lecture itself has loaded.
@@ -239,8 +239,9 @@ export interface LensProps {
   /**
    * Patch the workspace-level scope shared by every panel, e.g. to select a
    * lecture the lens just created. `undefined` clears a dimension. The shell
-   * writes it in one atomic `setBoardScope`, so the server's rules apply: a
-   * lecture brings its course, a course change clears a lecture outside it.
+   * writes it in one atomic `setBoardScope`, so the server's rules apply: on
+   * a board with a course a lecture brings its course (an "All courses"
+   * board stays so), a course change clears a lecture outside it.
    * The shell's promise says whether the write went through (it never
    * rejects), for a widget that must undo what it showed when it didn't.
    * Optional for the same reason as `onConfigChange`.
@@ -248,8 +249,8 @@ export interface LensProps {
   onScopeChange?: (patch: Partial<Scope>) => void | Promise<boolean>
   /**
    * Jump to a recording moment ("click a study block, land on the lecture
-   * moment"): the shell selects the recording's lecture on the board (which
-   * brings its course, as `onScopeChange` would) and hands the moment to every widget whose manifest
+   * moment"): the shell selects the recording's lecture on the board (by
+   * the same course rule as `onScopeChange`) and hands the moment to every widget whose manifest
    * declares `showsMoments` via `focusedMoment`. When this board has none, the
    * shell opens the moment on a board that does (with a toast offering the way
    * back); `no-viewer` means no board has one. Optional
@@ -283,8 +284,9 @@ export interface LensProps {
   onPlanItemShown?: (requestId: number) => void
   /**
    * A class block was opened on the calendar: the shell finds or makes that
-   * occurrence's lecture and focuses it, with its course, on this board (one
-   * write; no navigation). Never rejects. Optional for the same reason as
+   * occurrence's lecture and focuses it on this board (with its course,
+   * unless the board is "All courses"; one write; no navigation). Never
+   * rejects. Optional for the same reason as
    * `onConfigChange`.
    */
   onFocusClass?: (cls: ClassRef) => Promise<FocusClassResult>
@@ -303,7 +305,8 @@ export interface LensProps {
   /** Whether this board has a widget that shows a lecture (`lectureId: 'target'`). */
   boardShowsLectures?: boolean
   /**
-   * Switch to `boardId` and focus `lecture` there (its course follows), with
+   * Switch to `boardId` and focus `lecture` there (its course follows unless
+   * that board is "All courses"), with
    * a toast offering the way back. Never rejects: `gone` when that board no
    * longer exists, `failed` when nothing changed for another reason.
    */

@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
@@ -10,11 +11,11 @@ import { trpcMutation, trpcQuery } from './api'
  */
 
 /** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, a quiz Thursday, a lab report Friday. */
-const TUESDAY = new Date('2026-10-27T09:00:00Z')
+const TUESDAY = Date.parse('2026-10-27T09:00:00Z')
 /** 15:00 the same day: Chemistry (14:00-16:00) is on now. */
-const TUESDAY_AFTERNOON = new Date('2026-10-27T15:00:00Z')
+const TUESDAY_AFTERNOON = Date.parse('2026-10-27T15:00:00Z')
 
-async function openBlankBoard(page: Page, now: Date, arrange?: () => Promise<void>) {
+async function openBlankBoard(page: Page, now: number, arrange?: () => Promise<void>) {
   await reseed({ now })
   await arrange?.()
   await page.clock.setFixedTime(now)
@@ -308,7 +309,8 @@ test.describe('Plan my week hand-off', () => {
     await expect(new CalendarPom(page).root.getByTestId('help-me-plan-panel')).toBeVisible()
   })
 
-  test('a Calendar that failed to add leaves nothing waiting to open Help me plan later', async ({ page }) => {
+  test('a Calendar that failed to add leaves nothing waiting to open Help me plan later', async ({ page, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.addPanel')
     await page.setViewportSize({ width: 1440, height: 900 })
     const topBar = await openBlankBoard(page, TUESDAY)
     await page.route('**/workspaces.addPanel**', (route) => route.abort())

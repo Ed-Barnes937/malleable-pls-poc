@@ -1,5 +1,5 @@
 import path from 'path'
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import { startOfLocalDay, wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
 import type { PlanItem, PlanItemOccurrence, Recording } from '../packages/substrate/src'
 import { AudioCapturePom, PanelGridPom, TopBarPom } from './pom'

@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PanelManifest } from '@pls/lens-framework'
 import { STACK_BREAKPOINT, tidyLayout, useCanvasStore, type PanelItem } from '@pls/panel-system'
 
@@ -35,6 +35,9 @@ function buildItem(p: PanelRow, manifests: PanelManifest[]): PanelItem {
  * user-dragged positions aren't overwritten before they're persisted.
  * Before the browser paints, so another board never shows the last one's
  * widgets for a frame.
+ *
+ * Returns the board whose panels the canvas store holds: until a newly
+ * opened board's rows arrive, the store still holds the last board's.
  */
 export function usePanelSync(
   activeWorkspaceId: string | null,
@@ -44,6 +47,7 @@ export function usePanelSync(
 ) {
   const setPanels = useCanvasStore((s) => s.setPanels)
   const syncedWorkspaceRef = useRef<string | null>(null)
+  const [syncedWorkspace, setSyncedWorkspace] = useState<string | null>(null)
 
   useLayoutEffect(() => {
     if (!panels) return
@@ -52,6 +56,7 @@ export function usePanelSync(
       syncedWorkspaceRef.current = activeWorkspaceId
       const items = panels.map((p) => buildItem(p, manifests))
       setPanels(items)
+      setSyncedWorkspace(activeWorkspaceId)
 
       // Tidy up a board whose widgets all sit at the same spot (the migration
       // default). Only on the desktop layout: a phone shows them stacked
@@ -78,4 +83,6 @@ export function usePanelSync(
       if (!dbIds.has(p.id)) store.removePanel(p.id)
     }
   }, [panels, activeWorkspaceId, setPanels, manifests])
+
+  return syncedWorkspace
 }

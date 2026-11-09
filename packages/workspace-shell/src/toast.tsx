@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
-import { CheckCircle2, Undo2, XCircle, X, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Info, Undo2, XCircle, X, type LucideIcon } from 'lucide-react'
 import { cn, useNarrowScreen } from '@pls/shared-ui'
 import { undoNotice, type LensNotice, type UndoableChange } from '@pls/lens-framework'
 import { useActiveWorkspaceId } from './activeBoard'
 
-export type ToastTone = 'success' | 'error'
+/** 'info': a plain note, neither a success nor a failure (e.g. "That study block was deleted"). */
+export type ToastTone = 'success' | 'error' | 'info'
 
 export interface Toast {
   id: number
@@ -36,6 +37,8 @@ export interface ToastAction {
   /** Shown before the label, e.g. a back chevron for "Back to My week". */
   icon?: LucideIcon
 }
+
+const TONE_ICONS: Record<ToastTone, LucideIcon> = { success: CheckCircle2, error: XCircle, info: Info }
 
 /** How long a toast stays: longer when it offers an action, so there is time to take it. */
 export const TOAST_MS = 4000
@@ -231,7 +234,7 @@ export function ToastHost() {
         )}
       >
         {shown.map((toast) => {
-          const Icon = toast.icon ?? (toast.tone === 'success' ? CheckCircle2 : XCircle)
+          const Icon = toast.icon ?? TONE_ICONS[toast.tone]
           const ActionIcon = toast.action?.icon
           return (
             <div

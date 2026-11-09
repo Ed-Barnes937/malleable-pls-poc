@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
 import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
@@ -424,9 +425,14 @@ test.describe('Phone scope pickers', () => {
         // A finger-sized target.
         expect(box.height).toBeGreaterThanOrEqual(40)
       }
-      // The course reads whole; a long lecture title ends in an ellipsis, in full in its tooltip.
-      expect(await topBar.coursePill.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+      // A long lecture title ends in an ellipsis first, in full in its
+      // tooltip; the course reads whole until the lecture is at its floor
+      // (at 360px, beside Up next, it is cut short too, down to 5rem).
+      if (width >= 400) expect(await topBar.coursePill.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+      else expect((await page.getByTestId('scope-course').boundingBox())!.width).toBeGreaterThanOrEqual(80)
+      await expect(page.getByTestId('scope-course')).toHaveAttribute('title', 'Biology')
       await expect(page.getByTestId('scope-lecture')).toHaveAttribute('title', 'Biology Lecture: Mitochondrial DNA')
+      await topBar.expectControlsFit()
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
     })
 

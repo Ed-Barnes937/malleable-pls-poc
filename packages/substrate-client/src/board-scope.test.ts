@@ -9,11 +9,28 @@ const courseOf = (id: string) => COURSES[id]
 describe('predictBoardScope', () => {
   const bioLecture = { courseTag: 'biology', lectureId: 'bio-1' }
 
-  it('a lecture brings its course (I1)', () => {
-    expect(predictBoardScope({ courseTag: null, lectureId: null }, { lectureId: 'chem-1' }, courseOf))
+  it('on a board with a course, a lecture brings its course (I1)', () => {
+    expect(predictBoardScope(bioLecture, { lectureId: 'chem-1' }, courseOf))
       .toEqual({ courseTag: 'chemistry', lectureId: 'chem-1' })
     expect(predictBoardScope(bioLecture, { lectureId: 'unfiled-1' }, courseOf))
       .toEqual({ courseTag: null, lectureId: 'unfiled-1' })
+  })
+
+  it('an "All courses" board stays "All courses" whatever lecture it shows', () => {
+    const allCourses = { courseTag: null, lectureId: null }
+    expect(predictBoardScope(allCourses, { lectureId: 'chem-1' }, courseOf)).toEqual({ courseTag: null, lectureId: 'chem-1' })
+    expect(predictBoardScope(allCourses, { lectureId: 'unknown' }, courseOf)).toEqual({ courseTag: null, lectureId: 'unknown' })
+    // Restoring "All courses" with a lecture names both.
+    expect(predictBoardScope(bioLecture, { courseTag: null, lectureId: 'chem-1' }, courseOf))
+      .toEqual({ courseTag: null, lectureId: 'chem-1' })
+  })
+
+  it('choosing a course on an "All courses" board keeps a lecture in it and clears any other', () => {
+    const allCoursesBio = { courseTag: null, lectureId: 'bio-1' }
+    expect(predictBoardScope(allCoursesBio, { courseTag: 'biology' }, courseOf)).toEqual({ courseTag: 'biology', lectureId: 'bio-1' })
+    expect(predictBoardScope(allCoursesBio, { courseTag: 'chemistry' }, courseOf)).toEqual({ courseTag: 'chemistry', lectureId: null })
+    expect(predictBoardScope({ courseTag: null, lectureId: 'unfiled-1' }, { courseTag: 'biology' }, courseOf))
+      .toEqual({ courseTag: 'biology', lectureId: null })
   })
 
   it("leaves the course alone for a lecture it doesn't know", () => {
@@ -21,9 +38,10 @@ describe('predictBoardScope', () => {
       .toEqual({ courseTag: 'biology', lectureId: 'unknown' })
   })
 
-  it('another course clears the lecture (I2), "All courses" too', () => {
+  it('another course clears the lecture (I2); "All courses" keeps it', () => {
     expect(predictBoardScope(bioLecture, { courseTag: 'chemistry' }, courseOf)).toEqual({ courseTag: 'chemistry', lectureId: null })
-    expect(predictBoardScope(bioLecture, { courseTag: null }, courseOf)).toEqual({ courseTag: null, lectureId: null })
+    expect(predictBoardScope(bioLecture, { courseTag: null }, courseOf)).toEqual({ courseTag: null, lectureId: 'bio-1' })
+    expect(predictBoardScope(bioLecture, { courseTag: null }, () => undefined)).toEqual({ courseTag: null, lectureId: 'bio-1' })
   })
 
   it('the same course keeps the lecture', () => {

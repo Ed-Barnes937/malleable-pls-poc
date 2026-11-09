@@ -1,8 +1,12 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { Lecture } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { deleteClassesOf, trpcMutation, trpcQuery } from './api'
 import { reseed } from './reseed'
+import { apiUrl } from './ports'
 
 /**
  * Boards select a lecture, not a recording (02 phase 2): each widget's
@@ -51,7 +55,7 @@ test.describe('A board selects a lecture', () => {
 
   test.describe('recording', () => {
     test('Record goes into the selected lecture, Record more adds a part, New lecture clears it', async ({ page, request }) => {
-      const ws = await board(request, 'In class', ['audio-capture', 'transcript'])
+      const ws = await board(request, 'In class', ['audio-capture', 'transcript'], 'biology')
       const lecture = await trpcMutation<Lecture>(request, 'lectures.create', { course: 'biology', title: 'Enzymes', workspaceId: ws })
 
       await page.goto('/')
@@ -150,8 +154,9 @@ test.describe('A board selects a lecture', () => {
     await expect(deadline).not.toHaveAttribute('data-highlighted')
 
     // These widgets highlight the lecture, so the board offers the picker.
+    // The board stays "All courses"; the widgets still ring the lecture's items.
     await topBar.selectLecture('Biology Lecture: Mitochondrial DNA')
-    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await topBar.expectScope('All courses', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
     await expect(block).toHaveAttribute('data-linked', 'true')
     await expect(todoRow).toHaveAttribute('data-highlighted', 'true')
     await expect(deadline).toHaveAttribute('data-highlighted', 'true')
@@ -160,14 +165,14 @@ test.describe('A board selects a lecture', () => {
     await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-3' })
     await page.reload()
     await topBar.switchToWorkspace('Plan and review')
-    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondria & Energy', { timeout: 10000 })
+    await topBar.expectScope('All courses', 'Biology Lecture: Mitochondria & Energy', { timeout: 10000 })
     await expect(block).not.toHaveAttribute('data-linked')
     await expect(todoRow).not.toHaveAttribute('data-highlighted')
     await expect(deadline).not.toHaveAttribute('data-highlighted')
   })
 
   test('"Go to moment" from another course selects that lecture and its course, with a way back', async ({ page, request }) => {
-    const ws = await board(request, 'Biology review', ['calendar', 'transcript'])
+    const ws = await board(request, 'Biology review', ['calendar', 'transcript'], 'biology')
     await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-4' })
     // A Chemistry study block made from the SN1 moment (9:00) of the Chemistry lecture.
     await trpcMutation(request, 'planItems.create', {
@@ -203,6 +208,73 @@ test.describe('A board selects a lecture', () => {
     await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
   })
 
+  test('"Go to moment" on an "All courses" board selects that lecture and keeps "All courses", going back too', async ({ page, request }) => {
+    const ws = await board(request, 'Any review', ['calendar', 'transcript'])
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-4' })
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Review: SN1 mechanism', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      course: 'chemistry', source_type: 'recording', source_id: 'rec-chem-1', source_offset_ms: 540000,
+    })
+
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Any review')
+    const calendar = new CalendarPom(page)
+    await topBar.expectScope('All courses', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+
+    await calendar.block('Review: SN1 mechanism').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+    await topBar.expectScope('All courses', 'Chemistry Lecture: Organic Reactions', { timeout: 10000 })
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+      expect.objectContaining({ scope_type: 'lecture', scope_value: 'lec-rec-chem-1' }),
+    ])
+
+    const toast = page.getByTestId('toast-host').getByTestId('toast')
+    await toast.getByRole('button', { name: 'Back to Biology Lecture: Mitochondrial DNA' }).click()
+    await topBar.expectScope('All courses', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+      expect.objectContaining({ scope_type: 'lecture', scope_value: 'lec-rec-bio-4' }),
+    ])
+  })
+
+  test('"Go to moment" from a lecture filed under no course makes a course board "All courses", and Back puts its course back', async ({ page, request }) => {
+    const ws = await board(request, 'Biology review', ['calendar', 'transcript'], 'biology')
+    await trpcMutation(request, 'workspaces.setBoardScope', { workspaceId: ws, lectureId: 'lec-rec-bio-4' })
+    // A recording in a new lecture filed under no course.
+    const upload = await request.post(`${apiUrl}/upload`, {
+      headers: { 'content-type': 'audio/wav', 'x-user-id': 'dev-user-1', 'x-recording-title': 'Guest talk' },
+      data: readFileSync(path.join(__dirname, 'fixtures', 'lecture-tone.wav')),
+    })
+    expect(upload.ok(), await upload.text()).toBe(true)
+    const { id: recordingId, lectureId: guestLecture } = (await upload.json()) as { id: string; lectureId: string }
+    await trpcMutation(request, 'planItems.create', {
+      kind: 'task', title: 'Review: guest talk', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,
+      source_type: 'recording', source_id: recordingId, source_offset_ms: 0,
+    })
+
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.switchToWorkspace('Biology review')
+    const calendar = new CalendarPom(page)
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+
+    await calendar.block('Review: guest talk').click()
+    await calendar.popover.getByRole('button', { name: 'Go to moment' }).click()
+    // An unfiled lecture on a course board: "All courses" (the course board rule).
+    await topBar.expectScope('All courses', 'Guest talk', { timeout: 10000 })
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+      expect.objectContaining({ scope_type: 'lecture', scope_value: guestLecture }),
+    ])
+
+    const toast = page.getByTestId('toast-host').getByTestId('toast')
+    await toast.getByRole('button', { name: 'Back to Biology Lecture: Mitochondrial DNA' }).click()
+    await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+    await expect.poll(() => trpcQuery(request, 'workspaces.scopes', ws)).toEqual([
+      expect.objectContaining({ scope_type: 'lecture', scope_value: 'lec-rec-bio-4' }),
+      expect.objectContaining({ scope_type: 'tag', scope_value: 'biology' }),
+    ])
+  })
+
   test('"Go to moment" on a board with a course but no lecture offers the way back to the course', async ({ page, request }) => {
     await board(request, 'Biology week', ['calendar', 'transcript'], 'biology')
     await trpcMutation(request, 'planItems.create', {
@@ -224,7 +296,8 @@ test.describe('A board selects a lecture', () => {
     await topBar.expectScope('Biology', null, { timeout: 10000 })
   })
 
-  test('"Back to ..." says so when the board could not be changed back', async ({ page, request }) => {
+  test('"Back to ..." says so when the board could not be changed back', async ({ page, request, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.setBoardScope')
     await board(request, 'Biology week', ['calendar', 'transcript'], 'biology')
     await trpcMutation(request, 'planItems.create', {
       kind: 'task', title: 'Review: SN1 mechanism', starts_at: at(2, 20), ends_at: at(2, 20, 30), duration_min: 30,

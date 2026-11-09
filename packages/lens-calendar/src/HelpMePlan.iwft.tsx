@@ -178,6 +178,8 @@ test('Auto-fill straight after picking a slot drafts around the block still savi
   await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
   const ghosts = page.getByTestId('calendar-ghost')
   await expect(ghosts.first()).toBeVisible()
+  // The advice is about the to-dos still waiting for a time, not the quiz prep.
+  await expect(panel.getByTestId('autofill-draft').getByTestId('autofill-note')).toContainText('Lab report write-up is due soonest, so it gets first pick of your study time.')
   // Nothing drafted for the quiz again, nor over its block.
   await expect(ghosts.filter({ hasText: 'Biology quiz prep' })).toHaveCount(0)
   // Nor does the advice rank it: the request says it is booked, though its save hasn't landed.
@@ -521,7 +523,8 @@ test('Undo of a split to-do never deletes a session ticked off since', async ({ 
   expect(sessions()).toHaveLength(2)
 })
 
-test('a Shrink saved before its sessions failed is still undone', async ({ mount, page, simulator }) => {
+test('a Shrink saved before its sessions failed is still undone', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.create')
   // Free Monday to Wednesday 09:00-13:00 (2h a day of study time): 6h for an 8h to-do.
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
     id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 3 ? 13 : 9), ends_at: iso(d, 22),

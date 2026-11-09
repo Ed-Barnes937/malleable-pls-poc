@@ -5,7 +5,7 @@ import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { BoardScope, WorkspacePanel, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
-import { replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
+import { lockBoardScopeRows, replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
 
 /** A board scope as `setBoardScope` returns it (null = unset), validated as `setBoardScope` validates it. */
 const boardScope = z.object({
@@ -128,6 +128,18 @@ export const workspacesRouter = router({
     .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // The board, then its scope rows in the protocol's order (lecture
+        // row, then course row), before the delete cascades to them in
+        // whatever order they lie on disk: a course change refiling the
+        // board holds its lecture row and then wants its course row, so
+        // deleting the course row first could deadlock with it (the
+        // protocol in _board-scope.ts). Deleting a board that is gone, or
+        // not the student's, does nothing.
+        const [board] = await tx`
+          SELECT id FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId} FOR NO KEY UPDATE
+        `
+        if (!board) return
+        await lockBoardScopeRows(tx, ctx.userId, input)
         await tx`DELETE FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId}`
       })
     }),
@@ -234,8 +246,9 @@ export const workspacesRouter = router({
   /**
    * Sets the board's course and/or lecture in one transaction (absent =
    * unchanged, null = clear), enforcing the board scope invariants (see
-   * `writeBoardScope`): a selected lecture brings its course, and a course
-   * change clears a lecture outside it. Returns the board's scope after.
+   * `writeBoardScope`): on a board with a course a selected lecture brings
+   * its course (an "All courses" board stays so), and a course change
+   * clears a lecture outside it. Returns the board's scope after.
    */
   setBoardScope: publicProcedure
     .input(z.object({

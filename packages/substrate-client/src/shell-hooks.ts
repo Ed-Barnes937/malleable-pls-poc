@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
 import { keepPreviousData, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
@@ -168,8 +169,9 @@ export function useUpdateWorkspaceBackground() {
 /**
  * The one write for a board's course and lecture (`workspaces.setBoardScope`):
  * absent = unchanged, null = clear. The server applies the board rules in
- * the same transaction (a lecture brings its course; a course change clears
- * a lecture outside it), so one user action is one call.
+ * the same transaction (on a board with a course a lecture brings its
+ * course, an "All courses" board stays so; a course change clears a lecture
+ * outside it), so one user action is one call.
  *
  * Optimistic: the board shows the scope the server will leave (both
  * dimensions, by its rules) at once, so a picker never snaps back. Writes go
@@ -338,19 +340,21 @@ const LECTURE_QUERIES = [['lectures']]
 
 /**
  * Renames a lecture (`title`) and/or refiles it under another course
- * (`course`, null = none). A new title shows at once wherever the lecture is
- * cached (the header's lecture pill, Transcript), and comes back if the
- * write fails.
+ * (`course`, null = none). The new title and course show at once wherever
+ * the lecture is cached (the header's lecture pill, Transcript), and the old
+ * ones come back if the write fails. A course-narrowed list is put right by
+ * the refetch once it settles.
  */
 export function useUpdateLecture() {
   const utils = trpc.useUtils()
   const queryClient = useQueryClient()
   return trpc.lectures.update.useMutation({
-    onMutate: async ({ id, title }) => {
-      if (title === undefined) return { prev: [] }
+    onMutate: async ({ id, title, course }) => {
+      if (title === undefined && course === undefined) return { prev: [] }
       await queryClient.cancelQueries({ queryKey: LECTURE_QUERIES })
       const prev = queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })
-      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, title } : l)
+      const change = { ...(title !== undefined ? { title } : {}), ...(course !== undefined ? { course } : {}) }
+      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, ...change } : l)
       queryClient.setQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES }, (data) =>
         Array.isArray(data) ? data.map((l) => rename(l)!) : rename(data),
       )
@@ -363,6 +367,56 @@ export function useUpdateLecture() {
       void utils.lectures.invalidate()
       // A course change re-scopes the boards that have the lecture selected.
       if (input.course !== undefined) void utils.workspaces.scopes.invalidate()
+    },
+  })
+}
+
+/**
+ * What deleting a lecture would remove (`lectures.deletePreview`), asked
+ * fresh each time: for the confirm step, and again after a CONFLICT.
+ */
+export function useLectureDeletePreview() {
+  const utils = trpc.useUtils()
+  return useCallback((lectureId: string) => utils.lectures.deletePreview.fetch(lectureId, { staleTime: 0 }), [utils])
+}
+
+/**
+ * Looks a plan item up afresh (`planItems.byId`): null once it is gone, e.g.
+ * before acting on a toast about it that may have outlived it.
+ */
+export function usePlanItemLookup() {
+  const utils = trpc.useUtils()
+  return useCallback((id: string) => utils.planItems.byId.fetch(id, { staleTime: 0 }), [utils])
+}
+
+/** `workspaces.scopes` queries (tRPC keys start with the procedure path). */
+const SCOPE_QUERIES = [['workspaces', 'scopes']]
+
+/**
+ * Deletes a lecture (`lectures.delete`, with the preview's `fingerprint`).
+ * Every board that showed it shows no lecture at once; then everything that
+ * may have shown its data (recordings, transcripts, marks, plan items,
+ * resources, the lecture lists) is re-read. A board with scope writes still
+ * on their way is re-read once they are done instead (`useSetBoardScope`).
+ * In order with the board scope writes (`BOARD_SCOPE_WRITES`): a lecture
+ * picked just before is picked, then deleted.
+ */
+export function useDeleteLecture() {
+  const queryClient = useQueryClient()
+  return trpc.lectures.delete.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onSuccess: (_deleted, { id }) => {
+      queryClient.setQueriesData<ScopeRow[]>({ queryKey: SCOPE_QUERIES }, (rows) =>
+        rows?.filter((r) => !(r.scope_type === SCOPE_TYPE_BY_DIM.lectureId && r.scope_value === id)),
+      )
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => {
+          const [path, options] = queryKey as [string[] | undefined, { input?: unknown } | undefined]
+          if (path?.[0] !== 'workspaces') return true
+          if (path[1] !== 'scopes' || typeof options?.input !== 'string') return false
+          return pendingBoardScopeWrites(queryClient, options.input).length === 0
+        },
+      })
     },
   })
 }
