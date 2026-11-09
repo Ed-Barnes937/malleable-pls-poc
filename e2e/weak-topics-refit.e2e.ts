@@ -362,8 +362,13 @@ test.describe('Re-fit blocks that did not happen', () => {
     expect(await trpcQuery<Item[]>(request, 'planItems.list', {})).toEqual(before)
 
     // Answered for good: a reload, or a board with only a To-do, doesn't ask again.
+    // Loaded before checking an absence (by the refit preview and the To-do:
+    // the Calendar shows the block only while two days ago is still this week).
+    const previewed = page.waitForResponse((r) => r.url().includes('planItems.refitPreview') && r.ok())
     await page.reload()
-    await expect(calendar.block('Read chapter 5')).toBeVisible()
+    await previewed
+    await expect(todo.getByText('Read chapter 5')).toBeVisible()
+    await expect(calendar.root).toBeVisible()
     await expect(banner).toHaveCount(0)
     await board(request, 'Lists', ['todo'])
     await page.reload()

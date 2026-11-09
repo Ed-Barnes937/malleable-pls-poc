@@ -309,7 +309,8 @@ test.describe('Plan my week hand-off', () => {
     await expect(new CalendarPom(page).root.getByTestId('help-me-plan-panel')).toBeVisible()
   })
 
-  test('a Calendar that failed to add leaves nothing waiting to open Help me plan later', async ({ page }) => {
+  test('a Calendar that failed to add leaves nothing waiting to open Help me plan later', async ({ page, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('workspaces.addPanel')
     await page.setViewportSize({ width: 1440, height: 900 })
     const topBar = await openBlankBoard(page, TUESDAY)
     await page.route('**/workspaces.addPanel**', (route) => route.abort())
