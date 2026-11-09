@@ -634,6 +634,11 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
 // way to the block: it still lands on the block.
 for (const when of ['just before', 'while'] as const) {
   test(`"See it" lands on the block when the hours re-fit ${when} the grid scrolls to it`, async ({ mount, page, simulator }) => {
+    // Thursday morning, whatever day the suite runs: Wednesday's study block
+    // has passed, so the re-fit prompt sits under the hours, over the
+    // evening, and the block takes a scroll to reach (earlier in the week
+    // the grid shows it already and never scrolls).
+    await freezeAt(page, simulator, addDays(monday, 3), 9)
     seedWeek(simulator)
     seed(simulator, [{
       id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(4, 21, 15), ends_at: iso(4, 21, 35),

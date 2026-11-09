@@ -523,7 +523,8 @@ test('Undo of a split to-do never deletes a session ticked off since', async ({ 
   expect(sessions()).toHaveLength(2)
 })
 
-test('a Shrink saved before its sessions failed is still undone', async ({ mount, page, simulator }) => {
+test('a Shrink saved before its sessions failed is still undone', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.create')
   // Free Monday to Wednesday 09:00-13:00 (2h a day of study time): 6h for an 8h to-do.
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
     id: `busy-${d}`, kind: 'commitment' as const, title: `Busy ${d}`, starts_at: iso(d, d < 3 ? 13 : 9), ends_at: iso(d, 22),
