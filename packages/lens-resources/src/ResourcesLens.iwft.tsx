@@ -56,7 +56,7 @@ function seedResource(simulator: BackendSimulator, fields: Partial<StoredResourc
 
 test('with no course: the empty state invites adding links and notes', async ({ mount, page, simulator: _simulator }) => {
   await mount(<TestProviders><ResourcesLens {...defaultProps} /></TestProviders>)
-  await expect(page.getByText('Keep links and notes for your courses here')).toBeVisible()
+  await expect(page.getByText('Keep links, notes and files for your courses here')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Add link' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Write a note' })).toBeVisible()
 })
@@ -398,4 +398,62 @@ test('deleting a note whose last save failed drops its unsaved text: nothing is 
   await page.getByRole('button', { name: 'Delete' }).click()
   await expect.poll(() => simulator.db.resources.length, { timeout: 8000 }).toBe(0)
   await expect.poll(asksBeforeClosing).toBe(false)
+})
+
+const PDF = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n')
+
+test('uploads a file under the board course, and a row says what it is: "PDF · size"', async ({ mount, page, simulator }) => {
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await page.getByRole('button', { name: 'Add link' }).click()
+  await page.getByTestId('resource-file-input').setInputFiles({ name: 'Cell notes.pdf', mimeType: 'application/pdf', buffer: PDF })
+  const row = page.getByTestId('resource-row')
+  await expect(row).toHaveCount(1)
+  await expect(row.getByRole('button', { name: 'Cell notes', exact: true })).toBeVisible()
+  await expect(row.getByText(`PDF · ${PDF.length} B`)).toBeVisible()
+  expect(simulator.db.resources[0]).toMatchObject({ kind: 'file', file_name: 'Cell notes.pdf', mime_type: 'application/pdf', course: 'biology' })
+  // The panel closed on success.
+  await expect(page.getByTestId('add-resource')).toHaveCount(0)
+})
+
+test('with a lecture selected, a file goes to the lecture unless the student picks the course', async ({ mount, page, simulator }) => {
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology', lectureId: BIO_LECTURE }} /></TestProviders>)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await page.getByTestId('resource-file-input').setInputFiles({ name: 'a.pdf', mimeType: 'application/pdf', buffer: PDF })
+  await expect(page.getByTestId('resource-row')).toHaveCount(1)
+  expect(simulator.db.resources[0]).toMatchObject({ lecture_id: BIO_LECTURE, course: null })
+
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await page.getByText('Whole course: Biology').click()
+  await page.getByTestId('resource-file-input').setInputFiles({ name: 'b.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]) })
+  await expect(page.getByTestId('resource-row')).toHaveCount(2)
+  expect(simulator.db.resources[1]).toMatchObject({ lecture_id: null, course: 'biology', mime_type: 'image/png' })
+})
+
+test('says why a file is refused: type and size before sending, content from the server', async ({ mount, page, simulator, consoleErrors }) => {
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await page.getByRole('button', { name: 'Add link' }).click()
+  const input = page.getByTestId('resource-file-input')
+
+  await input.setInputFiles({ name: 'setup.exe', mimeType: 'application/octet-stream', buffer: Buffer.from('MZ') })
+  await expect(page.getByRole('alert')).toContainText("That file type isn't supported")
+
+  await input.setInputFiles({ name: 'huge.pdf', mimeType: 'application/pdf', buffer: Buffer.alloc(20 * 1024 * 1024 + 1) })
+  await expect(page.getByRole('alert')).toHaveText('That file is over 20 MB.')
+
+  // An .exe renamed to .pdf passes the name check, and the server refuses its content (a 415 in the console).
+  consoleErrors.allowFailedRequest('resource-upload')
+  await input.setInputFiles({ name: 'virus.pdf', mimeType: 'application/pdf', buffer: Buffer.from('MZ\x90\x00 This program cannot be run in DOS mode') })
+  await expect(page.getByRole('alert')).toHaveText("That file isn't a valid PDF file.")
+  expect(simulator.db.resources).toHaveLength(0)
+})
+
+test('pressing a file opens its signed link in a new tab', async ({ mount, page, simulator }) => {
+  seedResource(simulator, { id: 'r-file', kind: 'file', title: 'Syllabus', body_md: null, course: 'biology', file_name: 'Syllabus.pdf', mime_type: 'application/pdf', size_bytes: 1_258_291 })
+  await mount(<TestProviders><ResourcesLens {...defaultProps} scope={{ courseTag: 'biology' }} /></TestProviders>)
+  await expect(page.getByText('PDF · 1.2 MB')).toBeVisible()
+  // The new tab is another page: the simulator answers for this one only.
+  await page.context().route('**/resource-files/**', (route) => route.fulfill({ status: 200, contentType: 'text/plain', body: 'a file' }))
+  const popup = page.waitForEvent('popup')
+  await page.getByRole('button', { name: 'Syllabus', exact: true }).click()
+  await (await popup).waitForURL(/\/resource-files\/r-file\?/)
 })

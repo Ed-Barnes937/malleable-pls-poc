@@ -39,6 +39,7 @@ export type {
   TableName,
   SubstrateReader,
   SubstrateWriter,
+  UploadResourceFile,
   PanelManifest,
   WidgetGroup,
   LiveCapturePhase,

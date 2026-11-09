@@ -10,6 +10,7 @@ import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
 import { createServerExecutors } from './workflows/executors'
 import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
+import { handleResourceFile, handleResourceUpload } from './resource-upload'
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
 
@@ -29,7 +30,7 @@ const executors = createServerExecutors(ai)
 // Swap for a shared store (e.g. Redis) before scaling horizontally.
 // ---------------------------------------------------------------------------
 const RATE_WINDOW_MS = 60_000 // 1 minute
-const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload
+const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload and /resource-upload (one shared bucket)
 const GENERAL_RATE_LIMIT = 100 // requests per window for everything else
 
 // e2e runs hammer the API from one IP and trip the general limit mid-suite,
@@ -127,7 +128,7 @@ function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course, x-workspace-id, x-lecture-id, x-select-on-board, x-upload-id')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course, x-workspace-id, x-lecture-id, x-select-on-board, x-upload-id, x-file-name, x-resource-course')
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +167,10 @@ const server = http.createServer((req, res) => {
   }
 
   // Bearer token auth (before rate limiting so invalid requests don't consume quota)
-  if (req.method === 'OPTIONS') {
+  // A signed file link is opened in a new tab, which can't send the token: the
+  // link's signature (checked by the route) is its credential.
+  const isFileLink = req.method === 'GET' && (req.url?.startsWith('/resource-files/') ?? false)
+  if (req.method === 'OPTIONS' || isFileLink) {
     // Allow CORS preflight through — the CORS handler will gate the actual request
   } else if (!checkBearerToken(req)) {
     const origin = req.headers.origin ?? ''
@@ -180,14 +184,24 @@ const server = http.createServer((req, res) => {
 
   // Rate limiting
   const clientIp = getClientIp(req)
-  const isUploadRoute = req.url?.startsWith('/upload') ?? false
+  const isUploadRoute = (req.url?.startsWith('/upload') || req.url?.startsWith('/resource-upload')) ?? false
   if (!checkRateLimit(clientIp, isUploadRoute)) {
     res.writeHead(429, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Too many requests. Please try again later.' }))
     return
   }
 
-  if (req.url?.startsWith('/upload') || req.url?.startsWith('/uploads/')) {
+  if (req.url?.startsWith('/resource-upload') || req.url?.startsWith('/resource-files/')) {
+    setUploadCors(req, res)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+    } else if (req.url.startsWith('/resource-upload')) {
+      void handleResourceUpload(req, res)
+    } else {
+      void handleResourceFile(req, res)
+    }
+  } else if (req.url?.startsWith('/upload') || req.url?.startsWith('/uploads/')) {
     setUploadCors(req, res)
 
     if (req.method === 'OPTIONS') {

@@ -1,12 +1,17 @@
 import {
+  MAX_RESOURCE_FILE_BYTES,
   UNTITLED_NOTE,
+  matchesFileContent,
   newResourceLinkInput,
   newResourceNoteInput,
   noteExcerpt,
   parseResourceUrl,
+  resourceFileTypeByMime,
   resourceIdInput,
   resourceListInput,
   resourceUpdateInput,
+  titleFromFileName,
+  type ResourceFileUrl,
   type ResourceWithBody,
 } from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
@@ -84,6 +89,46 @@ function insert(db: InMemoryDb, fields: Partial<StoredResource> & Pick<StoredRes
   return resourceRow(db, resource)
 }
 
+/**
+ * Twin of `POST /resource-upload` (the server's `handleResourceUpload`):
+ * the same refusals, answered as `{ status, body }`. `headers` are the
+ * request's, lower-cased.
+ */
+export function uploadResourceFile(
+  db: InMemoryDb,
+  headers: Record<string, string>,
+  body: Uint8Array,
+): { status: number; body: unknown } {
+  const type = resourceFileTypeByMime(headers['content-type'])
+  if (!type) return { status: 415, body: { error: "That file type isn't supported" } }
+  if (body.length > MAX_RESOURCE_FILE_BYTES) return { status: 413, body: { error: 'That file is over 20 MB' } }
+  if (body.length === 0) return { status: 400, body: { error: 'That file is empty' } }
+  if (!matchesFileContent(type, body)) return { status: 415, body: { error: `That file isn't a valid ${type.label} file` } }
+  let name = 'File'
+  try {
+    name = decodeURIComponent(headers['x-file-name'] ?? '').split(/[\\/]/).pop()?.trim() || 'File'
+  } catch {}
+  try {
+    const lectureId = headers['x-lecture-id'] || null
+    const course = headers['x-resource-course'] || null
+    if (headers['x-workspace-id']) requireBoard(db, headers['x-workspace-id'])
+    return {
+      status: 200,
+      body: insert(db, {
+        kind: 'file',
+        title: titleFromFileName(name),
+        file_name: name,
+        mime_type: type.mime,
+        size_bytes: body.length,
+        ...attachment(db, lectureId, course),
+      }),
+    }
+  } catch (err) {
+    if (err instanceof SimulatorError) return { status: err.code === 'NOT_FOUND' ? 404 : 400, body: { error: err.message } }
+    throw err
+  }
+}
+
 export function registerResourcesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('resources.list', (input) => {
     const filter = parse(resourceListInput, input) ?? {}
@@ -154,6 +199,12 @@ export function registerResourcesHandlers(router: ProcedureRouter, db: InMemoryD
     next.updated_at = nextTimestamp(current.updated_at)
     Object.assign(current, next)
     return resourceRow(db, current)
+  })
+
+  router.register('resources.fileUrl', (input): ResourceFileUrl => {
+    const id = parse(resourceIdInput, input)
+    if (requireResource(db, id).kind !== 'file') throw new SimulatorError('BAD_REQUEST', 'That is not a file')
+    return { url: `/resource-files/${id}?u=sim&exp=${Date.now() + 300_000}&sig=sim` }
   })
 
   router.register('resources.delete', (input) => {

@@ -15,7 +15,7 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
-import { registerResourcesHandlers } from './handlers/resources'
+import { registerResourcesHandlers, uploadResourceFile } from './handlers/resources'
 
 export const TRPC_URL = 'http://localhost:3999/trpc'
 
@@ -72,6 +72,30 @@ export class BackendSimulator {
 
   async handleNetworking(page: Page): Promise<void> {
     await page.route(`${TRPC_URL}/**`, (route) => this.handleRoute(route))
+    // The server's plain HTTP routes for resource files, answered the same way.
+    await page.route('**/resource-upload', (route) => this.handleResourceUpload(route))
+    await page.route('**/resource-files/**', (route) => this.handleResourceFile(route))
+  }
+
+  private async handleResourceUpload(route: Route): Promise<void> {
+    const request = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors })
+      return
+    }
+    const { status, body } = uploadResourceFile(this.db, request.headers(), request.postDataBuffer() ?? new Uint8Array())
+    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: cors })
+  }
+
+  private async handleResourceFile(route: Route): Promise<void> {
+    const id = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    const resource = this.db.resources.find((r) => r.id === id)
+    if (!resource) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"File not found"}' })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: resource.mime_type ?? 'application/octet-stream', body: `simulated ${resource.file_name}` })
   }
 
   private async handleRoute(route: Route): Promise<void> {
