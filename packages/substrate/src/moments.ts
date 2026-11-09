@@ -1,8 +1,17 @@
 // How a student stands with one lecture moment, from what they told us: the
-// latest "how sure you feel" rating and whether they marked it confusing.
+// latest "how sure you feel" rating, whether they marked it confusing, and
+// whether they marked it sorted since.
 // One rule behind every count and list (Your progress, All courses, Weak
 // topics), so the widgets always agree. The SQL in
 // apps/server/src/routers/aggregates.ts mirrors it.
+
+/**
+ * The tag that marks a confusing moment sorted (understood now). It is added
+ * alongside the `confused` tag, which stays as history.
+ */
+export const SORTED_TAG = 'sorted'
+/** The tag that marks a moment confusing. */
+export const CONFUSED_TAG = 'confused'
 
 /** Felt less sure than this (percent): the moment needs another look. */
 export const WEAK_BELOW = 50
@@ -16,9 +25,15 @@ export interface MomentSignals {
   latestAt: string | number | null
   /** When it was last marked confusing (ISO or ms), or null if never. */
   confusedAt: string | number | null
+  /**
+   * Marked sorted (a `sorted` tag; the confusing mark stays as history).
+   * Absent means not sorted.
+   */
+  sorted?: boolean
 }
 
 /**
+ * - `solid` (first): marked sorted, whatever the rating.
  * - `review`: marked confusing and not felt sure about since, or the latest
  *   rating is under WEAK_BELOW.
  * - `solid`: the latest rating is SOLID_FROM or more (and was given after any
@@ -29,14 +44,15 @@ export type MomentStatus = 'review' | 'solid' | 'learning'
 
 export function momentStatus(signals: MomentSignals): MomentStatus {
   const { latestScore } = signals
+  if (signals.sorted) return 'solid'
   if ((latestScore != null && latestScore < WEAK_BELOW) || stillConfused(signals)) return 'review'
   if (latestScore != null && latestScore >= SOLID_FROM) return 'solid'
   return 'learning'
 }
 
-/** Marked confusing, and not felt sure about (SOLID_FROM or more) since. */
-export function stillConfused({ latestScore, latestAt, confusedAt }: MomentSignals): boolean {
-  if (confusedAt == null) return false
+/** Marked confusing, not sorted, and not felt sure about (SOLID_FROM or more) since. */
+export function stillConfused({ latestScore, latestAt, confusedAt, sorted }: MomentSignals): boolean {
+  if (confusedAt == null || sorted) return false
   const sureSince = latestScore != null && latestScore >= SOLID_FROM && latestAt != null && toMs(latestAt) > toMs(confusedAt)
   return !sureSince
 }

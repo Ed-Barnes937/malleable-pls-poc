@@ -122,6 +122,21 @@ export async function deleteRecordingData(tx: TxSql, userId: string, recordingId
     UPDATE plan_items SET source_type = NULL, source_id = NULL, source_offset_ms = NULL, updated_at = now()
     WHERE ${derivedPlanItemsWhere(tx, userId, recordingIds)}
   `
+  // The same for ones the student deleted a moment ago, which Undo can still
+  // put back (plan_item_trash): an unfinished one goes for good, with its
+  // sessions; a finished one comes back no longer linked to a moment.
+  const trashedWhere = () => tx`
+    user_id = ${userId} AND row->>'source_type' = 'recording' AND row->>'source_id' = ANY(${recordingIds}::text[])
+  `
+  const trashed = await tx`DELETE FROM plan_item_trash WHERE ${trashedWhere()} AND row->>'status' <> 'done' RETURNING id`
+  await tx`
+    DELETE FROM plan_item_trash
+    WHERE user_id = ${userId} AND parent_id = ANY(${trashed.map((r) => r.id as string)}::text[])
+  `
+  await tx`
+    UPDATE plan_item_trash SET row = row || '{"source_type": null, "source_id": null, "source_offset_ms": null}'::jsonb
+    WHERE ${trashedWhere()}
+  `
   for (const { table, where } of RECORDING_DATA) {
     await tx`DELETE FROM ${tx(table)} WHERE user_id = ${userId} AND ${where(tx, targets)}`
   }

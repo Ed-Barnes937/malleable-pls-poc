@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, bookedMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence } from '@pls/substrate'
-import { type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
+import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { COURSES, Presence, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -14,7 +14,7 @@ import { FindAnotherTime, TickTodoToo } from './StudyBlockActions'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
-import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposals'
+import { acceptPatch, useProposalLayer, type Proposal, type ProposalValidator } from './proposals'
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { toneFor } from './colors'
@@ -22,6 +22,11 @@ import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, st
 import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
+
+/** Which popover is open: a new block's by its start, a block's by its occurrence. */
+function popoverIdOf(popover: Popover): string {
+  return popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`
+}
 
 type Popover =
   | { mode: 'create'; x: number; y: number; span?: Span; draft: Draft }
@@ -45,6 +50,13 @@ interface PendingMove {
   basis: string
 }
 
+/** How much the calendar's width must change while a popover is open to count as the phone turning (more than a scrollbar). */
+const TURN_PX = 16
+/** Air between the grid's prompts (re-fit, suggested blocks) and a Help me plan panel over the grid. */
+const PROMPTS_GAP_PX = 8
+/** Beside Show plan (at the grid's bottom corner) while the Help me plan panel is tucked away. */
+const SHOW_PLAN_ROOM_PX = 12 + 128 + PROMPTS_GAP_PX
+
 function useNow(): Date {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
@@ -64,8 +76,8 @@ function courseLabel(course: string): string {
 }
 
 export default function CalendarLens({
-  highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
-  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget,
+  panelId, highlight, config, onConfigChange, onShowMoment, onEditAutomation, focusedPlanItem, onPlanItemShown,
+  onFocusClass, onUndoFocusClass, lectureBoards, boardShowsLectures, onOpenLectureOn, onAddWidget, asksAboutMissedBlocks, onNotify, onDismissNotice,
 }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
@@ -73,6 +85,7 @@ export default function CalendarLens({
   const updateItem = mutations.useUpdatePlanItem()
   const completeItem = mutations.useCompletePlanItem()
   const deleteItem = mutations.useDeletePlanItem()
+  const restoreItem = mutations.useRestorePlanItem()
   // The student's study rhythm (one per user, not per board): study hours and
   // study time per day bound everything Help me plan places.
   const preferences = substrate.usePreferences()
@@ -85,6 +98,8 @@ export default function CalendarLens({
   const [view, setViewState] = useState<View>(() => (narrow ? 'day' : savedView))
   const [anchorDay, setAnchorDay] = useState(() => startOfDay(new Date()))
   const [popover, setPopover] = useState<Popover | null>(null)
+  /** The popover open when the calendar last turned, until it is placed again beside its block. */
+  const turnedRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
   const [planOpen, setPlanOpen] = useState(false)
@@ -112,14 +127,25 @@ export default function CalendarLens({
     openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
     setError(null)
     setNotice(null)
+    // A popover opened after the calendar turned is not the one to move.
+    turnedRef.current = null
     setPopover(next)
   }
+  /** What focus goes back to once a closed popover has gone from the page. */
+  const focusBackRef = useRef<HTMLElement | null>(null)
   const closePopover = useCallback(() => {
     setPopover(null)
-    const opener = openerRef.current
+    focusBackRef.current = openerRef.current
     openerRef.current = null
-    if (!opener?.isConnected) return
-    requestAnimationFrame(() => {
+  }, [])
+  // Only once the popover has gone: until then focus is still in it (a save
+  // can close it before React has taken it away), and would read as the
+  // student having moved it elsewhere.
+  useEffect(() => {
+    const opener = focusBackRef.current
+    focusBackRef.current = null
+    if (popover || !opener?.isConnected) return
+    const frame = requestAnimationFrame(() => {
       // Focus goes back to what opened the popover, unless the press that
       // closed it put focus on something else in the calendar (another
       // block and maybe its popover, a button), which keeps it.
@@ -127,7 +153,8 @@ export default function CalendarLens({
       const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
       if (!elsewhere) opener.focus()
     })
-  }, [])
+    return () => cancelAnimationFrame(frame)
+  }, [popover])
   /** Closes the popover for somewhere else that takes focus (another board, the board menu). */
   const leavePopover = useCallback(() => {
     openerRef.current = null
@@ -166,6 +193,18 @@ export default function CalendarLens({
     if (narrow) setPlanOpen(false)
   }, [narrow, savedView])
 
+  // The top bar's "Plan my week": Help me plan opens here, in Week view on
+  // this week (even on a phone, where Day view has no Help me plan).
+  const planRequest = useHelpMePlanRequest()
+  useEffect(() => {
+    if (!takeHelpMePlanRequest(panelId)) return
+    setViewState('week')
+    setAnchorDay(startOfDay(new Date()))
+    setPlanCollapsed(false)
+    setPlanOpen(true)
+    rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [planRequest, panelId])
+
   const days = useMemo(() => {
     if (view === 'day') return [anchorDay]
     const monday = startOfWeek(anchorDay)
@@ -200,6 +239,10 @@ export default function CalendarLens({
   // Never pass `highlight` here: the calendar shows every course's
   // commitments and only dims the ones outside the board's course.
   const { data, isLoading } = substrate.usePlanItems({ from: range.from, to: range.to, statuses: ['open', 'done'] })
+  // The grid shows once the first week is in (see below); after that it stays.
+  const weekLoaded = useRef(false)
+  if (data) weekLoaded.current = true
+  const weekShown = weekLoaded.current
   // Open to-dos with time still to book: what Help me plan offers, and what
   // an Auto-fill ghost's to-do must still be when it is accepted. A to-do
   // booked in part (its own block, or sessions) offers only the time not
@@ -280,7 +323,9 @@ export default function CalendarLens({
 
   // Study blocks whose time passed without being done, offered for re-fitting.
   const missed = useMissedBlocks()
-  const refit = useRefitDraft(missed)
+  // Undo for an accepted draft (Auto-fill, re-fit); its toast goes once a block it changed is edited.
+  const draftUndo = useDraftUndo({ onNotify, onDismissNotice, rows: taskRows })
+  const refit = useRefitDraft(missed, draftUndo)
   const missedIds = useMemo(() => (missed.preview ? new Set(missed.preview.map((m) => m.item.id)) : null), [missed.preview])
 
   const validateProposal: ProposalValidator = useCallback((p, source) => {
@@ -300,10 +345,51 @@ export default function CalendarLens({
   // lands on something.
   /** Shrinks already saved with a split to-do's sessions (`taskId:minutes`). */
   const shrunkRef = useRef(new Set<string>())
+  /**
+   * Each to-do an Accept writes, as it was before that Accept (read from the
+   * server before its first write in the Accept), and whether anything of
+   * it was written, until the Accept is confirmed with Undo. One that was
+   * only partly written (a Shrink saved, then its session failed) is still
+   * undone with the rest.
+   */
+  const beforeAcceptRef = useRef(new Map<string, { title: string; state: PlanItemUndoState | null; wrote: boolean; shrunkTo?: number }>())
+  const confirmAccepted = useCallback((accepted: Proposal[]) => {
+    const touched = [...beforeAcceptRef.current.entries()].filter(([, e]) => e.wrote)
+    beforeAcceptRef.current.clear()
+    const before = touched.flatMap(([, e]) => e.state ?? [])
+    if (before.length === 0) return
+    const n = accepted.length
+    const taskIds = touched.map(([id]) => id)
+    // Nothing booked, but a Shrink saved: one error toast, whose Undo puts the estimate back.
+    const shrunk = n === 0 ? touched.find(([, e]) => e.shrunkTo !== undefined)?.[1] : undefined
+    void draftUndo.confirm({
+      before,
+      message: n === 0
+        ? `Couldn't book "${touched[0][1].title}".${shrunk ? ` Its estimate changed to ${formatMinutes(shrunk.shrunkTo!)}` : ''}`
+        : n === 1 ? `Added "${accepted[0].title}" to your plan` : `Added ${n} blocks to your plan`,
+      tone: n === 0 ? 'error' : undefined,
+      failMessage: n === 0 ? "Couldn't put its estimate back." : n === 1 ? "Couldn't take that block out of your plan." : "Couldn't take those blocks out of your plan.",
+      // A Shrink undone is offered again on the next draft.
+      onUndone: () => {
+        for (const key of [...shrunkRef.current]) if (taskIds.some((id) => key.startsWith(`${id}:`))) shrunkRef.current.delete(key)
+      },
+    })
+  }, [draftUndo])
   const layer = useProposalLayer({
     // A session is its own study block, linked to the to-do; anything else is the to-do's own time.
     save: async (p) => {
-      if (!p.session) return updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) })
+      let entry = beforeAcceptRef.current.get(p.taskId)
+      if (!entry) {
+        const [state] = (await draftUndo.readBefore([p.taskId])) ?? [null]
+        // The to-do's own title: a session's ("... (1 of 3)") is not what an estimate belongs to.
+        entry = { title: state?.title ?? p.title, state: state ?? null, wrote: false }
+        beforeAcceptRef.current.set(p.taskId, entry)
+      }
+      const wrote = <T,>(result: T) => {
+        entry.wrote = true
+        return result
+      }
+      if (!p.session) return wrote(await updateItem.mutateAsync({ id: p.taskId, patch: acceptPatch(p) }))
       const todo = todos?.find((t) => t.id === p.taskId)
       if (!todo) throw new Error(`"${p.title}" is no longer waiting for a time`)
       // A Shrink is kept, as it is when a to-do is booked in one block: once per to-do and length.
@@ -311,12 +397,14 @@ export default function CalendarLens({
       const stored = openTodos?.find((t) => t.id === p.taskId)
       const key = `${p.taskId}:${estimate}`
       if (estimate !== undefined && stored && stored.duration_min !== estimate && !shrunkRef.current.has(key)) {
-        await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } })
+        wrote(await updateItem.mutateAsync({ id: p.taskId, patch: { duration_min: estimate } }))
+        entry.shrunkTo = estimate
         shrunkRef.current.add(key)
       }
-      return createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt))
+      return wrote(await createItem.mutateAsync(newSession(todo, p.startsAt, p.endsAt)))
     },
     saveTogether: { [REFIT_SOURCE]: refit.save },
+    onAccepted: confirmAccepted,
     onDismiss: refit.onDismiss,
     rows: items,
     validate: validateProposal,
@@ -361,7 +449,8 @@ export default function CalendarLens({
   // Where the panel floats: over the days already past, else the weekend,
   // never over a draft (see plan-panel.ts).
   const gridAreaRef = useRef<HTMLDivElement>(null)
-  const geometry = useWeekGeometry(gridAreaRef, !!planLayout, range.from)
+  const [gridEl, setGridEl] = useState<HTMLDivElement | null>(null)
+  const geometry = useWeekGeometry(gridAreaRef, gridEl, !!planLayout, range.from)
   const pastDays = days.filter((d) => d.getTime() < startOfDay(now).getTime()).length
   const draftDays = layer.proposals
     .filter((p) => !layer.savedIds.has(p.id))
@@ -551,7 +640,7 @@ export default function CalendarLens({
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
-  const popoverId = popover ? (popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`) : null
+  const popoverId = popover ? popoverIdOf(popover) : null
   const popoverIdRef = useRef(popoverId)
   useEffect(() => { popoverIdRef.current = popoverId }, [popoverId])
   /** The popover action waiting on the server: its button says so ("Saving...") until the save lands. */
@@ -661,12 +750,75 @@ export default function CalendarLens({
     if (popover?.mode === 'edit' && data && !editing) setPopover(null)
   }, [popover, data, editing])
 
+  // The calendar much wider or narrower while a popover is open (a phone
+  // turned on its side) lays the blocks out afresh: a block's popover is
+  // placed again beside its block once the block is drawn at the new width
+  // (after a refetch, if the view changed), so it never covers it, and a new
+  // block's from the same point across the calendar. Only the popover open
+  // when the calendar turned is moved: one opened since is left alone. A
+  // frame's small change (a scrollbar) is not a turn, and never moves it.
+  const [turns, setTurns] = useState(0)
+  const popoverOpen = popover !== null
+  const popoverIdNow = useRef(popoverId)
+  popoverIdNow.current = popoverId
+  useEffect(() => {
+    const root = rootRef.current
+    if (!popoverOpen || !root || typeof ResizeObserver === 'undefined') return
+    let placedWidth = root.clientWidth
+    const observer = new ResizeObserver(() => {
+      const width = root.clientWidth
+      if (Math.abs(width - placedWidth) <= TURN_PX) return
+      const was = placedWidth
+      placedWidth = width
+      const turned = popoverIdNow.current
+      setPopover((cur) => {
+        if (cur?.mode !== 'create' || popoverIdOf(cur) !== turned) return cur
+        return { ...cur, x: (cur.x * width) / was }
+      })
+      turnedRef.current = turned
+      setTurns((n) => n + 1)
+    })
+    observer.observe(root)
+    return () => observer.disconnect()
+  }, [popoverOpen])
+  useLayoutEffect(() => {
+    const turned = turnedRef.current
+    const root = rootRef.current
+    if (turned === null || !root) return
+    if (popover?.mode !== 'edit' || popoverId !== turned) {
+      turnedRef.current = null
+      return
+    }
+    // Not drawn yet (the new view still loading): placed once it is. If the
+    // data says it is gone, the rule above closes the popover.
+    const block = root.querySelector(`[data-occurrence-key="${CSS.escape(popover.key)}"]`)
+    if (!block) return
+    turnedRef.current = null
+    const at = root.getBoundingClientRect()
+    const box = block.getBoundingClientRect()
+    const span = { top: box.top - at.top, bottom: box.bottom - at.top, left: box.left - at.left, right: box.right - at.left }
+    setPopover((cur) => {
+      if (cur?.mode !== 'edit' || popoverIdOf(cur) !== turned) return cur
+      const into = cur.span ? Math.min(Math.max(cur.y - cur.span.top, 0), span.bottom - span.top) : (span.bottom - span.top) / 2
+      return { ...cur, x: box.left + box.width / 2 - at.left, y: span.top + into, span }
+    })
+  }, [turns, popover, popoverId, items])
+
   const step = view === 'week' ? 7 : 1
   const phoneDay = narrow && view === 'day'
   const today = startOfDay(now)
   const showingToday = days.some((d) => d.getTime() === today.getTime())
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
   const bounds = { width: rootRef.current?.clientWidth ?? 800, height: rootRef.current?.clientHeight ?? 600 }
+  // The prompts' place at the grid's foot: clear of the open Help me plan
+  // panel, and above Show plan while the panel is tucked away.
+  const promptsInset: CSSProperties = {}
+  if (planLayout && planCollapsed) promptsInset[placement.side === 'left' ? 'paddingLeft' : 'paddingRight'] = SHOW_PLAN_ROOM_PX
+  if (planLayout && !planCollapsed) {
+    // Docked, the panel sits beside the grid and covers none of it.
+    if (placement.side === 'left') promptsInset.paddingLeft = placement.left + placement.width + PROMPTS_GAP_PX
+    else if (placement.side === 'right') promptsInset.paddingRight = placement.width + PROMPTS_GAP_PX
+  }
 
   /** Keyboard (and pointer) way to add: an hour from the next half hour today, or 09:00 on the first day shown. */
   const handleAddButton = (e: MouseEvent<HTMLButtonElement>) => {
@@ -691,6 +843,55 @@ export default function CalendarLens({
       </button>
     )
   }
+
+  // The calendar's prompts (a lost save, the re-fit banner, the suggested
+  // blocks tray) sit at the grid's foot, inside it: the grid fits its hours
+  // to the room it has with them or without them (see TimeGrid's footer), so
+  // it never moves or re-sizes its hours as they come and go (a drag at that
+  // moment would land on the wrong hour; decision 13), and they never lie over
+  // a block. Clear of the Help me plan panel and its Show plan button.
+  const prompts = (
+    <div
+      data-testid="calendar-prompts"
+      className="flex flex-col gap-1.5 border-t border-border-subtle p-2 empty:hidden"
+      style={promptsInset}
+    >
+      <Presence>
+      {lostSave && (
+        <div
+          role="alert"
+          data-testid="calendar-lost-save"
+          className="flex shrink-0 items-center gap-2 rounded-item border border-confused-line bg-confused-soft py-1.5 pr-1.5 pl-3 text-body text-confused motion-safe:animate-enter"
+        >
+          <span className="min-w-0 flex-1">{lostSave}</span>
+          <button
+            type="button"
+            aria-label="Dismiss"
+            title="Dismiss"
+            onClick={() => setLostSave(null)}
+            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item transition-colors hover:bg-surface-raised"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      </Presence>
+
+      {/* A board asks once: in its first Calendar (decision 4). */}
+      {asksAboutMissedBlocks !== false && (
+        <RefitBanner
+          refit={refit}
+          layer={layer}
+          onReveal={(startsAt) => {
+            // Show the first new time: its week (or day).
+            const start = Date.parse(startsAt)
+            if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
+          }}
+        />
+      )}
+      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
+    </div>
+  )
 
   return (
     <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway}>
@@ -792,67 +993,47 @@ export default function CalendarLens({
         </div>
       </header>
 
-      {lostSave && (
-        <div
-          role="alert"
-          data-testid="calendar-lost-save"
-          className="flex shrink-0 items-center gap-2 rounded-item border border-confused-line bg-confused-soft py-1.5 pr-1.5 pl-3 text-body text-confused"
-        >
-          <span className="min-w-0 flex-1">{lostSave}</span>
-          <button
-            type="button"
-            aria-label="Dismiss"
-            title="Dismiss"
-            onClick={() => setLostSave(null)}
-            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item transition-colors hover:bg-surface-raised"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
-
-      <RefitBanner
-        refit={refit}
-        layer={layer}
-        onReveal={(startsAt) => {
-          // Show the first new time: its week (or day).
-          const start = Date.parse(startsAt)
-          if (start < Date.parse(range.from) || start >= Date.parse(range.to)) setAnchorDay(startOfDay(new Date(start)))
-        }}
-      />
-      {layer.source !== REFIT_SOURCE && (!planOpen || planCollapsed || layer.source !== 'autofill') && <ProposalTray layer={layer} />}
 
       <div ref={gridAreaRef} className="@container/cal relative flex min-h-0 flex-1 gap-3">
-        <TimeGrid
-          days={days}
-          items={items}
-          now={now}
-          isDimmed={isDimmed}
-          isLinked={isLinked}
-          activeKey={popover?.mode === 'edit' ? popover.key : undefined}
-          popoverOpen={!!popover}
-          onCreate={handleCreate}
-          onOpen={handleOpen}
-          onMove={handleMove}
-          proposals={layer.proposals}
-          savedProposalIds={layer.lockedIds}
-          onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
-          onProposalNudge={layer.nudge}
-          onProposalAccept={(id) => void layer.accept(id)}
-          onProposalDismiss={layer.dismiss}
-          freeTime={freeTime}
-          outsideStudyHours={offStudyHours}
-          reveal={reveal}
-          incoming={incoming}
-          onDropIncoming={(start) => {
-            const todo = incoming
-            setIncoming(null)
-            if (!todo) return
-            scheduleTodo(todo, start, todo.durationMin).catch((e: unknown) =>
-              setNotice(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar - try again?`),
-            )
-          }}
-        />
+        {weekShown ? (
+          <TimeGrid
+            rootRef={setGridEl}
+            days={days}
+            items={items}
+            loading={!data}
+            footer={prompts}
+            now={now}
+            isDimmed={isDimmed}
+            isLinked={isLinked}
+            activeKey={popover?.mode === 'edit' ? popover.key : undefined}
+            popoverOpen={!!popover}
+            onCreate={handleCreate}
+            onOpen={handleOpen}
+            onMove={handleMove}
+            proposals={layer.proposals}
+            savedProposalIds={layer.lockedIds}
+            onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
+            onProposalNudge={layer.nudge}
+            onProposalAccept={(id) => void layer.accept(id)}
+            onProposalDismiss={layer.dismiss}
+            freeTime={freeTime}
+            outsideStudyHours={offStudyHours}
+            reveal={reveal}
+            incoming={incoming}
+            onDropIncoming={(start) => {
+              const todo = incoming
+              setIncoming(null)
+              if (!todo) return
+              scheduleTodo(todo, start, todo.durationMin).catch((e: unknown) =>
+                setNotice(e instanceof ScheduleClash ? e.message : `Couldn't add "${todo.title}" to the calendar - try again?`),
+              )
+            }}
+          />
+        ) : (
+          // Until the week first loads: the grid comes with its blocks (and its
+          // row of due to-dos) rather than resizing under them as they land.
+          <div aria-busy className="min-h-0 flex-1" />
+        )}
         {planLayout && planCollapsed && (
           // Bottom corner, clear of the day headers.
           // Takes focus when Hide tucks the panel away (it only appears then).
@@ -979,7 +1160,17 @@ export default function CalendarLens({
             if (Object.keys(patch).length === 0) return closePopover()
             void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
           }}
-          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, async () => {
+            await deleteItem.mutateAsync(editing.id)
+            // Undo puts it back as it was: a weekly one as the whole series, a to-do with its sessions.
+            const { id, title } = editing
+            confirmWithUndo(onNotify, {
+              key: 'plan-item-deleted',
+              message: `Deleted "${title}"`,
+              failMessage: `Couldn't bring back "${title}".`,
+              undo: () => restoreItem.mutateAsync(id),
+            })
+          })}
           // As children, so it isn't remounted when the board's scope changes under it.
           children={popover.lecture ? (
             <ClassLectureSection

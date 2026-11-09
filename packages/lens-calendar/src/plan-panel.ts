@@ -58,19 +58,20 @@ export function planPanelPlacement(
 /**
  * The week grid's geometry inside `area` (the grid and, when docked, the
  * panel), measured while `active` and kept current as it or the grid
- * resizes, and whenever `week` (the days shown) changes. The hour labels and
+ * resizes, and whenever `week` (the days shown) changes. `grid` is the
+ * TimeGrid itself (its own ref, so a grid mounting after the panel opens,
+ * e.g. once the week has loaded, is the one measured). The hour labels and
  * scrollbar gutter are the same docked or not, so the placement never flips
  * because docking squeezed the days.
  */
-export function useWeekGeometry(area: RefObject<HTMLElement | null>, active: boolean, week: string): WeekGeometry | null {
+export function useWeekGeometry(area: RefObject<HTMLElement | null>, grid: HTMLElement | null, active: boolean, week: string): WeekGeometry | null {
   const [geometry, setGeometry] = useState<WeekGeometry | null>(null)
   useLayoutEffect(() => {
     const el = area.current
-    if (!active || !el) return
-    const grid = el.firstElementChild as HTMLElement | null
+    if (!active || !el || !grid) return
     const measure = () => {
-      const columns = el.querySelectorAll<HTMLElement>('[data-day-column]')
-      if (!grid || columns.length !== 7) return setGeometry(null)
+      const columns = grid.querySelectorAll<HTMLElement>('[data-day-column]')
+      if (columns.length !== 7) return setGeometry(null)
       const box = grid.getBoundingClientRect()
       const next = {
         width: el.clientWidth,
@@ -82,8 +83,8 @@ export function useWeekGeometry(area: RefObject<HTMLElement | null>, active: boo
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(el)
-    if (grid) observer.observe(grid)
+    observer.observe(grid)
     return () => observer.disconnect()
-  }, [area, active, week])
-  return active ? geometry : null
+  }, [area, grid, active, week])
+  return active && grid ? geometry : null
 }

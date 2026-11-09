@@ -367,7 +367,7 @@ test.describe('Course scope filters every widget', () => {
     const transcript = grid.panelByLabel('Transcript')
     await expect(transcript.getByText('SN1 vs SN2 still confusing')).toBeVisible({ timeout: 10000 })
     await transcript.getByText(/Good afternoon. Today we begin organic reactions/).click()
-    const confusedButton = transcript.getByRole('button', { name: 'confused', exact: true })
+    const confusedButton = transcript.getByRole('button', { name: 'Confused', exact: true })
     await expect(confusedButton).toBeVisible()
     const before = await transcript.locator('text=confused').count()
     await confusedButton.click()

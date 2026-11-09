@@ -226,6 +226,12 @@ const server = http.createServer((req, res) => {
   }
 })
 
+// Keep idle connections open longer than clients do (Node's default is 5s):
+// otherwise a client can reuse a socket at the moment the server closes it,
+// and that request fails with "socket hang up".
+server.keepAliveTimeout = 65_000
+server.headersTimeout = 66_000
+
 server.listen(port, '0.0.0.0')
 void startJobRunner(executors)
 console.log(`tRPC server listening on :${port}`)

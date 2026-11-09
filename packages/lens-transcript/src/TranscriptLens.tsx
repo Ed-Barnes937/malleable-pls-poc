@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
-import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
+import { type LensProps, momentMarksKey, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
-import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, ChevronRight, Clock, ListTodo, MessageSquare, Sparkles } from 'lucide-react'
+import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, CalendarX2, Check, ChevronRight, CircleCheck, Clock, ListTodo, Loader2, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
+import { usePendingReviews, type PendingReview } from './pending-reviews'
 
 /** A review's length: its block's when it has one (a resize changes the block, not the estimate), else its estimate. */
 function reviewMinutes(review: PlanItemOccurrence): number | null {
@@ -13,7 +14,12 @@ function reviewMinutes(review: PlanItemOccurrence): number | null {
 }
 
 /** What happened to the review a marked moment turned into, in a few words; a planned one links to its block. */
-function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (chip: HTMLElement) => void }) {
+function ReviewChip({ review, fresh, onShow }: {
+  review: PlanItemOccurrence
+  /** Just arrived (e.g. in the pending chip's place): it comes in with the shared motion. */
+  fresh?: boolean
+  onShow?: (chip: HTMLElement) => void
+}) {
   const length = reviewMinutes(review)
   const minutes = length ? `${length} min` : null
   const done = review.status === 'done'
@@ -27,6 +33,7 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
   const className = cn(
     'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold',
     done ? 'border-transparent bg-good-soft text-good' : 'border-attn-line bg-attn-soft text-attn',
+    fresh && 'origin-left motion-safe:animate-enter',
   )
   if (!onShow || done || !review.starts_at) {
     return (
@@ -49,6 +56,39 @@ function ReviewChip({ review, onShow }: { review: PlanItemOccurrence; onShow?: (
       {label}
       <ArrowRight className="h-3 w-3" aria-hidden />
     </button>
+  )
+}
+
+/**
+ * In the review chip's place until the review arrives: "Planning a
+ * review...", then "No review yet" if the automation is slow (or failed),
+ * or "No review planned" when none is coming (no automation started).
+ * Only ever there after the student marks a moment, so it always arrives
+ * with the shared motion.
+ */
+function PendingReviewChip({ state }: { state: PendingReview }) {
+  if (state === 'planning') {
+    return (
+      <span
+        role="status"
+        data-testid="review-chip-pending"
+        className="inline-flex origin-left items-center gap-1 rounded-full border border-dashed border-attn-line px-2 py-0.5 text-meta font-semibold text-attn motion-safe:animate-enter"
+      >
+        <Loader2 className="h-3 w-3 motion-safe:animate-spin" aria-hidden />
+        Planning a review...
+      </span>
+    )
+  }
+  return (
+    <span
+      role="status"
+      data-testid={state === 'late' ? 'review-chip-late' : 'review-chip-none'}
+      title={state === 'none' ? 'Turn on the review automation to get one next time' : undefined}
+      className="inline-flex origin-left items-center gap-1 rounded-full border border-border-subtle px-2 py-0.5 text-meta font-semibold text-text-muted motion-safe:animate-enter"
+    >
+      {state === 'late' ? <Clock className="h-3 w-3" aria-hidden /> : <CalendarX2 className="h-3 w-3" aria-hidden />}
+      {state === 'late' ? 'No review yet' : 'No review planned'}
+    </span>
   )
 }
 
@@ -258,7 +298,45 @@ const TAG_LEGEND = [
   { label: 'confused', text: 'Confused' },
   { label: 'key-point', text: 'Key point' },
   { label: 'question', text: 'Question' },
+  { label: 'sorted', text: 'Sorted' },
 ]
+
+/** The tags a student marks a moment with, as toggles. */
+const MOMENT_TAGS = ['confused', 'key-point', 'question'] as const
+
+/**
+ * A tag button that toggles, with `aria-pressed`. Pressed, it is filled with
+ * the tag's colour and shows a tick. `locked`: pressed and can't be turned
+ * off (a sorted moment keeps its confusing mark as history).
+ */
+function TagToggle({ label, text, pressed, locked, onClick }: {
+  label: string
+  text: string
+  pressed: boolean
+  locked?: boolean
+  onClick: () => void
+}) {
+  const style = TAG_STYLES[label]
+  const Icon = pressed ? Check : style.icon
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      aria-disabled={locked || undefined}
+      onClick={locked ? undefined : onClick}
+      data-testid={`tag-toggle-${label}`}
+      title={locked ? 'Kept: you found this moment confusing before you sorted it' : pressed ? `Remove ${text}` : `Mark this moment as ${text.toLowerCase()}`}
+      className={cn(
+        'inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all',
+        pressed ? cn('border-transparent text-accent-foreground', style.mark) : cn(style.bg, style.text, 'hover:scale-105'),
+        locked ? 'cursor-default opacity-70' : 'active:scale-95',
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {text}
+    </button>
+  )
+}
 
 /** How many recent lectures "Pick a lecture" offers as one-click choices. */
 const RECENT_LECTURES = 5
@@ -327,7 +405,7 @@ function InProgress({ icon: Icon, message, testId }: { icon: typeof Sparkles; me
   )
 }
 
-export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem, onScopeChange }: LensProps) {
+export default function TranscriptLens({ scope, config, focusedMoment, onMomentShown, onShowPlanItem, onScopeChange, onNotify, onDismissNotice }: LensProps) {
   const substrate = useSubstrate()
   const mutations = useSubstrateMutations()
 
@@ -359,6 +437,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     recordingId ? { sourceType: 'recording', sourceId: recordingId, kinds: ['task'], statuses: ['open', 'done'] } : undefined,
   )
   const createTag = mutations.useCreateTag()
+  const deleteTag = mutations.useDeleteTag()
+  const marks = useMomentMarks(onNotify)
   const createAnnotation = mutations.useCreateAnnotation()
   const transcribe = mutations.useTranscribeRecording()
 
@@ -467,6 +547,15 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
     return map
   }, [reviews])
 
+  // A moment just marked confusing says a review is being planned, until it
+  // arrives (or none is coming).
+  const segmentStart = useMemo(() => new Map(segments?.map((s) => [s.id, s.start_ms])), [segments])
+  const hasReview = useCallback((segmentId: string) => {
+    const start = segmentStart.get(segmentId)
+    return start !== undefined && reviewByOffset.has(start)
+  }, [segmentStart, reviewByOffset])
+  const pendingReviews = usePendingReviews(hasReview)
+
   // A review that arrives while the lecture is open (the student just marked
   // its moment) gets the ripple once; reviews already there never do.
   const arrived = useArrivals(reviews?.map((r) => r.id), recordingId)
@@ -485,11 +574,66 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
   /** When the student last marked a moment: the ripple that follows leaves the board alone if they scroll after it. */
   const markedAt = useRef<number | null>(null)
+  const selectedTags = selectedSegmentId ? tagsBySegment.get(selectedSegmentId) ?? [] : []
+  const selectedLabels = new Set(selectedTags.map((t) => t.label))
+  const selectedSorted = selectedLabels.has('sorted')
+  /** Tags toggle: a pressed one comes off, so a moment never has a tag twice. */
   const handleTag = (label: string) => {
     if (!selectedSegmentId) return
+    const existing = selectedTags.filter((t) => t.label === label)
+    if (existing.length > 0) {
+      if (label === 'confused') {
+        // A sorted moment keeps its confusing mark (the button is locked too);
+        // otherwise its review comes off the plan with it, with Undo.
+        if (!selectedSorted && !marks.isPending) {
+          // No review is on its way for it any more.
+          pendingReviews.failed(selectedSegmentId)
+          void marks.unmarkConfused(selectedSegmentId)
+        }
+        return
+      }
+      for (const t of existing) deleteTag.mutate(t.id)
+      return
+    }
     markedAt.current = watchUserScroll()
-    createTag.mutate({ target_type: 'transcript_segment', target_id: selectedSegmentId, label })
+    const segmentId = selectedSegmentId
+    // Confusing moments get a review from the automation (decision 24: its toast has no Undo).
+    const planning = label === 'confused' && !hasReview(segmentId)
+    if (planning) pendingReviews.mark(segmentId)
+    createTag.mutateAsync({ target_type: 'transcript_segment', target_id: segmentId, label }).then(
+      (tag) => { if (planning) pendingReviews.started(segmentId, tag.automations_started) },
+      () => { if (planning) pendingReviews.failed(segmentId) },
+    )
+    // An earlier "No longer marked confusing" toast for this moment goes: its
+    // Undo would now double the mark and its review.
+    if (label === 'confused') onDismissNotice?.(momentMarksKey(segmentId))
   }
+  const handleSorted = () => {
+    if (!selectedSegmentId || marks.isPending) return
+    if (selectedSorted) void marks.unsort(selectedSegmentId)
+    else void marks.sort(selectedSegmentId)
+  }
+  /** The tag bar: the tag toggles and, on a confusing moment, Sorted. */
+  const tagButtons = (
+    <>
+      {MOMENT_TAGS.map((label) => (
+        <TagToggle
+          key={label}
+          label={label}
+          text={TAG_LEGEND.find((t) => t.label === label)?.text ?? label}
+          pressed={selectedLabels.has(label)}
+          locked={label === 'confused' && selectedSorted}
+          onClick={() => handleTag(label)}
+        />
+      ))}
+      {selectedLabels.has('confused') && (
+        <>
+          <span aria-hidden className="mx-0.5 h-5 w-px bg-border-subtle" />
+          <TagToggle label="sorted" text={selectedSorted ? 'Sorted' : 'Mark sorted'} pressed={selectedSorted} onClick={handleSorted} />
+        </>
+      )}
+    </>
+  )
 
   const handleAnnotation = () => {
     if (!selectedSegmentId || !annotationDraft.trim()) return
@@ -558,7 +702,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
       {railMarks.length > 0 && (
         <ul aria-label="Tag colours" data-testid="tag-legend" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-meta text-text-secondary">
-          {TAG_LEGEND.map(({ label, text }) => (
+          {TAG_LEGEND.filter(({ label }) => label !== 'sorted' || railMarks.some((m) => m.label === 'sorted')).map(({ label, text }) => (
             <li key={label} className="inline-flex items-center gap-1.5">
               <span aria-hidden className={cn('h-1 w-3 rounded-full', TAG_STYLES[label].mark)} />
               {text}
@@ -633,6 +777,7 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
         {segments?.map((seg) => {
           const segTags = tagsBySegment.get(seg.id) ?? []
           const review = reviewByOffset.get(seg.start_ms)
+          const pendingReview = pendingReviews.stateOf(seg.id)
           const segAnnotations = annotationsBySegment.get(seg.id) ?? []
           const isSelected = selectedSegmentId === seg.id
           const isMoment = momentSegmentId === seg.id
@@ -696,12 +841,26 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
                 </div>
               </button>
 
-              {(segTags.length > 0 || review) && (
+              {(segTags.length > 0 || review || pendingReview) && (
                 <div className="-mt-1 flex flex-wrap items-center gap-1 pb-2 pl-[4.375rem] pr-2.5">
-                  {segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                  {segTags.some((t) => t.label === 'sorted') ? (
+                    // Sorted, with its confusing mark kept as quiet history.
+                    <>
+                      <span data-testid="sorted-pill" className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-meta font-semibold', TAG_STYLES.sorted.bg, TAG_STYLES.sorted.text)}>
+                        <CircleCheck className="h-3 w-3" />
+                        Sorted
+                      </span>
+                      {segTags.some((t) => t.label === 'confused') && <span className="text-meta text-text-muted">was confusing</span>}
+                      {segTags.filter((t) => t.label !== 'sorted' && t.label !== 'confused').map((tag) => <TagPill key={tag.id} label={tag.label} />)}
+                    </>
+                  ) : (
+                    segTags.map((tag) => <TagPill key={tag.id} label={tag.label} />)
+                  )}
+                  {!review && pendingReview && <PendingReviewChip state={pendingReview} />}
                   {review && (
                     <ReviewChip
                       review={review}
+                      fresh={arrived.has(review.id)}
                       onShow={onShowPlanItem && review.starts_at
                         ? (chip) => onShowPlanItem({ id: review.id, startsAt: review.starts_at!, keepInView: chip })
                         : undefined}
@@ -721,23 +880,8 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
               )}
 
               {isSelected && isCapture && (
-                <div className="ml-[4.375rem] flex items-center gap-1 py-1.5">
-                  {(['confused', 'key-point', 'question'] as const).map((label) => {
-                    const style = TAG_STYLES[label]
-                    const Icon = style.icon
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => handleTag(label)}
-                        title={`Mark this moment as ${label}`}
-                        className={cn('inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
-                      >
-                        <Icon className="h-3.5 w-3.5" />
-                        {label}
-                      </button>
-                    )
-                  })}
+                <div className="ml-[4.375rem] flex flex-wrap items-center gap-1 py-1.5">
+                  {tagButtons}
                 </div>
               )}
             </div>
@@ -749,24 +893,9 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
 
       {selectedSegmentId && !isCapture && (
         <div className="flex flex-col gap-2 border-t border-border-subtle pt-2">
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-meta font-semibold text-text-muted">Tag:</span>
-            {(['confused', 'key-point', 'question'] as const).map((label) => {
-              const style = TAG_STYLES[label]
-              const Icon = style.icon
-              return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => handleTag(label)}
-                  title={`Mark this moment as ${label}`}
-                  className={cn('inline-flex h-8 items-center gap-1.5 rounded-item border px-3 text-body font-semibold transition-all hover:scale-105 active:scale-95', style.bg, style.text)}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {label}
-                </button>
-              )
-            })}
+            {tagButtons}
           </div>
           <div className="flex gap-1.5">
             <input

@@ -71,8 +71,33 @@ export interface BackgroundConfig {
 
 export const DEFAULT_BACKGROUND: BackgroundConfig = { type: 'none', value: '' }
 
+/** What `arrangePanels` gives a panel: any of its layout and stacking. */
+export type PanelArrangement = Partial<PanelLayout> & { z_index?: number }
+
+/** What is saved of a panel's place on the board. */
+export const LAYOUT_KEYS = ['pos_x', 'pos_y', 'width', 'height', 'z_index'] as const
+
+interface PreviewBox {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/** Where a Shift gesture will leave the widget being moved, and each neighbour it nudges. */
+export interface ShiftPreview {
+  moving: PreviewBox
+  nudged: ReadonlyArray<PreviewBox>
+}
+
 interface CanvasState {
   panels: PanelItem[]
+  /**
+   * Bumped by every `setPanels` (another board, or the first load): the
+   * panels are a new set, shown at once rather than each arriving.
+   */
+  panelSet: number
   setPanels: (panels: PanelItem[]) => void
   addPanel: (item: PanelItem) => void
   removePanel: (id: string) => void
@@ -98,8 +123,32 @@ interface CanvasState {
   exitFullscreen: () => void
   toggleFullscreen: (id: string, canvasWidth: number, canvasHeight: number) => void
 
-  /** Auto-organize panels into a non-overlapping grid layout */
-  organizePanels: (canvasWidth: number, canvasHeight: number) => void
+  /**
+   * Moves (and resizes) widgets the student didn't drag (Tidy up, its Undo,
+   * a migrated board's first layout, a Shift drop's nudges): each panel in
+   * `layout` takes what is given for it, gliding there (see `arranged`).
+   */
+  arrangePanels: (layout: ReadonlyMap<string, PanelArrangement>) => void
+
+  /**
+   * The panel a drag or resize is under way on, if any. The layout is saved
+   * once the gesture ends (see CanvasEngine's `onLayoutChange`).
+   */
+  gesturePanelId: string | null
+  setGesture: (id: string | null) => void
+  /**
+   * While a widget is dragged or resized with Shift held: where it, and each
+   * widget it would nudge, will land.
+   */
+  shiftPreview: ShiftPreview | null
+  setShiftPreview: (preview: ShiftPreview | null) => void
+
+  /**
+   * Bumped by every change that moves widgets without the student dragging
+   * them (fullscreen in and out, Tidy up), so the canvas glides them from
+   * where they were instead of jumping.
+   */
+  arranged: number
 
   /** Workspace background */
   background: BackgroundConfig
@@ -120,11 +169,13 @@ export function persistableLayout(
 
 export const useCanvasStore = create<CanvasState>((set, get) => ({
   panels: [],
+  panelSet: 0,
+  arranged: 0,
 
   // A new panel set (e.g. switching boards) starts with no selection, focus
   // mode or fullscreen: those are per-visit view state, never persisted.
   setPanels: (panels) =>
-    set({ panels, selectedPanelId: null, focusModePanelId: null, fullscreenPanelId: null, preFullscreenLayout: null }),
+    set((state) => ({ panels, panelSet: state.panelSet + 1, selectedPanelId: null, focusModePanelId: null, fullscreenPanelId: null, preFullscreenLayout: null, gesturePanelId: null, shiftPreview: null })),
 
   addPanel: (item) =>
     set((state) => {
@@ -169,8 +220,9 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
         ? Math.max(...state.panels.map((p) => p.z_index))
         : 0
 
-      // Already on top — skip to avoid unbounded z-index growth
-      if (panel.z_index === maxZ) return state
+      // Already alone on top: skip, to avoid unbounded z-index growth. One
+      // sharing the top (a seeded board is all z 0) still comes above the rest.
+      if (panel.z_index === maxZ && !state.panels.some((p) => p.id !== id && p.z_index === maxZ)) return state
 
       return {
         panels: state.panels.map((p) =>
@@ -233,6 +285,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
 
       return {
         fullscreenPanelId: id,
+        arranged: state.arranged + 1,
         preFullscreenLayout: {
           pos_x: panel.pos_x,
           pos_y: panel.pos_y,
@@ -263,6 +316,7 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
       return {
         fullscreenPanelId: null,
         preFullscreenLayout: null,
+        arranged: state.arranged + 1,
         panels: state.panels.map((p) =>
           p.id === panelId
             ? { ...p, pos_x, pos_y, width, height }
@@ -280,45 +334,38 @@ export const useCanvasStore = create<CanvasState>((set, get) => ({
     }
   },
 
-  /* ── Auto-organize ── */
+  /* ── Arranging ── */
 
-  organizePanels: (canvasWidth: number, canvasHeight: number) =>
+  arrangePanels: (layout) =>
     set((state) => {
-      const GAP = 20
-      const sorted = [...state.panels].sort((a, b) => (b.width * b.height) - (a.width * a.height))
-
-      let curX = GAP
-      let curY = GAP
-      let rowHeight = 0
-
-      const placed = sorted.map((panel, i) => {
-        if (i > 0 && curX + panel.width + GAP > canvasWidth) {
-          curX = GAP
-          curY += rowHeight + GAP
-          rowHeight = 0
+      let changed = false
+      const panels = state.panels.map((p) => {
+        const to = layout.get(p.id)
+        if (!to) return p
+        const next = {
+          ...p,
+          pos_x: to.pos_x ?? p.pos_x,
+          pos_y: to.pos_y ?? p.pos_y,
+          width: to.width ?? p.width,
+          height: to.height ?? p.height,
+          z_index: to.z_index ?? p.z_index,
         }
-        const p = { ...panel, pos_x: curX, pos_y: curY, z_index: i + 1 }
-        curX += panel.width + GAP
-        rowHeight = Math.max(rowHeight, panel.height)
-        return p
+        if (LAYOUT_KEYS.every((k) => next[k] === p[k])) return p
+        changed = true
+        return next
       })
-
-      const totalHeight = curY + rowHeight + GAP
-      if (totalHeight > canvasHeight && canvasHeight > 0) {
-        const scale = canvasHeight / totalHeight
-        return {
-          panels: placed.map((p) => ({
-            ...p,
-            pos_x: p.pos_x * scale,
-            pos_y: p.pos_y * scale,
-            width: Math.max(p.width * scale, p.constraints?.minWidth ?? DEFAULT_SIZE_CONSTRAINTS.minWidth),
-            height: Math.max(p.height * scale, p.constraints?.minHeight ?? DEFAULT_SIZE_CONSTRAINTS.minHeight),
-          })),
-        }
-      }
-
-      return { panels: placed }
+      return changed ? { panels, arranged: state.arranged + 1 } : state
     }),
+
+  /* ── Gestures ── */
+
+  gesturePanelId: null,
+  setGesture: (id) =>
+    set((state) => (state.gesturePanelId === id ? state : { gesturePanelId: id, ...(id === null ? { shiftPreview: null } : {}) })),
+  shiftPreview: null,
+  // Set on every pointer move: only a change of landing is news.
+  setShiftPreview: (shiftPreview) =>
+    set((state) => (JSON.stringify(state.shiftPreview) === JSON.stringify(shiftPreview) ? state : { shiftPreview })),
 
   /* ── Workspace background ── */
 

@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 import { expect } from '@playwright/test'
+import { motionSettled } from '../settle'
 
 /**
  * Workspace switching, creation, and deletion live in the TopBar's
@@ -20,8 +21,9 @@ export class TopBarPom {
   readonly lecturePill: Locator
   /** The "..." beside the lecture pill (only with a lecture selected): Rename, Delete. */
   readonly lectureMenuButton: Locator
-  /** "Tuesday · Chemistry 14:00 · ...": today at a glance, on wide screens and (short) on a phone. */
-  readonly todayLine: Locator
+  /** "Up next: Chemistry 14:00": the next item in the calendar, at every width. Opens `upNextPopover`. */
+  readonly upNext: Locator
+  readonly upNextPopover: Locator
 
   constructor(private page: Page) {
     this.root = page.getByTestId('top-bar')
@@ -34,7 +36,9 @@ export class TopBarPom {
     this.coursePill = this.scopeGroup.getByTestId('scope-course').getByTestId('scope-pill-text')
     this.lecturePill = this.scopeGroup.getByTestId('scope-lecture').getByTestId('scope-pill-text')
     this.lectureMenuButton = this.scopeGroup.getByRole('button', { name: 'Lecture options' })
-    this.todayLine = this.root.getByTestId('today-line')
+    this.upNext = this.root.getByTestId('up-next')
+    // Rendered in a portal, so not inside the top bar.
+    this.upNextPopover = page.getByTestId('up-next-popover')
   }
 
   /**
@@ -95,12 +99,14 @@ export class TopBarPom {
 
   /**
    * What the pills read: the course, and the lecture ("No lecture" for
-   * null; `undefined` when the board shows no lecture pill at all).
+   * null; `undefined` when the board shows no lecture pill at all). Once
+   * they read it, they have also landed (pills arrive with the board).
    */
   async expectScope(course: string, lecture?: string | null, options?: { timeout?: number }) {
     await expect(this.coursePill).toHaveText(course, options)
     if (lecture === undefined) await expect(this.lectureSelect).toHaveCount(0, options)
     else await expect(this.lecturePill).toHaveText(lecture ?? 'No lecture', options)
+    await motionSettled(this.page.getByRole('group', { name: 'What this board shows' }))
   }
 
   /** A board's tab button, by the board's name. */

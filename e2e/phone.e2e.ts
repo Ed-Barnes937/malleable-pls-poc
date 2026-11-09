@@ -280,20 +280,19 @@ test.describe('Phone top bar', () => {
   })
   test.afterAll(async () => { await reseed() })
 
-  test('holds the menu, the tabs and the widgets button; Activity, the theme and board appearance are in the board menu', async ({ page }) => {
+  test('holds the menu and the tabs; Activity, the theme and board appearance are in the board menu, and there is no Tidy up', async ({ page }) => {
     const topBar = new TopBarPom(page)
-    const widgets = topBar.root.getByRole('button', { name: 'Tidy up widgets' })
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     await expect(topBar.drawerTrigger).toBeVisible()
-    await expect(widgets).toBeVisible()
+    // The widgets are stacked on a phone: nothing to tidy.
+    await expect(page.getByRole('button', { name: 'Tidy up widgets' })).toHaveCount(0)
     await expect(topBar.root.getByTestId('activity-button')).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: /^Switch to (dark|light) mode$/ })).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toHaveCount(0)
-    // One row: the widgets button sits level with the menu button, on screen.
+    // One row: the tabs sit level with the menu button, on screen.
     const menuBox = (await topBar.drawerTrigger.boundingBox())!
-    const widgetsBox = (await widgets.boundingBox())!
-    expect(Math.abs(widgetsBox.y - menuBox.y)).toBeLessThan(2)
-    expect(widgetsBox.x + widgetsBox.width).toBeLessThanOrEqual(400)
+    const tabsBox = (await topBar.workspaceTabs.first().boundingBox())!
+    expect(Math.abs(tabsBox.y + tabsBox.height / 2 - (menuBox.y + menuBox.height / 2))).toBeLessThan(2)
 
     // Keyboard: open the menu, and the controls are in it.
     await topBar.drawerTrigger.focus()
@@ -401,50 +400,6 @@ test.describe('Phone top bar', () => {
     await expect(host).not.toContainText('Opened')
     // With nothing to say, the bar keeps its room (decision 22): nothing on the board moves.
     expect((await host.boundingBox())!.height).toBe(barHeight)
-  })
-})
-
-/** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, no study planned yet. */
-const TUESDAY = Date.parse('2026-10-27T09:00:00Z')
-
-test.describe('Phone today line', () => {
-  test.use({ viewport: { width: 400, height: 860 } })
-  test.afterAll(async () => { await reseed() })
-
-  test('shows the short form under the tabs, beside the scope pills or wrapped under them, never cut off', async ({ page, request }) => {
-    await reseed({ now: TUESDAY })
-    await myWeekBoard(request)
-    await page.clock.setFixedTime(TUESDAY)
-    await page.goto('/')
-    const topBar = new TopBarPom(page)
-    await topBar.switchToWorkspace('My week')
-    await expect(topBar.todayLine).toBeVisible()
-    await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
-
-    const notClipped = () => topBar.todayLine.evaluate((el: HTMLElement) => el.offsetWidth <= el.parentElement!.clientWidth)
-    for (const width of [400, 360]) {
-      await page.setViewportSize({ width, height: 800 })
-      // Drops parts (the weekday, then later blocks) rather than cutting one off.
-      await expect(topBar.todayLine).toBeVisible()
-      await expect(topBar.todayLine).toContainText('2h to study')
-      await expect(topBar.todayLine).toContainText('Chemistry 14:00')
-      await expect.poll(notClipped).toBe(true)
-      // Under the tabs, after the pills on their row or on a row of its own
-      // under them (read once the bar has settled: the pills' text and the
-      // web font arrive late).
-      await expect.poll(async () => {
-        const line = (await topBar.todayLine.boundingBox())!
-        const pills = (await topBar.scopeGroup.boundingBox())!
-        const menu = (await topBar.drawerTrigger.boundingBox())!
-        const besidePills = Math.abs((line.y + line.height / 2) - (pills.y + pills.height / 2)) < 2 && line.x >= pills.x + pills.width
-        const underPills = line.y >= pills.y + pills.height
-        return {
-          underTabs: line.y >= menu.y + menu.height,
-          placed: besidePills || underPills,
-          onScreen: line.x >= 0 && line.x + line.width <= width,
-        }
-      }).toEqual({ underTabs: true, placed: true, onScreen: true })
-    }
   })
 })
 

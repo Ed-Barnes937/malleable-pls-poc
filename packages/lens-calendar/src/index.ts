@@ -20,6 +20,8 @@ export const manifest: PanelManifest = {
   writes: ['plan_items'],
   emits: ['plan-item:created', 'plan-item:updated', 'plan-item:completed'],
   showsPlanItems: true,
+  // A board asks about missed blocks once: here when it has a Calendar.
+  missedBlocksPriority: 1,
   load: () => import('./CalendarLens'),
   minWidth: 520,
   minHeight: 420,

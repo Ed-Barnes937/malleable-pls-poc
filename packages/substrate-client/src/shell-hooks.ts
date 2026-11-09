@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
-import { useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
 import type { BoardScope, Lecture, PlanItemQuery } from '@pls/substrate'
 import { applyBoardScopePatches, withBoardScope, type BoardScopePatch } from './board-scope'
@@ -478,11 +478,15 @@ export function useLecture(lectureId: string | undefined) {
 }
 
 /**
- * Plan items for shell chrome (the top bar's today line), outside any widget.
+ * Plan items for shell chrome (the top bar's Up next), outside any widget.
  * Shares the `planItems` cache, so every plan item change refreshes it.
+ * `enabled: false` waits (e.g. for the student's zone, which sets the range);
+ * `keepPrevious` shows the last answer while a changed query loads (the day
+ * rolling over), so the chrome doesn't blink.
  */
-export function usePlanItemList(query: PlanItemQuery) {
-  return trpc.planItems.list.useQuery(query)
+export function usePlanItemList(query: PlanItemQuery, options: { enabled?: boolean; keepPrevious?: boolean } = {}) {
+  const { keepPrevious, ...rest } = options
+  return trpc.planItems.list.useQuery(query, keepPrevious ? { ...rest, placeholderData: keepPreviousData } : rest)
 }
 
 /** Mutation scope for preference saves: they run one at a time, in order. */

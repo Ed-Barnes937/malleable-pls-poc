@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { afterEach, describe, it, expect, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import type { PlanItem, RefitProposal } from '@pls/substrate'
-import { movedNote, movedPastThisWeek, noFitLabel, useMissedBlocks } from './missed-blocks'
+import { ANSWERED_STORAGE_KEY, noFitLabel, noFitNote, reloadMissedBlockAnswers, useMissedBlocks } from './missed-blocks'
 import { SubstrateProvider } from './substrate-context'
 import type { SubstrateReader, SubstrateWriter } from './substrate-contract'
 
@@ -61,6 +61,69 @@ describe('useMissedBlocks: one preview at a time', () => {
   })
 })
 
+describe('useMissedBlocks: answers are kept (decision 4)', () => {
+  afterEach(() => {
+    localStorage.clear()
+    reloadMissedBlockAnswers()
+  })
+
+  it('"Not now" holds after a reload, until a further block is missed', () => {
+    const first = renderBoth()
+    act(() => first.result.current.calendar.markHandled(first.result.current.calendar.proposals))
+    expect(first.result.current.calendar.proposals).toEqual([])
+    first.unmount()
+
+    // A reload reads what was kept.
+    reloadMissedBlockAnswers()
+    const again = renderBoth()
+    expect(again.result.current.calendar.proposals).toEqual([])
+    again.unmount()
+
+    // The lab block is missed again (a new miss of it): only that is asked about.
+    const missedAgain = proposal('lab', 'chemistry', { item: { ...preview[2].item, ends_at: '2026-10-28T10:00:00.000Z' } })
+    const later = [preview[0], preview[1], missedAgain]
+    const laterReader = { useRefitPreview: () => ({ data: later, isLoading: false, error: null, refetch: async () => later }) } as unknown as SubstrateReader
+    const third = renderHook(() => useMissedBlocks(), {
+      wrapper: ({ children }) => <SubstrateProvider reader={laterReader} writer={writer}>{children}</SubstrateProvider>,
+    })
+    expect(ids(third.result.current.proposals)).toEqual(['lab'])
+    // The old miss of lab is forgotten: it was missed again.
+    expect(JSON.parse(localStorage.getItem(ANSWERED_STORAGE_KEY)!)).toEqual(['notes@2026-10-27T10:00:00.000Z', 'practice@2026-10-27T10:00:00.000Z'])
+    third.unmount()
+  })
+
+  it('an answer holds while its block is briefly not missed: an Undo that brings the same miss back asks nothing', () => {
+    const first = renderBoth()
+    act(() => first.result.current.calendar.markHandled(first.result.current.calendar.proposals))
+    first.unmount()
+
+    // Not doing, a tick, or a delete: the blocks are not missed for a moment.
+    const none: RefitProposal[] = []
+    const emptyReader = { useRefitPreview: () => ({ data: none, isLoading: false, error: null, refetch: async () => none }) } as unknown as SubstrateReader
+    const gone = renderHook(() => useMissedBlocks(), {
+      wrapper: ({ children }) => <SubstrateProvider reader={emptyReader} writer={writer}>{children}</SubstrateProvider>,
+    })
+    expect(gone.result.current.proposals).toEqual([])
+    gone.unmount()
+
+    // Undo: the same misses are back, and stay answered.
+    const back = renderBoth()
+    expect(back.result.current.calendar.proposals).toEqual([])
+    back.unmount()
+  })
+
+  it('still answers for this page when storage is unavailable', () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('blocked')
+    })
+    const { result, unmount } = renderBoth()
+    act(() => result.current.calendar.markHandled(result.current.calendar.proposals))
+    expect(result.current.calendar.proposals).toEqual([])
+    setItem.mockRestore()
+    unmount()
+  })
+})
+
 describe('noFitLabel', () => {
   it('says there is no free time', () => {
     expect(noFitLabel(proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })))
@@ -68,48 +131,12 @@ describe('noFitLabel', () => {
   })
 })
 
-describe('movedNote', () => {
-  // Thursday 29 Oct 2026, 11:20 London: the week of 26 Oct.
-  const now = Date.parse('2026-10-29T11:20:00Z')
-  const sat = '2026-10-31T09:00:00.000Z'
-  const mon = '2026-11-02T12:15:00.000Z'
-  const later = '2026-11-10T09:00:00.000Z'
-
-  it("says they're in the calendar when they stay this week", () => {
-    expect(movedNote([sat, sat], [], now)).toBe("Moved 2 blocks. They're in your calendar.")
-    expect(movedNote([sat], [], now)).toBe("Moved 1 block. It's in your calendar.")
-  })
-
-  it('names the week they went to when it is a later one', () => {
-    expect(movedNote([mon, mon], [], now)).toBe('Moved 2 blocks to next week.')
-    expect(movedNote([later], [], now)).toBe('Moved 1 block to the week of 9 Nov.')
-  })
-
-  it('splits by week when they went to more than one', () => {
-    expect(movedNote([mon, sat, later], [], now)).toBe('Moved 3 blocks: 1 this week, 1 next week, 1 in the week of 9 Nov.')
-  })
-
-  it('still reports the ones that did not fit', () => {
-    const noFit = proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })
-    expect(movedNote([mon], [noFit], now)).toBe("Moved 1 block to next week. 1 didn't fit this week, so it stays on your to-do list.")
-    expect(movedNote([], [noFit], now)).toBe("1 didn't fit this week, so it stays on your to-do list.")
-  })
-})
-
-describe('movedPastThisWeek', () => {
-  const now = Date.parse('2026-10-29T11:20:00Z')
-
-  it('offers to show the earliest block past this week', () => {
-    expect(movedPastThisWeek([
-      { id: 'b', startsAt: '2026-11-03T09:00:00.000Z' },
-      { id: 'a', startsAt: '2026-11-02T12:15:00.000Z' },
-      { id: 'sat', startsAt: '2026-10-31T09:00:00.000Z' },
-    ], now)).toEqual({ id: 'a', startsAt: '2026-11-02T12:15:00.000Z', label: 'Show next week' })
-    expect(movedPastThisWeek([{ id: 'x', startsAt: '2026-11-10T09:00:00.000Z' }], now))
-      .toEqual({ id: 'x', startsAt: '2026-11-10T09:00:00.000Z', label: 'Show the week of 9 Nov' })
-  })
-
-  it('offers nothing when they all stayed this week', () => {
-    expect(movedPastThisWeek([{ id: 'sat', startsAt: '2026-10-31T09:00:00.000Z' }], now)).toBeNull()
+describe('noFitNote', () => {
+  it('says only which blocks stay put, and why', () => {
+    const thisWeek = proposal('notes', 'biology', { starts_at: null, ends_at: null, reason: 'no-free-slot' })
+    const dueLater = proposal('lab', 'chemistry', { starts_at: null, ends_at: null, reason: 'no-free-slot', item: { ...preview[2].item, due_at: '2099-01-01T00:00:00.000Z' } })
+    expect(noFitNote([thisWeek])).toBe("1 didn't fit this week, so it stays on your to-do list.")
+    expect(noFitNote([thisWeek, dueLater])).toBe("1 didn't fit this week, so it stays on your to-do list. 1 didn't fit before it is due, so it stays on your to-do list.")
+    expect(noFitNote([])).toBe('')
   })
 })

@@ -30,12 +30,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
     // The header's scope pills are transparent native selects over a styled
-    // label: check Safari hits and drives them too. Only this spec, to keep
+    // label: check Safari hits and drives them too; popovers that must not
+    // move as their content loads, and the canvas's Shift gestures, too. Only these specs, to keep
     // the run short (`pnpm exec playwright install webkit` once).
     {
       name: 'webkit',
       use: { ...devices['Desktop Safari'], timezoneId: 'Europe/London' },
-      testMatch: 'scope.e2e.ts',
+      testMatch: ['scope.e2e.ts', 'up-next.e2e.ts', 'popover-stillness.e2e.ts', 'canvas.e2e.ts'],
     },
   ],
   webServer: [

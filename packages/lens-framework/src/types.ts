@@ -82,6 +82,37 @@ export interface FocusedMoment extends Moment {
   takeFocus?: boolean
 }
 
+/** A lecture moment to go through in a focused review (one of the "moments to review"). */
+export interface ReviewMoment {
+  segmentId: string
+  recordingId: string
+  recordingTitle: string
+  offsetMs: number
+  /** What it is about, in a few words (the review's topic, else a key phrase). */
+  label: string
+}
+
+/**
+ * A focused review the student asked for (the "N moments to review" chip),
+ * for the widget that runs reviews (manifest `runsReviews`, e.g. Test Me).
+ * `id` is new per request, so asking again restarts it.
+ */
+export interface ReviewRun {
+  id: number
+  moments: ReviewMoment[]
+}
+
+/** A short confirmation in the shell's notification bar, optionally with one action (e.g. Undo). */
+export interface LensNotice {
+  message: string
+  /** `error`: something the student asked for didn't happen. Default `success`. */
+  tone?: 'success' | 'error'
+  /** Notices sharing a key replace each other instead of stacking. */
+  key?: string
+  /** `kind: 'undo'`: it reverses the change the notice names (shown with the Undo icon; see `undoNotice`). */
+  action?: { label: string; onClick: () => void; kind?: 'undo' }
+}
+
 /**
  * - `shown`: a widget that shows moments (manifest `showsMoments`) is on the
  *   board it was shown on: this one, or another board the shell switched to.
@@ -280,6 +311,27 @@ export interface LensProps {
    * longer exists, `failed` when nothing changed for another reason.
    */
   onOpenLectureOn?: (boardId: string, lecture: FocusedClassLecture) => Promise<'opened' | 'failed' | 'gone'>
+  /**
+   * Say something in the shell's notification bar, e.g. "Marked sorted" with
+   * Undo. Optional for the same reason as `onConfigChange`.
+   */
+  onNotify?: (notice: LensNotice) => void
+  /** Takes down the notice with this `key`, if it is still up (its Undo no longer applies). */
+  onDismissNotice?: (key: string) => void
+  /**
+   * Go through these moments in a focused review on this board: the shell
+   * hands them to the widget that runs reviews (manifest `runsReviews`) via
+   * `reviewRun`, first adding one (with Undo) when the board has none.
+   * Optional for the same reason as `onConfigChange`.
+   */
+  onStartReview?: (moments: ReviewMoment[]) => void
+  /**
+   * For `runsReviews` widgets: the review last asked for. Start it once per
+   * `id`, then call `onReviewStarted(id)` so the shell drops it.
+   */
+  reviewRun?: ReviewRun
+  /** For `runsReviews` widgets: the run with this `id` has started. */
+  onReviewStarted?: (id: number) => void
   /** Open the board menu's widget palette, to add a widget to this board. */
   onAddWidget?: () => void
   /**
@@ -288,4 +340,10 @@ export interface LensProps {
    * for the same reason as `onConfigChange`.
    */
   onEditAutomation?: (workflowId: string) => void
+  /**
+   * Whether this widget asks about the blocks that didn't happen: false when
+   * another widget on the board asks instead (`missedBlocksPriority`), so a
+   * board asks once. Undefined (a widget outside a board) asks.
+   */
+  asksAboutMissedBlocks?: boolean
 }

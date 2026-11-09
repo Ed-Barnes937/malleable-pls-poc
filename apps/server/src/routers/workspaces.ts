@@ -3,7 +3,7 @@ import { TRPCError } from '@trpc/server'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import type { BoardScope, WorkspaceSummary } from '@pls/substrate'
+import type { BoardScope, WorkspacePanel, WorkspaceSummary } from '@pls/substrate'
 import { courseKey, requireOwnBoard } from './_shared'
 import { lockBoardScopeRows, replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
 
@@ -54,7 +54,7 @@ export const workspacesRouter = router({
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        return tx`
+        return tx<WorkspacePanel[]>`
           SELECT * FROM workspace_panels
           WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
           ORDER BY created_at

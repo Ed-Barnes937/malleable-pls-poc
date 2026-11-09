@@ -163,7 +163,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     if (db) {
       await db.sql`DELETE FROM workspaces WHERE user_id = ANY(${users})`
       await db.sql`DELETE FROM lectures WHERE user_id = ANY(${users})`
-      for (const table of ['tags', 'annotations', 'links', 'confidence_signals', 'plan_items', 'job_runs']) {
+      for (const table of ['tags', 'annotations', 'links', 'confidence_signals', 'plan_items', 'plan_item_trash', 'job_runs']) {
         await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1::text[])`, [users])
       }
       await db.sql.end()
@@ -221,6 +221,24 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
       expect(await api().workspaces.setBoardScope({ workspaceId })).toEqual({ courseTag: 'biology', lectureId: null })
     }
     await expect(api().lectures.deletePreview(s.lectureId)).rejects.toEqual(notFound)
+  })
+
+  it('a study block deleted just before, still offered Undo, follows the same rule', async () => {
+    const s = await seedLecture()
+    await api().planItems.delete(s.review)
+    await api().planItems.delete(s.done)
+    await api().planItems.delete(s.otherReview)
+
+    const preview = await api().lectures.deletePreview(s.lectureId)
+    await api().lectures.delete({ id: s.lectureId, fingerprint: preview.fingerprint })
+
+    // The unfinished one went with its moment: nothing to put back.
+    await expect(api().planItems.restore(s.review)).rejects.toEqual(notFound)
+    // The finished one comes back, no longer linked to a moment.
+    const done = await api().planItems.restore(s.done)
+    expect(done).toMatchObject({ id: s.done, status: 'done', source_type: null, source_id: null, source_offset_ms: null })
+    // Another lecture's comes back as it was.
+    expect(await api().planItems.restore(s.otherReview)).toMatchObject({ source_type: 'recording', source_id: s.otherRec })
   })
 
   it('refuses a stale preview (CONFLICT) and deletes nothing, files included', async () => {

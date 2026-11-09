@@ -99,8 +99,10 @@ test('renders the week: fixed commitments, study time and what is due', async ({
 })
 
 // The hour rows are the same whichever day it is, with or without the re-fit
-// banner above the grid (which appears once study blocks have passed): 24
-// equal rows, 08:00 at the top, and 22:00 within the window or one scroll away.
+// banner at the grid's foot (which appears once study blocks have passed): 24
+// equal rows, 08:00 at the top, and 22:00 within the window or one scroll
+// away. The rows are fitted to the grid's room with the banner's, so the
+// banner only covers the last hours shown, never re-sizes them.
 const FROZEN_DAYS: [string, Date, number, number][] = [
   ['Mon', FROZEN_MONDAY, 9, 0], ['Tue', addDays(FROZEN_MONDAY, 1), 12, 0], ['Wed', addDays(FROZEN_MONDAY, 2), 21, 0],
   ['Thu', addDays(FROZEN_MONDAY, 3), 10, 0], ['Fri', addDays(FROZEN_MONDAY, 4), 23, 30],
@@ -120,6 +122,8 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     await point(page, 0, 12) // waits for the grid to stop re-fitting
     const scroll = (await page.getByTestId('calendar-scroll').boundingBox())!
     const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+    const prompts = (await page.getByTestId('calendar-prompts').boundingBox())?.height ?? 0
+    const room = scroll.height + prompts
     // 24 rows of one height, never cramped below 32px.
     const hourPx = grid.height / 24
     expect(hourPx).toBeGreaterThanOrEqual(32 - 0.5)
@@ -127,9 +131,9 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     expect(grid.y - scroll.y + (8 / 24) * grid.height).toBeCloseTo(8, 0)
     // The whole working day fits when the window is tall enough for it, else
     // the bottom of the grid is a scroll away: never a short grid.
-    const fits = scroll.height >= 14 * 32 + 16
+    const fits = room >= 14 * 32 + 16
     if (fits) {
-      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + room)
     } else {
       expect(hourPx).toBeCloseTo(32, 0)
       await page.getByTestId('calendar-scroll').evaluate((el) => { el.scrollTop = el.scrollHeight })
@@ -421,6 +425,30 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
 })
 
+test('deleting a weekly class is confirmed with Undo, which brings back the whole series as it was', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  simulator.db.lectures.push({ id: 'lec-class', title: 'Biology lecture', course: 'biology', starts_at: iso(0, 10), class_item_id: 'bio-lecture', class_date: iso(0, 0).slice(0, 10) } as never)
+  const before = structuredClone(simulator.db.planItems.find((p) => p.id === 'bio-lecture'))
+  await mount(<CalendarHarness toasts />)
+
+  await block(page, 'Biology lecture').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Delete' }).click()
+  await popover.getByRole('button', { name: 'Delete every week?' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(0)
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Deleted "Biology lecture"')
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')).toEqual(before)
+  expect(simulator.db.tags.find((t) => t.target_type === 'plan_item' && t.target_id === 'bio-lecture')?.label).toBe('biology')
+  expect(simulator.db.lectures.find((l) => l.id === 'lec-class')?.class_item_id).toBe('bio-lecture')
+  // Next week has it too.
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
+})
+
 test('while a save is pending the popover fields are read-only, still legible, and take no edits', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
@@ -578,6 +606,8 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
     id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(16, 21, 15), ends_at: iso(16, 21, 35),
     duration_min: 20, subtype: 'review', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 78000, course: 'biology',
   }])
+  // The glow's timers wait for the test, however slowly the machine runs.
+  await page.clock.install()
   await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(16, 21, 15) }]} />)
   await expect(block(page, 'Biology lecture')).toBeVisible()
 
@@ -594,9 +624,59 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
   // It glows once, in its course colour.
   await expect(target).toHaveCSS('animation-name', 'glow-once')
   // Then settles.
-  await expect(target).not.toHaveAttribute('data-revealed', 'true', { timeout: 6000 })
+  await page.clock.runFor(4000)
+  await expect(target).not.toHaveAttribute('data-revealed', 'true')
   await expect(callout).toHaveCount(0)
 })
+
+// The hours re-fit (a row above the grid going as the block's week lands,
+// the panel resized) just as "See it" starts, or while the grid is on its
+// way to the block: it still lands on the block.
+for (const when of ['just before', 'while'] as const) {
+  test(`"See it" lands on the block when the hours re-fit ${when} the grid scrolls to it`, async ({ mount, page, simulator }) => {
+    seedWeek(simulator)
+    seed(simulator, [{
+      id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(4, 21, 15), ends_at: iso(4, 21, 35),
+      duration_min: 20, subtype: 'review', course: 'biology',
+    }])
+    await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(4, 21, 15) }]} />)
+    await expect(block(page, 'Biology lecture')).toBeVisible()
+    // The grid has settled at the day's start.
+    const scroll = page.getByTestId('calendar-scroll')
+    let last = -1
+    await expect.poll(async () => {
+      const top = await scroll.evaluate((el) => el.scrollTop)
+      const settled = top === last
+      last = top
+      return settled
+    }, { intervals: [100] }).toBe(true)
+
+    await page.evaluate((when) => new Promise<void>((resolve) => {
+      const grid = document.querySelector<HTMLElement>('[data-testid="calendar-scroll"]')!
+      const panel = document.querySelector<HTMLElement>('[data-testid="calendar-panel"]')!
+      const reveal = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Reveal later-review')!
+      if (when === 'just before') {
+        // Taller in the same task as the click: the hours haven't re-fitted yet as the block is shown.
+        panel.style.height = '700px'
+        reveal.click()
+        resolve()
+        return
+      }
+      const from = grid.scrollTop
+      const onScroll = () => {
+        if (grid.scrollTop <= from) return
+        grid.removeEventListener('scroll', onScroll)
+        panel.style.height = '700px'
+        resolve()
+      }
+      grid.addEventListener('scroll', onScroll)
+      reveal.click()
+    }), when)
+    const target = block(page, 'Review: paternal leakage')
+    await expect(target).toHaveAttribute('data-revealed', 'true')
+    await expect(target).toBeInViewport()
+  })
+}
 
 test('with reduced motion a revealed block holds a still ring instead of glowing', async ({ mount, page, simulator }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })

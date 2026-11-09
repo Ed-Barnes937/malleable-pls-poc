@@ -72,7 +72,7 @@ test.describe('Deleting a lecture', () => {
 
     // Mark a moment confusing: the review automation adds a study block.
     await transcript.locator('[data-segment-id]').first().click()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const fromIt = { sourceType: 'recording', sourceId: recording.id }
     await expect.poll(async () => (await trpcQuery<PlanItem[]>(request, 'planItems.list', fromIt)).length, { timeout: 20000 }).toBe(1)
     const [review] = await trpcQuery<PlanItem[]>(request, 'planItems.list', fromIt)

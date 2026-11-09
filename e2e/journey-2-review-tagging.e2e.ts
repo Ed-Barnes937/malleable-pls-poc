@@ -29,7 +29,7 @@ test.describe('Journey: Evening review with tagging', () => {
     await segment.click()
 
     // In review mode, tag buttons appear in a footer toolbar
-    const confusedButton = transcriptPanel.getByRole('button', { name: 'confused', exact: true })
+    const confusedButton = transcriptPanel.getByRole('button', { name: 'Confused', exact: true })
     await expect(confusedButton).toBeVisible()
     await confusedButton.click()
 

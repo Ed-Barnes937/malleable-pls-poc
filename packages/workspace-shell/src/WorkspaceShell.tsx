@@ -12,7 +12,7 @@ import {
   decodeScope,
   boardScopePatch,
 } from '@pls/substrate-client'
-import { useManifests, splitScope, type PanelManifest, type PlanItemRef, type Scope } from '@pls/lens-framework'
+import { requestHelpMePlan, useManifests, splitScope, type PanelManifest, type LensNotice, type PlanItemRef, type ReviewMoment, type Scope } from '@pls/lens-framework'
 import { getAvailableJobTypes } from '@pls/substrate'
 import {
   CanvasEngine,
@@ -20,7 +20,10 @@ import {
   useCanvasStore,
   placeNewPanel,
   layoutGroup,
+  persistableLayout,
   scrollPanelIntoView,
+  tidyLayout,
+  STACK_BREAKPOINT,
   type PanelItem,
 } from '@pls/panel-system'
 import { useWorkspaceStore } from './store'
@@ -32,14 +35,27 @@ import { TopBar } from './TopBar'
 import { DrawerSidebar } from './DrawerSidebar'
 import { LensAutomationsButton } from './LensAutomationsButton'
 import { AutomationDialog } from './AutomationDialog'
-import { ToastHost, useToastStore } from './toast'
-import { usePanelSync, type PanelRow } from './usePanelSync'
+import { ToastHost, notifyToast, pushUndoToast, useToastStore } from './toast'
+import { usePanelSync } from './usePanelSync'
 import { useWorkspaceBackgroundSync } from './useWorkspaceBackgroundSync'
-import { hasPlanItemViewer, useShowMoment } from './moments'
+import { hasPlanItemViewer, missedBlocksHost, useShowMoment } from './moments'
 import { useRevealPlanItem } from './reveal-plan-item'
 import { useFocusClass, useLectureBoards, useOpenLectureOn, useUndoFocusClass } from './class-focus'
 import { BoardStarters } from './BoardStarters'
 import { listNames } from './starters'
+
+/** Tidy up's toast: one at a time, and gone once a widget is added or removed. */
+const TIDY_UP_TOAST = 'tidy-up'
+
+/** The board's widgets, whatever their order: tells an add or remove from a move. */
+function idsOf(panels: ReadonlyArray<PanelItem>): string {
+  return panels.map((p) => p.id).sort().join(' ')
+}
+
+/** Where each widget is and how big, whatever their order or stacking. */
+function placesOf(panels: ReadonlyArray<PanelItem>): string {
+  return panels.map((p) => `${p.id}:${Math.round(p.pos_x)},${Math.round(p.pos_y)},${Math.round(p.width)}x${Math.round(p.height)}`).sort().join(' ')
+}
 
 const JOB_TYPES = new Map(getAvailableJobTypes().map((j) => [j.type, j]))
 
@@ -108,29 +124,18 @@ export function WorkspaceShell() {
   const updatePanelConfig = useUpdatePanelConfig()
   const setBoardScope = useSetBoardScope()
 
-  const [transitioning, setTransitioning] = useState(false)
   const [drawerOpen, setDrawerOpen] = useState(false)
   /** An automation a widget asked to open (`LensProps.onEditAutomation`). */
   const [automationId, setAutomationId] = useState<string | null>(null)
   const closeDrawer = useCallback(() => setDrawerOpen(false), [])
-  const prevWorkspaceRef = useRef(activeWorkspaceId)
   const canvasRef = useRef<HTMLDivElement>(null)
 
   /** The board whose widgets the canvas holds (the last board's, until a new one's arrive). */
-  const canvasBoard = usePanelSync(activeWorkspaceId, panels as unknown as PanelRow[] | undefined, manifests, canvasRef)
+  const canvasBoard = usePanelSync(activeWorkspaceId, panels, manifests, canvasRef)
   const canvasBoardRef = useRef(canvasBoard)
   canvasBoardRef.current = canvasBoard
   useWorkspaceBackgroundSync(activeWorkspaceId, workspaces)
-
-  // Workspace transition animation
-  useEffect(() => {
-    if (prevWorkspaceRef.current !== activeWorkspaceId) {
-      setTransitioning(true)
-      const timer = setTimeout(() => setTransitioning(false), 150)
-      prevWorkspaceRef.current = activeWorkspaceId
-      return () => clearTimeout(timer)
-    }
-  }, [activeWorkspaceId])
+  const slideFrom = useBoardSlide(activeWorkspaceId, workspaces as unknown as { id: string }[] | undefined)
 
   const scope = useMemo(
     () => decodeScope((dbScopes ?? []) as { scope_type: string; scope_value: string }[]),
@@ -151,7 +156,7 @@ export function WorkspaceShell() {
   )
 
   const activeLensTypes = useMemo(
-    () => (panels as unknown as { lens_type: string }[] | undefined)?.map((p) => p.lens_type) ?? [],
+    () => panels?.map((p) => p.lens_type) ?? [],
     [panels],
   )
   const handleShowMoment = useShowMoment(activeWorkspaceId, activeLensTypes, manifests)
@@ -178,7 +183,7 @@ export function WorkspaceShell() {
   const panelConfigs = useMemo(() => {
     if (!panels) return new Map<string, Record<string, unknown>>()
     const map = new Map<string, Record<string, unknown>>()
-    for (const p of panels as unknown as { id: string; config: Record<string, unknown>; lens_type: string }[]) {
+    for (const p of panels) {
       map.set(p.id, { ...p.config, lensType: p.lens_type })
     }
     return map
@@ -267,7 +272,7 @@ export function WorkspaceShell() {
     (
       lensType: string,
       at?: { x: number; y: number; width?: number; height?: number },
-      opts: { quiet?: boolean; onSettled?: (ok: boolean) => void } = {},
+      opts: { quiet?: boolean; slotName?: string; onSettled?: (ok: boolean, panelId?: string) => void } = {},
     ) => {
       // No board, nothing to add to: the menu and the board offer a new board instead.
       if (!activeWorkspaceId) return
@@ -308,7 +313,7 @@ export function WorkspaceShell() {
       addPanel.mutateAsync({
         workspaceId: activeWorkspaceId,
         lensType,
-        slotName: `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        slotName: opts.slotName ?? `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         pos_x: box.x,
         pos_y: box.y,
         width,
@@ -320,7 +325,7 @@ export function WorkspaceShell() {
           add.panelId = (row as { id?: string } | undefined)?.id
           dropPendingOnCanvas()
           if (add.panelId && !at && !opts.quiet) revealPanel(add.panelId)
-          opts.onSettled?.(true)
+          opts.onSettled?.(true, add.panelId)
           // One toast for a run of adds, not a stack of them.
           if (!opts.quiet) pushToast({ message: `${m?.label ?? 'Widget'} added`, tone: 'success', key: 'widget-added' })
         },
@@ -398,14 +403,109 @@ export function WorkspaceShell() {
     [addWidget, manifests],
   )
 
+  /**
+   * Config changes sent but not in `panels` yet (it is read again once each
+   * is saved): with `panels`, each widget's settings as they are now.
+   */
+  const unsavedConfig = useRef(new Map<string, Record<string, unknown>>())
+  const changePanelConfig = useCallback((panelId: string, patch: Record<string, unknown>) => {
+    const merged = { ...unsavedConfig.current.get(panelId), ...patch }
+    unsavedConfig.current.set(panelId, merged)
+    updatePanelConfig.mutate({ panelId, configPatch: patch }, {
+      // Saved and read again (or failed): `panels` has it, unless a newer change is still on its way.
+      onSettled: () => {
+        if (unsavedConfig.current.get(panelId) === merged) unsavedConfig.current.delete(panelId)
+      },
+    })
+  }, [updatePanelConfig])
+
   // Handle panel removal — remove from DB then let query invalidation update canvas store
   const handleRemovePanel = useCallback(
     (panelId: string) => {
+      // Undo puts the widget back where it was, with its settings as they
+      // are now. A run of removes is one toast; its Undo brings back the last one.
+      const row = panels?.find((p) => p.id === panelId)
+      const box = useCanvasStore.getState().panels.find((p) => p.id === panelId)
+      const boardId = activeWorkspaceId
+      if (row && box && boardId) {
+        const label = manifests.find((m) => m.id === row.lens_type)?.label ?? 'Widget'
+        pushUndoToast({
+          key: 'widget-removed',
+          message: `${label} removed`,
+          failMessage: `Couldn't put ${label} back. Add it again from the widget menu.`,
+          undo: () => addPanel.mutateAsync({
+            workspaceId: boardId,
+            lensType: row.lens_type,
+            slotName: row.slot_name,
+            config: { ...row.config, ...unsavedConfig.current.get(panelId) },
+            pos_x: Math.round(box.pos_x),
+            pos_y: Math.round(box.pos_y),
+            width: Math.round(box.width),
+            height: Math.round(box.height),
+            z_index: box.z_index,
+          }),
+        }, { board: boardId })
+      }
       // Also remove from canvas store immediately for snappy UX
       useCanvasStore.getState().removePanel(panelId)
       removePanel.mutate(panelId)
     },
-    [removePanel],
+    [removePanel, addPanel, panels, activeWorkspaceId, manifests],
+  )
+
+  // A board asks about blocks that didn't happen once (decision 4).
+  const missedBlocksPanel = useMemo(
+    () => missedBlocksHost(panels ?? [], manifests),
+    [panels, manifests],
+  )
+
+  const startReview = useWorkspaceStore((s) => s.startReview)
+  const clearReview = useWorkspaceStore((s) => s.clearReview)
+  const reviewRun = useWorkspaceStore((s) => s.reviewRun)
+  const dismissToastKey = useToastStore((s) => s.dismissKey)
+  const handleNotify = useCallback(
+    (notice: LensNotice) => notifyToast(notice),
+    [],
+  )
+  /**
+   * A focused review on this board: handed to its Test Me (brought into
+   * view), or, when it has none, to one added for it, with Undo. Never
+   * switches boards.
+   */
+  const handleStartReview = useCallback(
+    (moments: ReviewMoment[]) => {
+      // The canvas, not the panel list: a widget just removed leaves the canvas
+      // at once, but the list until it refetches.
+      const reviewer = useCanvasStore.getState().panels
+        .find((p) => manifests.find((m) => m.id === p.lensType)?.runsReviews)
+      if (reviewer) {
+        startReview(moments, reviewer.id)
+        revealPanel(reviewer.id)
+        return
+      }
+      const lensType = manifests.find((m) => m.runsReviews)?.id
+      if (!lensType) return
+      const label = manifests.find((m) => m.id === lensType)?.label ?? 'Test Me'
+      addWidget(lensType, undefined, {
+        quiet: true,
+        onSettled: (ok, panelId) => {
+          if (!ok) {
+            pushToast({ message: `Couldn't add ${label}. Try again.`, tone: 'error' })
+            return
+          }
+          if (!panelId) return
+          startReview(moments, panelId)
+          revealPanel(panelId)
+          pushToast({
+            message: `${label} added to review your moments`,
+            tone: 'success',
+            key: 'widget-added',
+            action: { label: 'Undo', onClick: () => handleRemovePanel(panelId) },
+          })
+        },
+      })
+    },
+    [manifests, startReview, revealPanel, addWidget, pushToast, handleRemovePanel],
   )
 
   // Render lens content for a given panel
@@ -427,7 +527,7 @@ export function WorkspaceShell() {
             scope={panelScope.scope}
             highlight={panelScope.highlight}
             config={config}
-            onConfigChange={(patch) => updatePanelConfig.mutate({ panelId: panel.id, configPatch: patch })}
+            onConfigChange={(patch) => changePanelConfig(panel.id, patch)}
             onScopeChange={handleScopeChange}
             onShowMoment={handleShowMoment}
             onFocusClass={handleFocusClass}
@@ -437,6 +537,12 @@ export function WorkspaceShell() {
             onOpenLectureOn={handleOpenLectureOn}
             onAddWidget={openWidgetPalette}
             onEditAutomation={setAutomationId}
+            onNotify={handleNotify}
+            onDismissNotice={dismissToastKey}
+            onStartReview={handleStartReview}
+            // Only the widget the run was handed to takes it (the first on the canvas).
+            reviewRun={manifest?.runsReviews && reviewRun && reviewRun.panelId === panel.id ? reviewRun : undefined}
+            onReviewStarted={manifest?.runsReviews ? clearReview : undefined}
             focusedMoment={manifest?.showsMoments ? focusedMoment ?? undefined : undefined}
             onMomentShown={manifest?.showsMoments ? (id) => {
               clearMoment(id)
@@ -449,11 +555,12 @@ export function WorkspaceShell() {
             // The viewer brings the block itself into view on the board
             // (not the whole widget), so it is not scrolled here.
             onPlanItemShown={manifest?.showsPlanItems ? clearPlanItem : undefined}
+            asksAboutMissedBlocks={missedBlocksPanel === panel.id}
           />
         </PanelContainer>
       )
     },
-    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, updatePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem],
+    [panels, panelConfigs, lensRegistry, manifests, activeWorkspaceId, scope, handleRemovePanel, changePanelConfig, handleScopeChange, handleShowMoment, handleFocusClass, handleUndoFocusClass, lectureBoards, boardShowsLectures, handleOpenLectureOn, openWidgetPalette, focusedMoment, clearMoment, handleShowPlanItem, focusedPlanItem, clearPlanItem, handleNotify, dismissToastKey, handleStartReview, reviewRun, clearReview, missedBlocksPanel],
   )
 
   // Icon resolver: look up icon from the manifest registry
@@ -490,16 +597,79 @@ export function WorkspaceShell() {
     [panels, activeWorkspaceId],
   )
 
-  // Auto-organize panels into a tidy grid
+  // Tidy up fills the board's area, the Calendar leading (see tidyLayout); the
+  // canvas glides the widgets there and saves the ones that moved. Undo puts
+  // the layout from before back (and saves it), until a widget is added,
+  // removed, moved or resized. Only on the desktop layout: a phone stacks the
+  // widgets anyway.
   const handleOrganize = useCallback(() => {
     const el = canvasRef.current
-    if (!el) return
-    const { organizePanels } = useCanvasStore.getState()
-    organizePanels(el.clientWidth, el.clientHeight)
-    // Persist the new layout to DB
-    const updated = useCanvasStore.getState().panels
-    handleLayoutChange(updated)
-  }, [handleLayoutChange])
+    const boardId = activeWorkspaceId
+    if (!el || !boardId || el.clientWidth < STACK_BREAKPOINT) return
+    const store = useCanvasStore.getState()
+    const before = new Map(persistableLayout(store).map((p) => [p.id, { pos_x: p.pos_x, pos_y: p.pos_y, width: p.width, height: p.height, z_index: p.z_index }]))
+    if (store.fullscreenPanelId) store.exitFullscreen()
+    const tidied = useCanvasStore.getState().panels
+    useCanvasStore.getState().arrangePanels(tidyLayout(tidied, { width: el.clientWidth, height: el.clientHeight }))
+    // Already tidy: nothing moved, so nothing to undo.
+    if (useCanvasStore.getState().panels === tidied) return
+    const ids = idsOf(useCanvasStore.getState().panels)
+    pushUndoToast({
+      key: TIDY_UP_TOAST,
+      message: 'Widgets tidied up',
+      undo: async () => {
+        if (idsOf(useCanvasStore.getState().panels) !== ids) throw new Error('The widgets on the board changed')
+        useCanvasStore.getState().arrangePanels(before)
+      },
+      failMessage: "Couldn't undo Tidy up: the widgets on the board have changed.",
+    }, { board: boardId })
+  }, [activeWorkspaceId])
+
+  // Tidy up's Undo stops being offered once a widget is added, removed,
+  // moved or resized (decision 34). Raising one, or going fullscreen, isn't
+  // a change to the layout.
+  useEffect(() => useCanvasStore.subscribe((state, prev) => {
+    if (state.panels === prev.panels && state.fullscreenPanelId === prev.fullscreenPanelId) return
+    if (placesOf(persistableLayout(state)) !== placesOf(persistableLayout(prev))) {
+      useToastStore.getState().dismissKey(TIDY_UP_TOAST)
+    }
+  }), [])
+
+  // The top bar's Up next: plan the week on this board, never switching boards.
+  // The Calendar that opens Help me plan is named by its panelId (the board and
+  // slot), so a board switch or a second press can't send it elsewhere.
+  const calendarPanel = panels?.find((p) => p.lens_type === 'calendar')
+  const boardHasCalendar = !!calendarPanel
+  /** A Calendar being added here: a second press waits for it instead of adding another. */
+  const calendarAdd = useRef<{ workspaceId: string; plan: boolean } | null>(null)
+  const addCalendar = useCallback(
+    (plan: boolean) => {
+      if (!activeWorkspaceId) return
+      const inFlight = calendarAdd.current
+      if (inFlight?.workspaceId === activeWorkspaceId) {
+        inFlight.plan ||= plan
+        return
+      }
+      const job = { workspaceId: activeWorkspaceId, plan }
+      calendarAdd.current = job
+      const slotName = `slot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      addWidget('calendar', undefined, {
+        slotName,
+        // Asked only once the Calendar is there, so a failed add asks nothing.
+        onSettled: (ok) => {
+          if (calendarAdd.current === job) calendarAdd.current = null
+          if (ok && job.plan) requestHelpMePlan(`${job.workspaceId}-${slotName}`)
+        },
+      })
+    },
+    [activeWorkspaceId, addWidget],
+  )
+  const handleAddCalendar = useCallback(() => addCalendar(false), [addCalendar])
+  const handlePlanWeek = useCallback(() => {
+    if (!activeWorkspaceId) return
+    if (calendarPanel) requestHelpMePlan(`${activeWorkspaceId}-${calendarPanel.slot_name}`)
+    else addCalendar(true)
+  }, [activeWorkspaceId, calendarPanel, addCalendar])
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-surface">
@@ -507,6 +677,9 @@ export function WorkspaceShell() {
         onMenuClick={() => setDrawerOpen((v) => !v)}
         menuOpen={drawerOpen}
         onOrganize={activeWorkspaceId ? handleOrganize : undefined}
+        boardHasCalendar={boardHasCalendar}
+        onPlanWeek={handlePlanWeek}
+        onAddCalendar={handleAddCalendar}
       />
       <DrawerSidebar open={drawerOpen} onClose={closeDrawer} onAddWidget={addWidget} />
       <main ref={canvasRef} className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -515,12 +688,10 @@ export function WorkspaceShell() {
         ) : !panels ? (
           <CanvasSkeleton />
         ) : (
-          <div
-            className="relative min-h-0 flex-1 transition-opacity duration-150"
-            style={{ opacity: transitioning ? 0 : 1 }}
-          >
+          <div className="relative min-h-0 flex-1">
             <WorkspaceBackground />
             <CanvasEngine
+              slideFrom={slideFrom}
               onLayoutChange={handleLayoutChange}
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -563,6 +734,24 @@ function scrollbarWidth(): number {
   const width = probe.offsetWidth - probe.clientWidth
   probe.remove()
   return width
+}
+
+/**
+ * Which side the board just switched to comes in from: the right for a tab
+ * to the right of the last board's (tab order is the board list's), the
+ * left for one to its left. Null on the first load, or when either board
+ * isn't in the list (one just deleted).
+ */
+function useBoardSlide(boardId: string | null, boards: ReadonlyArray<{ id: string }> | undefined): 'left' | 'right' | null {
+  // Worked out as the board changes, from a ref only, so a repeated render agrees.
+  const last = useRef<{ id: string | null; from: 'left' | 'right' | null }>({ id: boardId, from: null })
+  if (last.current.id !== boardId) {
+    const ids = boards?.map((b) => b.id) ?? []
+    const was = last.current.id ? ids.indexOf(last.current.id) : -1
+    const now = boardId ? ids.indexOf(boardId) : -1
+    last.current = { id: boardId, from: was < 0 || now < 0 ? null : now > was ? 'right' : 'left' }
+  }
+  return last.current.from
 }
 
 function CanvasSkeleton() {

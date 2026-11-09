@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { PanelManifest } from '@pls/lens-framework'
-import { useCanvasStore, type PanelItem } from '@pls/panel-system'
+import { STACK_BREAKPOINT, tidyLayout, useCanvasStore, type PanelItem } from '@pls/panel-system'
 
 export type PanelRow = {
   id: string
@@ -33,6 +33,8 @@ function buildItem(p: PanelRow, manifests: PanelManifest[]): PanelItem {
  * Syncs DB panel rows into the canvas store.
  * Full sync on workspace switch; incremental add/remove thereafter so
  * user-dragged positions aren't overwritten before they're persisted.
+ * Before the browser paints, so another board never shows the last one's
+ * widgets for a frame.
  *
  * Returns the board whose panels the canvas store holds: until a newly
  * opened board's rows arrive, the store still holds the last board's.
@@ -47,7 +49,7 @@ export function usePanelSync(
   const syncedWorkspaceRef = useRef<string | null>(null)
   const [syncedWorkspace, setSyncedWorkspace] = useState<string | null>(null)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!panels) return
 
     if (syncedWorkspaceRef.current !== activeWorkspaceId) {
@@ -56,11 +58,14 @@ export function usePanelSync(
       setPanels(items)
       setSyncedWorkspace(activeWorkspaceId)
 
-      // Auto-organize if all panels are stacked at the same position (migration default)
+      // Tidy up a board whose widgets all sit at the same spot (the migration
+      // default). Only on the desktop layout: a phone shows them stacked
+      // anyway, and must not save a layout worked out for its width.
       if (items.length > 1 && items.every((p) => p.pos_x === items[0].pos_x && p.pos_y === items[0].pos_y)) {
         const el = canvasRef.current
-        if (el) {
-          useCanvasStore.getState().organizePanels(el.clientWidth, el.clientHeight)
+        if (el && el.clientWidth >= STACK_BREAKPOINT) {
+          const store = useCanvasStore.getState()
+          store.arrangePanels(tidyLayout(store.panels, { width: el.clientWidth, height: el.clientHeight }))
         }
       }
       return
