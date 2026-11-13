@@ -35,6 +35,7 @@ import {
   todosToPlan,
   withPendingBookings,
   trustedPendingBookings,
+  CLASS_CAPTURE_LEAD_MIN,
 } from '@pls/substrate'
 // The server's own mock-mode reply, so CT sees exactly what mock e2e sees.
 import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofill'
@@ -193,9 +194,12 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const courseBefore = courseOf(id)
     if (course !== undefined) setCourse(id, course)
     // As the server's `moveFutureClassLectures`: a class changing course
-    // takes its future, unrecorded lectures with it; past and recorded ones stay.
+    // takes its future, unrecorded lectures still filed under the old course
+    // with it; past (the Record lead-in counts as started), recorded and
+    // hand-filed ones stay.
     if (course !== undefined && course !== courseBefore) {
-      const future = db.lectures.filter((l) => l.class_item_id === id && Date.parse(l.starts_at) > clock()
+      const future = db.lectures.filter((l) => l.class_item_id === id && (l.course ?? null) === courseBefore
+        && Date.parse(l.starts_at) > clock() + CLASS_CAPTURE_LEAD_MIN * 60_000
         && !db.recordings.some((r) => r.lecture_id === l.id))
       moveLecturesToCourse(db, future.map((l) => l.id), course)
     }
