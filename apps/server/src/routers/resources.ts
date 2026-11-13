@@ -11,8 +11,11 @@ import {
   resourceUpdateInput,
   type ResourceWithBody,
   type Resource,
+  type ResourceFileUrl,
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
+import { removeResourceFiles } from '../file-store'
+import { signFileUrl } from '../file-url'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { andInCourse, isCourse, requireOwnBoard, requireOwnLecture } from './_shared'
 
@@ -53,7 +56,7 @@ function withoutBody({ body_md: _body, ...resource }: ResourceWithBody): Resourc
   return resource
 }
 
-async function resourceById(tx: TxSql, userId: string, id: string): Promise<ResourceWithBody | null> {
+export async function resourceById(tx: TxSql, userId: string, id: string): Promise<ResourceWithBody | null> {
   const [resource] = await selectResources(tx, userId, tx`AND r.id = ${id}`, true)
   return resource ?? null
 }
@@ -67,7 +70,7 @@ function badRequest(message: string): TRPCError {
  * one set. A lecture must be the student's (foreign keys skip row-level
  * security) and a course a known key; naming both is refused.
  */
-async function attachment(
+export async function attachment(
   tx: TxSql,
   userId: string,
   lectureId: string | null | undefined,
@@ -85,7 +88,7 @@ async function attachment(
   return { lecture_id: null, course: null }
 }
 
-async function resourceAdded(tx: TxSql, userId: string, resource: Resource, workspaceId: string | null | undefined) {
+export async function resourceAdded(tx: TxSql, userId: string, resource: Resource, workspaceId: string | null | undefined) {
   if (!workspaceId) return
   await dispatchWorkflows(
     tx,
@@ -224,14 +227,30 @@ export const resourcesRouter = router({
       })
     }),
 
-  /** Deletes a resource. NOT_FOUND if it isn't the student's. */
+  /** Deletes a resource, and its file once that is committed. NOT_FOUND if it isn't the student's. */
   delete: publicProcedure
     .input(resourceIdInput)
     .mutation(async ({ ctx, input }) => {
-      return withUser(ctx.userId, async (tx) => {
-        const [row] = await tx`DELETE FROM resources WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id`
+      const { id, fileKey } = await withUser(ctx.userId, async (tx) => {
+        const [row] = await tx`DELETE FROM resources WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id, file_key`
         if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found' })
-        return { id: row.id as string }
+        return { id: row.id as string, fileKey: (row.file_key as string | null) ?? null }
       })
+      if (fileKey) await removeResourceFiles([fileKey])
+      return { id }
+    }),
+
+  /**
+   * A link to open an uploaded file, signed and good for a few minutes (the
+   * route can't see who is asking, so the link says). NOT_FOUND if it isn't
+   * the student's; BAD_REQUEST if it isn't a file.
+   */
+  fileUrl: publicProcedure
+    .input(resourceIdInput)
+    .mutation(async ({ ctx, input }): Promise<ResourceFileUrl> => {
+      const [row] = await withUser(ctx.userId, (tx) => tx`SELECT kind FROM resources WHERE id = ${input} AND user_id = ${ctx.userId}`)
+      if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Resource not found' })
+      if (row.kind !== 'file') throw badRequest('That is not a file')
+      return { url: signFileUrl(input, ctx.userId) }
     }),
 })

@@ -30,7 +30,7 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
-import { registerResourcesHandlers } from './handlers/resources'
+import { registerResourcesHandlers, uploadResourceFile } from './handlers/resources'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -574,6 +574,49 @@ describe('simulator parity - resources behave like the server router', () => {
     expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { url: 'https://x.test' } }))).toMatch(/Only a link/)
     expect(await mutate(router, 'resources.delete', note.id)).toEqual({ id: note.id })
     expect(await query(router, 'resources.get', note.id)).toBeNull()
+  })
+})
+
+describe('simulator parity - resource files behave like /resource-upload and resources.fileUrl', () => {
+  const PDF = new TextEncoder().encode('%PDF-1.7\n')
+  const EXE = new TextEncoder().encode('MZ\x90\x00 This program cannot be run in DOS mode')
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message)
+  let db: InMemoryDb
+  let router: ProcedureRouter
+  beforeEach(() => {
+    db = new InMemoryDb(createDefaultSeedData())
+    router = new ProcedureRouter()
+    registerWorkspacesHandlers(router, db)
+    registerLecturesHandlers(router, db)
+    registerResourcesHandlers(router, db)
+  })
+  const upload = (body: Uint8Array, headers: Record<string, string> = {}) =>
+    uploadResourceFile(db, { 'content-type': 'application/pdf', 'x-file-name': encodeURIComponent('Cells notes.pdf'), ...headers }, body)
+
+  it('files a PDF under a course or lecture with its name, type and size', async () => {
+    expect(upload(PDF, { 'x-resource-course': 'biology' })).toMatchObject({
+      status: 200,
+      body: { kind: 'file', title: 'Cells notes', file_name: 'Cells notes.pdf', mime_type: 'application/pdf', size_bytes: PDF.length, course: 'biology' },
+    })
+    expect(upload(PDF, { 'x-lecture-id': 'lec-rec-bio-1' })).toMatchObject({ status: 200, body: { lecture_id: 'lec-rec-bio-1', course: null } })
+  })
+
+  it('refuses what the server refuses', () => {
+    expect(upload(PDF, { 'content-type': 'text/html' }).status).toBe(415)
+    expect(upload(EXE)).toMatchObject({ status: 415, body: { error: "That file isn't a valid PDF file" } })
+    expect(upload(new Uint8Array()).status).toBe(400)
+    expect(upload(PDF, { 'x-lecture-id': 'lec-missing' }).status).toBe(404)
+    expect(upload(PDF, { 'x-lecture-id': 'lec-rec-bio-1', 'x-resource-course': 'biology' }).status).toBe(400)
+    expect(upload(PDF, { 'x-resource-course': 'history' }).status).toBe(400)
+    expect(db.resources).toHaveLength(0)
+  })
+
+  it('gives a link for a file only', async () => {
+    const { body } = upload(PDF) as { body: { id: string } }
+    expect(await mutate(router, 'resources.fileUrl', body.id)).toMatchObject({ url: expect.stringMatching(new RegExp(`^/resource-files/${body.id}\\?`)) })
+    const link = await mutate(router, 'resources.createLink', { url: 'https://example.com' }) as { id: string }
+    expect(await errorOf(mutate(router, 'resources.fileUrl', link.id))).toMatch(/not a file/)
+    expect(await errorOf(mutate(router, 'resources.fileUrl', 'res-missing'))).toMatch(/not found/)
   })
 })
 

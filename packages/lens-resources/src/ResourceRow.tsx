@@ -1,9 +1,11 @@
 import { useRef, useState, type ComponentType, type FormEvent } from 'react'
 import { cn, courseTone, IconButton } from '@pls/shared-ui'
-import { MAX_RESOURCE_TITLE_LENGTH, parseResourceUrl, resourceCourse, type Resource } from '@pls/substrate'
+import { MAX_RESOURCE_TITLE_LENGTH, parseResourceUrl, resourceCourse, resourceFileMeta, type Resource } from '@pls/substrate'
 import {
   ClipboardList,
+  File as FileIcon,
   FileText,
+  Image as ImageIcon,
   Folder,
   Link as LinkIcon,
   MoreHorizontal,
@@ -18,6 +20,9 @@ import { useNoteStuck } from './noteSavers'
 /** Icon and its tint (tokens) for a resource's kind. */
 function iconFor(resource: Resource): { icon: ComponentType<{ className?: string }>; tint: string } {
   if (resource.kind === 'note') return { icon: NotebookPen, tint: 'bg-surface-inset text-text-secondary' }
+  if (resource.kind === 'file') {
+    return { icon: resource.mime_type?.startsWith('image/') ? ImageIcon : FileIcon, tint: 'bg-surface-inset text-text-secondary' }
+  }
   switch (resource.provider) {
     case 'google_doc':
       return { icon: FileText, tint: 'bg-accent-soft text-accent' }
@@ -34,8 +39,9 @@ function iconFor(resource: Resource): { icon: ComponentType<{ className?: string
   }
 }
 
-/** What a row says under its title: "Google Sheet", "khanacademy.org", "Note · edited 2h ago". */
+/** What a row says under its title: "Google Sheet", "khanacademy.org", "Note · edited 2h ago", "PDF · 1.2 MB". */
 export function resourceMeta(resource: Resource, now: number): string {
+  if (resource.kind === 'file') return resourceFileMeta(resource)
   if (resource.kind === 'note') return `Note · edited ${editedAgo(resource.updated_at, now)}`
   return (resource.url && parseResourceUrl(resource.url)?.label) || 'Link'
 }
@@ -46,6 +52,7 @@ export interface ResourceRowProps {
   /** Show the course (on an "All courses" board). */
   showCourse: boolean
   onOpenNote: (id: string) => void
+  onOpenFile: (resource: Resource) => void
   onRename: (title: string) => void
   onMove: () => void
   onDelete: () => void
@@ -53,7 +60,7 @@ export interface ResourceRowProps {
   deleted?: { onUndo: () => void }
 }
 
-export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, onMove, onDelete, deleted }: ResourceRowProps) {
+export function ResourceRow({ resource, now, showCourse, onOpenNote, onOpenFile, onRename, onMove, onDelete, deleted }: ResourceRowProps) {
   const [actions, setActions] = useState(false)
   const [renaming, setRenaming] = useState<string | null>(null)
   // Enter submits, and the input then goes, which blurs it: one rename only.
@@ -128,7 +135,7 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
           ) : (
             <button
               type="button"
-              onClick={() => onOpenNote(resource.id)}
+              onClick={() => (resource.kind === 'file' ? onOpenFile(resource) : onOpenNote(resource.id))}
               className="truncate text-left text-body font-semibold text-text-primary hover:text-accent hover:underline"
             >
               {resource.title}
