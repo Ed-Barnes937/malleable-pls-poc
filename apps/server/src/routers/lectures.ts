@@ -5,7 +5,7 @@ import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture, type
 import { router, publicProcedure } from '../trpc'
 import { studentTimeZone } from '../preferences/store'
 import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
-import { lockBoardScope, readBoardScope, refileLectureOnBoards, writeBoardScope } from './_board-scope'
+import { lockBoardScope, moveLecturesToCourse, readBoardScope, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
 import { deleteRecordingData, lockDerivedPlanItems, planLectureDeletion } from './_lecture-deletion'
 import { dispatchWorkflows } from '../workflows/dispatch'
@@ -199,7 +199,8 @@ export const lecturesRouter = router({
    * A course change re-scopes every board with a course that has it
    * selected to the new course in the same transaction, so a board's
    * lecture is always in the board course; an "All courses" board stays
-   * "All courses" (`refileLectureOnBoards`).
+   * "All courses" (`moveLecturesToCourse`, as a class changing course
+   * moves its future lectures).
    */
   update: publicProcedure
     .input(z.object({
@@ -213,17 +214,12 @@ export const lecturesRouter = router({
         // lecture (FOR SHARE) waits for this, then reads the new course, and
         // one that already has is committed before this lists the boards
         // (the protocol in _board-scope.ts).
-        const before = await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'no key update' })
+        await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'no key update' })
         await tx`
-          UPDATE lectures SET
-            title = COALESCE(${input.title ?? null}, title),
-            course = CASE WHEN ${input.course !== undefined} THEN ${input.course ?? null} ELSE course END,
-            updated_at = now()
+          UPDATE lectures SET title = COALESCE(${input.title ?? null}, title), updated_at = now()
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
-        if (input.course !== undefined && input.course !== before.course) {
-          await refileLectureOnBoards(tx, ctx.userId, input.id, input.course)
-        }
+        if (input.course !== undefined) await moveLecturesToCourse(tx, ctx.userId, [input.id], input.course)
         return (await lectureById(tx, ctx.userId, input.id))!
       })
     }),

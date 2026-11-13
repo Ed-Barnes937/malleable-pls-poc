@@ -26,6 +26,7 @@ import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
+import { moveFutureClassLectures } from './_class-lectures'
 import {
   assertValid,
   columns,
@@ -298,6 +299,12 @@ export const planItemsRouter = router({
       })
     }),
 
+  /**
+   * Patches the stored item (see above). A class given another course takes
+   * its future, unrecorded lectures with it, boards showing them refiled, in
+   * the same transaction; past and recorded ones stay
+   * (`moveFutureClassLectures`).
+   */
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {
@@ -314,6 +321,8 @@ export const planItemsRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
+        // A class changing course takes its future lectures with it, in this transaction.
+        if (course !== undefined && course !== current.course) await moveFutureClassLectures(tx, ctx.userId, input.id, course)
         const updated = await fetchOne(tx, ctx.userId, input.id)
         await cascadeToSessions(tx, ctx.userId, current, updated, course)
         if (updated.starts_at !== current.starts_at || updated.ends_at !== current.ends_at) await raiseEstimateToBooked(tx, ctx.userId, updated)

@@ -93,6 +93,28 @@ export function writeBoardScope(
 }
 
 /** The student's zone (their preference, else the caller's browser zone), as the server's `studentTimeZone`. */
+/**
+ * Twin of the server's `moveLecturesToCourse` (`lectures.update`, and a
+ * class changing course in `planItems.update`): each lecture not already in
+ * `course` takes it, and every board with it selected follows, as the
+ * server's `refileLectureOnBoards`: a board with a course takes the new one
+ * ("All courses" when it is none), an "All courses" board stays so.
+ * Selecting it again here applies that same rule.
+ */
+export function moveLecturesToCourse(db: InMemoryDb, lectureIds: string[], course: string | null): string[] {
+  const moving = db.lectures
+    .filter((l) => lectureIds.includes(l.id) && l.course !== course)
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  for (const lecture of moving) {
+    lecture.course = course
+    lecture.updated_at = new Date().toISOString()
+    for (const row of db.workspaceScopes.filter((s) => s.scope_type === 'lecture' && s.scope_value === lecture.id)) {
+      writeBoardScope(db, row.workspace_id, { lectureId: lecture.id })
+    }
+  }
+  return moving.map((l) => l.id)
+}
+
 function studentTimeZone(db: InMemoryDb, browserZone: string | undefined): string {
   return withDefaults(db.preferences).time_zone ?? browserZone ?? DEFAULT_REVIEW_TIME_ZONE
 }
@@ -277,19 +299,9 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
     const { id, title, course } = input as { id: string; title?: string; course?: string | null }
     const lecture = requireLecture(db, id)
     if (course !== undefined) requireCourse(course)
-    const before = lecture.course
     if (title) lecture.title = title.trim()
-    if (course !== undefined) lecture.course = course
     lecture.updated_at = new Date().toISOString()
-    if (course !== undefined && course !== before) {
-      // Every board with it selected follows it to the new course, as the
-      // server's `refileLectureOnBoards`: a board with a course takes the
-      // new one ("All courses" when it is none), an "All courses" board
-      // stays so. Selecting it again here applies that same rule.
-      for (const row of db.workspaceScopes.filter((s) => s.scope_type === 'lecture' && s.scope_value === id)) {
-        writeBoardScope(db, row.workspace_id, { lectureId: id })
-      }
-    }
+    if (course !== undefined) moveLecturesToCourse(db, [id], course)
     return lectureRow(db, lecture)
   })
 

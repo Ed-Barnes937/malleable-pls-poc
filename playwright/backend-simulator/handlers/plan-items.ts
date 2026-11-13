@@ -41,6 +41,7 @@ import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofil
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
+import { moveLecturesToCourse } from './lectures'
 
 /**
  * Mirrors apps/server/src/routers/plan-items.ts: the same input schemas (which
@@ -189,7 +190,15 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     assertValid(merged)
     const before = { ...row }
     Object.assign(row, fields, { time_zone: row.time_zone ?? studentTimeZone(timeZone), updated_at: stamp() })
+    const courseBefore = courseOf(id)
     if (course !== undefined) setCourse(id, course)
+    // As the server's `moveFutureClassLectures`: a class changing course
+    // takes its future, unrecorded lectures with it; past and recorded ones stay.
+    if (course !== undefined && course !== courseBefore) {
+      const future = db.lectures.filter((l) => l.class_item_id === id && Date.parse(l.starts_at) > clock()
+        && !db.recordings.some((r) => r.lecture_id === l.id))
+      moveLecturesToCourse(db, future.map((l) => l.id), course)
+    }
     cascadeToSessions(before, row, course)
     if (row.starts_at !== before.starts_at || row.ends_at !== before.ends_at) raiseEstimateToBooked(row)
     return withCourse(row)

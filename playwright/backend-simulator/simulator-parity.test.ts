@@ -615,6 +615,16 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(again).toMatchObject({ created: false, lecture: { id: first.lecture.id }, board: null })
   })
 
+  it('a class changing course takes its future lectures with it, boards and all; past ones stay', async () => {
+    const { id } = await bioClass()
+    const past = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })).lecture
+    const future = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-21', workspaceId: 'ws-in-lecture' })).lecture
+    await call('planItems.update', { id, patch: { course: 'chemistry' } })
+    expect(await call('lectures.byId', future.id)).toMatchObject({ course: 'chemistry' })
+    expect(await call('lectures.byId', past.id)).toMatchObject({ course: 'biology' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', future.id], ['tag', 'chemistry']])
+  })
+
   it('forClassOccurrence refuses a missing class, a date it is not on, and a shift', async () => {
     const { id } = await bioClass()
     const shift = await call('planItems.create', {
