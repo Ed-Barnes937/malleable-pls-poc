@@ -1,5 +1,5 @@
 import { useRef, useState, type ComponentType, type FormEvent } from 'react'
-import { cn, courseTone, IconButton } from '@pls/shared-ui'
+import { cn, IconButton, useCourse } from '@pls/shared-ui'
 import { MAX_RESOURCE_TITLE_LENGTH, parseResourceUrl, resourceCourse, type Resource } from '@pls/substrate'
 import {
   ClipboardList,
@@ -60,7 +60,7 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
   const renameDone = useRef(false)
   const notSaved = useNoteStuck(resource.id)
   const { icon: Icon, tint } = iconFor(resource)
-  const course = resourceCourse(resource)
+  const course = useCourse(resourceCourse(resource))
 
   if (deleted) {
     return (
@@ -142,8 +142,8 @@ export function ResourceRow({ resource, now, showCourse, onOpenNote, onRename, o
               <span>{resourceMeta(resource, now)}</span>
             )}
             {showCourse && course && (
-              <span className={cn('inline-flex h-[22px] items-center rounded-full px-2 font-semibold capitalize', courseTone(course).tint, courseTone(course).ink)}>
-                {course}
+              <span className={cn('inline-flex h-[22px] items-center rounded-full px-2 font-semibold', course.tone.tint, course.tone.ink)}>
+                {course.name}
               </span>
             )}
           </div>

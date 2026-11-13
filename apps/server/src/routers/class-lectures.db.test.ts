@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -78,6 +79,7 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
     uploadsDir = await mkdtemp(path.join(tmpdir(), 'pls-uploads-'))
     process.env.UPLOADS_DIR = uploadsDir
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob, carol)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -397,8 +399,13 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
       const shown = { courseTag: 'chemistry', lectureId: null }
       await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: shown }))
         .rejects.toMatchObject({ code: 'BAD_REQUEST' })
-      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+      // Another student's course is unknown too.
+      const bobs = await caller(bob).courses.create({ name: 'Bob only' })
+      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: bobs.id, lectureId: null }, ifBoardShows: shown }))
         .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      // A board never shows a course the student doesn't have: nothing to put back.
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+        .toMatchObject({ restored: false })
       expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
     })
 

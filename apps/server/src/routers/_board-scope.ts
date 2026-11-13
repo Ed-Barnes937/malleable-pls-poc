@@ -1,7 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import type { TxSql } from '@pls/db'
 import type { BoardScope } from '@pls/substrate'
-import { requireOwnLecture } from './_shared'
+import { requireOwnCourse, requireOwnLecture } from './_shared'
 
 /*
  * Locking protocol for a board's scope rows (`workspace_scopes` 'tag' and
@@ -36,6 +36,13 @@ import { requireOwnLecture } from './_shared'
  *   foreign key checks: the lecture FOR KEY SHARE, which conflicts only with
  *   deleting it. An upload that then selects the lecture takes the board and
  *   upgrades to FOR SHARE, which waits only for a course change or delete.
+ * - Deleting a course (`courses.delete`, only once nothing files under it):
+ *   the course FOR UPDATE, then the course rows naming it (DELETE). No board
+ *   lock. A scope write that names a course holds it FOR KEY SHARE straight
+ *   after the board lock, before any scope row, so the two run one after the
+ *   other: the delete then clears the board, or the write finds the course
+ *   gone ("Unknown course"). Neither waits for the other holding a row the
+ *   other needs.
  *
  * A course change to no course (unfiling the lecture) turns a course board
  * showing it into "All courses", as selecting a lecture filed under no
@@ -189,6 +196,9 @@ export async function writeBoardScope(
   patch: BoardScopePatch,
 ): Promise<BoardScope> {
   await lockBoardScope(tx, userId, workspaceId)
+  // A course the patch names must be the student's (archived is fine), and
+  // stays until this commits: deleting it waits, then clears the board.
+  if (patch.courseTag) await requireOwnCourse(tx, userId, patch.courseTag)
   const current = await readBoardScope(tx, userId, workspaceId)
   let courseTag = patch.courseTag === undefined ? current.courseTag : patch.courseTag
   let lectureId = patch.lectureId === undefined ? current.lectureId : patch.lectureId
@@ -320,6 +330,7 @@ export async function restoreBoardScope(
   ifBoardShows: BoardScope,
 ): Promise<{ restored: boolean; scope: BoardScope }> {
   await lockBoardScope(tx, userId, workspaceId)
+  if (to.courseTag) await requireOwnCourse(tx, userId, to.courseTag)
   const current = await readBoardScope(tx, userId, workspaceId)
   if (!sameBoardScope(current, ifBoardShows)) return { restored: false, scope: current }
   const [lecture] = to.lectureId

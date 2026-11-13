@@ -505,6 +505,9 @@ importers:
 
   packages/shared-ui:
     dependencies:
+      '@pls/substrate':
+        specifier: workspace:*
+        version: link:../substrate
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1

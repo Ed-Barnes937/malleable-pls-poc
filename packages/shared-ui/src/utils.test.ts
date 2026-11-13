@@ -4,7 +4,7 @@ import { cn, fromMomentLabel } from './utils'
 describe('cn', () => {
   it('keeps a type token next to a text colour', () => {
     expect(cn('text-meta text-text-muted')).toBe('text-meta text-text-muted')
-    expect(cn('text-body', 'text-course-biology-ink')).toBe('text-body text-course-biology-ink')
+    expect(cn('text-body', 'text-course-green-ink')).toBe('text-body text-course-green-ink')
   })
 
   it('lets a later type token replace an earlier one', () => {

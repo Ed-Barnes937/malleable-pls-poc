@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone } from '@pls/shared-ui'
+import { NEUTRAL_TONE, cn, useCourse } from '@pls/shared-ui'
 import { AudioLines } from 'lucide-react'
 import { formatSpan, formatWeekday } from './time'
 import { MomentSourceText, momentSourceLabel } from './StudyBlockPopover'
@@ -20,6 +20,7 @@ interface RevealCalloutProps {
  * the block itself opens the full popover.
  */
 export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
+  const course = useCourse(item.course)
   const recordingId = item.source_type === 'recording' ? item.source_id : null
   const { data: recording } = useSubstrate().useRecording(recordingId ?? '')
   const start = new Date(item.starts_at!)
@@ -49,7 +50,7 @@ export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
     >
       <p className="text-body font-semibold text-text-primary">{item.title}</p>
       {recordingId && (
-        <p className={cn('flex items-center gap-1 text-meta font-semibold', courseTone(item.course).ink)}>
+        <p className={cn('flex items-center gap-1 text-meta font-semibold', (course?.tone ?? NEUTRAL_TONE).ink)}>
           <AudioLines className="h-3 w-3 shrink-0" aria-hidden />
           <span className="min-w-0"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', item.source_offset_ms)} /></span>
         </p>

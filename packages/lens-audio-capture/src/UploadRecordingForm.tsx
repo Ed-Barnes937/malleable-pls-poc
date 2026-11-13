@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { COURSES, Select, TextField } from '@pls/shared-ui'
+import { CourseOptions, Select, TextField } from '@pls/shared-ui'
 import { FileAudio } from 'lucide-react'
 import { titleFromFilename } from './uploadRecording'
 
@@ -56,11 +56,7 @@ export function UploadRecordingForm({ file, defaultCourse, intoLecture, onSubmit
       ) : (
         <Select aria-label="Recording course" value={course} onChange={(e) => setCourse(e.target.value)}>
           <option value="">No course</option>
-          {COURSES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
+          <CourseOptions current={course} />
         </Select>
       )}
       <div className="flex justify-end gap-2">

@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { lockProbes } from '../test-support/locks'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -35,6 +36,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspaces.delete during a course change (P
     url.searchParams.set('enable_bitmapscan', 'off')
     process.env.DATABASE_URL = url.toString()
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice)
     locks = lockProbes(db.sql)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')

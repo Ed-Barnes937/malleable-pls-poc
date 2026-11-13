@@ -17,7 +17,8 @@ export { Switch, type SwitchProps } from './Switch'
 export { Dialog, type DialogProps } from './Dialog'
 export { Select, type SelectProps } from './Select'
 export { TextField, type TextFieldProps } from './TextField'
-export { COURSES, COURSE_COLORS, COURSE_PILL_COLORS, COURSE_TONES, NEUTRAL_TONE, courseTone, type CourseTone } from './constants'
+export { COURSE_TONES, NEUTRAL_TONE, courseTone, type CourseTone } from './constants'
+export { CourseOptions, CoursesProvider, courseInfo, courseLabel, useActiveCourses, useCourse, useCourseLookup, type CourseInfo } from './courses'
 export { HiddenElsewhere, hiddenElsewhereCount, hiddenElsewhereParts, type HiddenElsewhereProps } from './HiddenElsewhere'
 export {
   startOfLocalDay,

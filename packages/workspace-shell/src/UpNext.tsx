@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { CalendarClock, CalendarPlus, Flag, ListTodo, Sparkles, X } from 'lucide-react'
 import { usePlanItemList, usePreferences } from '@pls/substrate-client'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, SectionLabel, useNarrowScreen, useWidthGlide } from '@pls/shared-ui'
+import { cn, NEUTRAL_TONE, SectionLabel, useCourse, useCourseLookup, useNarrowScreen, useWidthGlide } from '@pls/shared-ui'
 import {
   upNextLabel,
   upNextRange,
@@ -53,15 +53,16 @@ export function UpNext({ boardHasCalendar, onPlanWeek, onAddCalendar, className 
   const zone = upNextZone(preferences.data, preferences.isError, browserZone)
   // The query key is the same all day, so a minute ticking over refetches nothing.
   const range = useMemo(() => (zone ? upNextRange(now, zone) : null), [now, zone])
+  const courseOf = useCourseLookup()
   // The day rolling over changes the range: keep showing the last answer meanwhile.
   const rows = usePlanItemList({ ...(range ?? {}), statuses: ['open'] }, { enabled: !!range, keepPrevious: true })
   const tasks = usePlanItemList({ kinds: ['task'], statuses: ['open', 'done'] })
 
   const summary = useMemo(
     () => (zone && rows.data && tasks.data
-      ? upNextSummary(rows.data as PlanItemOccurrence[], tasks.data as PlanItemOccurrence[], { now, timeZone: zone })
+      ? upNextSummary(rows.data as PlanItemOccurrence[], tasks.data as PlanItemOccurrence[], { now, timeZone: zone, courseName: (id) => courseOf(id)?.name })
       : null),
-    [rows.data, tasks.data, now, zone],
+    [rows.data, tasks.data, now, zone, courseOf],
   )
 
   const [open, setOpen] = useState(false)
@@ -300,7 +301,7 @@ function NextItems({ days }: { days: UpNextDay[] }) {
 const TYPE_NAME: Record<UpNextItem['type'], string> = { class: 'Class', shift: 'Shift', study: 'Study' }
 
 function NextRow({ item }: { item: UpNextItem }) {
-  const tone = courseTone(item.course)
+  const tone = useCourse(item.course)?.tone ?? NEUTRAL_TONE
   return (
     <li data-testid="up-next-item" className="flex items-center gap-3 py-1.5">
       <span className="w-11 shrink-0 text-right text-meta tabular-nums text-text-secondary">{item.time}</span>

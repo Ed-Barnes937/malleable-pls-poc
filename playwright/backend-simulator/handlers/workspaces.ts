@@ -2,9 +2,8 @@ import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
 import type { BoardScope } from '@pls/substrate'
 import { readBoardScope, writeBoardScope } from './lectures'
+import { requireCourse } from './courses'
 
-/** Mirrors `COURSE_LABELS` on the server. */
-const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
 
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
@@ -33,7 +32,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.create', (input) => {
     const { name, courseTag } = input as { name: string; courseTag?: string }
-    if (courseTag && !COURSE_LABELS.has(courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    if (courseTag) requireCourse(db, courseTag)
     const ws = {
       id: `ws-${crypto.randomUUID().slice(0, 8)}`,
       name,
@@ -131,17 +130,17 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
     const { workspaceId, courseTag, lectureId } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
     // Only what the server's input schema accepts (never `courseFollowsLecture`).
     const patch = { courseTag, lectureId }
-    if (patch.courseTag != null && !COURSE_LABELS.has(patch.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    requireCourse(db, patch.courseTag)
     return writeBoardScope(db, workspaceId, patch)
   })
 
   /** Twin of the server's `restoreBoardScope`: Undo, only while the board shows what the change left. */
   router.register('workspaces.restoreBoardScope', (input) => {
     const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
-    for (const scope of [to, ifBoardShows]) {
-      if (scope.courseTag != null && !COURSE_LABELS.has(scope.courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
-    }
     requireBoard(db, workspaceId)
+    // As the server: the course it would put back must be the student's; the
+    // one it compares against is only compared.
+    requireCourse(db, to.courseTag)
     const current = readBoardScope(db, workspaceId)
     if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
       return { restored: false, scope: current }

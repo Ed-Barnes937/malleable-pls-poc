@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { COURSE_COLORS } from '@pls/substrate'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '../../..')
@@ -148,7 +149,8 @@ function ratio(t: Map<string, string>, fg: string, bg: string): number {
 }
 
 const SURFACES = ['surface', 'surface-raised', 'surface-inset', 'surface-overlay']
-const COURSES = ['biology', 'chemistry', 'physics']
+// Every palette colour a course can take (both themes).
+const COURSES = COURSE_COLORS
 
 /** [text token, background token]: every pair must reach 4.5:1 in both themes. */
 const TEXT_PAIRS: [string, string][] = [

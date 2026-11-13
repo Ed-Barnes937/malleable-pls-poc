@@ -64,7 +64,7 @@ test('"All courses" has a neutral dot, a course its colour', async ({ mount, pag
   const dot = page.getByTestId('scope-course').locator('span').first()
   await expect(dot).toHaveClass(/bg-text-muted/)
   await courseSelect(page).selectOption({ label: 'Chemistry' })
-  await expect(dot).toHaveClass(/bg-course-chemistry/)
+  await expect(dot).toHaveClass(/bg-course-blue/)
 })
 
 test('choosing a course is one write, and clears a lecture outside it at once', async ({ mount, page, simulator }) => {

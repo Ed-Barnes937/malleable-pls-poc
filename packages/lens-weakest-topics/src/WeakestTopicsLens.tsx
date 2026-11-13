@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
+import { cn, EmptyState, HiddenElsewhere, NEUTRAL_TONE, formatTime, useCourse } from '@pls/shared-ui'
 import { ArrowUpRight, CircleHelp } from 'lucide-react'
 
 const LIMIT = 8
@@ -94,7 +94,8 @@ interface TopicRowProps {
 }
 
 function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) {
-  const tone = courseTone(topic.course)
+  const course = useCourse(topic.course)
+  const tone = course?.tone ?? NEUTRAL_TONE
   const where = `${lectureName(topic.recordingTitle)} · ${formatTime(topic.offsetMs)}`
   const linkButton = 'inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline'
 
@@ -119,7 +120,7 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
           {showCourse && (
             <>
               <span aria-hidden className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', tone.stripe)} />
-              <span className={cn('font-semibold capitalize', tone.ink)}>{topic.course}</span>
+              <span className={cn('font-semibold', tone.ink)}>{course?.name}</span>
               {' · '}
             </>
           )}

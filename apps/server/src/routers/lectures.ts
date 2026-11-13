@@ -4,7 +4,7 @@ import { withUser, type TxSql } from '@pls/db'
 import { defaultLectureTitle, timeZoneInput, type BoardScope, type Lecture, type LectureDeletePreview } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { studentTimeZone } from '../preferences/store'
-import { andInCourse, courseKey, recordingProcessing, requireOwnLecture } from './_shared'
+import { andInCourse, courseId, recordingProcessing, requireOwnCourse, requireOwnLecture } from './_shared'
 import { lockBoardScope, moveLecturesToCourse, readBoardScope, writeBoardScope } from './_board-scope'
 import { classLectureForCapture, findOrCreateClassLecture } from './_class-lectures'
 import { deleteRecordingData, lockDerivedPlanItems, planLectureDeletion } from './_lecture-deletion'
@@ -85,7 +85,7 @@ export interface DeletedLecture {
 export const lecturesRouter = router({
   /** The student's lectures, latest first, optionally only those in a course. */
   list: publicProcedure
-    .input(z.object({ courseTag: courseKey.optional() }).optional())
+    .input(z.object({ courseTag: courseId.optional() }).optional())
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, (tx) =>
         selectLectures(tx, ctx.userId, andInCourse(tx, ctx.userId, input?.courseTag, 'lecture', tx`l.id`)),
@@ -117,7 +117,7 @@ export const lecturesRouter = router({
    */
   create: publicProcedure
     .input(z.object({
-      course: courseKey.nullable(),
+      course: courseId.nullable(),
       title: lectureTitle.optional(),
       startsAt: z.coerce.date().optional(),
       // The browser's zone, for dates and the default title when the student has set none.
@@ -136,13 +136,14 @@ export const lecturesRouter = router({
         // The board's scope lock (which checks it is the student's) before the
         // lecture rows, as forClassOccurrence does, so racing captures queue.
         if (input.workspaceId) await lockBoardScope(tx, ctx.userId, input.workspaceId)
+        const course = input.course === null ? null : await requireOwnCourse(tx, ctx.userId, input.course)
         const startsAt = input.startsAt ?? new Date()
         const zone = await studentTimeZone(tx, ctx.userId, input.timeZone)
         let id = input.matchClass
           ? (await classLectureForCapture(tx, ctx.userId, { course: input.course, at: startsAt }, zone))?.id
           : undefined
         if (!id) {
-          const title = input.title ?? defaultLectureTitle(input.course, startsAt, zone)
+          const title = input.title ?? defaultLectureTitle(course?.name ?? null, startsAt, zone)
           const [row] = await tx`
             INSERT INTO lectures (user_id, title, course, starts_at)
             VALUES (${ctx.userId}, ${title}, ${input.course}, ${startsAt})
@@ -206,7 +207,7 @@ export const lecturesRouter = router({
     .input(z.object({
       id: lectureId,
       title: lectureTitle.optional(),
-      course: courseKey.nullable().optional(),
+      course: courseId.nullable().optional(),
     }))
     .mutation(async ({ ctx, input }): Promise<Lecture> => {
       return withUser(ctx.userId, async (tx) => {
@@ -215,6 +216,7 @@ export const lecturesRouter = router({
         // one that already has is committed before this lists the boards
         // (the protocol in _board-scope.ts).
         await requireOwnLecture(tx, ctx.userId, input.id, { lock: 'no key update' })
+        if (input.course) await requireOwnCourse(tx, ctx.userId, input.course)
         await tx`
           UPDATE lectures SET title = COALESCE(${input.title ?? null}, title), updated_at = now()
           WHERE id = ${input.id} AND user_id = ${ctx.userId}

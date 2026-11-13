@@ -1,5 +1,5 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { EmptyState, HiddenElsewhere, ProgressBar, courseTone } from '@pls/shared-ui'
+import { EmptyState, HiddenElsewhere, NEUTRAL_TONE, ProgressBar, useCourseLookup } from '@pls/shared-ui'
 import { CircleHelp, Play, TrendingUp } from 'lucide-react'
 
 /** How many moments a focused review from the chip can cover (the reader's most). */
@@ -8,6 +8,7 @@ const REVIEW_LIMIT = 100
 /** "Your progress": how sure you feel about each course's lecture moments, all time. */
 export default function WeeklyOverviewLens({ scope, onStartReview }: LensProps) {
   const substrate = useSubstrate()
+  const courseOf = useCourseLookup()
   const { data: overview } = substrate.useWeeklyOverview(scope)
   // Unfiltered counterpart, only to say what the course filter leaves out.
   const { data: allCourses } = substrate.useWeeklyOverview({})
@@ -50,11 +51,11 @@ export default function WeeklyOverviewLens({ scope, onStartReview }: LensProps) 
 
       <div className="flex flex-1 flex-col justify-center gap-5">
         {overview.map((course) => {
-          const barColor = courseTone(course.course).stripe
+          const barColor = (courseOf(course.course)?.tone ?? NEUTRAL_TONE).stripe
           return (
             <div key={course.course} data-testid="progress-course" data-course={course.course} className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-body font-semibold capitalize text-text-primary">{course.course}</span>
+                <span className="text-body font-semibold text-text-primary">{courseOf(course.course)?.name}</span>
                 <div className="flex items-center gap-2">
                   {course.reviewMoments > 0 && (
                     <span className="text-meta font-semibold text-attn">{course.reviewMoments} to review</span>

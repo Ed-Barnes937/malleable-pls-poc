@@ -288,7 +288,7 @@ describe('widgets use the design tokens', () => {
     const good = [
       `const c = 'text-meta font-semibold text-text-muted'`,
       `const c = 'bg-surface-overlay/60 text-attn ring-accent-line'`,
-      `const c = 'bg-course-biology-tint text-course-biology-ink'`,
+      `const c = 'bg-course-green-tint text-course-green-ink'`,
       `const c = 'bg-[color-mix(in_oklab,var(--glow)_18%,transparent)]'`,
       `const c = 'text-accent-foreground bg-accent'`,
       `// a comment about text-xs, bg-white and rounded-md is fine`,

@@ -12,6 +12,7 @@ import type {
   PlanItem,
   StoredPreferences,
   ResourceWithBody,
+  Course,
 } from '@pls/substrate'
 
 /** A plan item as stored: its course is its own column, as on the server. */
@@ -84,6 +85,8 @@ export interface SeedData {
   preferences: StoredPreferences | null
   /** Links and notes; none unless given. */
   resources?: StoredResource[]
+  /** The student's courses (archived ones included); none unless given, as for a new student. */
+  courses?: Course[]
 }
 
 const EMPTY_SEED: SeedData = {
@@ -121,6 +124,7 @@ export class InMemoryDb {
   planItems: StoredPlanItem[] = []
   preferences: StoredPreferences | null = null
   resources: StoredResource[] = []
+  courses: Course[] = []
 
   constructor(seed?: SeedData) {
     if (seed) {
@@ -181,5 +185,6 @@ export class InMemoryDb {
     this.planItems = seed.planItems.map((p) => ({ ...p }))
     this.preferences = seed.preferences ? { ...seed.preferences } : null
     this.resources = (seed.resources ?? []).map((r) => ({ ...r }))
+    this.courses = (seed.courses ?? []).map((c) => ({ ...c }))
   }
 }

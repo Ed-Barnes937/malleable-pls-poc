@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, Dialog, EmptyState, HiddenElsewhere, SectionLabel, Spinner, useNarrowScreen } from '@pls/shared-ui'
+import { Dialog, EmptyState, HiddenElsewhere, SectionLabel, Spinner, useCourse, useNarrowScreen } from '@pls/shared-ui'
 import { resourceCourse, type Resource } from '@pls/substrate'
 import { ChevronDown, ChevronRight, Library, NotebookPen, Plus, X } from 'lucide-react'
 import { AddPanel, type AttachTo } from './AddPanel'
@@ -90,7 +90,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   // Asking whether to leave a note whose changes won't save without the student.
   const [leaving, setLeaving] = useState(false)
 
-  const courseLabel = COURSES.find((c) => c.value === course)?.label ?? course
+  const courseLabel = useCourse(course)?.name
   const now = Date.now()
 
   /** Where a new item goes: the lecture, or the board course (none on "All courses"). */
