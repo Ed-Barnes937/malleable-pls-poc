@@ -424,7 +424,7 @@ describe('simulator parity - plan items behave like the server router', () => {
     await expect(call('planItems.refit', { timeZone: 'Europe/London', blocks: [block] })).rejects.toThrow(/already moved/)
   })
 
-  it('updates, completes, dismisses and deletes, keeping course in tags', async () => {
+  it('updates, completes, dismisses and deletes, keeping course on the item', async () => {
     const todo = await call('planItems.create', { kind: 'task', title: 'Review', duration_min: 20, course: 'biology' })
     const id = todo.id as string
 
@@ -436,8 +436,19 @@ describe('simulator parity - plan items behave like the server router', () => {
     await call('planItems.delete', id)
     expect(await query(router, 'planItems.byId', id)).toBeNull()
     await expect(call('planItems.delete', id)).rejects.toThrow(/not found/)
-    const tags = await query(router, 'tags.forTarget', { targetType: 'plan_item', targetId: id })
-    expect(tags).toEqual([])
+    // Undo puts it back with its course.
+    expect(await call('planItems.restore', id)).toMatchObject({ id, course: 'chemistry' })
+    expect(await query(router, 'planItems.list', { courseTag: 'chemistry' })).toMatchObject([{ id }])
+    expect(await query(router, 'tags.forTarget', { targetType: 'plan_item', targetId: id })).toEqual([])
+  })
+
+  it('accepts only a known course on a plan item, never as a tag, as the server', async () => {
+    await expect(call('planItems.create', { kind: 'task', title: 'History essay', course: 'history' })).rejects.toThrow(/Unknown course/)
+    const todo = await call('planItems.create', { kind: 'task', title: 'Read', course: 'biology' })
+    const id = todo.id as string
+    await expect(call('planItems.update', { id, patch: { course: 'history' } })).rejects.toThrow(/Unknown course/)
+    expect(await query(router, 'planItems.byId', id)).toMatchObject({ course: 'biology' })
+    await expect(call('tags.create', { target_type: 'plan_item', target_id: id, label: 'biology' })).rejects.toThrow(/set on the item/)
   })
 
   it('rejects the same invalid shapes as the server', async () => {

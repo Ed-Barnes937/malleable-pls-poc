@@ -29,6 +29,10 @@ export function registerTagsHandlers(router: ProcedureRouter, db: InMemoryDb): v
     if (target_type === 'recording' && ['biology', 'chemistry', 'physics'].includes(label)) {
       throw new SimulatorError('BAD_REQUEST', "A recording's course is its lecture's")
     }
+    // As the server: a plan item's course is its own column, never a tag.
+    if (target_type === 'plan_item' && ['biology', 'chemistry', 'physics'].includes(label)) {
+      throw new SimulatorError('BAD_REQUEST', "A plan item's course is set on the item")
+    }
     if (label === 'sorted') throw new SimulatorError('BAD_REQUEST', 'Mark a moment sorted with tags.sort')
     // As the server: once per (target, label).
     const existing = db.tags.find((t) => t.target_type === target_type && t.target_id === target_id && t.label === label)

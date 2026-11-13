@@ -14,7 +14,6 @@ import {
   type BoardScope,
   type Lecture,
   type LectureDeletePreview,
-  type PlanItem,
 } from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredLecture } from '../in-memory-db'
@@ -24,7 +23,7 @@ import { requireBoard } from './workspaces'
 /** Mirrors `COURSE_LABELS` on the server. */
 const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
 
-function requireCourse(course: string | null | undefined): void {
+export function requireCourse(course: string | null | undefined): void {
   if (course != null && !COURSE_LABELS.has(course)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
 }
 
@@ -119,19 +118,9 @@ function studentTimeZone(db: InMemoryDb, browserZone: string | undefined): strin
   return withDefaults(db.preferences).time_zone ?? browserZone ?? DEFAULT_REVIEW_TIME_ZONE
 }
 
-/** A stored plan item with its course (its first 'plan_item' tag), as the server reads it. */
-function planItemWithCourse(db: InMemoryDb, id: string): PlanItem | null {
-  const row = db.planItems.find((p) => p.id === id)
-  if (!row) return null
-  const tag = db.tags
-    .filter((t) => t.target_type === 'plan_item' && t.target_id === id)
-    .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))[0]
-  return { ...row, course: tag?.label ?? null }
-}
-
 /** Twin of the server's `findOrCreateClassLecture`. */
 function findOrCreateClassLecture(db: InMemoryDb, planItemId: string, date: string, timeZone: string): { lecture: StoredLecture; created: boolean } {
-  const item = planItemWithCourse(db, planItemId)
+  const item = db.planItems.find((p) => p.id === planItemId)
   if (!item) throw new SimulatorError('NOT_FOUND', 'Class not found')
   if (!isClassBlock(item)) throw new SimulatorError('BAD_REQUEST', 'Not a class')
   const occurrence = occurrenceOn(item, date, timeZone)
@@ -156,7 +145,6 @@ function findOrCreateClassLecture(db: InMemoryDb, planItemId: string, date: stri
 /** Twin of the server's `classLectureForCapture`. */
 function classLectureForCapture(db: InMemoryDb, course: string | null, at: number, timeZone: string): StoredLecture | null {
   const items = db.planItems
-    .map((p) => planItemWithCourse(db, p.id)!)
     .filter((p) => p.kind === 'commitment' && p.status === 'open' && (!course || p.course === course))
   const occurrence = classForCapture(expandPlanItems(items, captureClassRange(at)), { course, at })
   if (!occurrence) return null
@@ -222,7 +210,7 @@ function lectureDeletion(db: InMemoryDb, lecture: StoredLecture): { preview: Lec
   const remove = () => {
     const goingIds = new Set(going.map((p) => p.id))
     db.planItems = db.planItems.filter((p) => !goingIds.has(p.id))
-    db.tags = db.tags.filter((t) => !(t.target_type === 'plan_item' && goingIds.has(t.target_id)) && !tagOn(t))
+    db.tags = db.tags.filter((t) => !tagOn(t))
     for (const item of kept) Object.assign(item, { source_type: null, source_id: null, source_offset_ms: null })
     db.annotations = db.annotations.filter((a) => !annotationOn(a))
     db.confidenceSignals = db.confidenceSignals.filter((c) => !tagOn(c))

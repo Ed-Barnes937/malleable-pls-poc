@@ -51,8 +51,8 @@ plan_items
   subtype?,                        -- free-text label: class, shift, study...
   source_type?, source_id?, source_offset_ms?,  -- provenance, e.g. a lecture moment, or
                                    --   'plan_item' + the to-do's id for a session of a split to-do
+  course?,                         -- course key, as lectures.course
   created_at, updated_at
-  -- course: a tag with target_type 'plan_item' (lectures hold theirs as a column)
 
 resources
   id, kind (link|note|file), title,
@@ -178,8 +178,8 @@ Readers apply every dimension they are given: course through `andInCourse` /
 the lecture), and an optional `recordingId` (not a board dimension: one
 recording of a lecture, e.g. the one a study block came from), all combined
 by `andInScope` in `apps/server/src/routers/_shared.ts`. A lecture's course is
-`lectures.course` and a recording's is its lecture's; a plan item's is a `tags`
-row (`target_type = 'plan_item'`, used by `planItems.list`); a resource's is
+`lectures.course` and a recording's is its lecture's; a plan item's is
+`plan_items.course`; a resource's is
 `resources.course`, or its lecture's (`inCourse(..., 'resource', ...)`); segments, tags,
 confidence and links inherit the course of their recording. Highlighting
 widgets ring what belongs to the lecture with `useLinkedToLecture`

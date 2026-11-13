@@ -56,7 +56,7 @@ test('shows the lecture summary at the top and the review a confused moment beca
     starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
     duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
     // seg-bio4-04 starts at 540000 ms.
-    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
     created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
   })
   await mount(
@@ -659,7 +659,7 @@ test('a confusing moment can be marked sorted, keeps confused as history, and un
     id: 'pi-review', kind: 'task', title: 'Review: maternal inheritance',
     starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
     duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
-    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
     created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
   })
   const notices: { message: string; action?: { label: string } }[] = []
@@ -708,7 +708,7 @@ test('turning confused off takes its open review off the plan, with Undo that br
     id: 'pi-review', kind: 'task', title: 'Review: maternal inheritance',
     starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
     duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
-    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
     created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
   })
   const notices: { message: string; action?: { label: string; onClick: () => void } }[] = []

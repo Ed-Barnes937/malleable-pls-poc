@@ -300,7 +300,7 @@ async function insertSeedResources(sql: Sql) {
   }
 }
 
-/** Inserts plan items for dev-user-1 with their course as a 'plan_item' tag, as the server stores them. */
+/** Inserts plan items for dev-user-1 with their course, as the server stores them. */
 export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
   for (const { id, course, created_at, updated_at, ...item } of items) {
     const invalid = validatePlanItem(item)
@@ -322,15 +322,10 @@ export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
         source_id: item.source_id ?? null,
         source_offset_ms: item.source_offset_ms ?? null,
         created_by_workflow_id: item.created_by_workflow_id ?? null,
+        course: course ?? null,
         ...(created_at ? { created_at } : {}),
         ...(updated_at ? { updated_at } : {}),
       })}
     `
-    if (course) {
-      await sql`
-        INSERT INTO tags (id, user_id, target_type, target_id, label)
-        VALUES (${`tag-${id}`}, 'dev-user-1', 'plan_item', ${id}, ${course})
-      `
-    }
   }
 }
