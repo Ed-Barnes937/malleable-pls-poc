@@ -17,9 +17,12 @@ import { requireOwnLecture } from './_shared'
  *   selects its lecture): the board (`lockBoardScope`), then the lecture it
  *   selects or keeps FOR SHARE, then the board's lecture row, then its course
  *   row. It writes no scope row before that lecture read.
- * - A course change (`lectures.update`): the lecture FOR NO KEY UPDATE before
- *   anything else, then `refileLectureOnBoards`: the lecture rows naming it
- *   (FOR UPDATE), then those boards' course rows. No board lock.
+ * - A course change (`moveLecturesToCourse`: `lectures.update`, and a class
+ *   changing course in `planItems.update`, which takes its future lectures
+ *   with it): every lecture it moves FOR NO KEY UPDATE, in id order, before
+ *   any board row, then for each in turn `refileLectureOnBoards`: the
+ *   lecture rows naming it (FOR UPDATE), then those boards' course rows. No
+ *   board lock.
  * - Deleting a lecture (`lectures.delete`): the lecture FOR UPDATE, its
  *   recordings and derived plan items, then the lecture rows naming it
  *   (DELETE). No board lock.
@@ -59,14 +62,12 @@ import { requireOwnLecture } from './_shared'
  * of that board's rows. Changes and deletes of different lectures share no
  * scope row (a board shows one lecture).
  *
- * A future transaction that changes the course of several lectures (a class
- * moving to another course takes its future lectures with it) must lock all
- * of them FOR NO KEY UPDATE in a fixed order (by id) before it refiles any
- * board. A scope write holds one lecture FOR SHARE and then waits for its
- * board's rows: a change that had already refiled one lecture (holding
- * board rows) and then waited for another lecture that write holds would
- * deadlock with it, as would two such changes taking lectures in different
- * orders.
+ * A change of several lectures at once locks all of them in id order before
+ * it refiles any board. A scope write holds one lecture FOR SHARE and then
+ * waits for its board's rows: a change that had already refiled one lecture
+ * (holding board rows) and then waited for another lecture that write holds
+ * would deadlock with it, as would two such changes taking lectures in
+ * different orders.
  */
 
 /**
@@ -257,6 +258,41 @@ export async function refileLectureOnBoards(
     UPDATE workspace_scopes SET scope_value = ${course}
     WHERE workspace_id = ANY(${boards}::text[]) AND scope_type = ${SCOPE_TYPE.courseTag} AND user_id = ${userId}
   `
+}
+
+/**
+ * Refiles lectures under `course` (null: no course), each as `lectures.update`
+ * changing its course does: the lecture takes the course, and every board
+ * showing it follows (`refileLectureOnBoards`: a board with a course takes
+ * `course`, an "All courses" board stays "All courses").
+ *
+ * Locks them all FOR NO KEY UPDATE in id order before it refiles any board
+ * (the protocol above), so a board selecting one of them meanwhile waits and
+ * then reads its new course. Lectures already in `course`, and ones that are
+ * not the student's or are gone (deleted meanwhile), are left alone. Returns
+ * the ids it moved, in id order.
+ */
+export async function moveLecturesToCourse(
+  tx: TxSql,
+  userId: string,
+  lectureIds: string[],
+  course: string | null,
+): Promise<string[]> {
+  if (lectureIds.length === 0) return []
+  const locked = await tx`
+    SELECT id, course FROM lectures
+    WHERE id = ANY(${lectureIds}::text[]) AND user_id = ${userId}
+    ORDER BY id
+    FOR NO KEY UPDATE
+  `
+  const moving = locked.filter((r) => ((r.course as string | null) ?? null) !== course).map((r) => r.id as string)
+  if (moving.length === 0) return []
+  await tx`
+    UPDATE lectures SET course = ${course}, updated_at = now()
+    WHERE id = ANY(${moving}::text[]) AND user_id = ${userId}
+  `
+  for (const id of moving) await refileLectureOnBoards(tx, userId, id, course)
+  return moving
 }
 
 /** Whether two board scopes are the same course and lecture. */

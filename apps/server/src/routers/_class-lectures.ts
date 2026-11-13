@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import type { TxSql } from '@pls/db'
 import {
+  CLASS_CAPTURE_LEAD_MIN,
   captureClassRange,
   classForCapture,
   classLectureTitle,
@@ -9,11 +10,7 @@ import {
   occurrenceOn,
 } from '@pls/substrate'
 import { fetchOne, listPlanItems } from '../plan-items/store'
-
-// TODO(02/03 open question 1): what happens to a class's lectures when the
-// class's course changes later (recommended: unrecorded future lectures
-// follow the class, past ones stay). Until it is decided, a lecture keeps the
-// course it was made with; nothing here or in planItems.update moves it.
+import { moveLecturesToCourse } from './_board-scope'
 
 /** A class occurrence's lecture, and whether this call made it. */
 export interface ClassLecture {
@@ -30,8 +27,10 @@ const FIND_OR_CREATE_ROUNDS = 3
  * number of concurrent calls land on the same row.
  *
  * Throws NOT_FOUND unless the plan item is the student's own (held with FOR
- * KEY SHARE until the transaction ends, as foreign keys skip row-level
- * security), and BAD_REQUEST when it isn't a class block or has no
+ * SHARE until the transaction ends, as foreign keys skip row-level security,
+ * and so a change to the class under way, such as a new course that takes
+ * its future lectures with it, is waited for and its course read as
+ * committed), and BAD_REQUEST when it isn't a class block or has no
  * occurrence on `date` (read as `occurrenceDate` does, else in `timeZone`).
  *
  * A new lecture is filed under the class's course, starts when the
@@ -46,7 +45,7 @@ export async function findOrCreateClassLecture(
   date: string,
   timeZone: string,
 ): Promise<ClassLecture> {
-  const [owned] = await tx`SELECT id FROM plan_items WHERE id = ${planItemId} AND user_id = ${userId} FOR KEY SHARE`
+  const [owned] = await tx`SELECT id FROM plan_items WHERE id = ${planItemId} AND user_id = ${userId} FOR SHARE`
   if (!owned) throw new TRPCError({ code: 'NOT_FOUND', message: 'Class not found' })
   const item = await fetchOne(tx, userId, planItemId)
   if (!isClassBlock(item)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Not a class' })
@@ -97,4 +96,37 @@ export async function classLectureForCapture(
   const occurrence = classForCapture(rows, { course: capture.course, at })
   if (!occurrence) return null
   return findOrCreateClassLecture(tx, userId, occurrence.id, occurrenceDate(occurrence, timeZone)!, timeZone)
+}
+
+/**
+ * A class that changes course takes its future lectures with it; past ones
+ * stay (Round 4): every lecture made for one of its occurrences that is
+ * still filed under its old course `from` (null: no course), starts after
+ * the Record lead-in (`CLASS_CAPTURE_LEAD_MIN` before the start counts as
+ * started) and has no recording yet moves to `course` (null: no course), as
+ * `lectures.update` changing its course would, boards and all
+ * (`moveLecturesToCourse`). A lecture whose class is on now, or has been,
+ * keeps its course, as does a recorded one, and one the student filed
+ * elsewhere by hand. The caller is changing the class's course in this
+ * transaction (it holds the class row). Returns the ids it moved.
+ */
+export async function moveFutureClassLectures(
+  tx: TxSql,
+  userId: string,
+  planItemId: string,
+  from: string | null,
+  course: string | null,
+): Promise<string[]> {
+  // Locked here, in id order, so one the student re-files meanwhile is
+  // re-checked against the filter once its lock is free, and drops out.
+  const future = await tx`
+    SELECT l.id FROM lectures l
+    WHERE l.user_id = ${userId} AND l.class_item_id = ${planItemId}
+      AND l.course IS NOT DISTINCT FROM ${from}::text
+      AND l.starts_at > now() + make_interval(mins => ${CLASS_CAPTURE_LEAD_MIN}::int)
+      AND NOT EXISTS (SELECT 1 FROM recordings r WHERE r.lecture_id = l.id AND r.user_id = ${userId})
+    ORDER BY l.id
+    FOR NO KEY UPDATE OF l
+  `
+  return moveLecturesToCourse(tx, userId, future.map((r) => r.id as string), course)
 }

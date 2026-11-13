@@ -26,6 +26,7 @@ import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
+import { moveFutureClassLectures } from './_class-lectures'
 import {
   assertValid,
   columns,
@@ -298,10 +299,20 @@ export const planItemsRouter = router({
       })
     }),
 
+  /**
+   * Patches the stored item (see above). A class given another course takes
+   * its future, unrecorded lectures still filed under the old course with
+   * it, boards showing them refiled, in the same transaction; past, recorded
+   * and hand-filed ones stay (`moveFutureClassLectures`).
+   */
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // Locked first, so the course compared below is the committed one
+        // (a concurrent class change finishes first), and before any lecture:
+        // the class, then lectures by id, then boards.
+        await tx`SELECT id FROM plan_items WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR NO KEY UPDATE`
         const current = await fetchOne(tx, ctx.userId, input.id)
         const { course, ...patch } = input.patch
         const merged: Stored = { ...current, ...patch }
@@ -314,6 +325,8 @@ export const planItemsRouter = router({
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
         if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
+        // A class changing course takes its future lectures with it, in this transaction.
+        if (course !== undefined && course !== current.course) await moveFutureClassLectures(tx, ctx.userId, input.id, current.course ?? null, course)
         const updated = await fetchOne(tx, ctx.userId, input.id)
         await cascadeToSessions(tx, ctx.userId, current, updated, course)
         if (updated.starts_at !== current.starts_at || updated.ends_at !== current.ends_at) await raiseEstimateToBooked(tx, ctx.userId, updated)
