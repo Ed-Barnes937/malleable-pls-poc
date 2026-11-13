@@ -13,6 +13,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { lockProbes } from '../test-support/locks'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
@@ -100,6 +101,44 @@ describe.skipIf(!TEST_DATABASE_URL)('a class changing course (Postgres)', () => 
     expect(await courseOf(other)).toBe('biology')
     // And a lecture made after the change is filed under the new course.
     expect(await courseOf(await lecture(bio, 5))).toBe('chemistry')
+  })
+
+  it('a lecture the student filed elsewhere by hand stays; from no course, only unfiled lectures move', async () => {
+    const bio = await weeklyClass('biology')
+    const hand = await lecture(bio, 3)
+    const plain = await lecture(bio, 4)
+    await api().lectures.update({ id: hand, course: 'chemistry' })
+    await changeCourse(bio, 'physics')
+    expect(await courseOf(hand)).toBe('chemistry')
+    expect(await courseOf(plain)).toBe('physics')
+
+    const guest = await weeklyClass(null)
+    const unfiled = await lecture(guest, 3)
+    const filed = await lecture(guest, 4)
+    await api().lectures.update({ id: filed, course: 'chemistry' })
+    await changeCourse(guest, 'biology')
+    expect(await courseOf(unfiled)).toBe('biology')
+    expect(await courseOf(filed)).toBe('chemistry')
+  })
+
+  it('the Record lead-in counts as started: a lecture starting inside it stays, one just outside moves', async () => {
+    const MIN = 60_000
+    const classAt = async (minutesFromNow: number) => {
+      const start = new Date(Date.now() + minutesFromNow * MIN)
+      const id = (await api().planItems.create({
+        kind: 'commitment', title: `Class ${randomUUID().slice(0, 4)}`, subtype: 'class', course: 'biology',
+        starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 60 * MIN).toISOString(),
+        recurrence: { freq: 'weekly', timeZone: 'UTC' }, timeZone: 'UTC',
+      })).id
+      const made = await api().lectures.forClassOccurrence({ planItemId: id, date: start.toISOString().slice(0, 10), timeZone: 'UTC' })
+      return { id, lecture: made.lecture.id as string }
+    }
+    const inside = await classAt(CLASS_CAPTURE_LEAD_MIN - 3)
+    const outside = await classAt(CLASS_CAPTURE_LEAD_MIN + 3)
+    await changeCourse(inside.id, 'chemistry')
+    await changeCourse(outside.id, 'chemistry')
+    expect(await courseOf(inside.lecture)).toBe('biology')
+    expect(await courseOf(outside.lecture)).toBe('chemistry')
   })
 
   it('refiles the boards showing a moved lecture; an "All courses" board stays so, a past lecture\'s board stays', async () => {

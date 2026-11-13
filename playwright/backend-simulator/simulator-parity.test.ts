@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
+import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
 import { InMemoryDb } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
@@ -623,6 +624,33 @@ describe('simulator parity - class lectures (Record during a class, calendar cla
     expect(await call('lectures.byId', future.id)).toMatchObject({ course: 'chemistry' })
     expect(await call('lectures.byId', past.id)).toMatchObject({ course: 'biology' })
     expect(await scope('ws-in-lecture')).toEqual([['lecture', future.id], ['tag', 'chemistry']])
+  })
+
+  it('a class changing course leaves a lecture filed elsewhere by hand, and one starting inside the Record lead-in', async () => {
+    const { id } = await bioClass()
+    const hand = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-21' })).lecture
+    const plain = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-28' })).lecture
+    await call('lectures.update', { id: hand.id, course: 'chemistry' })
+    await call('planItems.update', { id, patch: { course: 'physics' } })
+    expect(await call('lectures.byId', hand.id)).toMatchObject({ course: 'chemistry' })
+    expect(await call('lectures.byId', plain.id)).toMatchObject({ course: 'physics' })
+
+    const classAt = async (minutesFromNow: number) => {
+      const start = new Date(Date.now() + minutesFromNow * 60_000)
+      const made = await call('planItems.create', {
+        kind: 'commitment', title: 'Soon', subtype: 'class', course: 'biology',
+        starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+        recurrence: { freq: 'weekly', timeZone: 'UTC' }, timeZone: 'UTC',
+      })
+      const { lecture } = await call('lectures.forClassOccurrence', { planItemId: made.id, date: start.toISOString().slice(0, 10), timeZone: 'UTC' })
+      return { id: made.id as string, lecture: lecture.id as string }
+    }
+    const inside = await classAt(CLASS_CAPTURE_LEAD_MIN - 3)
+    const outside = await classAt(CLASS_CAPTURE_LEAD_MIN + 3)
+    await call('planItems.update', { id: inside.id, patch: { course: 'chemistry' } })
+    await call('planItems.update', { id: outside.id, patch: { course: 'chemistry' } })
+    expect(await call('lectures.byId', inside.lecture)).toMatchObject({ course: 'biology' })
+    expect(await call('lectures.byId', outside.lecture)).toMatchObject({ course: 'chemistry' })
   })
 
   it('forClassOccurrence refuses a missing class, a date it is not on, and a shift', async () => {

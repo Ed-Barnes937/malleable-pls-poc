@@ -1,6 +1,7 @@
 import { TRPCError } from '@trpc/server'
 import type { TxSql } from '@pls/db'
 import {
+  CLASS_CAPTURE_LEAD_MIN,
   captureClassRange,
   classForCapture,
   classLectureTitle,
@@ -99,24 +100,33 @@ export async function classLectureForCapture(
 
 /**
  * A class that changes course takes its future lectures with it; past ones
- * stay (Round 4): every lecture made for one of its occurrences that starts
- * after now and has no recording yet moves to `course` (null: no course), as
+ * stay (Round 4): every lecture made for one of its occurrences that is
+ * still filed under its old course `from` (null: no course), starts after
+ * the Record lead-in (`CLASS_CAPTURE_LEAD_MIN` before the start counts as
+ * started) and has no recording yet moves to `course` (null: no course), as
  * `lectures.update` changing its course would, boards and all
  * (`moveLecturesToCourse`). A lecture whose class is on now, or has been,
- * keeps its course, as does any recorded one. The caller is changing the
- * class's course in this transaction (it holds the class row). Returns the
- * ids it moved.
+ * keeps its course, as does a recorded one, and one the student filed
+ * elsewhere by hand. The caller is changing the class's course in this
+ * transaction (it holds the class row). Returns the ids it moved.
  */
 export async function moveFutureClassLectures(
   tx: TxSql,
   userId: string,
   planItemId: string,
+  from: string | null,
   course: string | null,
 ): Promise<string[]> {
+  // Locked here, in id order, so one the student re-files meanwhile is
+  // re-checked against the filter once its lock is free, and drops out.
   const future = await tx`
     SELECT l.id FROM lectures l
-    WHERE l.user_id = ${userId} AND l.class_item_id = ${planItemId} AND l.starts_at > now()
+    WHERE l.user_id = ${userId} AND l.class_item_id = ${planItemId}
+      AND l.course IS NOT DISTINCT FROM ${from}::text
+      AND l.starts_at > now() + make_interval(mins => ${CLASS_CAPTURE_LEAD_MIN}::int)
       AND NOT EXISTS (SELECT 1 FROM recordings r WHERE r.lecture_id = l.id AND r.user_id = ${userId})
+    ORDER BY l.id
+    FOR NO KEY UPDATE OF l
   `
   return moveLecturesToCourse(tx, userId, future.map((r) => r.id as string), course)
 }
