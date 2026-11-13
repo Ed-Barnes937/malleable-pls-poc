@@ -41,10 +41,6 @@ export const STARTER_COURSES: ReadonlyArray<Pick<Course, 'id' | 'name' | 'color'
   { id: 'physics', name: 'Physics', color: 'purple' },
 ]
 
-export function isCourseColor(value: unknown): value is CourseColor {
-  return typeof value === 'string' && (COURSE_COLORS as readonly string[]).includes(value)
-}
-
 /** A course id as a reference in an API input. Whether it is the student's is checked against `courses`. */
 export const courseIdInput = z.string().min(1).max(100)
 

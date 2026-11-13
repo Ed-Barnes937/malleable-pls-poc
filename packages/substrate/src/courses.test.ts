@@ -6,7 +6,6 @@ import {
   courseNameInput,
   courseNameKey,
   duplicateCourseMessage,
-  isCourseColor,
   nextCourseColor,
   sortCourses,
   type CourseColor,
@@ -20,8 +19,6 @@ describe('course palette', () => {
     expect(STARTER_COURSES.map((c) => [c.id, c.name, c.color])).toEqual([
       ['biology', 'Biology', 'green'], ['chemistry', 'Chemistry', 'blue'], ['physics', 'Physics', 'purple'],
     ])
-    expect(isCourseColor('teal')).toBe(true)
-    expect(isCourseColor('biology')).toBe(false)
   })
 
   it('gives a new course the colour the active ones use least, palette order breaking ties', () => {

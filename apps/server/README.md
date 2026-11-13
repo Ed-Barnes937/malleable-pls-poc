@@ -84,6 +84,23 @@ AI_MODE=live pnpm demo:live-smoke
 
 It refuses to run unless `AI_MODE=live` is set on the command line (it checks before loading `apps/server/.env`, which is where it reads `OPENROUTER_API_KEY` and `OPENROUTER_LLM_MODEL` from). Agents and CI must never run it.
 
+## Courses (`courses.*`)
+
+A student's courses are their own rows (`courses`, migration 026): an opaque
+`id` (what everything files under; never shown), a `name` and a palette
+`color` (`COURSE_COLORS` in `@pls/substrate`). Lectures, resources and plan
+items reference one by a foreign key on `(user_id, course)`, ON DELETE
+RESTRICT; board course scopes are kept by the app. Every writer checks the
+course is the student's with `requireOwnCourse` (BAD_REQUEST "Unknown
+course"; archived courses are accepted). `list` returns every course,
+archived ones included; `create` picks the least-used colour; `update`
+renames, recolours, archives or restores; `delete` works only when nothing
+uses the course (CONFLICT naming what does) and turns boards on it into "All
+courses". A new student starts with no courses; seeds and the e2e reseed
+give the demo student Biology, Chemistry and Physics (ids `biology`,
+`chemistry`, `physics`). DB-backed tests: `courses.db`, `courses-migration.db`
+(db tests give their students the three with `insertStarterCourses`).
+
 ## Lectures (`lectures.*`, `/upload`)
 
 `lectures.list` / `byId` / `create` / `update` and `forClassOccurrence` (the

@@ -235,7 +235,6 @@ export {
   courseNameKey,
   courseUpdateInput,
   duplicateCourseMessage,
-  isCourseColor,
   newCourseInput,
   nextCourseColor,
   sortCourses,
