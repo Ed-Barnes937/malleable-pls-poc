@@ -117,12 +117,16 @@ export async function moveFutureClassLectures(
   from: string | null,
   course: string | null,
 ): Promise<string[]> {
+  // Locked here, in id order, so one the student re-files meanwhile is
+  // re-checked against the filter once its lock is free, and drops out.
   const future = await tx`
     SELECT l.id FROM lectures l
     WHERE l.user_id = ${userId} AND l.class_item_id = ${planItemId}
       AND l.course IS NOT DISTINCT FROM ${from}::text
       AND l.starts_at > now() + make_interval(mins => ${CLASS_CAPTURE_LEAD_MIN}::int)
       AND NOT EXISTS (SELECT 1 FROM recordings r WHERE r.lecture_id = l.id AND r.user_id = ${userId})
+    ORDER BY l.id
+    FOR NO KEY UPDATE OF l
   `
   return moveLecturesToCourse(tx, userId, future.map((r) => r.id as string), course)
 }

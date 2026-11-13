@@ -301,9 +301,9 @@ export const planItemsRouter = router({
 
   /**
    * Patches the stored item (see above). A class given another course takes
-   * its future, unrecorded lectures still filed under the old course with it, boards showing them refiled, in
-   * the same transaction; past, recorded and
-   * hand-filed ones stay (`moveFutureClassLectures`).
+   * its future, unrecorded lectures still filed under the old course with
+   * it, boards showing them refiled, in the same transaction; past, recorded
+   * and hand-filed ones stay (`moveFutureClassLectures`).
    */
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
