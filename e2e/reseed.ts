@@ -110,9 +110,7 @@ export async function reseed({
 
       await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
       await insertSeedResources(tx)
-      // Links lectures to their class occurrences where unambiguous, as the
-      // migration did for real data (data only).
-      await tx.unsafe(readFileSync(resolve(__dirname, '../packages/db/src/migrations/020_link_lectures_to_classes.sql'), 'utf-8'))
+      await linkLecturesToClasses(tx)
     })
   } finally {
     await sql.end()
@@ -300,7 +298,17 @@ async function insertSeedResources(sql: Sql) {
   }
 }
 
-/** Inserts plan items for dev-user-1 with their course as a 'plan_item' tag, as the server stores them. */
+/**
+ * Links lectures to their class occurrences where unambiguous, as migration
+ * 020 did for real data. Its own SQL (e2e/link-lectures-to-classes.sql):
+ * 020 reads a class's course from the 'plan_item' tags that migration 025
+ * replaced with `plan_items.course`.
+ */
+export async function linkLecturesToClasses(sql: Sql) {
+  await sql.unsafe(readFileSync(resolve(__dirname, 'link-lectures-to-classes.sql'), 'utf-8'))
+}
+
+/** Inserts plan items for dev-user-1 with their course, as the server stores them. */
 export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
   for (const { id, course, created_at, updated_at, ...item } of items) {
     const invalid = validatePlanItem(item)
@@ -322,15 +330,10 @@ export async function insertPlanItems(sql: Sql, items: SeedPlanItem[]) {
         source_id: item.source_id ?? null,
         source_offset_ms: item.source_offset_ms ?? null,
         created_by_workflow_id: item.created_by_workflow_id ?? null,
+        course: course ?? null,
         ...(created_at ? { created_at } : {}),
         ...(updated_at ? { updated_at } : {}),
       })}
     `
-    if (course) {
-      await sql`
-        INSERT INTO tags (id, user_id, target_type, target_id, label)
-        VALUES (${`tag-${id}`}, 'dev-user-1', 'plan_item', ${id}, ${course})
-      `
-    }
   }
 }

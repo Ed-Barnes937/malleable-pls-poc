@@ -187,9 +187,7 @@ describe.skipIf(!TEST_DATABASE_URL)('a class changing course (Postgres)', () => 
     const bio = await weeklyClass('biology')
     // The class's course change is under way (its row and course written, not committed).
     const holder = await locks.hold(async (tx) => {
-      await tx`UPDATE plan_items SET updated_at = now() WHERE id = ${bio}`
-      await tx`DELETE FROM tags WHERE target_type = 'plan_item' AND target_id = ${bio}`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${alice}, 'plan_item', ${bio}, 'chemistry')`
+      await tx`UPDATE plan_items SET updated_at = now(), course = 'chemistry' WHERE id = ${bio}`
     })
     let opened
     try {

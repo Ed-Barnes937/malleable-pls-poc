@@ -80,6 +80,10 @@ export const tagsRouter = router({
       if (input.target_type === 'recording' && isCourse(input.label)) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: "A recording's course is its lecture's: set it on the lecture" })
       }
+      // A plan item's course is its own column (planItems.update), never a tag.
+      if (input.target_type === 'plan_item' && isCourse(input.label)) {
+        throw new TRPCError({ code: 'BAD_REQUEST', message: "A plan item's course is set on the item: use planItems.update" })
+      }
       // Sorting also dismisses the moment's reviews: only tags.sort does it.
       if (input.label === SORTED_TAG) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Mark a moment sorted with tags.sort' })

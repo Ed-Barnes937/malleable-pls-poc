@@ -10,17 +10,14 @@ const at = (day: number, h: number, m = 0) => new Date(monday.getFullYear(), mon
 const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString()
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id: string; course?: string })[]) {
+function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id: string })[]) {
   for (const { course, ...row } of rows) {
     simulator.db.planItems.push({
       kind: 'task', title: row.id, starts_at: null, ends_at: null, due_at: null, duration_min: null,
       status: 'open', recurrence: null, subtype: null, source_type: null, source_id: null,
-      source_offset_ms: null, created_at: iso(0, 0), updated_at: iso(0, 0),
+      source_offset_ms: null, course: course ?? null, created_at: iso(0, 0), updated_at: iso(0, 0),
       ...row,
     } as StoredPlanItem)
-    if (course) {
-      simulator.db.tags.push({ id: `tag-${row.id}`, target_type: 'plan_item', target_id: row.id, label: course, created_at: iso(0, 0) })
-    }
   }
 }
 
@@ -442,7 +439,7 @@ test('deleting a weekly class is confirmed with Undo, which brings back the whol
   await toast.getByRole('button', { name: 'Undo' }).click()
   await expect(block(page, 'Biology lecture')).toHaveCount(1)
   expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')).toEqual(before)
-  expect(simulator.db.tags.find((t) => t.target_type === 'plan_item' && t.target_id === 'bio-lecture')?.label).toBe('biology')
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.course).toBe('biology')
   expect(simulator.db.lectures.find((l) => l.id === 'lec-class')?.class_item_id).toBe('bio-lecture')
   // Next week has it too.
   await page.getByRole('button', { name: 'Next week' }).click()

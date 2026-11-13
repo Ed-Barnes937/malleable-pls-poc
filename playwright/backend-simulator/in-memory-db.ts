@@ -14,8 +14,8 @@ import type {
   ResourceWithBody,
 } from '@pls/substrate'
 
-/** A plan item as stored: course is derived from `tags`, as on the server. */
-export type StoredPlanItem = Omit<PlanItem, 'course'>
+/** A plan item as stored: its course is its own column, as on the server. */
+export type StoredPlanItem = PlanItem
 
 /** A recording as stored: its course is its lecture's, as on the server. */
 export type StoredRecording = Omit<Recording, 'course' | 'processing'>

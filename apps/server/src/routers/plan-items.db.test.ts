@@ -73,12 +73,13 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
 
     const bio = await api.planItems.list({ courseTag: 'biology' })
     expect(bio.map((r) => r.title)).toEqual(['Biology lecture'])
-    // Board course goes through the shared helper, which only trusts the
-    // caller's own course tags: bob tagging alice's to-do changes nothing.
+    // The course is the item's own column (migration 025): a stray
+    // 'plan_item' tag, the old way, files nothing.
     const untagged = all.find((r) => r.title === 'Read chapter 5')!
-    await db.sql`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${bob}, 'plan_item', ${untagged.id}, 'biology')`
+    await db.sql`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${alice}, 'plan_item', ${untagged.id}, 'biology')`
     expect((await api.planItems.list({ courseTag: 'biology' })).map((r) => r.title)).toEqual(['Biology lecture'])
-    await db.sql`DELETE FROM tags WHERE user_id = ${bob}`
+    expect((await api.planItems.byId(untagged.id))?.course).toBeNull()
+    await db.sql`DELETE FROM tags WHERE user_id = ${alice} AND target_type = 'plan_item'`
 
     const tasks = await api.planItems.list({ kinds: ['task'] })
     expect(tasks.map((r) => r.title)).toEqual(['Read chapter 5'])
@@ -105,8 +106,23 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
     await api.planItems.delete(todo.id)
     expect(await api.planItems.byId(todo.id)).toBeNull()
     await expect(api.planItems.delete(todo.id)).rejects.toThrow(/not found/)
-    const [{ count }] = await db.sql`SELECT count(*)::int AS count FROM tags WHERE target_type = 'plan_item' AND target_id = ${todo.id}`
-    expect(count).toBe(0)
+  })
+
+  it('accepts only a known course, and keeps one an item already has', async () => {
+    const api = caller(alice)
+    await expect(api.planItems.create({ kind: 'task', title: 'History essay', course: 'history' })).rejects.toThrow(/Unknown course/)
+    const todo = await api.planItems.create({ kind: 'task', title: 'Read', course: 'biology' })
+    await expect(api.planItems.update({ id: todo.id, patch: { course: 'history' } })).rejects.toThrow(/Unknown course/)
+    expect((await api.planItems.byId(todo.id))?.course).toBe('biology')
+    // A course a plan item carried before they were checked (migration 025)
+    // doesn't stop the student editing it, or filtering by it.
+    await db.sql`UPDATE plan_items SET course = 'History' WHERE id = ${todo.id}`
+    expect(await api.planItems.update({ id: todo.id, patch: { title: 'Read more', course: 'History' } }))
+      .toMatchObject({ title: 'Read more', course: 'History' })
+    expect((await api.planItems.list({ courseTag: 'History' })).map((r) => r.id)).toEqual([todo.id])
+    // A course is never a plan item tag again.
+    await expect(api.tags.create({ target_type: 'plan_item', target_id: todo.id, label: 'biology' })).rejects.toThrow(/set on the item/)
+    await api.planItems.delete(todo.id)
   })
 
   it('editing from an occurrence row: a title-only patch leaves the series where it is', async () => {
