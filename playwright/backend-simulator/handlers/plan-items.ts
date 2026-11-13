@@ -42,7 +42,8 @@ import { planAutofillTask } from '../../../apps/server/src/ai/tasks/plan-autofil
 import type { PlanItem, PlanItemQuery } from '@pls/substrate'
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredPlanItem } from '../in-memory-db'
-import { moveLecturesToCourse, requireCourse } from './lectures'
+import { moveLecturesToCourse } from './lectures'
+import { requireCourse } from './courses'
 
 /**
  * Mirrors apps/server/src/routers/plan-items.ts: the same input schemas (which
@@ -111,7 +112,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
 
   router.register('planItems.create', (input) => {
     const { course, workspaceId: _board, timeZone, ...fields } = parse(newPlanItemOnBoardInput, input)
-    requireCourse(course)
+    requireCourse(db, course)
     assertValid(fields)
     const now = stamp()
     ownBlockToSession(fields, now)
@@ -172,7 +173,7 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     const { id, patch, timeZone } = parse(planItemUpdateOnBoardInput, input)
     const row = find(id)
     const { course, ...fields } = patch
-    if (course !== row.course) requireCourse(course)
+    if (course !== row.course) requireCourse(db, course)
     const merged = { ...row, ...fields }
     assertValid(merged)
     const before = { ...row }
@@ -318,7 +319,9 @@ export function registerPlanItemsHandlers(router: ProcedureRouter, db: InMemoryD
     if (!trash.has(id)) throw new SimulatorError('NOT_FOUND', 'Nothing to restore')
     for (const [key, t] of [...trash]) {
       if (key !== id && t.parentId !== id) continue
-      db.planItems.push({ ...t.row })
+      // As the server: unfiled if its course was deleted since.
+      const course = t.row.course && db.courses.some((c) => c.id === t.row.course) ? t.row.course : null
+      db.planItems.push({ ...t.row, course })
       for (const lecture of db.lectures) if (t.lectureIds.includes(lecture.id) && lecture.class_item_id == null) lecture.class_item_id = key
       trash.delete(key)
     }

@@ -1,4 +1,6 @@
 import { WorkspaceShell } from '@pls/workspace-shell'
+import { CoursesProvider } from '@pls/shared-ui'
+import { useCourses } from '@pls/substrate-client'
 import { ManifestRegistryProvider, type PanelManifest } from '@pls/lens-framework'
 import { manifest as audioCapture } from '@pls/lens-audio-capture'
 import { manifest as transcript } from '@pls/lens-transcript'
@@ -27,9 +29,13 @@ const manifests: PanelManifest[] = [
 ]
 
 export function App() {
+  // The student's courses, for every widget and the shell to look up by id.
+  const courses = useCourses()
   return (
-    <ManifestRegistryProvider manifests={manifests}>
-      <WorkspaceShell />
-    </ManifestRegistryProvider>
+    <CoursesProvider courses={courses.data}>
+      <ManifestRegistryProvider manifests={manifests}>
+        <WorkspaceShell />
+      </ManifestRegistryProvider>
+    </CoursesProvider>
   )
 }

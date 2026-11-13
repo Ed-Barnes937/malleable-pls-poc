@@ -72,6 +72,8 @@ export const planningRouter = router({
         weak: await weakTopics(tx, ctx.userId),
         // The student's study hours and daily budget, not the client's say-so.
         prefs: await getPreferences(tx, ctx.userId),
+        courseNames: new Map((await tx`SELECT id, name FROM courses WHERE user_id = ${ctx.userId}`)
+          .map((r) => [r.id as string, r.name as string])),
       }))
       const open = loaded.tasks.filter((t) => t.status === 'open' && !isSession(t))
       // To-dos given a time a moment ago count as booked even if their save
@@ -91,7 +93,8 @@ export const planningRouter = router({
       const cap = planCapacity(layout, tasks, now)
       // Outside the transaction: never hold a DB connection across a model call.
       const raw = await ctx.ai.llm.run(planAutofillTask, {
-        tasks,
+        // The course's name, never its id.
+        tasks: tasks.map((t) => ({ ...t, course: t.course ? loaded.courseNames.get(t.course) ?? null : null })),
         freeMin: cap.freeMin,
         neededMin: cap.neededMin,
         minutesPerDay: prefs.study_min_per_day,

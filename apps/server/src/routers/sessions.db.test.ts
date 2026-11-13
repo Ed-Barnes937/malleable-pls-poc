@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { newSession, type PlanItem } from '@pls/substrate'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -44,6 +45,7 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
   async function labWithSessions(times: [string, string][]) {
     const user = `test-sessions-${randomUUID().slice(0, 8)}`
     users.push(user)
+    await insertStarterCourses(db.sql, user)
     const api = caller(user)
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: at(4, 17), course: 'chemistry' })
     const sessions: PlanItem[] = []
@@ -146,6 +148,7 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
   it('study time made on the calendar has no estimate, and a resize never gives it one', async () => {
     const user = `test-sessions-${randomUUID().slice(0, 8)}`
     users.push(user)
+    await insertStarterCourses(db.sql, user)
     const api = caller(user)
     const block = await api.planItems.create({ kind: 'task', title: 'Revise', starts_at: at(3, 9), ends_at: at(3, 10), duration_min: null })
     await api.planItems.update({ id: block.id, patch: { starts_at: at(3, 9), ends_at: at(3, 9, 30) } })
@@ -205,6 +208,7 @@ describe.skipIf(!TEST_DATABASE_URL)('to-do sessions (Postgres)', () => {
   async function reviewBlock() {
     const user = `test-sessions-${randomUUID().slice(0, 8)}`
     users.push(user)
+    await insertStarterCourses(db.sql, user)
     const api = caller(user)
     const review = await api.planItems.create({
       kind: 'task', title: 'Review: maternal inheritance', subtype: 'review', duration_min: 30, course: 'biology',

@@ -25,7 +25,7 @@ export function ScopePillHarness({ width = 600, initial = 'a' }: { width?: numbe
           setValue(next)
           setChanges((c) => [...c, next])
         }}
-        describe={(v) => ({ text: OPTIONS.find((o) => o.value === v)!.label, dotClassName: 'bg-course-biology' })}
+        describe={(v) => ({ text: OPTIONS.find((o) => o.value === v)!.label, dotClassName: 'bg-course-green' })}
       >
         {OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </ScopePill>

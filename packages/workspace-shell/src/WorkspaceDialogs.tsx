@@ -3,7 +3,7 @@ import {
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
-import { COURSES, Dialog, Select, TextField } from '@pls/shared-ui'
+import { CourseOptions, Dialog, Select, TextField } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -58,11 +58,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
           </label>
           <Select id="ws-course" value={courseTag} onChange={(e) => setCourseTag(e.target.value)}>
             <option value="">All courses</option>
-            {COURSES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
+            <CourseOptions current={courseTag} />
           </Select>
           <p className="mt-1.5 text-meta text-text-muted">Widgets on this board focus on this course. You can change it later.</p>
         </div>

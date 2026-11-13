@@ -1,12 +1,7 @@
 import { z } from 'zod'
 import { TRPCError } from '@trpc/server'
 import type { TxSql } from '@pls/db'
-
-/**
- * Courses a student can file things under. Mirrors `COURSES` in
- * `packages/shared-ui/src/constants.ts`.
- */
-export const COURSE_LABELS = ['biology', 'chemistry', 'physics']
+import { courseIdInput } from '@pls/substrate'
 
 export const courseTag = z.string().max(500).optional()
 
@@ -33,13 +28,11 @@ export const boardScope = z.object({
  */
 export type CourseTarget = 'lecture' | 'recording' | 'plan_item' | 'resource'
 
-/** True for a course key the API accepts. */
-export function isCourse(course: string): boolean {
-  return COURSE_LABELS.includes(course)
-}
-
-/** A course key from COURSE_LABELS. */
-export const courseKey = z.string().max(100).refine(isCourse, { message: 'Unknown course' })
+/**
+ * A course id in an API input (`courses.id`, opaque). Whether it is one of
+ * the student's courses is checked in the transaction (`requireOwnCourse`).
+ */
+export const courseId = courseIdInput
 
 type Fragment = ReturnType<TxSql['unsafe']>
 
@@ -56,6 +49,23 @@ export async function requireOwnBoard(tx: TxSql, userId: string, workspaceId: st
     SELECT id FROM workspaces WHERE id = ${workspaceId} AND user_id = ${userId} FOR KEY SHARE
   `
   if (!board) throw new TRPCError({ code: 'NOT_FOUND', message: 'Board not found' })
+}
+
+/**
+ * Checks that `courseId` is one of the student's courses (archived ones
+ * included: hidden from pickers, never forbidden) before a write that files
+ * something under it, and holds it until the transaction ends (FOR KEY
+ * SHARE) so it can't be deleted under the write. Throws BAD_REQUEST
+ * "Unknown course" otherwise. The foreign keys on (user_id, course) are the
+ * backstop for lectures, resources and plan items; board course scopes have
+ * none, so this is their only check. Returns the course's name.
+ */
+export async function requireOwnCourse(tx: TxSql, userId: string, courseId: string): Promise<{ id: string; name: string }> {
+  const [course] = await tx`
+    SELECT id, name FROM courses WHERE user_id = ${userId} AND id = ${courseId} FOR KEY SHARE
+  `
+  if (!course) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown course' })
+  return { id: course.id as string, name: course.name as string }
 }
 
 /** A row lock `requireOwnLecture` takes on the lecture. */

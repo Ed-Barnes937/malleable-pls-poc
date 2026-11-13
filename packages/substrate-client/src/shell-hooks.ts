@@ -467,6 +467,14 @@ export function useRestoreBoardScope() {
   })
 }
 
+/**
+ * The student's courses, archived ones included, by name: what the app's
+ * `CoursesProvider` (@pls/shared-ui) holds for every widget to look up.
+ */
+export function useCourses() {
+  return trpc.courses.list.useQuery()
+}
+
 /** The student's lectures, latest first, optionally one course's (the lecture picker). */
 export function useLectures(courseTag?: string) {
   return trpc.lectures.list.useQuery(courseTag ? { courseTag } : undefined)

@@ -1,4 +1,4 @@
-import { NEUTRAL_TONE, courseTone, type CourseTone } from '@pls/shared-ui'
+import { NEUTRAL_TONE, type CourseTone } from '@pls/shared-ui'
 
 /**
  * Block colours per course, from the course tokens (see COURSE_TONES in
@@ -35,15 +35,19 @@ function blockTone(t: CourseTone, commitment: string): BlockTone {
 const SHIFT = 'bg-shift text-shift-ink ring-1 ring-inset ring-shift-line'
 const NEUTRAL = blockTone(NEUTRAL_TONE, SHIFT)
 
-export function toneFor(course: string | null): BlockTone {
-  const t = courseTone(course)
-  return t === NEUTRAL_TONE ? NEUTRAL : blockTone(t, `${t.tint} ${t.ink}`)
+/**
+ * The block colours of a course's tone (`useCourseLookup(id)?.tone`); none
+ * (no course, or one not loaded yet) gets the neutral shift colours.
+ */
+export function toneFor(tone: CourseTone | null | undefined): BlockTone {
+  return !tone || tone === NEUTRAL_TONE ? NEUTRAL : blockTone(tone, `${tone.tint} ${tone.ink}`)
 }
 
 /** Which kind of block a calendar row draws as (see the block language above). */
 export type BlockLook = 'class' | 'shift' | 'study'
 
+/** A commitment filed under a course is a class; one under none is a shift (e.g. work). */
 export function blockLook(item: { kind: string; course: string | null }): BlockLook {
   if (item.kind !== 'commitment') return 'study'
-  return courseTone(item.course) === NEUTRAL_TONE ? 'shift' : 'class'
+  return item.course != null ? 'class' : 'shift'
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react'
 import { bookedMinutes, isSession, partBooking } from '@pls/substrate'
 import { type LensProps, useDraftUndo, useLinkedToLecture, useSubstrate, useSubstrateMutations, confirmWithUndo } from '@pls/lens-framework'
-import { COURSES, HiddenElsewhere, Select, TextField, formatDuration, useArrivals, useEnterOnce, useListGlide } from '@pls/shared-ui'
+import { HiddenElsewhere, Select, TextField, formatDuration, useArrivals, useCourse, useEnterOnce, useListGlide } from '@pls/shared-ui'
 import { ChevronDown, Plus } from 'lucide-react'
 import { doneToday, orderTodos } from './todo-items'
 import { TodoRow } from './TodoRow'
@@ -112,7 +112,7 @@ export default function TodoLens({ scope, highlight, onScopeChange, onShowMoment
     setEstimate('')
   }
 
-  const courseLabel = COURSES.find((c) => c.value === course)?.label ?? course
+  const courseLabel = useCourse(course)?.name
   // Only once both lists are in, so the hint never flashes a wrong count.
   const hidden = items && allOpen && (
     <HiddenElsewhere

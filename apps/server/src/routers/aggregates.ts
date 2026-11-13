@@ -71,7 +71,8 @@ function courseProgress(tx: TxSql, userId: string, course: string | undefined): 
       ROUND(COUNT(*) FILTER (WHERE m.status = 'solid')::numeric / COUNT(*)::numeric * 100)::int AS percentage
     FROM (${courseMoments(tx, userId, course)}) m
     GROUP BY m.course
-    ORDER BY m.course
+    -- By the course's name (its id is opaque).
+    ORDER BY (SELECT lower(c.name) FROM courses c WHERE c.user_id = ${userId} AND c.id = m.course), m.course
   `
 }
 

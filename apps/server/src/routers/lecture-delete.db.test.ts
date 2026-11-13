@@ -14,6 +14,7 @@ import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB } from '@pls/substrate'
 import type { TxSql } from '@pls/db'
 import { insertRecording } from '../test-support/recordings'
 import type { AiDeps } from '../ai/deps'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -148,6 +149,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     process.env.UPLOADS_DIR = uploads
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, ...users)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     ;({ createServerExecutors: makeExecutors } = await import('../workflows/executors'))

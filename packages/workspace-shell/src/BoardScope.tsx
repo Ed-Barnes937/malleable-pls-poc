@@ -14,7 +14,7 @@ import {
   useWorkspaceScopes,
 } from '@pls/substrate-client'
 import { isEmptyLectureDeletion, type Lecture, type LectureDeletePreview } from '@pls/substrate'
-import { COURSES, cn, courseTone } from '@pls/shared-ui'
+import { CourseOptions, NEUTRAL_TONE, cn, courseLabel, useActiveCourses, useCourseLookup, type CourseInfo } from '@pls/shared-ui'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { ScopePill, type ScopePillFace } from './ScopePill'
 import { useToastStore } from './toast'
@@ -97,18 +97,23 @@ export function BoardScope({ workspaceId, compact = false }: BoardScopeProps) {
   )
 }
 
-function courseLabel(courseTag: string): string {
-  return courseTag ? (COURSES.find((c) => c.value === courseTag)?.label ?? courseTag) : 'All courses'
+/**
+ * A course pill's face: the course's name (" (archived)" when it is) and
+ * dot. The board's id until its course is known shows no name, never the id.
+ */
+function coursePillFace(course: CourseInfo | null): { text: string; dotClassName: string } {
+  return { text: course ? courseLabel(course) : '', dotClassName: (course?.tone ?? NEUTRAL_TONE).stripe }
 }
 
 function CoursePill({ compact, courseTag, onChange }: { compact: boolean; courseTag: string | undefined; onChange: (value: string) => void }) {
+  const courseOf = useCourseLookup()
   return (
     <ScopePill
       label="Course"
       data-testid="scope-course"
       value={courseTag ?? ''}
       onChange={onChange}
-      describe={(value) => ({ text: courseLabel(value), dotClassName: courseTone(value || null).stripe })}
+      describe={(value) => (value ? coursePillFace(courseOf(value)) : { text: 'All courses', dotClassName: NEUTRAL_TONE.stripe })}
       // Never narrower than its dot and its course name; on a phone's one
       // line, cut short (the whole name in its tooltip and the list) down to
       // 5rem, so with the lecture pill at its floor, the lecture's menu and
@@ -116,9 +121,7 @@ function CoursePill({ compact, courseTag, onChange }: { compact: boolean; course
       className={compact ? 'min-w-20 shrink' : 'min-w-max shrink-0'}
     >
       <option value="">All courses</option>
-      {COURSES.map((c) => (
-        <option key={c.value} value={c.value}>{c.label}</option>
-      ))}
+      <CourseOptions current={courseTag} />
     </ScopePill>
   )
 }
@@ -278,10 +281,11 @@ function LectureMenu({ buttonRef, busy, onRename, onDelete, onFileUnder }: {
   const [at, setAt] = useState<{ top: number; right: number } | null>(null)
   // "Choose a course..." swaps the actions for the courses, in the same menu.
   const [choosingCourse, setChoosingCourse] = useState(false)
+  const courses = useActiveCourses()
   const menu = useRef<HTMLDivElement>(null)
   const open = at !== null
   const items: { label: string; run: () => void; disabled: boolean; keepOpen?: boolean }[] = choosingCourse && onFileUnder
-    ? COURSES.map((c) => ({ label: c.label, run: () => onFileUnder(c.value), disabled: false }))
+    ? courses.map((c) => ({ label: c.name, run: () => onFileUnder(c.id), disabled: false }))
     : [
         { label: 'Rename this lecture...', run: onRename, disabled: false },
         ...(onFileUnder ? [{ label: 'Choose a course...', run: () => setChoosingCourse(true), disabled: false, keepOpen: true }] : []),
@@ -482,6 +486,7 @@ function useFileLectureUnderCourse(): (lecture: Lecture, course: string) => void
  * once the lecture has a course.
  */
 function FileUnderCoursePill({ onFile }: { onFile: (course: string) => void }) {
+  const courseOf = useCourseLookup()
   return (
     <ScopePill
       label="File this lecture under a course"
@@ -491,15 +496,13 @@ function FileUnderCoursePill({ onFile }: { onFile: (course: string) => void }) {
         if (course) onFile(course)
       }}
       describe={(value) => (value
-        ? { text: courseLabel(value), dotClassName: courseTone(value).stripe }
+        ? coursePillFace(courseOf(value))
         : { text: 'Choose a course', muted: true })}
       // Only where the header has room for it (lg up): below that the menu offers it.
       className="hidden min-w-max shrink-0 lg:inline-flex"
     >
       <option value="" disabled>Choose a course</option>
-      {COURSES.map((c) => (
-        <option key={c.value} value={c.value}>{c.label}</option>
-      ))}
+      <CourseOptions />
     </ScopePill>
   )
 }

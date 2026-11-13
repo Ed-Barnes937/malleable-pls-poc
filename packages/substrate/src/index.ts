@@ -223,3 +223,24 @@ export {
   type ResourceUpdate,
   type ResourceWithBody,
 } from './resources'
+
+export {
+  COURSE_COLORS,
+  MAX_COURSE_NAME_LENGTH,
+  STARTER_COURSES,
+  courseColorInput,
+  courseIdInput,
+  courseInUseMessage,
+  courseNameInput,
+  courseNameKey,
+  courseUpdateInput,
+  duplicateCourseMessage,
+  newCourseInput,
+  nextCourseColor,
+  sortCourses,
+  type Course,
+  type CourseColor,
+  type CourseUpdate,
+  type CourseUsage,
+  type NewCourse,
+} from './courses'

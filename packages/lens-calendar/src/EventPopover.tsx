@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, Select, TextField, cn } from '@pls/shared-ui'
+import { CourseOptions, Select, TextField, cn } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
@@ -169,7 +169,7 @@ export function EventPopover({
           <span className={fieldLabel}>Course</span>
           <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} {...lockProps} onChange={(e) => set({ course: e.target.value || null })}>
             <option value="">No course</option>
-            {COURSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            <CourseOptions current={draft.course} />
           </Select>
         </label>
         {draft.kind === 'commitment' && (

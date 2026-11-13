@@ -9,23 +9,11 @@ import {
   resourceUpdateInput,
   type ResourceWithBody,
 } from '@pls/substrate'
-import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
+import { SimulatorError, parse, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredResource } from '../in-memory-db'
 import { requireLecture } from './lectures'
+import { requireCourse } from './courses'
 import { requireBoard } from './workspaces'
-
-/** Mirrors `COURSE_LABELS` on the server. */
-const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
-
-/** Parses with the server's schema; a refusal is BAD_REQUEST, as tRPC makes it. */
-function parse<T>(
-  schema: { safeParse: (input: unknown) => { success: true; data: T } | { success: false; error: { issues: { message: string }[] } } },
-  input: unknown,
-): T {
-  const result = schema.safeParse(input)
-  if (!result.success) throw new SimulatorError('BAD_REQUEST', result.error.issues.map((i) => i.message).join('; '))
-  return result.data
-}
 
 /** A stored resource as the server returns it: with its lecture's title and course, and an excerpt. */
 function resourceRow(db: InMemoryDb, resource: StoredResource): ResourceWithBody {
@@ -52,7 +40,7 @@ function attachment(db: InMemoryDb, lectureId: string | null | undefined, course
     return { lecture_id: lectureId, course: null }
   }
   if (courseTag) {
-    if (!COURSE_LABELS.has(courseTag)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
+    requireCourse(db, courseTag)
     return { lecture_id: null, course: courseTag }
   }
   return { lecture_id: null, course: null }

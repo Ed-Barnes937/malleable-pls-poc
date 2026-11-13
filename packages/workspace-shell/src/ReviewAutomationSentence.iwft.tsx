@@ -20,7 +20,8 @@ const workflow = {
   }],
 }
 
-test('reads the confusion automation as a sentence', async ({ mount, page }) => {
+// The shell's providers read the student's courses from the simulator.
+test('reads the confusion automation as a sentence', async ({ mount, page, simulator: _courses }) => {
   await mount(
     <ShellProviders>
       <WorkflowCard workflow={workflow} workspaceId="ws-in-lecture" />

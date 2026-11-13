@@ -19,13 +19,8 @@ import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb, StoredLecture } from '../in-memory-db'
 import { recordingProcessing } from './course-scope'
 import { requireBoard } from './workspaces'
+import { courseName, requireCourse } from './courses'
 
-/** Mirrors `COURSE_LABELS` on the server. */
-const COURSE_LABELS = new Set(['biology', 'chemistry', 'physics'])
-
-export function requireCourse(course: string | null | undefined): void {
-  if (course != null && !COURSE_LABELS.has(course)) throw new SimulatorError('BAD_REQUEST', 'Unknown course')
-}
 
 /** A stored lecture as `lectures.byId` returns it: with its recordings, oldest first. */
 export function lectureRow(db: InMemoryDb, lecture: StoredLecture): Lecture {
@@ -243,7 +238,7 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
       course: string | null; title?: string; startsAt?: string; timeZone?: string; workspaceId?: string; matchClass?: boolean
       selectIfBoardShows?: string | null
     }
-    requireCourse(course)
+    requireCourse(db, course)
     if (workspaceId) requireBoard(db, workspaceId)
     const now = new Date().toISOString()
     const starts = startsAt ? new Date(startsAt) : new Date(clock())
@@ -252,7 +247,7 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
     if (!lecture) {
       lecture = {
         id: `lec-${crypto.randomUUID().slice(0, 8)}`,
-        title: title?.trim() || defaultLectureTitle(course, starts, zone),
+        title: title?.trim() || defaultLectureTitle(courseName(db, course), starts, zone),
         course,
         starts_at: starts.toISOString(),
         class_item_id: null,
@@ -286,7 +281,7 @@ export function registerLecturesHandlers(router: ProcedureRouter, db: InMemoryDb
   router.register('lectures.update', (input) => {
     const { id, title, course } = input as { id: string; title?: string; course?: string | null }
     const lecture = requireLecture(db, id)
-    if (course !== undefined) requireCourse(course)
+    if (course !== undefined) requireCourse(db, course)
     if (title) lecture.title = title.trim()
     lecture.updated_at = new Date().toISOString()
     if (course !== undefined) moveLecturesToCourse(db, [id], course)

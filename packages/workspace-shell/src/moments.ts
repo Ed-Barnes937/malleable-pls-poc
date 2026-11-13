@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { AudioLines, ChevronLeft } from 'lucide-react'
 import type { Moment, PanelManifest, ShowMomentResult } from '@pls/lens-framework'
-import { COURSES, formatTime } from '@pls/shared-ui'
+import { formatTime, useCourseLookup } from '@pls/shared-ui'
 import { trpc, decodeScope, useSetBoardScope } from '@pls/substrate-client'
 import { useWorkspaceStore } from './store'
 import { useToastStore } from './toast'
@@ -85,9 +85,12 @@ export function openedElsewhereMessage(offsetMs: number, boardName: string): str
   return `Opened ${formatTime(offsetMs)} in ${boardName}`
 }
 
-/** "Biology", or "All courses" for none: the course a board goes back to. */
-function courseName(course: string | null): string {
-  return course ? (COURSES.find((c) => c.value === course)?.label ?? course) : 'All courses'
+/**
+ * "Biology", or "All courses" for none: the course a board goes back to.
+ * `name` is the course's, looked up (`useCourseLookup`); never the id.
+ */
+function courseName(course: string | null, name: string | undefined): string {
+  return course ? name ?? 'your course' : 'All courses'
 }
 
 /**
@@ -114,6 +117,7 @@ export function useShowMoment(
   const focusMoment = useWorkspaceStore((s) => s.focusMoment)
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const pushToast = useToastStore((s) => s.push)
+  const courseOf = useCourseLookup()
 
   const scopeShown = useCallback(
     async (workspaceId: string) => {
@@ -233,13 +237,13 @@ export function useShowMoment(
               onClick: goBack(workspaceId, backToLecture(leaving)),
             }
           : {
-              label: `Back to ${courseName(course)}`,
+              label: `Back to ${courseName(course, courseOf(course)?.name)}`,
               icon: ChevronLeft,
               onClick: goBack(workspaceId, { courseTag: course, lectureId: null }),
             },
       })
       return 'shown'
     },
-    [activeWorkspaceId, activeLensTypes, manifests, utils, focusMoment, setActiveWorkspaceId, setBoardScope, pushToast, scopeShown, lectureTitle],
+    [activeWorkspaceId, activeLensTypes, manifests, utils, focusMoment, setActiveWorkspaceId, setBoardScope, pushToast, scopeShown, lectureTitle, courseOf],
   )
 }

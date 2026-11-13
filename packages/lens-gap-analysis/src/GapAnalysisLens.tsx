@@ -1,9 +1,10 @@
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, EmptyState, ProgressBar, courseTone } from '@pls/shared-ui'
+import { cn, EmptyState, NEUTRAL_TONE, ProgressBar, useCourseLookup } from '@pls/shared-ui'
 import { BarChart3, CircleHelp } from 'lucide-react'
 
 export default function GapAnalysisLens({ highlight }: LensProps) {
   const substrate = useSubstrate()
+  const courseOf = useCourseLookup()
   const { data: gaps } = substrate.useGapAnalysis()
 
   if (!gaps?.length) {
@@ -21,7 +22,7 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
 
       <div className="flex flex-1 flex-col justify-center gap-4">
         {sorted.map((course) => {
-          const barColor = courseTone(course.course).stripe
+          const barColor = (courseOf(course.course)?.tone ?? NEUTRAL_TONE).stripe
           const toReview = course.reviewMoments > 0
           // Highlight, never hide: the board course stands out, the rest dim.
           const highlighted = highlight?.courseTag === course.course
@@ -39,8 +40,8 @@ export default function GapAnalysisLens({ highlight }: LensProps) {
                 dimmed && 'opacity-60',
               )}
             >
-              <span className="w-20 shrink-0 text-right text-body font-semibold capitalize text-text-primary">
-                {course.course}
+              <span className="w-20 shrink-0 text-right text-body font-semibold text-text-primary">
+                {courseOf(course.course)?.name}
               </span>
               <div className="flex flex-1 items-center gap-3">
                 <div

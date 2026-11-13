@@ -1,7 +1,10 @@
+import { STARTER_COURSES } from '@pls/substrate'
 import type { SeedData } from './in-memory-db'
 
 export function createDefaultSeedData(): SeedData {
   return {
+    // Biology, Chemistry and Physics, as the e2e reseed gives the demo student.
+    courses: STARTER_COURSES.map((c) => ({ ...c, archived_at: null })),
     // One lecture per recording, as the server's lectures migration backfills
     // them ('lec-' + recording id), each holding the course.
     lectures: [

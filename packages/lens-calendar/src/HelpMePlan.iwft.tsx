@@ -931,7 +931,7 @@ test('a draft lists its blocks, hatches the shortfall, offers Shrink only and a 
   // Drafted blocks are hatched with a dashed edge; free gaps go around them.
   const ghosts = page.getByTestId('calendar-ghost')
   await expect(ghosts.first()).toHaveAttribute('data-look', 'ghost')
-  await expect(ghosts.first()).toHaveClass(/hatch-course-biology-soft/)
+  await expect(ghosts.first()).toHaveClass(/hatch-course-green-soft/)
   await expect(ghosts.first()).toHaveClass(/border-dashed/)
   const free = page.getByTestId('calendar-free')
   await expect(free.filter({ hasText: /^(\d+h)?( ?\d+m)? free$/ }).first()).toBeVisible()

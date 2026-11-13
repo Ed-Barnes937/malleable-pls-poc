@@ -1,10 +1,11 @@
 import type { TxSql } from '@pls/db'
+import { ensureCourse } from './courses'
 
 export interface TestRecording {
   id: string
   userId: string
   title: string
-  /** The lecture's course; none by default. */
+  /** The lecture's course, given to the student if they don't have it; none by default. */
   course?: string | null
   status?: string
   audioUrl?: string | null
@@ -19,6 +20,7 @@ export interface TestRecording {
 export async function insertRecording(tx: TxSql, r: TestRecording): Promise<{ lectureId: string }> {
   const lectureId = `lec-${r.id}`
   const createdAt = r.createdAt ?? new Date()
+  if (r.course) await ensureCourse(tx, r.userId, r.course)
   await tx`
     INSERT INTO lectures (id, user_id, title, course, starts_at, created_at)
     VALUES (${lectureId}, ${r.userId}, ${r.title}, ${r.course ?? null}, ${createdAt}, ${createdAt})

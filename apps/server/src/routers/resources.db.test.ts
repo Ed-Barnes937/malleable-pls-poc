@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { insertRecording } from '../test-support/recordings'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -31,6 +32,7 @@ describe.skipIf(!TEST_DATABASE_URL)('resources (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -124,6 +126,7 @@ describe.skipIf(!TEST_DATABASE_URL)('resources (Postgres)', () => {
 
   it('filters by course through its own course or its lecture, and follows a lecture that moves course', async () => {
     const user = `test-carol-${randomUUID().slice(0, 8)}`
+    await insertStarterCourses(db.sql, user)
     let lecture = ''
     await db.withUser(user, async (tx) => {
       lecture = (await insertRecording(tx, { id: `rec-${user}`, userId: user, title: 'Enzymes', course: 'biology' })).lectureId

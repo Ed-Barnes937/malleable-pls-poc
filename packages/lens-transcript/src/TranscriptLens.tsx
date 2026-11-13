@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { createPortal } from 'react-dom'
 import { LECTURE_SUMMARY_ANCHOR, segmentAtOffset, type Lecture, type PlanItemOccurrence, type Tag } from '@pls/substrate'
 import { type LensProps, momentMarksKey, useMomentMarks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { cn, COURSES, courseTone, dayAndTime, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
+import { cn, dayAndTime, NEUTRAL_TONE, useCourse, useCourseLookup, EmptyState, formatTime, fromMomentLabel, leadingTag, prefersReducedMotion, showOnBoard, TagPill, TAG_STYLES, useArrivals, watchUserScroll } from '@pls/shared-ui'
 import { ArrowRight, AudioLines, CalendarCheck, CalendarClock, CalendarX2, Check, ChevronRight, CircleCheck, Clock, ListTodo, Loader2, MessageSquare, Sparkles } from 'lucide-react'
 import { ScrollRail } from './ScrollRail'
 import { usePendingReviews, type PendingReview } from './pending-reviews'
@@ -154,7 +154,7 @@ function Ripple({ review, recordingTitle, reducedMotion, markedAt, onShowPlanIte
   const since = useRef(0)
   const chipRef = useRef<Element | null>(null)
   const [flight, setFlight] = useState<{ left: number; top: number } | null>(null)
-  const tone = courseTone(review.course)
+  const tone = useCourse(review.course)?.tone ?? NEUTRAL_TONE
   // The shell offers to show a block only on a board with a Calendar.
   const toCalendar = !!review.starts_at && !!onShowPlanItem
 
@@ -517,9 +517,10 @@ export default function TranscriptLens({ scope, config, focusedMoment, onMomentS
   // The lecture's course: its own, else (a lecture filed under none) the
   // board's course, else the one its reviews were filed under. Unknown:
   // accent instead of course colours.
-  const course = recording?.course ?? scope.courseTag ?? reviews?.find((r) => r.course)?.course ?? null
-  const tone = course ? courseTone(course) : null
-  const courseLabel = course ? (COURSES.find((c) => c.value === course)?.label ?? course) : null
+  const courseOf = useCourseLookup()
+  const course = courseOf(recording?.course ?? scope.courseTag ?? reviews?.find((r) => r.course)?.course ?? null)
+  const tone = course?.tone ?? null
+  const courseLabel = course?.name ?? null
 
   // Every tagged moment, by its leading tag, for the gutter marks and the scroll rail.
   const markBySegment = useMemo(() => {

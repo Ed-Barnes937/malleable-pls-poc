@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { insertStarterCourses } from './test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -46,6 +47,7 @@ describe.skipIf(!TEST_DATABASE_URL)('/upload when the lecture goes mid-upload (P
     uploadsDir = await mkdtemp(path.join(tmpdir(), 'pls-uploads-'))
     process.env.UPLOADS_DIR = uploadsDir
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice)
     handleUpload = (await import('./upload')).handleUpload
     lectureId = (await db.withUser(alice, (tx) => tx`
       INSERT INTO lectures (user_id, title, course) VALUES (${alice}, 'Cells', 'biology') RETURNING id
