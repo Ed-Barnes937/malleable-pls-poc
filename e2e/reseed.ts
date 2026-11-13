@@ -110,9 +110,7 @@ export async function reseed({
 
       await insertPlanItems(tx, [...priyaWeek(now), ...seededReviews()])
       await insertSeedResources(tx)
-      // Links lectures to their class occurrences where unambiguous, as the
-      // migration did for real data (data only).
-      await tx.unsafe(readFileSync(resolve(__dirname, '../packages/db/src/migrations/020_link_lectures_to_classes.sql'), 'utf-8'))
+      await linkLecturesToClasses(tx)
     })
   } finally {
     await sql.end()
@@ -298,6 +296,16 @@ async function insertSeedResources(sql: Sql) {
   for (const resource of SEED_RESOURCES) {
     await sql`INSERT INTO resources ${sql({ ...resource, user_id: 'dev-user-1' })}`
   }
+}
+
+/**
+ * Links lectures to their class occurrences where unambiguous, as migration
+ * 020 did for real data. Its own SQL (e2e/link-lectures-to-classes.sql):
+ * 020 reads a class's course from the 'plan_item' tags that migration 025
+ * replaced with `plan_items.course`.
+ */
+export async function linkLecturesToClasses(sql: Sql) {
+  await sql.unsafe(readFileSync(resolve(__dirname, 'link-lectures-to-classes.sql'), 'utf-8'))
 }
 
 /** Inserts plan items for dev-user-1 with their course, as the server stores them. */

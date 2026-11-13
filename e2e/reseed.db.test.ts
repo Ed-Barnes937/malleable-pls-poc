@@ -26,6 +26,7 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
   let pg: Sql
   let sql: Sql
   let reseed: (options?: ReseedOptions) => Promise<void>
+  let linkLecturesToClasses: (sql: Sql) => Promise<void>
   const ownUrl = new URL(TEST_DATABASE_URL ?? 'postgres://unused/unused')
   const ownDb = `${decodeURIComponent(ownUrl.pathname.slice(1))}_reseed`
   ownUrl.pathname = `/${ownDb}`
@@ -48,7 +49,7 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
     })
     process.env.DATABASE_URL = ownUrl.href
     sql = pg.default(ownUrl.href, { max: 4, onnotice: () => {} })
-    ;({ reseed } = await import('./reseed'))
+    ;({ reseed, linkLecturesToClasses } = await import('./reseed'))
   }, 60_000)
 
   beforeEach(async () => { await reseed() })
@@ -98,6 +99,23 @@ describe.skipIf(!TEST_DATABASE_URL)('reseed (Postgres)', () => {
       VALUES ('dev-user-1', 'wf-confused-review', 'wfj-confused-review', 'plan:review-task', 'running', now())
       RETURNING id
     `)[0].id as string
+
+  it("links a lecture to its class occurrence by the class's course column", async () => {
+    // A Biology lecture during next week's Monday Biology class, and one with no class of its course then.
+    const [bio] = await sql`SELECT starts_at FROM plan_items WHERE id = 'seed-bio-lecture-mon'`
+    const during = new Date((bio.starts_at as Date).getTime() + 7 * 86_400_000 + 30 * 60_000)
+    await sql`
+      INSERT INTO lectures (id, user_id, title, course, starts_at) VALUES
+        ('lec-reseed-link', 'dev-user-1', 'Linked', 'biology', ${during}),
+        ('lec-reseed-other', 'dev-user-1', 'Not a class', 'physics', ${during})
+    `
+    await linkLecturesToClasses(sql)
+    const rows = await sql`SELECT id, class_item_id FROM lectures WHERE id IN ('lec-reseed-link', 'lec-reseed-other') ORDER BY id`
+    expect(rows.map((r: Sql) => [r.id, r.class_item_id])).toEqual([
+      ['lec-reseed-link', 'seed-bio-lecture-mon'],
+      ['lec-reseed-other', null],
+    ])
+  })
 
   it('waits for a review job the last test started to finish, rather than deadlocking with it', async () => {
     const runId = await claimReviewJob()
