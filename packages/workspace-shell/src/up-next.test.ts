@@ -16,10 +16,11 @@ function row(fields: Record<string, unknown>) {
   } as Parameters<typeof upNextSummary>[0][number]
 }
 
+const courseName = (id: string) => ({ biology: 'Biology', chemistry: 'Chemistry' } as Record<string, string>)[id]
 const chemistry = row({ kind: 'commitment', title: 'Chemistry lecture', subtype: 'class', course: 'chemistry', starts_at: at('14:00'), ends_at: at('16:00') })
 const shift = row({ kind: 'commitment', title: 'Cafe shift', subtype: 'shift', starts_at: at('17:00'), ends_at: at('22:00') })
 const summary = (rows: Parameters<typeof upNextSummary>[0], tasks: Parameters<typeof upNextSummary>[1] = [], now = NOW) =>
-  upNextSummary(rows, tasks, { now, timeZone: TZ })
+  upNextSummary(rows, tasks, { now, timeZone: TZ, courseName })
 
 describe('upNextSummary', () => {
   it('names the next item, classes by course and other items by title, with their times', () => {
@@ -95,12 +96,12 @@ describe('upNextSummary', () => {
 
   it('reads times in the student zone, not the browser', () => {
     // 09:00 London is 18:00 Tokyo: Chemistry 14:00 London is 23:00 there, still today.
-    const s = upNextSummary([chemistry], [], { now: NOW, timeZone: 'Asia/Tokyo' })
+    const s = upNextSummary([chemistry], [], { now: NOW, timeZone: 'Asia/Tokyo', courseName })
     expect(s.next?.time).toBe('23:00')
     expect(s.days[0].label).toBe('Today')
     // And 15:00 London is already tomorrow (00:00) in Tokyo.
     const late = row({ title: 'Reading', starts_at: at('15:00'), ends_at: at('16:00') })
-    expect(upNextSummary([late], [], { now: NOW, timeZone: 'Asia/Tokyo' }).days[0].label).toBe('Tomorrow')
+    expect(upNextSummary([late], [], { now: NOW, timeZone: 'Asia/Tokyo', courseName }).days[0].label).toBe('Tomorrow')
   })
 })
 

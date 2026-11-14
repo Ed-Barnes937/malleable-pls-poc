@@ -10,6 +10,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -23,6 +24,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -108,18 +110,23 @@ describe.skipIf(!TEST_DATABASE_URL)('planItems router (Postgres)', () => {
     await expect(api.planItems.delete(todo.id)).rejects.toThrow(/not found/)
   })
 
-  it('accepts only a known course, and keeps one an item already has', async () => {
+  it("accepts only one of the student's courses, archived ones included", async () => {
     const api = caller(alice)
     await expect(api.planItems.create({ kind: 'task', title: 'History essay', course: 'history' })).rejects.toThrow(/Unknown course/)
     const todo = await api.planItems.create({ kind: 'task', title: 'Read', course: 'biology' })
     await expect(api.planItems.update({ id: todo.id, patch: { course: 'history' } })).rejects.toThrow(/Unknown course/)
     expect((await api.planItems.byId(todo.id))?.course).toBe('biology')
-    // A course a plan item carried before they were checked (migration 025)
-    // doesn't stop the student editing it, or filtering by it.
-    await db.sql`UPDATE plan_items SET course = 'History' WHERE id = ${todo.id}`
-    expect(await api.planItems.update({ id: todo.id, patch: { title: 'Read more', course: 'History' } }))
-      .toMatchObject({ title: 'Read more', course: 'History' })
-    expect((await api.planItems.list({ courseTag: 'History' })).map((r) => r.id)).toEqual([todo.id])
+    // An archived course is hidden from pickers, never refused, and filters.
+    const history = await api.courses.create({ name: 'History' })
+    await api.courses.update({ id: history.id, archived: true })
+    try {
+      expect(await api.planItems.update({ id: todo.id, patch: { title: 'Read more', course: history.id } }))
+        .toMatchObject({ title: 'Read more', course: history.id })
+      expect((await api.planItems.list({ courseTag: history.id })).map((r) => r.id)).toEqual([todo.id])
+    } finally {
+      await api.planItems.update({ id: todo.id, patch: { course: 'biology' } })
+      await api.courses.delete(history.id)
+    }
     // A course is never a plan item tag again.
     await expect(api.tags.create({ target_type: 'plan_item', target_id: todo.id, label: 'biology' })).rejects.toThrow(/set on the item/)
     await api.planItems.delete(todo.id)

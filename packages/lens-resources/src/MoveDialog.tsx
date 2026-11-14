@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
-import { COURSES, Dialog, Select } from '@pls/shared-ui'
+import { Dialog, Select, courseLabel, useActiveCourses, useCourse } from '@pls/shared-ui'
 import type { Resource } from '@pls/substrate'
 
 /** Where a resource can go: a lecture, a course, or nowhere (unfiled). */
@@ -24,9 +24,18 @@ export interface MoveDialogProps {
   onClose: () => void
 }
 
-/** "Move to lecture / course": every course, and each course's lectures. */
+/**
+ * "Move to lecture / course": every active course, and each course's
+ * lectures, plus where it is now when that course is archived.
+ */
 export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
   const { data: lectures } = useSubstrate().useLectures()
+  const active = useActiveCourses()
+  const current = useCourse(resource.course ?? resource.lecture_course)
+  const courses = [
+    ...(current?.archived ? [{ id: current.id, label: courseLabel(current) }] : []),
+    ...active.map((c) => ({ id: c.id, label: c.name })),
+  ]
   const [value, setValue] = useState(encode(resource))
   const lecturesIn = (course: string | null) => (lectures ?? []).filter((l) => l.course === course)
   const unfiledLectures = lecturesIn(null)
@@ -42,10 +51,10 @@ export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
         }}
       >
         <Select aria-label="Move to" value={value} onChange={(e) => setValue(e.target.value)}>
-          {COURSES.map((course) => (
-            <optgroup key={course.value} label={course.label}>
-              <option value={`course:${course.value}`}>Whole course: {course.label}</option>
-              {lecturesIn(course.value).map((lecture) => (
+          {courses.map((course) => (
+            <optgroup key={course.id} label={course.label}>
+              <option value={`course:${course.id}`}>Whole course: {course.label}</option>
+              {lecturesIn(course.id).map((lecture) => (
                 <option key={lecture.id} value={`lecture:${lecture.id}`}>{lecture.title}</option>
               ))}
             </optgroup>

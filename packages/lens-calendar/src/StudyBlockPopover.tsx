@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
+import { NEUTRAL_TONE, TAG_STYLES, clockTime, cn, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag, useCourse } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
@@ -105,8 +105,9 @@ export function StudyBlockPopover({
     return leadingTag((tags ?? []).filter((t) => t.target_type === 'transcript_segment' && t.target_id === segment.id).map((t) => t.label))
   }, [tags, segment])
 
-  const tone = courseTone(row.course)
-  const courseLabel = row.course ? (COURSES.find((c) => c.value === row.course)?.label ?? row.course) : null
+  const course = useCourse(row.course)
+  const tone = course?.tone ?? NEUTRAL_TONE
+  const courseLabel = course?.name ?? null
   const done = row.status === 'done'
   const minutes = row.starts_at && row.ends_at
     ? Math.round((Date.parse(row.ends_at) - Date.parse(row.starts_at)) / 60_000)

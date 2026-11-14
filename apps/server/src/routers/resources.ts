@@ -14,7 +14,7 @@ import {
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { dispatchWorkflows } from '../workflows/dispatch'
-import { andInCourse, isCourse, requireOwnBoard, requireOwnLecture } from './_shared'
+import { andInCourse, requireOwnBoard, requireOwnCourse, requireOwnLecture } from './_shared'
 
 type Fragment = ReturnType<TxSql['unsafe']>
 
@@ -65,7 +65,7 @@ function badRequest(message: string): TRPCError {
 /**
  * Where a new or moved resource goes: `{ lecture_id, course }` with at most
  * one set. A lecture must be the student's (foreign keys skip row-level
- * security) and a course a known key; naming both is refused.
+ * security) and a course one of theirs; naming both is refused.
  */
 async function attachment(
   tx: TxSql,
@@ -79,7 +79,7 @@ async function attachment(
     return { lecture_id: lectureId, course: null }
   }
   if (courseTag) {
-    if (!isCourse(courseTag)) throw badRequest('Unknown course')
+    await requireOwnCourse(tx, userId, courseTag)
     return { lecture_id: null, course: courseTag }
   }
   return { lecture_id: null, course: null }

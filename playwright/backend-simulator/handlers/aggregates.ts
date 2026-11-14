@@ -3,7 +3,6 @@ import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
 import { recordingCourse } from './course-scope'
 
-const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 
 // Mirrors apps/server/src/routers/aggregates.ts: one moment status rule
 // (`momentStatus`) behind Your progress, All courses and Weak topics.
@@ -27,10 +26,10 @@ interface CourseMoment {
 export function registerAggregatesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('aggregates.weeklyOverview', (input) => {
     const courseTag = (input as { courseTag?: string } | undefined)?.courseTag
-    return courseProgress(courseMoments(db, courseTag))
+    return courseProgress(db, courseMoments(db, courseTag))
   })
 
-  router.register('aggregates.gapAnalysis', () => courseProgress(courseMoments(db, undefined)))
+  router.register('aggregates.gapAnalysis', () => courseProgress(db, courseMoments(db, undefined)))
 
   router.register('aggregates.weakestTopics', (input): WeakTopic[] => {
     const opts = input as { limit?: number; courseTag?: string } | undefined
@@ -71,7 +70,7 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
   // Moments of lectures filed under a course: the course is the lecture's.
   for (const rec of db.recordings) {
     const course = recordingCourse(db, rec.id)
-    if (!course || !COURSE_LABELS.includes(course)) continue
+    if (!course) continue
     if (courseTag && course !== courseTag) continue
     const segs = db.transcriptSegments
       .filter((s) => s.recording_id === rec.id)
@@ -109,7 +108,7 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
   return moments
 }
 
-function courseProgress(moments: CourseMoment[]): CourseProgress[] {
+function courseProgress(db: InMemoryDb, moments: CourseMoment[]): CourseProgress[] {
   const byCourse = new Map<string, CourseMoment[]>()
   for (const m of moments) byCourse.set(m.course, [...(byCourse.get(m.course) ?? []), m])
   return [...byCourse.entries()]
@@ -123,7 +122,12 @@ function courseProgress(moments: CourseMoment[]): CourseProgress[] {
         percentage: Math.round((solid / ms.length) * 100),
       }
     })
-    .sort((a, b) => a.course.localeCompare(b.course))
+    // By the course's name, as on the server (its id is opaque).
+    .sort((a, b) => nameKey(db, a.course).localeCompare(nameKey(db, b.course)) || a.course.localeCompare(b.course))
+}
+
+function nameKey(db: InMemoryDb, course: string): string {
+  return db.courses.find((c) => c.id === course)?.name.toLowerCase() ?? ''
 }
 
 function label(db: InMemoryDb, m: CourseMoment): string {

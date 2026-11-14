@@ -458,7 +458,7 @@ test('landing on a moment folds the summary to one line and outlines the moment 
   await expect(moment).toContainText('inherited exclusively from the maternal line')
   await expect(moment).toBeInViewport()
   // The moment's box (with its tags and chips) is outlined in course colour.
-  await expect(moment).toHaveClass(/border-course-biology/)
+  await expect(moment).toHaveClass(/border-course-green/)
   await expect(page.getByText('Biology', { exact: true })).toBeVisible()
 
   const summary = page.getByRole('region', { name: 'Lecture summary' })

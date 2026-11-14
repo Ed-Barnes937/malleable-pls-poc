@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { lockProbes } from '../test-support/locks'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const DAY_MS = 24 * 60 * 60_000
@@ -66,6 +67,7 @@ describe.skipIf(!TEST_DATABASE_URL)('a class changing course (Postgres)', () => 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice)
     locks = lockProbes(db.sql)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')

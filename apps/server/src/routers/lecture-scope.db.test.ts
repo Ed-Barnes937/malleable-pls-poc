@@ -18,6 +18,7 @@ import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { LECTURE_SUMMARY_ANCHOR } from '@pls/substrate'
 import { insertRecording } from '../test-support/recordings'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -62,6 +63,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture scope (Postgres)', () => {
     uploadsDir = await mkdtemp(path.join(tmpdir(), 'pls-uploads-'))
     process.env.UPLOADS_DIR = uploadsDir
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')

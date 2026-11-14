@@ -1,6 +1,6 @@
 import type { LensProps } from '@pls/lens-framework'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, dayAndTime, doByLabel, formatDuration, stillToDoLabel } from '@pls/shared-ui'
+import { cn, dayAndTime, doByLabel, formatDuration, stillToDoLabel, useCourse } from '@pls/shared-ui'
 import { CalendarClock, Check, Clock, Hourglass, Sparkles, Undo2, X } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { slippedAt } from './todo-items'
@@ -33,6 +33,7 @@ export interface TodoRowProps {
 }
 
 export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, enter, onToggle, onDismiss, booking, onBookRest, children, onScopeChange, onShowMoment }: TodoRowProps) {
+  const course = useCourse(item.course)
   // A just-ticked row is done straight away, before the save comes back.
   const done = item.status === 'done' || !!justDone
   const slipped = done ? null : slippedAt(item, now)
@@ -103,15 +104,9 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, e
                 {formatDuration(item.duration_min)}
               </span>
             )}
-            {showCourse && item.course && (
-              <span
-                className={cn(
-                  'inline-flex h-[22px] items-center rounded-full px-2 font-semibold capitalize',
-                  courseTone(item.course).tint,
-                  courseTone(item.course).ink,
-                )}
-              >
-                {item.course}
+            {showCourse && course && (
+              <span className={cn('inline-flex h-[22px] items-center rounded-full px-2 font-semibold', course.tone.tint, course.tone.ink)}>
+                {course.name}
               </span>
             )}
             {!justDone && <SourceLink item={item} onScopeChange={onScopeChange} onShowMoment={onShowMoment} />}

@@ -8,6 +8,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -20,6 +21,7 @@ describe.skipIf(!TEST_DATABASE_URL)('workspaces.create (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')

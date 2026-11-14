@@ -32,6 +32,7 @@ import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
 import { registerResourcesHandlers } from './handlers/resources'
+import { registerCoursesHandlers } from './handlers/courses'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -52,6 +53,7 @@ function makeRouter(): ProcedureRouter {
   registerPlanItemsHandlers(router, db)
   registerPreferencesHandlers(router, db)
   registerResourcesHandlers(router, db)
+  registerCoursesHandlers(router, db)
   return router
 }
 
@@ -339,9 +341,18 @@ describe('simulator parity — read procedures return data on default seed', () 
     const stored = await query(router, 'workspaces.scopes', 'ws-evening-review')
     await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
       .rejects.toThrow('Unknown course')
-    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
-      .rejects.toThrow('Unknown course')
+    // A board never shows a course the student doesn't have: nothing to put back.
+    expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+      .toMatchObject({ restored: false })
     expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual(stored)
+  })
+
+  it('courses.list: the seeded student has Biology, Chemistry and Physics, as on the server', async () => {
+    expect(await query(router, 'courses.list')).toEqual([
+      { id: 'biology', name: 'Biology', color: 'green', archived_at: null },
+      { id: 'chemistry', name: 'Chemistry', color: 'blue', archived_at: null },
+      { id: 'physics', name: 'Physics', color: 'purple', archived_at: null },
+    ])
   })
 
   it('lectures.create with a board selects it there; lectures.update re-scopes boards', async () => {
@@ -543,6 +554,66 @@ describe('simulator parity - which automation made a plan item', () => {
     await call('workflows.delete', { workflowId: 'wf-confused-review' })
     expect(await call('workflows.byId', 'wf-confused-review')).toBeNull()
     expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
+  })
+})
+
+describe('simulator parity - courses behave like the server router', () => {
+  let router: ProcedureRouter
+  beforeEach(() => {
+    router = makeRouter()
+  })
+  /** The error's own message, out of the tRPC error JSON `mutate` throws with. */
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => /"message":"([^"]*)"/.exec(e.message)?.[1] ?? e.message)
+  type Listed ={ id: string; name: string; color: string; archived_at: string | null }
+
+  it('creates trimmed, in the colour the active ones use least, and refuses a name it has (archived included)', async () => {
+    const history = await mutate(router, 'courses.create', { name: '  History ' }) as Listed
+    expect(history).toMatchObject({ name: 'History', color: 'amber', archived_at: null })
+    expect(history.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(await mutate(router, 'courses.create', { name: 'Art', color: 'teal' })).toMatchObject({ color: 'teal' })
+    expect(await errorOf(mutate(router, 'courses.create', { name: 'BIOLOGY' }))).toBe('You already have a course called Biology')
+    await mutate(router, 'courses.update', { id: 'physics', archived: true })
+    expect(await errorOf(mutate(router, 'courses.create', { name: 'physics' }))).toBe('You have an archived course called Physics')
+    expect(await errorOf(mutate(router, 'courses.update', { id: 'chemistry', name: 'history' }))).toBe('You already have a course called History')
+    expect(await errorOf(mutate(router, 'courses.update', { id: 'nope', name: 'X' }))).toBe('Course not found')
+    expect(await errorOf(mutate(router, 'courses.create', { name: ' ' }))).toMatch(/needs a name/)
+    // Listed by name, archived ones included.
+    expect(((await query(router, 'courses.list')) as Listed[]).map((c) => [c.name, !!c.archived_at])).toEqual([
+      ['Art', false], ['Biology', false], ['Chemistry', false], ['History', false], ['Physics', true],
+    ])
+  })
+
+  it('a rename changes the course alone; an archived course is still accepted everywhere', async () => {
+    expect(await mutate(router, 'courses.update', { id: 'biology', name: 'Cell Biology', color: 'rose' }))
+      .toEqual({ id: 'biology', name: 'Cell Biology', color: 'rose', archived_at: null })
+    expect(await query(router, 'lectures.byId', 'lec-rec-bio-1')).toMatchObject({ course: 'biology' })
+    expect(await mutate(router, 'lectures.create', { course: 'biology' })).toMatchObject({ course: 'biology', title: expect.stringMatching(/^Cell Biology lecture /) })
+    await mutate(router, 'courses.update', { id: 'physics', archived: true })
+    expect(await mutate(router, 'lectures.update', { id: 'lec-rec-bio-1', course: 'physics' })).toMatchObject({ course: 'physics' })
+    expect(await mutate(router, 'planItems.create', { kind: 'task', title: 'Waves', course: 'physics' })).toMatchObject({ course: 'physics' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'physics' })).toMatchObject({ courseTag: 'physics' })
+  })
+
+  it('refuses an unknown course on every writer', async () => {
+    expect(await errorOf(mutate(router, 'lectures.create', { course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'lectures.update', { id: 'lec-rec-bio-1', course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'planItems.create', { kind: 'task', title: 'T', course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'resources.createLink', { url: 'https://a.test', courseTag: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'workspaces.create', { name: 'B', courseTag: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'history' }))).toBe('Unknown course')
+  })
+
+  it('deletes only a course nothing uses; boards on it become All courses; Undo then unfiles', async () => {
+    expect(await errorOf(mutate(router, 'courses.delete', 'biology'))).toMatch(/^Biology is still used by \d+ lectures: archive it instead$/)
+    const typo = await mutate(router, 'courses.create', { name: 'Typo' }) as Listed
+    const todo = await mutate(router, 'planItems.create', { kind: 'task', title: 'T', course: typo.id }) as { id: string }
+    expect(await errorOf(mutate(router, 'courses.delete', typo.id))).toBe('Typo is still used by 1 plan item: archive it instead')
+    await mutate(router, 'planItems.delete', todo.id)
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: typo.id, lectureId: null })
+    expect(await mutate(router, 'courses.delete', typo.id)).toEqual({ id: typo.id })
+    expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual([])
+    expect(await mutate(router, 'planItems.restore', todo.id)).toMatchObject({ id: todo.id, course: null })
+    expect(await errorOf(mutate(router, 'courses.delete', typo.id))).toBe('Course not found')
   })
 })
 

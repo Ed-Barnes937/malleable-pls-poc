@@ -9,6 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { newSession } from '@pls/substrate'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 // A week next year (GMT), so its blocks are still ahead.
@@ -39,14 +40,15 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
     await db.sql.end()
   })
 
-  function student() {
+  async function student() {
     const user = `test-undo-${randomUUID().slice(0, 8)}`
     users.push(user)
+    await insertStarterCourses(db.sql, user)
     return { user, api: caller(user) }
   }
 
   it('a deleted weekly class comes back exactly: same id, row, course and linked lectures', async () => {
-    const { user, api } = student()
+    const { user, api } = await student()
     const lecture = await api.planItems.create({
       kind: 'commitment', title: 'Biology lecture', subtype: 'class',
       starts_at: at(0, 9), ends_at: at(0, 10), recurrence: { freq: 'weekly', timeZone: 'Europe/London' }, course: 'biology',
@@ -73,7 +75,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it("a deleted to-do comes back with its sessions, as they were", async () => {
-    const { api } = student()
+    const { api } = await student()
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180, course: 'chemistry' })
     const one = await api.planItems.create(newSession(lab, at(3, 9), at(3, 11)))
     const two = await api.planItems.create(newSession(lab, at(4, 9), at(4, 10)))
@@ -88,8 +90,8 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it("another student can't restore what you deleted", async () => {
-    const { api } = student()
-    const { api: other } = student()
+    const { api } = await student()
+    const { api: other } = await student()
     const block = await api.planItems.create({ kind: 'task', title: 'Read chapter 5', starts_at: at(1, 9), ends_at: at(1, 10) })
     await api.planItems.delete(block.id)
     await expect(other.planItems.restore(block.id)).rejects.toThrow(/Nothing to restore/)
@@ -97,7 +99,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('undismiss puts a removed to-do back with every session it closed, past ones too', async () => {
-    const { api } = student()
+    const { api } = await student()
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180 })
     const missed = await api.planItems.create(newSession(lab, past(0, 9), past(0, 11)))
     const ahead = await api.planItems.create(newSession(lab, at(4, 9), at(4, 10)))
@@ -111,7 +113,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   /** As the Calendar does: reads before the Accept, accepts, reads after. */
-  async function accept(api: ReturnType<typeof student>['api'], ids: string[], write: () => Promise<unknown>) {
+  async function accept(api: Awaited<ReturnType<typeof student>>['api'], ids: string[], write: () => Promise<unknown>) {
     const before = await api.planItems.undoState(ids)
     await write()
     const after = await api.planItems.undoState(ids)
@@ -119,7 +121,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   }
 
   it('revert undoes an accepted draft in one go: times, estimates and the sessions it booked', async () => {
-    const { api } = student()
+    const { api } = await student()
     const essay = await api.planItems.create({ kind: 'task', title: 'Essay plan', duration_min: 90 })
     // A to-do already booked in its own block: a second booking moves that block into a session.
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180 })
@@ -139,7 +141,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('revert keeps the sessions from before, and writes nothing when one item fails', async () => {
-    const { api } = student()
+    const { api } = await student()
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 180 })
     const kept = await api.planItems.create(newSession(lab, at(3, 9), at(3, 11)))
     const items = await accept(api, [lab.id], () => api.planItems.create(newSession(lab, at(4, 9), at(4, 10))))
@@ -152,7 +154,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('a stale Undo leaves an item the student changed since: moved, resized, a new estimate', async () => {
-    const { api } = student()
+    const { api } = await student()
     const moved = await api.planItems.create({ kind: 'task', title: 'Moved after', duration_min: 60 })
     const estimated = await api.planItems.create({ kind: 'task', title: 'New estimate', duration_min: 60 })
     const untouched = await api.planItems.create({ kind: 'task', title: 'Untouched', duration_min: 60 })
@@ -174,7 +176,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('a stale Undo never deletes a session ticked since', async () => {
-    const { api } = student()
+    const { api } = await student()
     const lab = await api.planItems.create({ kind: 'task', title: 'Lab report', duration_min: 120 })
     let first = ''
     const items = await accept(api, [lab.id], async () => {
@@ -191,7 +193,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('revert of a re-fit move puts the block back, unless it was moved again', async () => {
-    const { api } = student()
+    const { api } = await student()
     const block = await api.planItems.create({ kind: 'task', title: 'Missed notes', starts_at: past(0, 9), ends_at: past(0, 10) })
     const again = await api.planItems.create({ kind: 'task', title: 'Moved again', starts_at: past(0, 11), ends_at: past(0, 12) })
     const items = await accept(api, [block.id, again.id], async () => {
@@ -207,7 +209,7 @@ describe.skipIf(!TEST_DATABASE_URL)('Undo of plan changes (Postgres)', () => {
   })
 
   it('trash older than a day is not restored, and is purged by a restore', async () => {
-    const { user, api } = student()
+    const { user, api } = await student()
     const old = await api.planItems.create({ kind: 'task', title: 'Long gone' })
     const fresh = await api.planItems.create({ kind: 'task', title: 'Just deleted' })
     await api.planItems.delete(old.id)

@@ -27,7 +27,7 @@ import { dispatchWorkflows } from '../workflows/dispatch'
 import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
 import { moveFutureClassLectures } from './_class-lectures'
-import { isCourse } from './_shared'
+import { requireOwnCourse } from './_shared'
 import {
   assertValid,
   columns,
@@ -39,29 +39,19 @@ import {
 } from '../plan-items/store'
 
 /**
- * BAD_REQUEST for a course the API doesn't accept, as for a lecture
- * (`courseKey`). Checked when a course is set or changed, so an item keeping
- * a course from before plan items were checked (migration 025) can still be
- * edited.
- */
-function assertCourse(course: string): void {
-  if (!isCourse(course)) throw new TRPCError({ code: 'BAD_REQUEST', message: 'Unknown course' })
-}
-
-/**
- * Moves one item out of plan_items into plan_item_trash, its course with the
+ * Moves one item out of plan_items into plan_item_trash, its course in the
  * row, and the lectures linked to it as a class (see migration 024).
  * `parentId`: the item it goes with (a to-do, for its session). False when
  * there is no such item.
  */
 async function trash(tx: TransactionSql, userId: string, planItemId: string, parentId: string | null): Promise<boolean> {
   const kept = await tx`
-    INSERT INTO plan_item_trash (id, user_id, parent_id, row, course, lecture_ids)
-    SELECT p.id, p.user_id, ${parentId}, to_jsonb(p), p.course,
+    INSERT INTO plan_item_trash (id, user_id, parent_id, row, lecture_ids)
+    SELECT p.id, p.user_id, ${parentId}, to_jsonb(p),
       COALESCE((SELECT array_agg(l.id) FROM lectures l WHERE l.user_id = p.user_id AND l.class_item_id = p.id), '{}')
     FROM plan_items p
     WHERE p.id = ${planItemId} AND p.user_id = ${userId}
-    ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, row = EXCLUDED.row, course = EXCLUDED.course,
+    ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, row = EXCLUDED.row,
       lecture_ids = EXCLUDED.lecture_ids, deleted_at = now()
     RETURNING id
   `
@@ -261,8 +251,8 @@ export const planItemsRouter = router({
   create: publicProcedure
     .input(newPlanItemOnBoardInput)
     .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
-      if (input.course != null) assertCourse(input.course)
       return withUser(ctx.userId, async (tx) => {
+        if (input.course != null) await requireOwnCourse(tx, ctx.userId, input.course)
         await ownBlockToSession(tx, ctx.userId, input)
         const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
         await raiseEstimateToBooked(tx, ctx.userId, item)
@@ -321,7 +311,8 @@ export const planItemsRouter = router({
         await tx`SELECT id FROM plan_items WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR NO KEY UPDATE`
         const current = await fetchOne(tx, ctx.userId, input.id)
         const { course, ...patch } = input.patch
-        if (course != null && course !== current.course) assertCourse(course)
+        // Archived courses are fine; an item keeping its course isn't rechecked.
+        if (course != null && course !== current.course) await requireOwnCourse(tx, ctx.userId, course)
         const merged: NewPlanItem = { ...current, ...patch, ...(course !== undefined ? { course } : {}) }
         assertValid(merged)
         // An item from before items kept their zone takes the student's now;
@@ -407,7 +398,8 @@ export const planItemsRouter = router({
 
   /**
    * Undo of `delete`: puts the item back exactly as it was (same id, its
-   * course, its sessions, the lectures linked to it as a class). Fires no
+   * course, its sessions, the lectures linked to it as a class), unfiled if
+   * its course has been deleted since. Fires no
    * workflow event, as delete fires none. NOT_FOUND when there is nothing
    * to put back (never deleted, already restored, or deleted over a day ago).
    */
@@ -418,7 +410,7 @@ export const planItemsRouter = router({
       await withUser(ctx.userId, (tx) => purgeTrash(tx, ctx.userId))
       return withUser(ctx.userId, async (tx) => {
         const rows = await tx`
-          SELECT id, lecture_ids FROM plan_item_trash
+          SELECT id, lecture_ids, row->>'course' AS course FROM plan_item_trash
           WHERE user_id = ${ctx.userId} AND (id = ${input} OR parent_id = ${input})
             AND deleted_at > now() - ${TRASH_KEPT}::interval
           ORDER BY (id = ${input}) DESC
@@ -426,9 +418,16 @@ export const planItemsRouter = router({
         if (!rows.some((r) => r.id === input)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Nothing to restore' })
         for (const r of rows) {
           const trashedId = r.id as string
+          // Back under its course while the student still has it (held until
+          // this commits, so it can't go meanwhile); unfiled if it was deleted.
+          const course = r.course as string | null
+          const [kept] = course
+            ? await tx`SELECT id FROM courses WHERE user_id = ${ctx.userId} AND id = ${course} FOR KEY SHARE`
+            : []
           await tx`
             INSERT INTO plan_items
-            SELECT (jsonb_populate_record(NULL::plan_items, t.row)).* FROM plan_item_trash t
+            SELECT (jsonb_populate_record(NULL::plan_items, t.row || jsonb_build_object('course', ${kept ? course : null}::text))).*
+            FROM plan_item_trash t
             WHERE t.id = ${trashedId} AND t.user_id = ${ctx.userId}
           `
           const lectures = (r.lecture_ids as string[] | null) ?? []

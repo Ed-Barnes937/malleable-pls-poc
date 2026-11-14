@@ -17,6 +17,7 @@ export {
   useClassOccurrenceLecture,
   useRestoreBoardScope,
   BOARD_SCOPE_WRITES,
+  useCourses,
   useLectures,
   useLecture,
   useUpdateLecture,

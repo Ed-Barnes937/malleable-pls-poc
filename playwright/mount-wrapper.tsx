@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { trpc, createTRPCClient } from '@pls/substrate-client'
+import { trpc, createTRPCClient, useCourses } from '@pls/substrate-client'
+import { CoursesProvider } from '@pls/shared-ui'
 import { substrateTrpc } from '@pls/substrate-client'
 import { ManifestRegistryProvider, SubstrateProvider, type PanelManifest } from '@pls/lens-framework'
 import { ToastHost } from '@pls/workspace-shell'
@@ -37,6 +38,12 @@ const manifests: PanelManifest[] = [
  * notices reach it when its harness passes `onNotify={notifyToast}` (e.g.
  * TodoHarness, CalendarHarness): props mounted from a test run in Node, not here.
  */
+/** The simulator's courses, looked up by every widget and the shell, as the web app provides them. */
+function ServerCourses({ children }: { children: React.ReactNode }) {
+  const courses = useCourses()
+  return <CoursesProvider courses={courses.data}>{children}</CoursesProvider>
+}
+
 export function TestProviders({ children, boardId, toasts }: { children: React.ReactNode; boardId?: string; toasts?: boolean }) {
   const [queryClient] = useState(
     () =>
@@ -53,14 +60,16 @@ export function TestProviders({ children, boardId, toasts }: { children: React.R
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ManifestRegistryProvider manifests={manifests}>
-          <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc} boardId={boardId}>
-            {toasts ? (
-              <div className="flex h-full flex-col">
-                <div className="min-h-0 flex-1">{children}</div>
-                <ToastHost />
-              </div>
-            ) : children}
-          </SubstrateProvider>
+          <ServerCourses>
+            <SubstrateProvider reader={substrateTrpc} writer={substrateTrpc} boardId={boardId}>
+              {toasts ? (
+                <div className="flex h-full flex-col">
+                  <div className="min-h-0 flex-1">{children}</div>
+                  <ToastHost />
+                </div>
+              ) : children}
+            </SubstrateProvider>
+          </ServerCourses>
         </ManifestRegistryProvider>
       </QueryClientProvider>
     </trpc.Provider>
@@ -83,7 +92,7 @@ export function ShellProviders({ children }: { children: React.ReactNode }) {
     <trpc.Provider client={trpcClient} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>
         <ManifestRegistryProvider manifests={manifests}>
-          {children}
+          <ServerCourses>{children}</ServerCourses>
         </ManifestRegistryProvider>
       </QueryClientProvider>
     </trpc.Provider>

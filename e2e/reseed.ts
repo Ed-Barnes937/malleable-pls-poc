@@ -9,6 +9,7 @@ import { createRequire } from 'module'
 import { resolve } from 'path'
 import { resolveDatabaseUrl } from './db-url.mts'
 import { validatePlanItem } from '../packages/substrate/src/plan-items'
+import { STARTER_COURSES } from '../packages/substrate/src/courses'
 import { priyaWeek, seededReviews, type SeedPlanItem } from './seed-week'
 import { SEED_LECTURES, withoutSeedRecordings } from './seed-lectures'
 import { MAX_RETRIES, POLL_INTERVAL_MS, retryBackoffMs } from '../apps/server/src/workflows/retry-policy'
@@ -21,6 +22,8 @@ const TABLES = [
   'workspace_scopes', 'workspace_panels', 'workspaces',
   'confidence_signals', 'links', 'annotations', 'tags',
   'transcript_segments', 'resources', 'recordings', 'lectures',
+  // After everything filed under a course (foreign keys).
+  'courses',
 ]
 
 /** Allowance for one attempt's own work (the e2e server's executors are mocks: no real AI). */
@@ -88,7 +91,10 @@ export async function reseed({
       for (const table of TABLES) {
         await tx.unsafe(`DELETE FROM ${table} WHERE user_id = 'dev-user-1'`)
       }
-      // The seeded lectures and their recordings first: 002 inserts its
+      // Biology, Chemistry and Physics before anything filed under them (a
+      // new student starts with none; the seeded one has the demo's three).
+      await insertStarterCourses(tx)
+      // The seeded lectures and their recordings next: 002 inserts its
       // recordings the old way (no lecture), so reseed writes them itself.
       await insertSeedLectures(tx)
 
@@ -211,6 +217,13 @@ function describeRuns(runs: Sql[]): string {
 // `postgres` is resolved at runtime from @pls/db (see above), so its types
 // are not visible here.
 type Sql = any
+
+/** Gives dev-user-1 the three starter courses. */
+async function insertStarterCourses(sql: Sql) {
+  for (const course of STARTER_COURSES) {
+    await sql`INSERT INTO courses ${sql({ ...course, user_id: 'dev-user-1' })}`
+  }
+}
 
 /** Inserts SEED_LECTURES for dev-user-1, each with its recording. */
 async function insertSeedLectures(sql: Sql) {

@@ -4,7 +4,7 @@ import { TRPCError } from '@trpc/server'
 import path from 'path'
 import { withUser, type TxSql } from '@pls/db'
 import { dispatchWorkflows } from './workflows/dispatch'
-import { isCourse, requireOwnLecture } from './routers/_shared'
+import { requireOwnCourse, requireOwnLecture } from './routers/_shared'
 import { ensureDefaultAutomations } from './workflows/defaults'
 import { readBoardScope, writeBoardScope } from './routers/_board-scope'
 
@@ -98,6 +98,11 @@ function isAudioMagicBytes(buffer: Buffer): boolean {
 
 async function ownsLecture(userId: string, lectureId: string): Promise<boolean> {
   const [row] = await withUser(userId, (tx) => tx`SELECT 1 FROM lectures WHERE id = ${lectureId} AND user_id = ${userId}`)
+  return !!row
+}
+
+async function ownsCourse(userId: string, courseId: string): Promise<boolean> {
+  const [row] = await withUser(userId, (tx) => tx`SELECT 1 FROM courses WHERE id = ${courseId} AND user_id = ${userId}`)
   return !!row
 }
 
@@ -221,12 +226,6 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
     const parsedDuration = Math.round(Number(req.headers['x-recording-duration'] ?? '0'))
     const durationMs = Number.isFinite(parsedDuration) && parsedDuration > 0 ? parsedDuration : 0
 
-    if (course && !isCourse(course)) {
-      res.writeHead(400, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Unknown course' }))
-      return
-    }
-
     // Validate Content-Type header against audio allowlist
     const extension = audioExtension(req.headers['content-type'])
     if (!extension) {
@@ -259,9 +258,15 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
       return
     }
 
-    // Before the file is written: another student's lecture (or one that is
-    // gone) is not found, and leaves nothing behind. Checked again, and held,
-    // in the insert's transaction.
+    // Before the file is written: a course that isn't one of the student's
+    // is refused, and another student's lecture (or one that is gone) is not
+    // found, leaving nothing behind. Both are checked again, and held, in
+    // the insert's transaction.
+    if (course && !(await ownsCourse(userId, course))) {
+      res.writeHead(400, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Unknown course' }))
+      return
+    }
     if (lectureId && !(await ownsLecture(userId, lectureId))) {
       res.writeHead(404, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Lecture not found' }))
@@ -291,6 +296,7 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
         await ensureDefaultAutomations(tx, userId)
         // Into the given lecture, or a new lecture of its own filed under the
         // course (the lecture holds the course; the recording derives it).
+        if (!lectureId && course) await requireOwnCourse(tx, userId, course)
         const intoLecture = lectureId
           ? (await requireOwnLecture(tx, userId, lectureId)).id
           : ((await tx`
@@ -336,6 +342,12 @@ export async function handleUpload(req: IncomingMessage, res: ServerResponse) {
       if (err instanceof TRPCError && err.code === 'NOT_FOUND') {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Lecture not found' }))
+        return
+      }
+      // The course went between the check above and the insert.
+      if (err instanceof TRPCError && err.code === 'BAD_REQUEST') {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unknown course' }))
         return
       }
       throw err

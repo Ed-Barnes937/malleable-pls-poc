@@ -158,3 +158,13 @@ export async function handleTrpcRequest(
     contentType: 'application/json',
   }
 }
+
+/** Parses with the server's schema; a refusal is BAD_REQUEST, as tRPC makes it. */
+export function parse<T>(
+  schema: { safeParse: (input: unknown) => { success: true; data: T } | { success: false; error: { issues: { message: string }[] } } },
+  input: unknown,
+): T {
+  const result = schema.safeParse(input)
+  if (!result.success) throw new SimulatorError('BAD_REQUEST', result.error.issues.map((i) => i.message).join('; '))
+  return result.data
+}

@@ -15,6 +15,7 @@ import { startOfLocalDay, wallClock, zonedTimeToUtc } from '@pls/scheduler'
 import type { ExecutorRegistry, JobRun } from '@pls/workflows'
 import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB, WEEKDAYS, type StudyHours } from '@pls/substrate'
 import { insertRecording } from '../test-support/recordings'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -42,6 +43,7 @@ describe.skipIf(!TEST_DATABASE_URL)('lecture AI jobs and the confusion automatio
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')

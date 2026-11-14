@@ -170,7 +170,7 @@ test('block language: a class is a solid course tint, a shift neutral with a cup
 
   const lecture = block(page, 'Biology lecture')
   await expect(lecture).toHaveAttribute('data-look', 'class')
-  await expect(lecture).toHaveClass(/bg-course-biology-tint/)
+  await expect(lecture).toHaveClass(/bg-course-green-tint/)
   await expect(lecture.getByTestId('calendar-grip')).toHaveCount(0)
 
   const shift = block(page, 'Cafe shift')
@@ -181,7 +181,7 @@ test('block language: a class is a solid course tint, a shift neutral with a cup
 
   const study = block(page, 'Revise respiration')
   await expect(study).toHaveAttribute('data-look', 'study')
-  await expect(study).toHaveClass(/bg-course-biology-soft/)
+  await expect(study).toHaveClass(/bg-course-green-soft/)
   await expect(study.getByTestId('calendar-grip')).toBeVisible()
   await expect(study.getByTestId('calendar-shift-icon')).toHaveCount(0)
 

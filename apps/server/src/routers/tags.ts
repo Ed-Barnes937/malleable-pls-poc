@@ -5,7 +5,7 @@ import { boardIdInput, CONFUSED_TAG, REVIEW_SUBTYPE, SORTED_TAG, type Tag } from
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
-import { boardScope, andInScope, isCourse, isScoped } from './_shared'
+import { boardScope, andInScope, isScoped } from './_shared'
 import { changeStatus } from './plan-items'
 
 const momentInput = z.object({ segmentId: z.string().max(255), workspaceId: boardIdInput })
@@ -76,19 +76,24 @@ export const tagsRouter = router({
       workspaceId: boardIdInput,
     }))
     .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
-      // A recording's course is its lecture's (lectures.update), never a tag.
-      if (input.target_type === 'recording' && isCourse(input.label)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: "A recording's course is its lecture's: set it on the lecture" })
-      }
-      // A plan item's course is its own column (planItems.update), never a tag.
-      if (input.target_type === 'plan_item' && isCourse(input.label)) {
-        throw new TRPCError({ code: 'BAD_REQUEST', message: "A plan item's course is set on the item: use planItems.update" })
-      }
       // Sorting also dismisses the moment's reviews: only tags.sort does it.
       if (input.label === SORTED_TAG) {
         throw new TRPCError({ code: 'BAD_REQUEST', message: 'Mark a moment sorted with tags.sort' })
       }
       return withUser(ctx.userId, async (tx) => {
+        // A recording's course is its lecture's (lectures.update), and a plan
+        // item's is its own column (planItems.update): never a tag.
+        if (input.target_type === 'recording' || input.target_type === 'plan_item') {
+          const [course] = await tx`SELECT 1 FROM courses WHERE user_id = ${ctx.userId} AND id = ${input.label}`
+          if (course) {
+            throw new TRPCError({
+              code: 'BAD_REQUEST',
+              message: input.target_type === 'recording'
+                ? "A recording's course is its lecture's: set it on the lecture"
+                : "A plan item's course is set on the item: use planItems.update",
+            })
+          }
+        }
         // Idempotent per (target, label): a moment is confusing or it isn't,
         // so a second click (or a racing one, hence the lock) returns the tag
         // already there and books nothing more.

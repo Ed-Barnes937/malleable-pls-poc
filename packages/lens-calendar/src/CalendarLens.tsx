@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
 import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { COURSES, Presence, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
+import { Presence, cn, useCourse, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
 import { EventPopover } from './EventPopover'
@@ -71,8 +71,19 @@ function fromMoment(item: PlanItemOccurrence): boolean {
   return item.source_type === 'recording' && !!item.source_id
 }
 
-function courseLabel(course: string): string {
-  return COURSES.find((c) => c.value === course)?.label ?? course
+/** "Biology highlighted": the board course, in its colours. Nothing until the course is known. */
+function HighlightChip({ courseId }: { courseId: string }) {
+  const course = useCourse(courseId)
+  if (!course) return null
+  return (
+    <span
+      data-testid="calendar-highlight"
+      className={cn('inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-meta font-semibold', course.tone.soft, course.tone.ink)}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(course.tone).bar)} />
+      {course.name} highlighted
+    </span>
+  )
 }
 
 export default function CalendarLens({
@@ -935,15 +946,7 @@ export default function CalendarLens({
           </>
         )}
 
-        {highlight?.courseTag && (
-          <span
-            data-testid="calendar-highlight"
-            className={cn('inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 text-meta font-semibold', courseTone(highlight.courseTag).soft, courseTone(highlight.courseTag).ink)}
-          >
-            <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(highlight.courseTag).bar)} />
-            {courseLabel(highlight.courseTag)} highlighted
-          </span>
-        )}
+        {highlight?.courseTag && <HighlightChip courseId={highlight.courseTag} />}
 
         {notice && (
           <span role="status" data-testid="calendar-notice" className="text-meta text-text-secondary">{notice}</span>

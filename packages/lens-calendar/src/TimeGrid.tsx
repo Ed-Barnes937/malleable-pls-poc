@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { MOTION_MS, cn, courseTone, prefersReducedMotion, showOnBoard, useArrivals, useEnterOnce, useReducedMotion } from '@pls/shared-ui'
+import { MOTION_MS, NEUTRAL_TONE, cn, prefersReducedMotion, showOnBoard, useArrivals, useCourse, useCourseLookup, useEnterOnce, useReducedMotion } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -165,6 +165,7 @@ export function TimeGrid({
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
   reveal, popoverOpen, loading, footer, rootRef,
 }: TimeGridProps) {
+  const courseOf = useCourseLookup()
   const scrollRef = useRef<HTMLDivElement>(null)
   const footerRef = useRef<HTMLDivElement>(null)
   /** Room under the hours kept while scrolled into it (see the footer's effect). */
@@ -582,7 +583,7 @@ export function TimeGrid({
             {markers.map((dayMarkers, i) => (
               <div key={i} className="flex min-w-0 flex-col gap-1 border-l border-border-subtle p-1">
                 {dayMarkers.map((m) => {
-                  const tone = toneFor(m.item.course)
+                  const tone = toneFor(courseOf(m.item.course)?.tone)
                   const done = m.item.status === 'done'
                   return (
                     <button
@@ -772,8 +773,8 @@ export function TimeGrid({
                       className="pointer-events-none absolute inset-x-0 flex items-center"
                       style={{ top: (m.minute / 60) * hourPx - 1 }}
                     >
-                      <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(m.item.course).bar, isDimmed(m.item) && 'opacity-40')} />
-                      <span className={cn('h-px flex-1', toneFor(m.item.course).bar, isDimmed(m.item) ? 'opacity-20' : 'opacity-50')} />
+                      <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(courseOf(m.item.course)?.tone).bar, isDimmed(m.item) && 'opacity-40')} />
+                      <span className={cn('h-px flex-1', toneFor(courseOf(m.item.course)?.tone).bar, isDimmed(m.item) ? 'opacity-20' : 'opacity-50')} />
                     </div>
                   ))}
 
@@ -857,7 +858,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   // Kept from mount: the motion plays as it arrives, not on later renders.
   const [entering] = useState(!!enter && !settle)
   const [settling] = useState(!!settle)
-  const tone = toneFor(item.course)
+  const course = useCourse(item.course)
+  const tone = toneFor(course?.tone)
   const isCommitment = item.kind === 'commitment'
   const movable = isMovable(item)
   const done = item.status === 'done'
@@ -923,7 +925,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
         glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
       style={{
-        ...(glow ? ({ '--glow': courseTone(item.course).solid } as CSSProperties) : {}),
+        ...(glow ? ({ '--glow': (course?.tone ?? NEUTRAL_TONE).solid } as CSSProperties) : {}),
         top: top + 1,
         height,
         left: `calc(${(seg.column / seg.columns) * 100}% + 2px)`,
@@ -1041,7 +1043,7 @@ interface GhostBlockProps {
 function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge, enter, leaving }: GhostBlockProps) {
   const { item } = seg
   const [entering] = useState(!!enter)
-  const tone = toneFor(item.course)
+  const tone = toneFor(useCourse(item.course)?.tone)
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const top = (seg.startMin / 60) * hourPx
