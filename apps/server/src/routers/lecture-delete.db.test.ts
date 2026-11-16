@@ -14,6 +14,7 @@ import { LECTURE_SUMMARY_ANCHOR, REVIEW_TASK_JOB } from '@pls/substrate'
 import type { TxSql } from '@pls/db'
 import { insertRecording } from '../test-support/recordings'
 import type { AiDeps } from '../ai/deps'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -64,17 +65,14 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     title: string; status?: string; sourceId?: string; course?: string; startsAt?: Date
   }): Promise<string> {
     const [row] = await tx`
-      INSERT INTO plan_items (user_id, kind, title, status, starts_at, ends_at, subtype, source_type, source_id, source_offset_ms)
+      INSERT INTO plan_items (user_id, kind, title, status, starts_at, ends_at, subtype, source_type, source_id, source_offset_ms, course)
       VALUES (
         ${userId}, 'task', ${item.title}, ${item.status ?? 'open'},
         ${item.startsAt ?? null}, ${item.startsAt ? new Date(item.startsAt.getTime() + 30 * 60000) : null},
-        'review', ${item.sourceId ? 'recording' : null}, ${item.sourceId ?? null}, ${item.sourceId ? 0 : null}
+        'review', ${item.sourceId ? 'recording' : null}, ${item.sourceId ?? null}, ${item.sourceId ? 0 : null}, ${item.course ?? null}
       )
       RETURNING id
     `
-    if (item.course) {
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${userId}, 'plan_item', ${row.id}, ${item.course})`
-    }
     return row.id as string
   }
 
@@ -151,6 +149,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     process.env.UPLOADS_DIR = uploads
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, ...users)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     ;({ createServerExecutors: makeExecutors } = await import('../workflows/executors'))
@@ -193,7 +192,7 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     expect(await api().lectures.delete({ id: s.lectureId, fingerprint: preview.fingerprint })).toEqual({ id: s.lectureId, title: 'Cells' })
 
     // Gone: the lecture, its recordings and segments, every mark on them,
-    // the unfinished study blocks with their course tags, the resource.
+    // the unfinished study blocks, the resource.
     expect(await rowsWhere('lectures', 'id', [s.lectureId])).toBe(0)
     expect(await rowsWhere('recordings', 'id', [s.recA, s.recB])).toBe(0)
     expect(await rowsWhere('transcript_segments', 'id', [s.segA, s.segB])).toBe(0)
@@ -208,9 +207,8 @@ describe.skipIf(!TEST_DATABASE_URL)('deleting a lecture (Postgres)', () => {
     // Kept: the finished study block (no longer linked to a moment, still
     // in its course), the class, an unrelated item, the other lecture and
     // everything on it.
-    const [done] = await db.sql`SELECT status, source_type, source_id, source_offset_ms FROM plan_items WHERE id = ${s.done}`
-    expect(done).toEqual({ status: 'done', source_type: null, source_id: null, source_offset_ms: null })
-    expect(await rowsWhere('tags', 'target_id', [s.done])).toBe(1)
+    const [done] = await db.sql`SELECT status, source_type, source_id, source_offset_ms, course FROM plan_items WHERE id = ${s.done}`
+    expect(done).toEqual({ status: 'done', source_type: null, source_id: null, source_offset_ms: null, course: 'biology' })
     expect(await rowsWhere('plan_items', 'id', [s.classItem, s.unrelated, s.otherReview])).toBe(3)
     expect(await rowsWhere('lectures', 'id', [s.otherLecture])).toBe(1)
     expect(await rowsWhere('transcript_segments', 'id', [s.otherSeg])).toBe(1)

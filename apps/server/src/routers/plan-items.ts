@@ -22,44 +22,41 @@ import {
   newSession,
   sessionParentId,
 } from '@pls/substrate'
-import type { PlanItem, PlanItemQuery } from '@pls/substrate'
+import type { NewPlanItem, PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
 import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
 import { moveFutureClassLectures } from './_class-lectures'
+import { requireOwnCourse } from './_shared'
 import {
   assertValid,
   columns,
-  courseColumn,
   eventPayload,
   fetchOne,
   insertPlanItem,
   listPlanItems,
-  setCourse,
   toPlanItem,
-  type Stored,
 } from '../plan-items/store'
 
 /**
- * Moves one item out of plan_items into plan_item_trash, with its course and
- * the lectures linked to it as a class (see migration 024). `parentId`: the
- * item it goes with (a to-do, for its session). False when there is no such
- * item.
+ * Moves one item out of plan_items into plan_item_trash, its course in the
+ * row, and the lectures linked to it as a class (see migration 024).
+ * `parentId`: the item it goes with (a to-do, for its session). False when
+ * there is no such item.
  */
 async function trash(tx: TransactionSql, userId: string, planItemId: string, parentId: string | null): Promise<boolean> {
   const kept = await tx`
-    INSERT INTO plan_item_trash (id, user_id, parent_id, row, course, lecture_ids)
-    SELECT p.id, p.user_id, ${parentId}, to_jsonb(p), ${courseColumn(tx)},
+    INSERT INTO plan_item_trash (id, user_id, parent_id, row, lecture_ids)
+    SELECT p.id, p.user_id, ${parentId}, to_jsonb(p),
       COALESCE((SELECT array_agg(l.id) FROM lectures l WHERE l.user_id = p.user_id AND l.class_item_id = p.id), '{}')
     FROM plan_items p
     WHERE p.id = ${planItemId} AND p.user_id = ${userId}
-    ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, row = EXCLUDED.row, course = EXCLUDED.course,
+    ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, row = EXCLUDED.row,
       lecture_ids = EXCLUDED.lecture_ids, deleted_at = now()
     RETURNING id
   `
   if (kept.length === 0) return false
   await tx`DELETE FROM plan_items WHERE id = ${planItemId} AND user_id = ${userId}`
-  await setCourse(tx, userId, planItemId, null)
   return true
 }
 
@@ -130,9 +127,7 @@ async function cascadeToSessions(tx: TransactionSql, userId: string, before: Pla
   const owned = tx`user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${after.id}`
   if (before.title !== after.title) await tx`UPDATE plan_items SET title = ${after.title}, updated_at = now() WHERE ${owned}`
   if (before.due_at !== after.due_at) await tx`UPDATE plan_items SET due_at = ${after.due_at}, updated_at = now() WHERE ${owned}`
-  if (course !== undefined) {
-    for (const s of await tx`SELECT id FROM plan_items WHERE ${owned}`) await setCourse(tx, userId, s.id as string, course)
-  }
+  if (course !== undefined) await tx`UPDATE plan_items SET course = ${course} WHERE ${owned}`
   if (before.status === after.status) return
   if (after.status === 'open') {
     await tx`
@@ -246,7 +241,7 @@ export const planItemsRouter = router({
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const [row] = await tx`
-          SELECT p.*, ${courseColumn(tx)} FROM plan_items p
+          SELECT p.* FROM plan_items p
           WHERE p.id = ${input} AND p.user_id = ${ctx.userId}
         `
         return row ? toPlanItem(row) : null
@@ -257,6 +252,7 @@ export const planItemsRouter = router({
     .input(newPlanItemOnBoardInput)
     .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
+        if (input.course != null) await requireOwnCourse(tx, ctx.userId, input.course)
         await ownBlockToSession(tx, ctx.userId, input)
         const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
         await raiseEstimateToBooked(tx, ctx.userId, item)
@@ -315,7 +311,9 @@ export const planItemsRouter = router({
         await tx`SELECT id FROM plan_items WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR NO KEY UPDATE`
         const current = await fetchOne(tx, ctx.userId, input.id)
         const { course, ...patch } = input.patch
-        const merged: Stored = { ...current, ...patch }
+        // Archived courses are fine; an item keeping its course isn't rechecked.
+        if (course != null && course !== current.course) await requireOwnCourse(tx, ctx.userId, course)
+        const merged: NewPlanItem = { ...current, ...patch, ...(course !== undefined ? { course } : {}) }
         assertValid(merged)
         // An item from before items kept their zone takes the student's now;
         // one that has a zone keeps it (see PlanItem.time_zone).
@@ -324,7 +322,6 @@ export const planItemsRouter = router({
           UPDATE plan_items SET ${tx({ ...columns(tx, merged), time_zone: timeZone, updated_at: new Date() })}
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
-        if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
         // A class changing course takes its future lectures with it, in this transaction.
         if (course !== undefined && course !== current.course) await moveFutureClassLectures(tx, ctx.userId, input.id, current.course ?? null, course)
         const updated = await fetchOne(tx, ctx.userId, input.id)
@@ -401,7 +398,8 @@ export const planItemsRouter = router({
 
   /**
    * Undo of `delete`: puts the item back exactly as it was (same id, its
-   * course, its sessions, the lectures linked to it as a class). Fires no
+   * course, its sessions, the lectures linked to it as a class), unfiled if
+   * its course has been deleted since. Fires no
    * workflow event, as delete fires none. NOT_FOUND when there is nothing
    * to put back (never deleted, already restored, or deleted over a day ago).
    */
@@ -412,7 +410,7 @@ export const planItemsRouter = router({
       await withUser(ctx.userId, (tx) => purgeTrash(tx, ctx.userId))
       return withUser(ctx.userId, async (tx) => {
         const rows = await tx`
-          SELECT id, course, lecture_ids FROM plan_item_trash
+          SELECT id, lecture_ids, row->>'course' AS course FROM plan_item_trash
           WHERE user_id = ${ctx.userId} AND (id = ${input} OR parent_id = ${input})
             AND deleted_at > now() - ${TRASH_KEPT}::interval
           ORDER BY (id = ${input}) DESC
@@ -420,12 +418,18 @@ export const planItemsRouter = router({
         if (!rows.some((r) => r.id === input)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Nothing to restore' })
         for (const r of rows) {
           const trashedId = r.id as string
+          // Back under its course while the student still has it (held until
+          // this commits, so it can't go meanwhile); unfiled if it was deleted.
+          const course = r.course as string | null
+          const [kept] = course
+            ? await tx`SELECT id FROM courses WHERE user_id = ${ctx.userId} AND id = ${course} FOR KEY SHARE`
+            : []
           await tx`
             INSERT INTO plan_items
-            SELECT (jsonb_populate_record(NULL::plan_items, t.row)).* FROM plan_item_trash t
+            SELECT (jsonb_populate_record(NULL::plan_items, t.row || jsonb_build_object('course', ${kept ? course : null}::text))).*
+            FROM plan_item_trash t
             WHERE t.id = ${trashedId} AND t.user_id = ${ctx.userId}
           `
-          await setCourse(tx, ctx.userId, trashedId, (r.course as string | null) ?? null)
           const lectures = (r.lecture_ids as string[] | null) ?? []
           if (lectures.length > 0) {
             await tx`
@@ -503,7 +507,6 @@ export const planItemsRouter = router({
           for (const s of after.sessions) {
             if (hadBefore.has(s.id)) continue
             await tx`DELETE FROM plan_items WHERE id = ${s.id} AND user_id = ${ctx.userId}`
-            await setCourse(tx, ctx.userId, s.id, null)
           }
           assertValid({ ...current, starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min })
           await tx`

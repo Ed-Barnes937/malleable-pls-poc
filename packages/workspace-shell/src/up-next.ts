@@ -7,7 +7,6 @@ import {
   type PlanItem,
   type UserPreferences,
 } from '@pls/substrate'
-import { COURSES } from '@pls/shared-ui'
 
 const DAY_MS = 86_400_000
 const MINUTE_MS = 60_000
@@ -94,10 +93,9 @@ function clockIn(timeZone: string): (ms: number) => string {
   return (ms) => format.format(new Date(ms))
 }
 
-function itemName(row: Row): string {
-  const course = row.kind === 'commitment' && row.subtype === 'class' && row.course
-    ? COURSES.find((c) => c.value === row.course)?.label
-    : undefined
+/** A class by its course's name (its title until the course is known), anything else by its title. */
+function itemName(row: Row, courseName: (id: string) => string | undefined): string {
+  const course = row.kind === 'commitment' && row.subtype === 'class' && row.course ? courseName(row.course) : undefined
   return course ?? row.title
 }
 
@@ -115,9 +113,14 @@ function itemType(row: Row): UpNextItem['type'] {
 export function upNextSummary(
   rows: ReadonlyArray<Row>,
   tasks: ReadonlyArray<Row>,
-  opts: { now: number; timeZone: string },
+  opts: {
+    now: number
+    timeZone: string
+    /** A course's name by id (`useCourseLookup`); undefined while not known. */
+    courseName?: (id: string) => string | undefined
+  },
 ): UpNextSummary {
-  const { now, timeZone } = opts
+  const { now, timeZone, courseName = () => undefined } = opts
   const clock = clockIn(timeZone)
   const end = weekEnd(now, timeZone)
 
@@ -130,7 +133,7 @@ export function upNextSummary(
       const endMs = Date.parse(r.ends_at!)
       return {
         key: r.occurrence_key ?? r.id,
-        name: itemName(r),
+        name: itemName(r, courseName),
         type: itemType(r),
         course: r.course,
         startMs,

@@ -1,6 +1,6 @@
 import { type LensProps, useLinkedToLecture, useSubstrate } from '@pls/lens-framework'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, HiddenElsewhere, Select, clockTime, cn, courseTone, dayLabel, isAllDay } from '@pls/shared-ui'
+import { HiddenElsewhere, NEUTRAL_TONE, Select, clockTime, cn, dayLabel, isAllDay, useCourse } from '@pls/shared-ui'
 import { comingUpQuery, groupByDay, lookAheadDays, LOOK_AHEAD_OPTIONS } from './coming-up'
 
 export default function ComingUpLens({ scope, highlight, config, onConfigChange, onScopeChange }: LensProps) {
@@ -98,12 +98,13 @@ interface DeadlineRowProps {
 function DeadlineRow({ item, showCourse, highlighted, now, showDay, onFocusCourse }: DeadlineRowProps) {
   // An all-day deadline (local 00:00) shows no time.
   const time = showDay ? dayLabel(item.due_at!, now) : isAllDay(item.due_at!) ? null : clockTime(item.due_at!)
-  const courseLabel = COURSES.find((c) => c.value === item.course)?.label ?? item.course
+  const course = useCourse(item.course)
+  const courseLabel = course?.name ?? null
   const body = (
     <>
       <span
         aria-hidden
-        className={cn('h-2 w-2 shrink-0 rounded-full', courseTone(item.course).stripe)}
+        className={cn('h-2 w-2 shrink-0 rounded-full', (course?.tone ?? NEUTRAL_TONE).stripe)}
       />
       <span className="min-w-0 flex-1 truncate text-body font-semibold text-text-primary">{item.title}</span>
       {showCourse && courseLabel && <span className="shrink-0 text-meta text-text-muted">{courseLabel}</span>}

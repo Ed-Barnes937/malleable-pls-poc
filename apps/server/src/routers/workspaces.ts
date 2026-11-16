@@ -4,12 +4,12 @@ import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import type { BoardScope, WorkspacePanel, WorkspaceSummary } from '@pls/substrate'
-import { courseKey, requireOwnBoard } from './_shared'
+import { courseId, requireOwnBoard, requireOwnCourse } from './_shared'
 import { lockBoardScopeRows, replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
 
 /** A board scope as `setBoardScope` returns it (null = unset), validated as `setBoardScope` validates it. */
 const boardScope = z.object({
-  courseTag: courseKey.nullable(),
+  courseTag: courseId.nullable(),
   lectureId: z.string().max(255).nullable(),
 })
 
@@ -66,10 +66,11 @@ export const workspacesRouter = router({
     .input(z.object({
       name: z.string().max(500).min(1),
       // Optional board course, stored as the board's 'tag' scope.
-      courseTag: courseKey.optional(),
+      courseTag: courseId.optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        if (input.courseTag) await requireOwnCourse(tx, ctx.userId, input.courseTag)
         const [ws] = await tx`
           INSERT INTO workspaces (user_id, name, sort_order)
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
@@ -253,7 +254,7 @@ export const workspacesRouter = router({
   setBoardScope: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
-      courseTag: courseKey.nullable().optional(),
+      courseTag: courseId.nullable().optional(),
       lectureId: z.string().max(255).nullable().optional(),
     }))
     .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {

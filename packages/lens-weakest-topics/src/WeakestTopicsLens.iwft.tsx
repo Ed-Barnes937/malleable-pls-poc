@@ -45,7 +45,7 @@ test('lists the moments to review, weakest first, with readable labels and where
   await expect(second).toContainText('Maternal inheritance')
   await expect(second).toContainText('Mitochondrial DNA · 9:00')
   await expect(second).toContainText('25% sure')
-  await expect(second).toContainText('biology')
+  await expect(second).toContainText('Biology')
   await expect(page.getByText('Week 1')).toHaveCount(0)
 })
 

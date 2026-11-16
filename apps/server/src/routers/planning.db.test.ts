@@ -12,6 +12,7 @@ import { randomUUID } from 'node:crypto'
 import { draftPlan, planTasks, weekLayout } from '@pls/substrate'
 import type { FakeLlmClient } from '../ai/fake-llm'
 import { insertRecording } from '../test-support/recordings'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const TZ = 'Europe/London'
@@ -29,6 +30,7 @@ describe.skipIf(!TEST_DATABASE_URL)('planning.autofill (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice, bob)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createFakeLlmClient } = await import('../ai/fake-llm')

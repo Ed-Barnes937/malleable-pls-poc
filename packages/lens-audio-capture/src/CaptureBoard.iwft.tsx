@@ -110,9 +110,8 @@ test.describe('Record and Transcript on one board', () => {
       id: 'bio-class', kind: 'commitment', title: 'Biology lecture', subtype: 'class', status: 'open',
       starts_at: '2026-10-19T09:00:00.000Z', ends_at: '2026-10-19T11:00:00.000Z', due_at: null, duration_min: null,
       recurrence: { freq: 'weekly', timeZone: 'Europe/London' }, source_type: null, source_id: null, source_offset_ms: null,
-      created_by_workflow_id: null, created_at: now, updated_at: now,
+      created_by_workflow_id: null, course: 'biology', created_at: now, updated_at: now,
     })
-    simulator.db.tags.push({ id: 'tag-bio-class', target_type: 'plan_item', target_id: 'bio-class', label: 'biology', created_at: now })
     await serveUploads(page, simulator)
     await mount(<CaptureBoardHarness />)
     await expect(scopeText(page)).toHaveText('biology / no lecture')

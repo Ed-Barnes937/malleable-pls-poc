@@ -3,7 +3,10 @@ import { defaultTrims, formatMinutes, rankForPlan, type PlanAdvice, type PlanTas
 import { defineLlmTask } from '../llm'
 
 export interface PlanAutofillTaskInput {
-  /** Unscheduled to-dos to plan into the week. */
+  /**
+   * Unscheduled to-dos to plan into the week, each with its course's name as
+   * `course` (never the id: the model only sees what the student would).
+   */
   tasks: PlanTask[]
   /** Study time left this week (free time capped per day), from `@pls/scheduler`'s `capacity`. */
   freeMin: number

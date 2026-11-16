@@ -22,7 +22,7 @@ import {
   type WeekLayout,
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
-import { MOTION_TIMING, SWAP_KEYFRAMES, cn, doByLabel, prefersReducedMotion } from '@pls/shared-ui'
+import { MOTION_TIMING, SWAP_KEYFRAMES, cn, doByLabel, prefersReducedMotion, useCourse, useCourseLookup } from '@pls/shared-ui'
 import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, X } from 'lucide-react'
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
@@ -565,6 +565,7 @@ function DraftSummary({
   pickDefaultFor: (task: PlanTask) => number
   onPick: (todo: PlanItemOccurrence, start: Date, durationMin: number) => void
 }) {
+  const courseOf = useCourseLookup()
   const { advice, draft, trims, estimates } = autofill
   const [picking, setPicking] = useState<string | null>(null)
   // Shrink and Undo replace each other, so the one just pressed unmounts:
@@ -660,7 +661,7 @@ function DraftSummary({
               data-testid="autofill-block"
               className="flex items-center gap-2.5 rounded-item border-[1.5px] border-dashed border-border px-2.5 py-1.5"
             >
-              <span className={cn('h-2 w-2 shrink-0 rounded-full', toneFor(p.course ?? null).bar)} aria-hidden />
+              <span className={cn('h-2 w-2 shrink-0 rounded-full', toneFor(courseOf(p.course)?.tone).bar)} aria-hidden />
               <span className="min-w-0 flex-1 truncate text-body font-semibold text-text-primary" title={p.title}>{p.title}</span>
               <span className="shrink-0 text-meta tabular-nums text-text-muted">{slotLabel(Date.parse(p.startsAt), now)}</span>
             </li>
@@ -745,7 +746,7 @@ function TodoRow({
   onPick: (start: Date) => void
   onDragTodo: (todo: DraggedTodo | null) => void
 }) {
-  const tone = toneFor(todo.course)
+  const tone = toneFor(useCourse(todo.course)?.tone)
   const [picking, setPicking] = useState(false)
   const partly = booked > 0
   const handleDragStart = (e: DragEvent) => {

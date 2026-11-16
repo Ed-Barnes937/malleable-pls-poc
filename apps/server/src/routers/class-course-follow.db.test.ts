@@ -15,6 +15,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
 import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { lockProbes } from '../test-support/locks'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 const DAY_MS = 24 * 60 * 60_000
@@ -66,6 +67,7 @@ describe.skipIf(!TEST_DATABASE_URL)('a class changing course (Postgres)', () => 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, alice)
     locks = lockProbes(db.sql)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
@@ -187,9 +189,7 @@ describe.skipIf(!TEST_DATABASE_URL)('a class changing course (Postgres)', () => 
     const bio = await weeklyClass('biology')
     // The class's course change is under way (its row and course written, not committed).
     const holder = await locks.hold(async (tx) => {
-      await tx`UPDATE plan_items SET updated_at = now() WHERE id = ${bio}`
-      await tx`DELETE FROM tags WHERE target_type = 'plan_item' AND target_id = ${bio}`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${alice}, 'plan_item', ${bio}, 'chemistry')`
+      await tx`UPDATE plan_items SET updated_at = now(), course = 'chemistry' WHERE id = ${bio}`
     })
     let opened
     try {

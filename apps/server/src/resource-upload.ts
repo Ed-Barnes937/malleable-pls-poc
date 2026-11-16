@@ -11,7 +11,8 @@ import {
 import { fileStore, newFileKey, type FileStore } from './file-store'
 import { verifyFileUrl } from './file-url'
 import { attachment, resourceAdded, resourceById } from './routers/resources'
-import { isCourse, requireOwnBoard } from './routers/_shared'
+import { requireOwnBoard } from './routers/_shared'
+import { ownsCourse } from './upload'
 
 const ID_RE = /^[a-zA-Z0-9_-]{1,255}$/
 const MAX_NAME_LENGTH = 255
@@ -96,7 +97,8 @@ export async function handleResourceUpload(req: IncomingMessage, res: ServerResp
       return json(res, 400, { error: 'Bad id' })
     }
     if (lectureId && course) return json(res, 400, { error: 'A resource goes under a lecture or a course, not both' })
-    if (course && !isCourse(course)) return json(res, 400, { error: 'Unknown course' })
+    // Checked again in the insert's transaction (`attachment`).
+    if (course && !(await ownsCourse(userId, course))) return json(res, 400, { error: 'Unknown course' })
 
     let body: Buffer
     try {

@@ -44,12 +44,28 @@ test.describe('A brand-new account', () => {
     await actAs(page, `new-account-${Date.now()}`)
     const { audio, transcript } = await openCaptureBoard(page)
     await audio.pickFile(FIXTURE)
-    await audio.submitUpload({ title: 'My first lecture', course: 'Biology' })
+    await audio.submitUpload({ title: 'My first lecture' })
 
     await expect(transcript.getByText('My first lecture')).toBeVisible({ timeout: 10000 })
     await expect(transcript.getByRole('button', { name: /Today we're looking at mitochondrial DNA/ })).toBeVisible({ timeout: 20000 })
     await expect(transcript.getByText('6 segments')).toBeVisible()
     await expect(transcript.getByTestId('summary-line')).toBeVisible({ timeout: 20000 })
+  })
+
+  test('starts with no courses: its pickers offer none until it adds one', async ({ page, request }) => {
+    const user = `new-account-${Date.now()}-d`
+    await actAs(page, user)
+    const { audio } = await openCaptureBoard(page)
+    await audio.pickFile(FIXTURE)
+    await expect(audio.courseSelect.locator('option')).toHaveText(['No course'])
+
+    // Courses are the student's own (adding one in the app comes with the Courses dialog).
+    await trpcMutation(request, 'courses.create', { name: 'Modern History' }, user)
+    await page.reload()
+    const again = new PanelGridPom(page).panelByLabel('Audio Capture')
+    const capture = new AudioCapturePom(again)
+    await capture.pickFile(FIXTURE)
+    await expect(capture.courseSelect.locator('option')).toHaveText(['No course', 'Modern History'])
   })
 
   test('has the default automations once, and one it deletes stays deleted', async ({ page, request }) => {
@@ -75,7 +91,7 @@ test.describe('A brand-new account', () => {
     await trpcMutation(request, 'workflows.delete', { workflowId: transcribe.id }, user)
 
     await audio.pickFile(FIXTURE)
-    await audio.submitUpload({ title: 'Untranscribed lecture', course: 'Biology' })
+    await audio.submitUpload({ title: 'Untranscribed lecture' })
 
     await expect(transcript.getByText('Untranscribed lecture')).toBeVisible({ timeout: 10000 })
     await expect(transcript.getByTestId('untranscribed')).toHaveText("This lecture isn't transcribed yet.")

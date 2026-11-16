@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
 import type { PlanItem } from '@pls/substrate'
-import { cn, courseTone, fromMomentLabel } from '@pls/shared-ui'
+import { cn, fromMomentLabel, useCourse } from '@pls/shared-ui'
 import { AudioLines } from 'lucide-react'
 
 /** Where the moment went: `nowhere` when no board has a Transcript. */
@@ -21,6 +21,7 @@ interface SourceLinkProps {
  * focuses the lecture. Renders nothing for other to-dos.
  */
 export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProps) {
+  const course = useCourse(item.course)
   const recordingId = item.source_type === 'recording' ? item.source_id : null
   const { data: recording } = useSubstrate().useRecording(recordingId ?? '')
   const [state, setState] = useState<MomentState | null>(null)
@@ -53,7 +54,7 @@ export function SourceLink({ item, onScopeChange, onShowMoment }: SourceLinkProp
         title={onShowMoment ? 'Go to this moment' : 'Focus this lecture on the board'}
         className={cn(
           'flex min-w-0 items-center gap-1 truncate text-meta font-semibold hover:underline',
-          item.course ? courseTone(item.course).ink : 'text-accent',
+          course ? course.tone.ink : 'text-accent',
         )}
       >
         <AudioLines className="h-3.5 w-3.5 shrink-0" aria-hidden />

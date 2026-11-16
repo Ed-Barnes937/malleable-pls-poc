@@ -2,8 +2,8 @@ import type { InMemoryDb } from '../in-memory-db'
 
 /**
  * Simulator twin of the server's `inCourse` (apps/server/src/routers/_shared.ts):
- * a lecture's course is its `course`, a recording's is its lecture's, and a
- * plan item's is a `tags` row on it carrying the course label.
+ * a lecture's or plan item's course is its `course`, a recording's is its
+ * lecture's.
  */
 export function inCourse(
   db: InMemoryDb,
@@ -14,7 +14,7 @@ export function inCourse(
   if (!targetId) return false
   if (target === 'lecture') return db.lectures.find((l) => l.id === targetId)?.course === course
   if (target === 'recording') return recordingCourse(db, targetId) === course
-  return db.tags.some((t) => t.target_type === target && t.target_id === targetId && t.label === course)
+  return db.planItems.find((p) => p.id === targetId)?.course === course
 }
 
 /** A recording's course: its lecture's (`recordingCourse` on the server). */

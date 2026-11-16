@@ -32,7 +32,7 @@ test('quick add on a Biology board files the to-do under Biology with its estima
 
   const created = simulator.db.planItems.find((p) => p.title === 'Review enzymes')!
   expect(created).toMatchObject({ kind: 'task', duration_min: 30, status: 'open' })
-  expect(simulator.db.tags.find((t) => t.target_type === 'plan_item' && t.target_id === created.id)?.label).toBe('biology')
+  expect(created.course).toBe('biology')
 })
 
 test('a course-filtered board shows only its to-dos and says what it leaves out', async ({ mount, page, simulator }) => {

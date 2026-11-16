@@ -10,32 +10,6 @@ import type { PlanItem, PlanItemOccurrence, PlanItemQuery, NewPlanItem } from '@
 // and reports plan items the same way.
 
 // ---------------------------------------------------------------------------
-// Course (stored as a 'plan_item' tag, like recordings carry theirs)
-//
-// Board course filtering uses the shared `andInCourse` helper (see
-// ../routers/_shared.ts). In v1 a plan item's tags are its course: setting a
-// course replaces them.
-// ---------------------------------------------------------------------------
-
-export function courseColumn(tx: TransactionSql) {
-  return tx`(
-    SELECT t.label FROM tags t
-    WHERE t.target_type = 'plan_item' AND t.target_id = p.id
-    ORDER BY t.created_at, t.id LIMIT 1
-  ) AS course`
-}
-
-export async function setCourse(tx: TransactionSql, userId: string, planItemId: string, course: string | null) {
-  await tx`DELETE FROM tags WHERE target_type = 'plan_item' AND target_id = ${planItemId} AND user_id = ${userId}`
-  if (course) {
-    await tx`
-      INSERT INTO tags (user_id, target_type, target_id, label)
-      VALUES (${userId}, 'plan_item', ${planItemId}, ${course})
-    `
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Row mapping
 // ---------------------------------------------------------------------------
 
@@ -68,7 +42,7 @@ export function toPlanItem(row: Row): PlanItem {
 
 export async function fetchOne(tx: TransactionSql, userId: string, planItemId: string): Promise<PlanItem> {
   const [row] = await tx`
-    SELECT p.*, ${courseColumn(tx)} FROM plan_items p
+    SELECT p.* FROM plan_items p
     WHERE p.id = ${planItemId} AND p.user_id = ${userId}
   `
   if (!row) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
@@ -95,10 +69,8 @@ export function eventPayload(item: PlanItem): Record<string, unknown> {
   }
 }
 
-export type Stored = Omit<NewPlanItem, 'course'>
-
 /** Every stored column of a plan item, for INSERT and UPDATE alike. */
-export function columns(tx: TransactionSql, item: Stored) {
+export function columns(tx: TransactionSql, item: NewPlanItem) {
   return {
     kind: item.kind,
     title: item.title,
@@ -113,6 +85,7 @@ export function columns(tx: TransactionSql, item: Stored) {
     source_id: item.source_id ?? null,
     source_offset_ms: item.source_offset_ms ?? null,
     created_by_workflow_id: item.created_by_workflow_id ?? null,
+    course: item.course ?? null,
   }
 }
 
@@ -130,7 +103,7 @@ export async function listPlanItems(tx: TransactionSql, userId: string, query: P
       )`
     : tx``
   const rows = await tx`
-    SELECT p.*, ${courseColumn(tx)} FROM plan_items p
+    SELECT p.* FROM plan_items p
     WHERE p.user_id = ${userId}
       ${query.kinds?.length ? tx`AND p.kind IN ${tx(query.kinds)}` : tx``}
       ${query.statuses?.length ? tx`AND p.status IN ${tx(query.statuses)}` : tx``}
@@ -160,6 +133,5 @@ export async function insertPlanItem(
     INSERT INTO plan_items ${tx({ user_id: userId, ...columns(tx, input), time_zone: timeZone })}
     RETURNING id
   `
-  await setCourse(tx, userId, newId, input.course ?? null)
   return fetchOne(tx, userId, newId)
 }

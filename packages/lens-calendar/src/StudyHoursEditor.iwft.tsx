@@ -15,7 +15,7 @@ function seed(simulator: BackendSimulator) {
   simulator.db.planItems.push({
     id: 'essay', kind: 'task', title: 'Essay plan', starts_at: null, ends_at: null, due_at: null, duration_min: 120,
     status: 'open', recurrence: null, subtype: null, source_type: null, source_id: null,
-    source_offset_ms: null, created_at: iso(-7, 0), updated_at: iso(-7, 0),
+    source_offset_ms: null, course: null, created_at: iso(-7, 0), updated_at: iso(-7, 0),
   } as StoredPlanItem)
 }
 

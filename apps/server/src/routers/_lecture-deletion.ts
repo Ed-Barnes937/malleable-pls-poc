@@ -102,7 +102,7 @@ export async function lockDerivedPlanItems(tx: TxSql, userId: string, recordingI
  * Deletes what points at these recordings and their segments
  * (`RECORDING_DATA`), ahead of deleting the recordings themselves (their
  * segments go with them by cascade). Unfinished plan items made from their
- * moments go, with their course tags; finished ones stay as the student's
+ * moments go; finished ones stay as the student's
  * record, no longer linked to a moment. The one place for this, so deleting
  * a lecture and (later) one recording clean up the same way.
  */
@@ -110,14 +110,7 @@ export async function deleteRecordingData(tx: TxSql, userId: string, recordingId
   if (recordingIds.length === 0) return
   const targets = await targetsOf(tx, userId, recordingIds)
 
-  const removed = await tx`
-    DELETE FROM plan_items WHERE ${derivedPlanItemsWhere(tx, userId, recordingIds)} AND status <> 'done'
-    RETURNING id
-  `
-  await tx`
-    DELETE FROM tags
-    WHERE user_id = ${userId} AND target_type = 'plan_item' AND target_id = ANY(${removed.map((r) => r.id as string)}::text[])
-  `
+  await tx`DELETE FROM plan_items WHERE ${derivedPlanItemsWhere(tx, userId, recordingIds)} AND status <> 'done'`
   await tx`
     UPDATE plan_items SET source_type = NULL, source_id = NULL, source_offset_ms = NULL, updated_at = now()
     WHERE ${derivedPlanItemsWhere(tx, userId, recordingIds)}
