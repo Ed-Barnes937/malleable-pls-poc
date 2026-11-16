@@ -221,6 +221,62 @@ describe.skipIf(!TEST_DATABASE_URL)('courses (Postgres)', () => {
     }
   })
 
+  it('usage counts what files under each course and the boards on it, archived ones included, in list order', async () => {
+    const { api } = await student({ starters: true })
+    await api.lectures.create({ course: 'biology' })
+    await api.lectures.create({ course: 'biology' })
+    await api.resources.createLink({ url: 'https://a.test', courseTag: 'chemistry' })
+    await api.planItems.create({ kind: 'task', title: 'Read', course: 'chemistry' })
+    await api.planItems.create({ kind: 'deadline', title: 'Essay', course: 'chemistry', due_at: '2026-11-20T12:00:00.000Z' })
+    await api.workspaces.create({ name: 'Physics board', courseTag: 'physics' })
+    const art = await api.courses.create({ name: 'Art' })
+    await api.courses.update({ id: art.id, archived: true })
+    // Another student's rows are never counted.
+    const other = await student({ starters: true })
+    await other.api.lectures.create({ course: 'biology' })
+
+    const zero = { lectures: 0, resources: 0, planItems: 0, boards: 0 }
+    expect(await api.courses.usage()).toEqual([
+      { id: art.id, ...zero },
+      { id: 'biology', ...zero, lectures: 2 },
+      { id: 'chemistry', ...zero, resources: 1, planItems: 2 },
+      { id: 'physics', ...zero, boards: 1 },
+    ])
+    expect((await api.courses.usage()).map((u) => u.id)).toEqual((await api.courses.list()).map((c) => c.id))
+    expect(await (await student()).api.courses.usage()).toEqual([])
+  })
+
+  it('a scope write keeping the board course, racing its delete, leaves the board on All courses', async () => {
+    const { user, api } = await student()
+    const course = await api.courses.create({ name: 'Short lived' })
+    const board = (await api.workspaces.create({ name: 'Board', courseTag: course.id })).id as string
+    let write: Promise<unknown> | undefined
+    // `courses.delete`'s writes, held open while a write that names no
+    // course (so keeps the board's) starts and waits on them.
+    await db.withUser(user, async (tx) => {
+      await tx`SELECT id FROM courses WHERE user_id = ${user} AND id = ${course.id} FOR UPDATE`
+      await tx`DELETE FROM workspace_scopes WHERE user_id = ${user} AND scope_type = 'tag' AND scope_value = ${course.id}`
+      await tx`DELETE FROM courses WHERE user_id = ${user} AND id = ${course.id}`
+      write = api.workspaces.setBoardScope({ workspaceId: board, lectureId: null })
+      await waitForALockWait()
+    })
+    expect(await write).toEqual({ courseTag: null, lectureId: null })
+    expect(await api.workspaces.scopes(board)).toEqual([])
+  })
+
+  /** Until some session is waiting for a row lock on a course or a board's scope (5s at most). */
+  async function waitForALockWait() {
+    for (let i = 0; i < 100; i++) {
+      const [waiting] = await db.sql`
+        SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+          AND (query ILIKE '%FROM courses%' OR query ILIKE '%workspace_scopes%')
+      `
+      if (waiting) return
+      await new Promise((r) => setTimeout(r, 50))
+    }
+  }
+
   it('Undo of a deleted plan item puts it back unfiled when its course has gone since', async () => {
     const { api } = await student({ starters: true })
     const course = await api.courses.create({ name: 'Typo' })

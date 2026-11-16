@@ -102,11 +102,26 @@ export function courseInUseMessage(name: string, usage: CourseUsage): string {
   return `${name} is still used by ${list}: archive it instead`
 }
 
-/** How many rows file under a course. */
+/** How many rows file under a course: any one of them keeps it from being deleted. */
 export interface CourseUsage {
   lectures: number
   resources: number
   planItems: number
+}
+
+/**
+ * One course's uses, as `courses.usage` lists them: what files under it,
+ * plus the boards scoped to it (which never keep it: deleting it turns them
+ * to "All courses").
+ */
+export interface CourseUses extends CourseUsage {
+  id: string
+  boards: number
+}
+
+/** Whether something files under the course, so it can only be archived. */
+export function courseInUse(usage: CourseUsage): boolean {
+  return usage.lectures + usage.resources + usage.planItems > 0
 }
 
 function plural(n: number, noun: string): string | null {

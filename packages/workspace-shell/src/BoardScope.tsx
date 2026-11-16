@@ -14,11 +14,25 @@ import {
   useWorkspaceScopes,
 } from '@pls/substrate-client'
 import { isEmptyLectureDeletion, type Lecture, type LectureDeletePreview } from '@pls/substrate'
-import { CourseOptions, NEUTRAL_TONE, cn, courseLabel, useActiveCourses, useCourseLookup, type CourseInfo } from '@pls/shared-ui'
+import {
+  CourseOptions,
+  NEUTRAL_TONE,
+  NEW_COURSE,
+  NEW_COURSE_LABEL,
+  NO_COURSES_YET_LABEL,
+  cn,
+  courseLabel,
+  useActiveCourses,
+  useAllCourses,
+  useCourseLookup,
+  useNewCourse,
+  type CourseInfo,
+} from '@pls/shared-ui'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { ScopePill, type ScopePillFace } from './ScopePill'
 import { useToastStore } from './toast'
 import { DeleteLectureDialog } from './DeleteLectureDialog'
+import { CoursesDialog } from './CoursesDialog'
 
 export interface BoardScopeProps {
   workspaceId: string
@@ -105,24 +119,61 @@ function coursePillFace(course: CourseInfo | null): { text: string; dotClassName
   return { text: course ? courseLabel(course) : '', dotClassName: (course?.tone ?? NEUTRAL_TONE).stripe }
 }
 
+/** The course pill's "Edit courses..." choice: opens the Courses dialog. Not a course id. */
+const EDIT_COURSES = '__edit-courses__'
+
+/** What a course pill reads for its "New course..." and "Edit courses..." choices (a keyboard draft on one). */
+function actionFace(value: string): ScopePillFace | null {
+  if (value === NEW_COURSE) return { text: NEW_COURSE_LABEL, muted: true }
+  if (value === EDIT_COURSES) return { text: 'Edit courses...', muted: true }
+  return null
+}
+
+/**
+ * The board's course: "All courses" or one of the student's, then "New
+ * course..." (the board takes the course made) and, once they have any,
+ * "Edit courses..." (the Courses dialog: rename, colour, archive, delete).
+ */
 function CoursePill({ compact, courseTag, onChange }: { compact: boolean; courseTag: string | undefined; onChange: (value: string) => void }) {
   const courseOf = useCourseLookup()
+  const hasCourses = useAllCourses().length > 0
+  const pill = useRef<HTMLSelectElement>(null)
+  const newCourse = useNewCourse((course) => onChange(course.id))
+  const [editing, setEditing] = useState(false)
   return (
-    <ScopePill
-      label="Course"
-      data-testid="scope-course"
-      value={courseTag ?? ''}
-      onChange={onChange}
-      describe={(value) => (value ? coursePillFace(courseOf(value)) : { text: 'All courses', dotClassName: NEUTRAL_TONE.stripe })}
-      // Never narrower than its dot and its course name; on a phone's one
-      // line, cut short (the whole name in its tooltip and the list) down to
-      // 5rem, so with the lecture pill at its floor, the lecture's menu and
-      // Up next all fit from 360px.
-      className={compact ? 'min-w-20 shrink' : 'min-w-max shrink-0'}
-    >
-      <option value="">All courses</option>
-      <CourseOptions current={courseTag} />
-    </ScopePill>
+    <>
+      <ScopePill
+        ref={pill}
+        label="Course"
+        data-testid="scope-course"
+        value={courseTag ?? ''}
+        onChange={(value) => {
+          if (value === NEW_COURSE) newCourse.open(pill.current)
+          else if (value === EDIT_COURSES) setEditing(true)
+          else onChange(value)
+        }}
+        describe={(value) => actionFace(value)
+          ?? (value ? coursePillFace(courseOf(value)) : { text: 'All courses', dotClassName: NEUTRAL_TONE.stripe })}
+        // Never narrower than its dot and its course name; on a phone's one
+        // line, cut short (the whole name in its tooltip and the list) down to
+        // 5rem, so with the lecture pill at its floor, the lecture's menu and
+        // Up next all fit from 360px.
+        className={compact ? 'min-w-20 shrink' : 'min-w-max shrink-0'}
+      >
+        <option value="">All courses</option>
+        <CourseOptions current={courseTag} />
+        {hasCourses && <option value={EDIT_COURSES}>Edit courses...</option>}
+      </ScopePill>
+      {newCourse.dialog}
+      {editing && (
+        <CoursesDialog
+          onClose={() => {
+            setEditing(false)
+            requestAnimationFrame(() => pill.current?.focus())
+          }}
+        />
+      )}
+    </>
   )
 }
 
@@ -282,10 +333,15 @@ function LectureMenu({ buttonRef, busy, onRename, onDelete, onFileUnder }: {
   // "Choose a course..." swaps the actions for the courses, in the same menu.
   const [choosingCourse, setChoosingCourse] = useState(false)
   const courses = useActiveCourses()
+  const newCourse = useNewCourse((course) => onFileUnder?.(course.id))
   const menu = useRef<HTMLDivElement>(null)
   const open = at !== null
   const items: { label: string; run: () => void; disabled: boolean; keepOpen?: boolean }[] = choosingCourse && onFileUnder
-    ? courses.map((c) => ({ label: c.name, run: () => onFileUnder(c.id), disabled: false }))
+    ? [
+        ...(courses.length === 0 ? [{ label: NO_COURSES_YET_LABEL, run: () => {}, disabled: true }] : []),
+        ...courses.map((c) => ({ label: c.name, run: () => onFileUnder(c.id), disabled: false })),
+        { label: NEW_COURSE_LABEL, run: () => newCourse.open(buttonRef.current), disabled: false },
+      ]
     : [
         { label: 'Rename this lecture...', run: onRename, disabled: false },
         ...(onFileUnder ? [{ label: 'Choose a course...', run: () => setChoosingCourse(true), disabled: false, keepOpen: true }] : []),
@@ -394,6 +450,7 @@ function LectureMenu({ buttonRef, busy, onRename, onDelete, onFileUnder }: {
         </div>,
         document.body,
       )}
+      {newCourse.dialog}
     </>
   )
 }
@@ -487,23 +544,30 @@ function useFileLectureUnderCourse(): (lecture: Lecture, course: string) => void
  */
 function FileUnderCoursePill({ onFile }: { onFile: (course: string) => void }) {
   const courseOf = useCourseLookup()
+  const pill = useRef<HTMLSelectElement>(null)
+  const newCourse = useNewCourse((course) => onFile(course.id))
   return (
-    <ScopePill
-      label="File this lecture under a course"
-      data-testid="lecture-file-course"
-      value=""
-      onChange={(course) => {
-        if (course) onFile(course)
-      }}
-      describe={(value) => (value
-        ? coursePillFace(courseOf(value))
-        : { text: 'Choose a course', muted: true })}
-      // Only where the header has room for it (lg up): below that the menu offers it.
-      className="hidden min-w-max shrink-0 lg:inline-flex"
-    >
-      <option value="" disabled>Choose a course</option>
-      <CourseOptions />
-    </ScopePill>
+    <>
+      <ScopePill
+        ref={pill}
+        label="File this lecture under a course"
+        data-testid="lecture-file-course"
+        value=""
+        onChange={(course) => {
+          if (course === NEW_COURSE) newCourse.open(pill.current)
+          else if (course) onFile(course)
+        }}
+        describe={(value) => actionFace(value) ?? (value
+          ? coursePillFace(courseOf(value))
+          : { text: 'Choose a course', muted: true })}
+        // Only where the header has room for it (lg up): below that the menu offers it.
+        className="hidden min-w-max shrink-0 lg:inline-flex"
+      >
+        <option value="" disabled>Choose a course</option>
+        <CourseOptions />
+      </ScopePill>
+      {newCourse.dialog}
+    </>
   )
 }
 

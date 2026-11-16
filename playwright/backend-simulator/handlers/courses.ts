@@ -1,5 +1,6 @@
 import {
   courseIdInput,
+  courseInUse,
   courseInUseMessage,
   courseNameKey,
   courseUpdateInput,
@@ -8,6 +9,8 @@ import {
   nextCourseColor,
   sortCourses,
   type Course,
+  type CourseUsage,
+  type CourseUses,
 } from '@pls/substrate'
 import { ProcedureRouter, SimulatorError, parse } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
@@ -30,9 +33,25 @@ function sameName(db: InMemoryDb, name: string, exceptId: string | null): Course
   return db.courses.find((c) => c.id !== exceptId && courseNameKey(c.name) === courseNameKey(name))
 }
 
+/** What files under a course, as the server counts it. */
+function usageOf(db: InMemoryDb, id: string): CourseUsage {
+  return {
+    lectures: db.lectures.filter((l) => l.course === id).length,
+    resources: db.resources.filter((r) => r.course === id).length,
+    planItems: db.planItems.filter((p) => p.course === id).length,
+  }
+}
+
 /** Mirrors `routers/courses.ts` on the server: the same procedures, rules and errors. */
 export function registerCoursesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('courses.list', () => sortCourses(db.courses).map((c) => ({ ...c })))
+
+  router.register('courses.usage', (): CourseUses[] =>
+    sortCourses(db.courses).map((c) => ({
+      id: c.id,
+      ...usageOf(db, c.id),
+      boards: db.workspaceScopes.filter((s) => s.scope_type === 'tag' && s.scope_value === c.id).length,
+    })))
 
   router.register('courses.create', (input) => {
     const { name, color } = parse(newCourseInput, input)
@@ -61,12 +80,8 @@ export function registerCoursesHandlers(router: ProcedureRouter, db: InMemoryDb)
     const id = parse(courseIdInput, input)
     const course = db.courses.find((c) => c.id === id)
     if (!course) throw new SimulatorError('NOT_FOUND', 'Course not found')
-    const usage = {
-      lectures: db.lectures.filter((l) => l.course === id).length,
-      resources: db.resources.filter((r) => r.course === id).length,
-      planItems: db.planItems.filter((p) => p.course === id).length,
-    }
-    if (usage.lectures + usage.resources + usage.planItems > 0) {
+    const usage = usageOf(db, id)
+    if (courseInUse(usage)) {
       throw new SimulatorError('CONFLICT', courseInUseMessage(course.name, usage))
     }
     // Boards on it show every course again, as on the server.

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { trpc, createTRPCClient, useCourses } from '@pls/substrate-client'
+import { trpc, createTRPCClient, useCourses, useCreateCourse } from '@pls/substrate-client'
 import { CoursesProvider } from '@pls/shared-ui'
 import { substrateTrpc } from '@pls/substrate-client'
 import { ManifestRegistryProvider, SubstrateProvider, type PanelManifest } from '@pls/lens-framework'
@@ -41,7 +41,8 @@ const manifests: PanelManifest[] = [
 /** The simulator's courses, looked up by every widget and the shell, as the web app provides them. */
 function ServerCourses({ children }: { children: React.ReactNode }) {
   const courses = useCourses()
-  return <CoursesProvider courses={courses.data}>{children}</CoursesProvider>
+  const { mutateAsync: createCourse } = useCreateCourse()
+  return <CoursesProvider courses={courses.data} create={createCourse}>{children}</CoursesProvider>
 }
 
 export function TestProviders({ children, boardId, toasts }: { children: React.ReactNode; boardId?: string; toasts?: boolean }) {

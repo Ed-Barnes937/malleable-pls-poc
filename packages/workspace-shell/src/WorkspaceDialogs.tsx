@@ -3,12 +3,13 @@ import {
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
-import { CourseOptions, Dialog, Select, TextField } from '@pls/shared-ui'
+import { CourseOptions, Dialog, NEW_COURSE, Select, TextField, useNewCourse } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
   const [courseTag, setCourseTag] = useState('')
+  const newCourse = useNewCourse((course) => setCourseTag(course.id))
   const createWorkspace = useCreateWorkspace()
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -56,10 +57,15 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
           <label htmlFor="ws-course" className="mb-1.5 block text-meta font-semibold text-text-secondary">
             Course (optional)
           </label>
-          <Select id="ws-course" value={courseTag} onChange={(e) => setCourseTag(e.target.value)}>
+          <Select
+            id="ws-course"
+            value={courseTag}
+            onChange={(e) => (e.target.value === NEW_COURSE ? newCourse.open(e.target) : setCourseTag(e.target.value))}
+          >
             <option value="">All courses</option>
             <CourseOptions current={courseTag} />
           </Select>
+          {newCourse.dialog}
           <p className="mt-1.5 text-meta text-text-muted">Widgets on this board focus on this course. You can change it later.</p>
         </div>
         <div className="flex justify-end gap-2">

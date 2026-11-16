@@ -39,10 +39,12 @@ import { requireOwnCourse, requireOwnLecture } from './_shared'
  * - Deleting a course (`courses.delete`, only once nothing files under it):
  *   the course FOR UPDATE, then the course rows naming it (DELETE). No board
  *   lock. A scope write that names a course holds it FOR KEY SHARE straight
- *   after the board lock, before any scope row, so the two run one after the
- *   other: the delete then clears the board, or the write finds the course
- *   gone ("Unknown course"). Neither waits for the other holding a row the
- *   other needs.
+ *   after the board lock, and one that keeps the board's course or takes a
+ *   lecture's holds that after its lecture read; both before any scope row.
+ *   So the two run one after the other: the delete then clears the board, or
+ *   the write finds the course gone ("Unknown course" when it named it, else
+ *   "All courses"). Neither waits for the other holding a row the other
+ *   needs.
  *
  * A course change to no course (unfiling the lecture) turns a course board
  * showing it into "All courses", as selecting a lecture filed under no
@@ -223,6 +225,15 @@ export async function writeBoardScope(
     if (!lecture || !stays) lectureId = null
   }
 
+  // The course the board ends up on, when the patch didn't name it (the
+  // board's own, or a selected lecture's), is held too, before any scope
+  // row: a delete of it under way is waited for, and a course found gone
+  // leaves the board on "All courses" rather than write it back.
+  if (courseTag !== null && courseTag !== patch.courseTag) {
+    const [course] = await tx`SELECT 1 FROM courses WHERE user_id = ${userId} AND id = ${courseTag} FOR KEY SHARE`
+    if (!course) courseTag = null
+  }
+
   // Lecture row first, as `refileLectureOnBoards` locks them.
   await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.lectureId, lectureId)
   await replaceScopeRow(tx, userId, workspaceId, SCOPE_TYPE.courseTag, courseTag)
@@ -320,7 +331,8 @@ export function sameBoardScope(a: BoardScope, b: BoardScope): boolean {
  * `to` is put back as well as it still can be: its lecture, under "All
  * courses" when `to` was, else with the course that lecture now has (it may
  * have been refiled under another one since), or, when that lecture is gone,
- * just its course.
+ * just its course. When that course is gone too (deleted since), nothing is
+ * put back (`restored: false`).
  */
 export async function restoreBoardScope(
   tx: TxSql,
@@ -330,12 +342,18 @@ export async function restoreBoardScope(
   ifBoardShows: BoardScope,
 ): Promise<{ restored: boolean; scope: BoardScope }> {
   await lockBoardScope(tx, userId, workspaceId)
-  if (to.courseTag) await requireOwnCourse(tx, userId, to.courseTag)
   const current = await readBoardScope(tx, userId, workspaceId)
   if (!sameBoardScope(current, ifBoardShows)) return { restored: false, scope: current }
   const [lecture] = to.lectureId
     ? await tx`SELECT 1 FROM lectures WHERE id = ${to.lectureId} AND user_id = ${userId}`
     : []
+  // Only `to`'s course is put back: one deleted since (or never the
+  // student's) leaves the board as it is. Held until this commits, as
+  // `writeBoardScope` holds a course it names.
+  if (!lecture && to.courseTag) {
+    const [course] = await tx`SELECT 1 FROM courses WHERE user_id = ${userId} AND id = ${to.courseTag} FOR KEY SHARE`
+    if (!course) return { restored: false, scope: current }
+  }
   // "All courses" is named, and a course follows the lecture (whatever the
   // board shows now), so an "All courses" board goes back to a course (or a
   // course board back to "All courses") exactly.

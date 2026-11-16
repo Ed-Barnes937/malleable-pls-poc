@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
-import { CourseOptions, Select, TextField, cn } from '@pls/shared-ui'
+import { CourseOptions, NEW_COURSE, Select, TextField, cn, useNewCourse } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
@@ -56,6 +56,8 @@ export function EventPopover({
     if (locked) return
     setDraft((d) => ({ ...d, ...patch }))
   }
+  // "New course..." in the course picker: the class takes the course made.
+  const newCourse = useNewCourse((course) => set({ course: course.id }))
   /** Props that make a native select/checkbox refuse changes without greying it out. */
   const lockProps = locked
     ? { 'aria-readonly': true as const, onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
@@ -167,10 +169,17 @@ export function EventPopover({
       <div className="flex items-end gap-2">
         <label className="min-w-0 flex-1">
           <span className={fieldLabel}>Course</span>
-          <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} {...lockProps} onChange={(e) => set({ course: e.target.value || null })}>
+          <Select
+            aria-label="Course"
+            value={draft.course ?? ''}
+            disabled={!canEdit}
+            {...lockProps}
+            onChange={(e) => (e.target.value === NEW_COURSE ? newCourse.open(e.target) : set({ course: e.target.value || null }))}
+          >
             <option value="">No course</option>
             <CourseOptions current={draft.course} />
           </Select>
+          {newCourse.dialog}
         </label>
         {draft.kind === 'commitment' && (
           <label className="flex shrink-0 cursor-pointer items-center gap-1.5 pb-2 text-body text-text-secondary">

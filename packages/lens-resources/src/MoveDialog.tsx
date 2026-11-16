@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
-import { Dialog, Select, courseLabel, useActiveCourses, useCourse } from '@pls/shared-ui'
+import { Dialog, NEW_COURSE, NEW_COURSE_LABEL, Select, courseLabel, useActiveCourses, useCourse, useNewCourse } from '@pls/shared-ui'
 import type { Resource } from '@pls/substrate'
 
 /** Where a resource can go: a lecture, a course, or nowhere (unfiled). */
@@ -26,7 +26,8 @@ export interface MoveDialogProps {
 
 /**
  * "Move to lecture / course": every active course, and each course's
- * lectures, plus where it is now when that course is archived.
+ * lectures, plus where it is now when that course is archived, then "New
+ * course..." (the resource then moves to the course made).
  */
 export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
   const { data: lectures } = useSubstrate().useLectures()
@@ -37,6 +38,7 @@ export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
     ...active.map((c) => ({ id: c.id, label: c.name })),
   ]
   const [value, setValue] = useState(encode(resource))
+  const newCourse = useNewCourse((course) => setValue(`course:${course.id}`))
   const lecturesIn = (course: string | null) => (lectures ?? []).filter((l) => l.course === course)
   const unfiledLectures = lecturesIn(null)
 
@@ -50,7 +52,7 @@ export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
           onClose()
         }}
       >
-        <Select aria-label="Move to" value={value} onChange={(e) => setValue(e.target.value)}>
+        <Select aria-label="Move to" value={value} onChange={(e) => (e.target.value === NEW_COURSE ? newCourse.open(e.target) : setValue(e.target.value))}>
           {courses.map((course) => (
             <optgroup key={course.id} label={course.label}>
               <option value={`course:${course.id}`}>Whole course: {course.label}</option>
@@ -65,7 +67,9 @@ export function MoveDialog({ resource, onMove, onClose }: MoveDialogProps) {
               <option key={lecture.id} value={`lecture:${lecture.id}`}>{lecture.title}</option>
             ))}
           </optgroup>
+          <option value={NEW_COURSE}>{NEW_COURSE_LABEL}</option>
         </Select>
+        {newCourse.dialog}
         <div className="flex justify-end gap-2">
           <button
             type="button"

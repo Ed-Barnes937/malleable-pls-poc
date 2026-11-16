@@ -106,4 +106,27 @@ describe('Dialog', () => {
     await userEvent.click(closeBtn)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('Escape closes only the dialog opened last, from inside it or with the focus elsewhere', () => {
+    const outer = vi.fn()
+    const inner = vi.fn()
+    const page = vi.fn()
+    window.addEventListener('keydown', page)
+    render(
+      <Dialog open onClose={outer} title="Outer">
+        <Dialog open onClose={inner} title="Inner">
+          <input aria-label="Name" />
+        </Dialog>
+      </Dialog>,
+    )
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Name' }), { key: 'Escape' })
+    expect(inner).toHaveBeenCalledTimes(1)
+    expect(outer).not.toHaveBeenCalled()
+    // Nothing under the dialog (a popover's own Escape) sees it.
+    expect(page).not.toHaveBeenCalled()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(inner).toHaveBeenCalledTimes(2)
+    expect(outer).not.toHaveBeenCalled()
+    window.removeEventListener('keydown', page)
+  })
 })

@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { CourseOptions, Select, TextField } from '@pls/shared-ui'
+import { CourseOptions, NEW_COURSE, Select, TextField, useNewCourse } from '@pls/shared-ui'
 import { FileAudio } from 'lucide-react'
 import { titleFromFilename } from './uploadRecording'
 
@@ -25,6 +25,7 @@ interface UploadRecordingFormProps {
 export function UploadRecordingForm({ file, defaultCourse, intoLecture, onSubmit, onCancel }: UploadRecordingFormProps) {
   const [title, setTitle] = useState(() => titleFromFilename(file.name))
   const [course, setCourse] = useState(defaultCourse ?? '')
+  const newCourse = useNewCourse((made) => setCourse(made.id))
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -54,10 +55,17 @@ export function UploadRecordingForm({ file, defaultCourse, intoLecture, onSubmit
           Adds to <span className="font-semibold text-text-primary">{intoLecture}</span>
         </p>
       ) : (
-        <Select aria-label="Recording course" value={course} onChange={(e) => setCourse(e.target.value)}>
-          <option value="">No course</option>
-          <CourseOptions current={course} />
-        </Select>
+        <>
+          <Select
+            aria-label="Recording course"
+            value={course}
+            onChange={(e) => (e.target.value === NEW_COURSE ? newCourse.open(e.target) : setCourse(e.target.value))}
+          >
+            <option value="">No course</option>
+            <CourseOptions current={course} />
+          </Select>
+          {newCourse.dialog}
+        </>
       )}
       <div className="flex justify-end gap-2">
         <button

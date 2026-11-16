@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { describe, it, expect } from 'vitest'
 import type { Course } from '@pls/substrate'
 import { COURSE_TONES, NEUTRAL_TONE, courseTone } from './constants'
-import { CourseOptions, CoursesProvider, courseLabel, useCourse } from './courses'
+import { CourseOptions, CoursesProvider, NEW_COURSE, courseLabel, useCourse } from './courses'
 
 const COURSES: Course[] = [
   { id: 'biology', name: 'Biology', color: 'green', archived_at: null },
@@ -54,18 +54,21 @@ describe('course lookup', () => {
 describe('CourseOptions', () => {
   const options = () => screen.getAllByRole('option').map((o) => [(o as HTMLOptionElement).value, o.textContent])
 
-  it('offers the active courses, in the order given', () => {
+  const newCourse = [NEW_COURSE, 'New course...']
+
+  it('offers the active courses, in the order given, then "New course..."', () => {
     render(<CoursesProvider courses={COURSES}><select aria-label="Course"><CourseOptions /></select></CoursesProvider>)
-    expect(options()).toEqual([['biology', 'Biology'], ['chemistry', 'Chemistry']])
+    expect(options()).toEqual([['biology', 'Biology'], ['chemistry', 'Chemistry'], newCourse])
   })
 
   it('keeps an archived course a picker already shows', () => {
     render(<CoursesProvider courses={COURSES}><select aria-label="Course"><CourseOptions current="5f0c4a2e-uuid" /></select></CoursesProvider>)
-    expect(options()).toEqual([['5f0c4a2e-uuid', 'History (archived)'], ['biology', 'Biology'], ['chemistry', 'Chemistry']])
+    expect(options()).toEqual([['5f0c4a2e-uuid', 'History (archived)'], ['biology', 'Biology'], ['chemistry', 'Chemistry'], newCourse])
   })
 
-  it('offers nothing to a student with no courses', () => {
+  it('says a student with no courses has none yet, and offers "New course..."', () => {
     render(<CoursesProvider courses={[]}><select aria-label="Course"><option value="">No course</option><CourseOptions /></select></CoursesProvider>)
-    expect(options()).toEqual([['', 'No course']])
+    expect(options()).toEqual([['', 'No course'], ['__no-courses-yet__', 'No courses yet'], newCourse])
+    expect(screen.getByRole('option', { name: 'No courses yet' })).toBeDisabled()
   })
 })

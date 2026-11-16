@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from './utils'
@@ -11,15 +11,34 @@ export interface DialogProps {
   className?: string
 }
 
+/**
+ * When each open dialog opened (a count, in render order, so one opened
+ * from another, e.g. "New course..." in New board, is later even when both
+ * mount at once): Escape closes only the latest.
+ */
+let opened = 0
+const openDialogs = new Set<{ order: number }>()
+
 export function Dialog({ open, onClose, title, children, className }: DialogProps) {
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
+  const order = useRef(0)
+  if (!open) order.current = 0
+  else if (order.current === 0) order.current = ++opened
   useEffect(() => {
     if (!open) return
+    const self = { order: order.current }
+    openDialogs.add(self)
+    // Escape with the focus outside every dialog.
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && Math.max(...[...openDialogs].map((d) => d.order)) === self.order) onCloseRef.current()
     }
     window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+    return () => {
+      openDialogs.delete(self)
+      window.removeEventListener('keydown', handler)
+    }
+  }, [open])
 
   if (!open) return null
 
@@ -30,6 +49,13 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     <div
       className="fixed inset-0 z-[10010] flex items-center justify-center"
       onPointerDown={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        // Escape inside closes this dialog alone: not one it was opened
+        // from, nor a popover or menu under it.
+        if (e.key !== 'Escape') return
+        e.stopPropagation()
+        onCloseRef.current()
+      }}
     >
       <div
         data-testid="dialog-backdrop"

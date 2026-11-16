@@ -3,6 +3,7 @@ import type { TxSql } from '@pls/db'
 import { withUser } from '@pls/db'
 import {
   courseIdInput,
+  courseInUse,
   courseInUseMessage,
   courseUpdateInput,
   duplicateCourseMessage,
@@ -11,6 +12,7 @@ import {
   type Course,
   type CourseColor,
   type CourseUsage,
+  type CourseUses,
 } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 
@@ -86,6 +88,36 @@ export const coursesRouter = router({
           SELECT id, name, color, archived_at FROM courses WHERE user_id = ${ctx.userId} ORDER BY lower(name), id
         `
         return rows.map(toCourse)
+      })
+    }),
+
+  /**
+   * What uses each of the student's courses, archived ones included, in
+   * `list` order: the lectures, resources and plan items filed under it
+   * (any of which keeps it from being deleted) and the boards scoped to it.
+   * For the Courses dialog, which offers Delete only for a course nothing
+   * files under. A snapshot: `delete` checks again under its lock.
+   */
+  usage: publicProcedure
+    .query(async ({ ctx }): Promise<CourseUses[]> => {
+      return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`
+          SELECT c.id,
+            (SELECT count(*)::int FROM lectures l WHERE l.user_id = c.user_id AND l.course = c.id) AS lectures,
+            (SELECT count(*)::int FROM resources r WHERE r.user_id = c.user_id AND r.course = c.id) AS resources,
+            (SELECT count(*)::int FROM plan_items p WHERE p.user_id = c.user_id AND p.course = c.id) AS plan_items,
+            (SELECT count(*)::int FROM workspace_scopes s
+              WHERE s.user_id = c.user_id AND s.scope_type = 'tag' AND s.scope_value = c.id) AS boards
+          FROM courses c WHERE c.user_id = ${ctx.userId}
+          ORDER BY lower(c.name), c.id
+        `
+        return rows.map((r) => ({
+          id: r.id as string,
+          lectures: r.lectures as number,
+          resources: r.resources as number,
+          planItems: r.plan_items as number,
+          boards: r.boards as number,
+        }))
       })
     }),
 
@@ -166,7 +198,7 @@ export const coursesRouter = router({
         `
         if (!course) throw new TRPCError({ code: 'NOT_FOUND', message: 'Course not found' })
         const used = await usage(tx, ctx.userId, input)
-        if (used.lectures + used.resources + used.planItems > 0) throw conflict(courseInUseMessage(course.name as string, used))
+        if (courseInUse(used)) throw conflict(courseInUseMessage(course.name as string, used))
         await tx`
           DELETE FROM workspace_scopes WHERE user_id = ${ctx.userId} AND scope_type = 'tag' AND scope_value = ${input}
         `

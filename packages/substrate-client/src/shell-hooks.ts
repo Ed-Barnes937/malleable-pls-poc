@@ -3,7 +3,7 @@ import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
 import { keepPreviousData, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
-import type { BoardScope, Lecture, PlanItemQuery } from '@pls/substrate'
+import { sortCourses, type BoardScope, type Course, type CourseUpdate, type Lecture, type PlanItemQuery } from '@pls/substrate'
 import { applyBoardScopePatches, withBoardScope, type BoardScopePatch } from './board-scope'
 
 type ScopeRow = { scope_type: string; scope_value: string }
@@ -473,6 +473,66 @@ export function useRestoreBoardScope() {
  */
 export function useCourses() {
   return trpc.courses.list.useQuery()
+}
+
+/**
+ * A new course (`courses.create`). In the courses list as soon as it
+ * resolves, so a picker that selects it shows its name at once.
+ */
+export function useCreateCourse() {
+  const utils = trpc.useUtils()
+  return trpc.courses.create.useMutation({
+    onSuccess: (course) => {
+      utils.courses.list.setData(undefined, (old) => sortCourses([...(old ?? []).filter((c) => c.id !== course.id), course]))
+      void utils.courses.invalidate()
+    },
+  })
+}
+
+/**
+ * Renames, recolours, archives or restores a course (`courses.update`):
+ * shown at once everywhere it is looked up, and put back if the write fails.
+ */
+export function useUpdateCourse() {
+  const utils = trpc.useUtils()
+  return trpc.courses.update.useMutation({
+    onMutate: async ({ id, name, color, archived }: CourseUpdate) => {
+      await utils.courses.list.cancel()
+      const prev = utils.courses.list.getData()
+      const apply = (c: Course): Course => c.id !== id ? c : {
+        ...c,
+        ...(name !== undefined && { name: name.trim() }),
+        ...(color !== undefined && { color }),
+        ...(archived !== undefined && { archived_at: archived ? (c.archived_at ?? new Date().toISOString()) : null }),
+      }
+      utils.courses.list.setData(undefined, (old) => old && sortCourses(old.map(apply)))
+      return { prev }
+    },
+    onError: (_err, _input, context) => {
+      if (context?.prev) utils.courses.list.setData(undefined, context.prev)
+    },
+    onSuccess: (course) => {
+      utils.courses.list.setData(undefined, (old) => old && sortCourses(old.map((c) => (c.id === course.id ? course : c))))
+    },
+    onSettled: () => void utils.courses.invalidate(),
+  })
+}
+
+/** Deletes a course nothing files under (`courses.delete`); boards on it show every course again. */
+export function useDeleteCourse() {
+  const utils = trpc.useUtils()
+  return trpc.courses.delete.useMutation({
+    onSuccess: ({ id }) => {
+      utils.courses.list.setData(undefined, (old) => old?.filter((c) => c.id !== id))
+      void utils.workspaces.scopes.invalidate()
+    },
+    onSettled: () => void utils.courses.invalidate(),
+  })
+}
+
+/** What uses each course (`courses.usage`), fetched fresh each time it is shown (the Courses dialog). */
+export function useCourseUsage() {
+  return trpc.courses.usage.useQuery(undefined, { staleTime: 0, refetchOnMount: 'always' })
 }
 
 /** The student's lectures, latest first, optionally one course's (the lecture picker). */

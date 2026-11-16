@@ -230,6 +230,7 @@ export {
   STARTER_COURSES,
   courseColorInput,
   courseIdInput,
+  courseInUse,
   courseInUseMessage,
   courseNameInput,
   courseNameKey,
@@ -242,5 +243,6 @@ export {
   type CourseColor,
   type CourseUpdate,
   type CourseUsage,
+  type CourseUses,
   type NewCourse,
 } from './courses'

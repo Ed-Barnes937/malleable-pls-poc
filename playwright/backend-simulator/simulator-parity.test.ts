@@ -336,11 +336,12 @@ describe('simulator parity — read procedures return data on default seed', () 
       .rejects.toThrow('Lecture not found')
   })
 
-  it('restoreBoardScope refuses an unknown course and writes nothing, as on the server', async () => {
+  it('restoreBoardScope puts back no course the student does not have, and writes nothing, as on the server', async () => {
     const none = { courseTag: null, lectureId: null }
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', ...none })
     const stored = await query(router, 'workspaces.scopes', 'ws-evening-review')
-    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
-      .rejects.toThrow('Unknown course')
+    expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
+      .toEqual({ restored: false, scope: none })
     // A board never shows a course the student doesn't have: nothing to put back.
     expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
       .toMatchObject({ restored: false })
@@ -614,6 +615,34 @@ describe('simulator parity - courses behave like the server router', () => {
     expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual([])
     expect(await mutate(router, 'planItems.restore', todo.id)).toMatchObject({ id: todo.id, course: null })
     expect(await errorOf(mutate(router, 'courses.delete', typo.id))).toBe('Course not found')
+  })
+
+  it('usage counts what files under each course and the boards on it, in list order, as on the server', async () => {
+    const art = await mutate(router, 'courses.create', { name: 'Art' }) as Listed
+    await mutate(router, 'courses.update', { id: art.id, archived: true })
+    await mutate(router, 'planItems.create', { kind: 'task', title: 'Read', course: 'chemistry' })
+    await mutate(router, 'resources.createLink', { url: 'https://a.test', courseTag: 'chemistry' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'physics', lectureId: null })
+    const usage = await query(router, 'courses.usage') as { id: string; lectures: number; resources: number; planItems: number; boards: number }[]
+    expect(usage.map((u) => u.id)).toEqual(((await query(router, 'courses.list')) as Listed[]).map((c) => c.id))
+    expect(usage[0]).toEqual({ id: art.id, lectures: 0, resources: 0, planItems: 0, boards: 0 })
+    expect(usage.find((u) => u.id === 'chemistry')).toMatchObject({ resources: 1, planItems: 1 })
+    expect(usage.find((u) => u.id === 'physics')!.boards).toBeGreaterThanOrEqual(1)
+    expect(usage.find((u) => u.id === 'biology')!.lectures).toBeGreaterThan(0)
+  })
+
+  it('restoreBoardScope: a course deleted since puts back the lecture with its course now, and with no lecture nothing', async () => {
+    const typo = await mutate(router, 'courses.create', { name: 'Typo' }) as Listed
+    const lecture = await mutate(router, 'lectures.create', { course: typo.id }) as { id: string }
+    await mutate(router, 'lectures.update', { id: lecture.id, course: 'chemistry' })
+    await mutate(router, 'courses.delete', typo.id)
+    const shows = { courseTag: 'biology', lectureId: null }
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', ...shows })
+    expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: typo.id, lectureId: lecture.id }, ifBoardShows: shows }))
+      .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: lecture.id } })
+    const now = { courseTag: 'chemistry', lectureId: lecture.id }
+    expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: typo.id, lectureId: null }, ifBoardShows: now }))
+      .toEqual({ restored: false, scope: now })
   })
 })
 

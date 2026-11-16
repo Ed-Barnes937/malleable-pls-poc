@@ -202,7 +202,7 @@ test.describe('a lecture filed under no course', () => {
     await menuButton(page).click()
     await page.getByRole('menu', { name: 'Lecture options' }).getByRole('menuitem', { name: 'Choose a course...' }).click()
     const courses = page.getByRole('menu', { name: 'File this lecture under' }).getByRole('menuitem')
-    await expect(courses).toHaveText(['Biology', 'Chemistry', 'Physics'])
+    await expect(courses).toHaveText(['Biology', 'Chemistry', 'Physics', 'New course...'])
     // The first course has focus, for the keyboard; Escape would close the menu.
     await expect(courses.first()).toBeFocused()
     await page.keyboard.press('ArrowDown')

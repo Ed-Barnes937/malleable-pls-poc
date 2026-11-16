@@ -393,20 +393,43 @@ describe.skipIf(!TEST_DATABASE_URL)('class lectures (Postgres)', () => {
         .toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: earlier.id } })
     })
 
-    it('refuses an unknown course, as setBoardScope does, and writes nothing', async () => {
+    it('puts back no course the student does not have, and writes nothing', async () => {
       const ws = await board('chemistry')
       const none = { courseTag: null, lectureId: null }
       const shown = { courseTag: 'chemistry', lectureId: null }
-      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: shown }))
-        .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: shown }))
+        .toEqual({ restored: false, scope: shown })
       // Another student's course is unknown too.
       const bobs = await caller(bob).courses.create({ name: 'Bob only' })
-      await expect(api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: bobs.id, lectureId: null }, ifBoardShows: shown }))
-        .rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: { courseTag: bobs.id, lectureId: null }, ifBoardShows: shown }))
+        .toEqual({ restored: false, scope: shown })
       // A board never shows a course the student doesn't have: nothing to put back.
       expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
         .toMatchObject({ restored: false })
       expect(await storedScope(ws)).toEqual([['tag', 'chemistry']])
+    })
+
+    it('a course deleted since: puts back the lecture it showed, with its course now; with no lecture, nothing', async () => {
+      // The lecture was refiled, then its old course deleted.
+      const typo = await api().courses.create({ name: `Typo ${monday(5)}` })
+      const ws = await board(typo.id)
+      const earlier = await api().lectures.create({ course: typo.id, workspaceId: ws })
+      const { board: change } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(5), workspaceId: ws })
+      expect(change!.before).toEqual({ courseTag: typo.id, lectureId: earlier.id })
+      await api().lectures.update({ id: earlier.id, course: 'chemistry' })
+      await api().courses.delete(typo.id)
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: ws, to: change!.before, ifBoardShows: change!.after }))
+        .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: earlier.id } })
+
+      // Only the course to put back, and it is gone: the board stays as it is.
+      const gone = await api().courses.create({ name: `Gone ${monday(6)}` })
+      const other = await board(gone.id)
+      const { board: focus } = await api().lectures.forClassOccurrence({ planItemId: bioClass, date: monday(6), workspaceId: other })
+      expect(focus!.before).toEqual({ courseTag: gone.id, lectureId: null })
+      await api().courses.delete(gone.id)
+      expect(await api().workspaces.restoreBoardScope({ workspaceId: other, to: focus!.before, ifBoardShows: focus!.after }))
+        .toEqual({ restored: false, scope: focus!.after })
+      expect(await storedScope(other)).toEqual([['lecture', focus!.after.lectureId], ['tag', 'biology']])
     })
 
     it("is NOT_FOUND on a board that isn't the student's", async () => {

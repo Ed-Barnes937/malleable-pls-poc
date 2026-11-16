@@ -138,14 +138,16 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
   router.register('workspaces.restoreBoardScope', (input) => {
     const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
     requireBoard(db, workspaceId)
-    // As the server: the course it would put back must be the student's; the
-    // one it compares against is only compared.
-    requireCourse(db, to.courseTag)
     const current = readBoardScope(db, workspaceId)
     if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
       return { restored: false, scope: current }
     }
     const lecture = to.lectureId ? db.lectures.find((l) => l.id === to.lectureId) : undefined
+    // As the server: only `to`'s course to put back, and the student doesn't
+    // have it (deleted since): the board stays as it is.
+    if (!lecture && to.courseTag && !db.courses.some((c) => c.id === to.courseTag)) {
+      return { restored: false, scope: current }
+    }
     const patch = !lecture
       ? { courseTag: to.courseTag, lectureId: null }
       : to.courseTag === null
