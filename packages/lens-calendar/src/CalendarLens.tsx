@@ -179,10 +179,12 @@ export default function CalendarLens({
    * save is in flight a press only closes it and moves nothing: a move would
    * land first and the slower save would then put the block back.
    * Presses outside the calendar leave it open, e.g. while the student
-   * edits the automation its footer opened.
+   * edits the automation its footer opened, and so do presses in a dialog
+   * the popover opened ("New course..."), which reach this through React
+   * though they are drawn outside it.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
-    if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
+    if (!popover || (e.target as Element).closest?.('[data-calendar-popover], [data-modal-dialog]')) return
     markClosingPress(e.nativeEvent, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
     closePopover()
   }

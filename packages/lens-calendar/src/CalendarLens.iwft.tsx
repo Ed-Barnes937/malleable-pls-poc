@@ -296,6 +296,43 @@ test('click empty time to add a weekly class', async ({ mount, page, simulator }
   await expect(block(page, 'Genetics seminar')).toBeVisible()
 })
 
+test('"New course..." in the class popover works by pointer: the popover stays, with the course made chosen', async ({ mount, page, simulator }) => {
+  await mount(<CalendarHarness />)
+  const p = await point(page, 2, 14.2)
+  await page.mouse.click(p.x, p.y)
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByLabel('Title').fill('Tudor seminar')
+  await popover.getByLabel('Course', { exact: true }).selectOption({ label: 'New course...' })
+  const dialog = page.getByRole('dialog', { name: 'New course' })
+  // Real presses inside the dialog (it is drawn over the page, outside the popover).
+  await dialog.getByRole('textbox', { name: 'Name' }).click()
+  await page.keyboard.type('History')
+  await dialog.getByRole('button', { name: 'Add course' }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(popover).toBeVisible()
+  await expect(popover.getByLabel('Title')).toHaveValue('Tudor seminar')
+  await expect(popover.getByLabel('Course', { exact: true }).locator('option:checked')).toHaveText('History')
+  await popover.getByRole('button', { name: 'Add' }).click()
+  await expect(block(page, 'Tudor seminar')).toHaveAttribute('data-look', 'class')
+  const history = simulator.db.courses.find((c) => c.name === 'History')!
+  expect(simulator.db.planItems.find((i) => i.title === 'Tudor seminar')).toMatchObject({ course: history.id })
+})
+
+test('pressing Cancel in "New course..." leaves the class popover and its draft as they were', async ({ mount, page, simulator }) => {
+  await mount(<CalendarHarness />)
+  const p = await point(page, 2, 14.2)
+  await page.mouse.click(p.x, p.y)
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByLabel('Title').fill('Tudor seminar')
+  await popover.getByLabel('Course', { exact: true }).selectOption({ label: 'New course...' })
+  await page.getByRole('dialog', { name: 'New course' }).getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByRole('dialog', { name: 'New course' })).toHaveCount(0)
+  await expect(popover.getByLabel('Title')).toHaveValue('Tudor seminar')
+  await expect(popover.getByLabel('Course', { exact: true })).toHaveValue('')
+  expect(simulator.db.courses).toHaveLength(3)
+})
+
 test('drag over empty time to add study time and something due', async ({ mount, page, simulator }) => {
   await mount(<CalendarHarness />)
 

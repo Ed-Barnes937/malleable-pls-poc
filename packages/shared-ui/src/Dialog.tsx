@@ -47,6 +47,10 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     // activity drawer (10003) included: a dialog is modal, and a full-screen
     // one (a note on a phone) would otherwise have its header covered.
     <div
+      // Marks the dialog and its backdrop for code under it that reacts to
+      // presses elsewhere (the calendar's popover closing): a dialog opened
+      // from a popover is its React child but drawn outside it.
+      data-modal-dialog=""
       className="fixed inset-0 z-[10010] flex items-center justify-center"
       onPointerDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
