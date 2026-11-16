@@ -52,20 +52,22 @@ test.describe('A brand-new account', () => {
     await expect(transcript.getByTestId('summary-line')).toBeVisible({ timeout: 20000 })
   })
 
-  test('starts with no courses: its pickers offer none until it adds one', async ({ page, request }) => {
+  test('starts with no courses: its pickers say so, and "New course..." adds one there', async ({ page }) => {
     const user = `new-account-${Date.now()}-d`
     await actAs(page, user)
     const { audio } = await openCaptureBoard(page)
     await audio.pickFile(FIXTURE)
-    await expect(audio.courseSelect.locator('option')).toHaveText(['No course'])
+    await expect(audio.courseSelect.locator('option')).toHaveText(['No course', 'No courses yet', 'New course...'])
+    await expect(audio.courseSelect.getByRole('option', { name: 'No courses yet' })).toBeDisabled()
 
-    // Courses are the student's own (adding one in the app comes with the Courses dialog).
-    await trpcMutation(request, 'courses.create', { name: 'Modern History' }, user)
-    await page.reload()
-    const again = new PanelGridPom(page).panelByLabel('Audio Capture')
-    const capture = new AudioCapturePom(again)
-    await capture.pickFile(FIXTURE)
-    await expect(capture.courseSelect.locator('option')).toHaveText(['No course', 'Modern History'])
+    // Made from the picker, the course is its choice, and every picker offers it.
+    await audio.courseSelect.selectOption({ label: 'New course...' })
+    const dialog = page.getByRole('dialog', { name: 'New course' })
+    await dialog.getByRole('textbox', { name: 'Name' }).fill('Modern History')
+    await dialog.getByRole('button', { name: 'Add course' }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(audio.courseSelect.locator('option:checked')).toHaveText('Modern History')
+    await expect(audio.courseSelect.locator('option')).toHaveText(['No course', 'Modern History', 'New course...'])
   })
 
   test('has the default automations once, and one it deletes stays deleted', async ({ page, request }) => {
