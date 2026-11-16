@@ -55,6 +55,8 @@ Items are ordered by priority.
 
 **Files:** `apps/server/src/index.ts`
 
+**Resource files (04 PR B) are already served differently:** not from `/uploads`, but by `GET /resource-files/:id?u&exp&sig`, an HMAC-signed link (about 5 minutes) that `resources.fileUrl` makes for the owner only. The route skips the bearer token (a new tab can't send it); the signature is its credential. Served with the stored type, `nosniff`, `Content-Security-Policy: sandbox` and `attachment` except PDF/images. Still to do with real auth: set `FILE_URL_SECRET` (a random one per process is used otherwise, so links die on restart), and bind the link to the session rather than a `u` query parameter. Resource files live in `UPLOADS_DIR/resources/`, which `/uploads/<name>` can't reach.
+
 ---
 
 ### 5. Add HTTP Security Headers (H6)
@@ -107,7 +109,7 @@ Items are ordered by priority.
 Prevents unbounded string inputs across all routers. Quick sweep — add reasonable max lengths.
 
 ### 10. Upload Content-Type Validation (M7)
-Validate `Content-Type` header and inspect file magic bytes before writing to disk.
+Validate `Content-Type` header and inspect file magic bytes before writing to disk. Done for `/resource-upload` (allowlist, signature check, 20 MB cap); `/upload` already checks audio magic bytes.
 
 ### 11. Wrap Migrations in Transactions (M3)
 `sql.unsafe()` in the migration runner executes raw SQL without transaction wrapping. A partial failure leaves the DB inconsistent.

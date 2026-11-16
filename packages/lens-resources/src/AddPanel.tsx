@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { cn, TextField } from '@pls/shared-ui'
-import { parseResourceUrl } from '@pls/substrate'
-import { NotebookPen } from 'lucide-react'
+import { RESOURCE_FILE_ACCEPT, parseResourceUrl, resourceFileProblem } from '@pls/substrate'
+import { NotebookPen, Paperclip } from 'lucide-react'
 
 export type AttachTo = 'lecture' | 'course'
 
@@ -12,16 +12,20 @@ export interface AddPanelProps {
   courseChoiceLabel: string
   onAddLink: (url: string, attachTo: AttachTo) => Promise<unknown>
   onWriteNote: (attachTo: AttachTo) => void
+  /** Uploads a file, calling `onProgress` with the fraction sent. Rejects with a message to show. */
+  onUploadFile: (file: File, attachTo: AttachTo, onProgress: (fraction: number) => void) => Promise<unknown>
   busy: boolean
 }
 
 /**
- * Adding a resource: paste a link, or write a note. With a lecture selected,
+ * Adding a resource: paste a link, write a note, or upload a file. With a lecture selected,
  * "Attach to" picks the lecture (the default) or the whole course.
  */
-export function AddPanel({ lectureTitle, courseChoiceLabel, onAddLink, onWriteNote, busy }: AddPanelProps) {
+export function AddPanel({ lectureTitle, courseChoiceLabel, onAddLink, onWriteNote, onUploadFile, busy }: AddPanelProps) {
   const [url, setUrl] = useState('')
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState<{ name: string; progress: number } | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [attachTo, setAttachTo] = useState<AttachTo>(lectureTitle ? 'lecture' : 'course')
 
   const submit = async (e: FormEvent) => {
@@ -38,6 +42,27 @@ export function AddPanel({ lectureTitle, courseChoiceLabel, onAddLink, onWriteNo
       setError("Couldn't add that link. Try again.")
     }
   }
+
+  const pickFile = async (file: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = ''
+    if (!file) return
+    const problem = resourceFileProblem(file)
+    if (problem) {
+      setError(problem)
+      return
+    }
+    setError(null)
+    setUploading({ name: file.name, progress: 0 })
+    try {
+      await onUploadFile(file, attachTo, (progress) => setUploading({ name: file.name, progress }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't upload that file. Try again.")
+    } finally {
+      setUploading(null)
+    }
+  }
+
+  const working = busy || uploading !== null
 
   return (
     <div className="flex flex-col gap-2 rounded-control border border-border-subtle bg-surface-inset p-2.5" data-testid="add-resource">
@@ -82,22 +107,61 @@ export function AddPanel({ lectureTitle, courseChoiceLabel, onAddLink, onWriteNo
         />
         <button
           type="submit"
-          disabled={!url.trim() || busy}
+          disabled={!url.trim() || working}
           className="h-10 shrink-0 rounded-control bg-accent px-3 text-body font-semibold text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
         >
           Add link
         </button>
       </form>
       {error && <p role="alert" className="text-meta text-attn">{error}</p>}
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => onWriteNote(attachTo)}
-        className="inline-flex h-9 items-center gap-1.5 self-start rounded-item px-2 text-body font-semibold text-accent hover:bg-accent-soft disabled:opacity-40"
-      >
-        <NotebookPen className="h-4 w-4" aria-hidden />
-        Write a note
-      </button>
+      <div className="flex flex-wrap items-center gap-1">
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => onWriteNote(attachTo)}
+          className="inline-flex h-9 items-center gap-1.5 rounded-item px-2 text-body font-semibold text-accent hover:bg-accent-soft disabled:opacity-40"
+        >
+          <NotebookPen className="h-4 w-4" aria-hidden />
+          Write a note
+        </button>
+        <button
+          type="button"
+          disabled={working}
+          onClick={() => fileInput.current?.click()}
+          className="inline-flex h-9 items-center gap-1.5 rounded-item px-2 text-body font-semibold text-accent hover:bg-accent-soft disabled:opacity-40"
+        >
+          <Paperclip className="h-4 w-4" aria-hidden />
+          Upload a file
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          tabIndex={-1}
+          accept={RESOURCE_FILE_ACCEPT}
+          aria-label="File to upload"
+          data-testid="resource-file-input"
+          onChange={(e) => void pickFile(e.target.files?.[0])}
+        />
+      </div>
+      {uploading && (
+        <div className="flex flex-col gap-1" data-testid="resource-upload-progress">
+          <div className="flex items-baseline justify-between gap-2 text-meta text-text-muted">
+            <span className="truncate">Uploading {uploading.name}</span>
+            <span>{Math.round(uploading.progress * 100)}%</span>
+          </div>
+          <div
+            role="progressbar"
+            aria-label={`Uploading ${uploading.name}`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(uploading.progress * 100)}
+            className="h-1.5 overflow-hidden rounded-full bg-border-subtle"
+          >
+            <div className="h-full rounded-full bg-accent" style={{ width: `${uploading.progress * 100}%` }} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

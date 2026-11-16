@@ -1,8 +1,9 @@
 import { useCallback } from 'react'
-import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
-import { useQueryClient } from '@tanstack/react-query'
+import { useBoardId, type UploadResourceFile, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { applyPreferencesUpdate, type PlanItemQuery, type ResourceListQuery, type ResourceWithBody, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
+import { API_URL, uploadResourceFile } from './resource-upload'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
 import { setLiveCapture, useLiveCaptureOf } from './live-capture'
 
@@ -374,6 +375,28 @@ export const substrateTrpc: SubstrateWriter = {
         return utils.resources.list.invalidate()
       },
     }))
+  },
+
+  useUploadResourceFile() {
+    const utils = trpc.useUtils()
+    const boardId = useBoardId()
+    return adaptMutation(useMutation({
+      mutationFn: (args: UploadResourceFile) => uploadResourceFile({ ...args, boardId }),
+      onSuccess: (saved) => {
+        utils.resources.get.setData(saved.id, saved)
+        return utils.resources.list.invalidate()
+      },
+    }))
+  },
+
+  useResourceFileUrl() {
+    const mutation = trpc.resources.fileUrl.useMutation()
+    const open = async (id: string) => ({ url: `${API_URL}${(await mutation.mutateAsync(id)).url}` })
+    return {
+      mutate: (id: string) => void open(id).catch(() => {}),
+      mutateAsync: open,
+      isPending: mutation.isPending,
+    }
   },
 
   useAcceptRefit() {

@@ -1,6 +1,4 @@
 import http from 'http'
-import { createReadStream, statSync } from 'fs'
-import path from 'path'
 import { createHTTPHandler } from '@trpc/server/adapters/standalone'
 import cors from 'cors'
 import { appRouter } from './router'
@@ -9,9 +7,9 @@ import { trpcErrorLine } from './trpc-error-log'
 import { createAiDeps, describeAiDeps } from './ai/deps'
 import { startJobRunner } from './workflows/job-runner'
 import { createServerExecutors } from './workflows/executors'
-import { AUDIO_CONTENT_TYPES, handleUpload } from './upload'
-
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')
+import { handleUpload } from './upload'
+import { handleUploadedFile } from './serve-upload'
+import { handleResourceFile, handleResourceUpload } from './resource-upload'
 
 const port = Number(process.env.PORT ?? 3001)
 const isProduction = process.env.NODE_ENV === 'production'
@@ -29,7 +27,7 @@ const executors = createServerExecutors(ai)
 // Swap for a shared store (e.g. Redis) before scaling horizontally.
 // ---------------------------------------------------------------------------
 const RATE_WINDOW_MS = 60_000 // 1 minute
-const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload
+const UPLOAD_RATE_LIMIT = 10   // requests per window for /upload and /resource-upload (one shared bucket)
 const GENERAL_RATE_LIMIT = 100 // requests per window for everything else
 
 // e2e runs hammer the API from one IP and trip the general limit mid-suite,
@@ -127,7 +125,7 @@ function setUploadCors(req: http.IncomingMessage, res: http.ServerResponse) {
     res.setHeader('Access-Control-Allow-Origin', origin)
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course, x-workspace-id, x-lecture-id, x-select-on-board, x-upload-id')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-recording-title, x-recording-duration, x-recording-course, x-workspace-id, x-lecture-id, x-select-on-board, x-upload-id, x-file-name, x-resource-course')
 }
 
 // ---------------------------------------------------------------------------
@@ -166,7 +164,10 @@ const server = http.createServer((req, res) => {
   }
 
   // Bearer token auth (before rate limiting so invalid requests don't consume quota)
-  if (req.method === 'OPTIONS') {
+  // A signed file link is opened in a new tab, which can't send the token: the
+  // link's signature (checked by the route) is its credential.
+  const isFileLink = req.method === 'GET' && (req.url?.startsWith('/resource-files/') ?? false)
+  if (req.method === 'OPTIONS' || isFileLink) {
     // Allow CORS preflight through — the CORS handler will gate the actual request
   } else if (!checkBearerToken(req)) {
     const origin = req.headers.origin ?? ''
@@ -180,14 +181,24 @@ const server = http.createServer((req, res) => {
 
   // Rate limiting
   const clientIp = getClientIp(req)
-  const isUploadRoute = req.url?.startsWith('/upload') ?? false
+  const isUploadRoute = (req.url?.startsWith('/upload') || req.url?.startsWith('/resource-upload')) ?? false
   if (!checkRateLimit(clientIp, isUploadRoute)) {
     res.writeHead(429, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({ error: 'Too many requests. Please try again later.' }))
     return
   }
 
-  if (req.url?.startsWith('/upload') || req.url?.startsWith('/uploads/')) {
+  if (req.url?.startsWith('/resource-upload') || req.url?.startsWith('/resource-files/')) {
+    setUploadCors(req, res)
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204)
+      res.end()
+    } else if (req.url.startsWith('/resource-upload')) {
+      void handleResourceUpload(req, res)
+    } else {
+      void handleResourceFile(req, res)
+    }
+  } else if (req.url?.startsWith('/upload') || req.url?.startsWith('/uploads/')) {
     setUploadCors(req, res)
 
     if (req.method === 'OPTIONS') {
@@ -199,27 +210,7 @@ const server = http.createServer((req, res) => {
     if (req.url.startsWith('/upload') && req.method === 'POST') {
       handleUpload(req, res)
     } else if (req.url.startsWith('/uploads/')) {
-      const filename = path.basename(req.url)
-      const filePath = path.join(UPLOADS_DIR, filename)
-
-      // Path traversal protection: resolved path must stay inside UPLOADS_DIR
-      if (!path.resolve(filePath).startsWith(path.resolve(UPLOADS_DIR))) {
-        res.writeHead(403, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Forbidden' }))
-        return
-      }
-
-      try {
-        const stat = statSync(filePath)
-        res.writeHead(200, {
-          'Content-Type': AUDIO_CONTENT_TYPES[path.extname(filename).slice(1)] ?? 'application/octet-stream',
-          'Content-Length': stat.size,
-        })
-        createReadStream(filePath).pipe(res)
-      } catch {
-        res.writeHead(404)
-        res.end()
-      }
+      handleUploadedFile(req, res)
     }
   } else {
     trpcHandler(req, res)

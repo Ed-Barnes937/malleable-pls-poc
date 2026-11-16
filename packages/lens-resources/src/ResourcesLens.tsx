@@ -78,6 +78,8 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   const createNote = writer.useCreateResourceNote()
   const update = writer.useUpdateResource()
   const remove = writer.useDeleteResource()
+  const upload = writer.useUploadResourceFile()
+  const fileUrl = writer.useResourceFileUrl()
   const deletes = useDeferredDelete((id) => {
     // Unsaved text (if any) has nowhere to go once the note is deleted.
     remove.mutateAsync(id).then(() => dropNoteSaver(id), () => {})
@@ -100,6 +102,33 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
   const addLink = async (url: string, attachTo: AttachTo) => {
     await createLink.mutateAsync({ url, ...target(attachTo) })
     setAdding(false)
+  }
+
+  const addFile = async (file: File, attachTo: AttachTo, onProgress: (fraction: number) => void) => {
+    await upload.mutateAsync({ file, ...target(attachTo), onProgress })
+    setAdding(false)
+  }
+
+  /**
+   * Opens a file in a new tab. The tab is opened now, while the press still
+   * counts (browsers block one opened after a wait), and pointed at the
+   * signed link once the server has made it.
+   */
+  const openFile = async (resource: Resource) => {
+    setError(null)
+    const tab = window.open('about:blank', '_blank')
+    if (!tab) {
+      setError('Your browser blocked the new tab. Allow pop-ups for this site and try again.')
+      return
+    }
+    try {
+      const { url } = await fileUrl.mutateAsync(resource.id)
+      tab.opener = null
+      tab.location.href = url
+    } catch {
+      tab.close()
+      setError(`Couldn't open ${resource.title}. Try again.`)
+    }
   }
 
   const writeNote = async (attachTo: AttachTo) => {
@@ -165,6 +194,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
       now={now}
       showCourse={!course}
       onOpenNote={setOpenNote}
+      onOpenFile={(r) => void openFile(r)}
       onRename={(title) => rename(resource, title)}
       onMove={() => setMoving(resource)}
       onDelete={() => deletes.start(resource.id)}
@@ -199,6 +229,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
           courseChoiceLabel={courseLabel ? `Whole course: ${courseLabel}` : 'No course'}
           onAddLink={addLink}
           onWriteNote={(attachTo) => void writeNote(attachTo)}
+          onUploadFile={addFile}
           busy={createLink.isPending || createNote.isPending}
         />
       )}
@@ -209,7 +240,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
       ) : nothingAtAll && !adding ? (
         <EmptyState
           icon={Library}
-          message={courseLabel ? `Nothing for ${courseLabel} yet` : 'Keep links and notes for your courses here'}
+          message={courseLabel ? `Nothing for ${courseLabel} yet` : 'Keep links, notes and files for your courses here'}
           action={
             <div className="flex flex-wrap justify-center gap-2">
               <button

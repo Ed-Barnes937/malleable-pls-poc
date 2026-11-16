@@ -213,3 +213,118 @@ export type ResourceListQuery = NonNullable<z.input<typeof resourceListInput>>
 export type NewResourceLink = z.input<typeof newResourceLinkInput>
 export type NewResourceNote = z.input<typeof newResourceNoteInput>
 export type ResourceUpdate = z.input<typeof resourceUpdateInput>
+
+// ---------------------------------------------------------------------------
+// Files (04 PR B)
+// ---------------------------------------------------------------------------
+
+/** Biggest file a student can upload as a resource. */
+export const MAX_RESOURCE_FILE_BYTES = 20 * 1024 * 1024
+
+/** A kind of file a resource can be: its MIME type, extensions, short name, and whether the browser may show it in the tab. */
+export interface ResourceFileType {
+  mime: string
+  extensions: string[]
+  /** What a row calls it: "PDF", "Word". */
+  label: string
+  /** Served `inline` (PDF, images); the rest are downloaded. */
+  inline: boolean
+}
+
+/**
+ * What can be uploaded. No HTML, SVG, audio or video: nothing a browser would
+ * run, and recordings have their own route.
+ */
+export const RESOURCE_FILE_TYPES: readonly ResourceFileType[] = [
+  { mime: 'application/pdf', extensions: ['pdf'], label: 'PDF', inline: true },
+  { mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', extensions: ['docx'], label: 'Word', inline: false },
+  { mime: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', extensions: ['pptx'], label: 'PowerPoint', inline: false },
+  { mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', extensions: ['xlsx'], label: 'Excel', inline: false },
+  { mime: 'image/png', extensions: ['png'], label: 'PNG', inline: true },
+  { mime: 'image/jpeg', extensions: ['jpg', 'jpeg'], label: 'JPEG', inline: true },
+  { mime: 'text/plain', extensions: ['txt'], label: 'Text', inline: false },
+  { mime: 'text/markdown', extensions: ['md'], label: 'Markdown', inline: false },
+]
+
+/** The type for a MIME type (parameters like `; charset` ignored), or null if it isn't allowed. */
+export function resourceFileTypeByMime(mime: string | null | undefined): ResourceFileType | null {
+  const bare = (mime ?? '').split(';')[0].trim().toLowerCase()
+  return RESOURCE_FILE_TYPES.find((t) => t.mime === bare) ?? null
+}
+
+/** The type for a file name's extension, or null if it isn't allowed. */
+export function resourceFileTypeByName(name: string): ResourceFileType | null {
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+  return RESOURCE_FILE_TYPES.find((t) => t.extensions.includes(ext)) ?? null
+}
+
+/** For an `<input type="file" accept>`. */
+export const RESOURCE_FILE_ACCEPT = RESOURCE_FILE_TYPES.flatMap((t) => t.extensions.map((e) => `.${e}`)).join(',')
+
+/** "1.2 MB", "340 KB", "12 B". */
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** A file row's meta: "PDF · 1.2 MB". */
+export function resourceFileMeta(resource: Pick<Resource, 'mime_type' | 'size_bytes'>): string {
+  const label = resourceFileTypeByMime(resource.mime_type)?.label ?? 'File'
+  return resource.size_bytes == null ? label : `${label} · ${formatFileSize(resource.size_bytes)}`
+}
+
+/** Why a picked file can't be uploaded (worded for the student), or null if it can. Checked in the browser before sending; the server checks again. */
+export function resourceFileProblem(file: { name: string; size: number }): string | null {
+  if (!resourceFileTypeByName(file.name)) return "That file type isn't supported. Use PDF, Word, PowerPoint, Excel, PNG, JPEG, text or Markdown."
+  if (file.size === 0) return 'That file is empty.'
+  if (file.size > MAX_RESOURCE_FILE_BYTES) return `That file is over ${MAX_RESOURCE_FILE_BYTES / 1024 / 1024} MB.`
+  return null
+}
+
+function startsWith(bytes: Uint8Array, prefix: number[]): boolean {
+  return bytes.length >= prefix.length && prefix.every((b, i) => bytes[i] === b)
+}
+
+/**
+ * True when the bytes look like the type they were uploaded as: the format's
+ * signature, and for plain text and Markdown, valid UTF-8 without NUL bytes.
+ * The signature only separates, say, an .exe renamed to .pdf from a PDF; it
+ * is not a scan of the contents. Word, PowerPoint and Excel files are zip
+ * archives, which hold a `[Content_Types].xml`.
+ */
+export function matchesFileContent(type: ResourceFileType, body: Uint8Array): boolean {
+  switch (type.mime) {
+    case 'application/pdf':
+      return startsWith(body, [0x25, 0x50, 0x44, 0x46, 0x2d]) // %PDF-
+    case 'image/png':
+      return startsWith(body, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    case 'image/jpeg':
+      return startsWith(body, [0xff, 0xd8, 0xff])
+    case 'text/plain':
+    case 'text/markdown':
+      if (body.includes(0)) return false
+      try {
+        new TextDecoder('utf-8', { fatal: true }).decode(body)
+        return true
+      } catch {
+        return false
+      }
+    default:
+      // docx, pptx, xlsx
+      return startsWith(body, [0x50, 0x4b, 0x03, 0x04]) && new TextDecoder('latin1').decode(body).includes('[Content_Types].xml')
+  }
+}
+
+/** A title for an uploaded file: its name without the extension. */
+export function titleFromFileName(name: string): string {
+  const dot = name.lastIndexOf('.')
+  const base = (dot > 0 ? name.slice(0, dot) : name).trim() || name.trim() || 'File'
+  return base.slice(0, MAX_RESOURCE_TITLE_LENGTH)
+}
+
+/** What `resources.fileUrl` answers with: a path (with its signature) on the API, valid for a few minutes. */
+export interface ResourceFileUrl {
+  url: string
+}

@@ -101,7 +101,7 @@ async function ownsLecture(userId: string, lectureId: string): Promise<boolean> 
   return !!row
 }
 
-async function ownsCourse(userId: string, courseId: string): Promise<boolean> {
+export async function ownsCourse(userId: string, courseId: string): Promise<boolean> {
   const [row] = await withUser(userId, (tx) => tx`SELECT 1 FROM courses WHERE id = ${courseId} AND user_id = ${userId}`)
   return !!row
 }

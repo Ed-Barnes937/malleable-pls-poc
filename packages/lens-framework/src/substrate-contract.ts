@@ -32,6 +32,7 @@ import type {
   NewResourceLink,
   NewResourceNote,
   ResourceUpdate,
+  ResourceFileUrl,
   PlanItemsRevert,
   PlanItemUndoState,
 } from '@pls/substrate'
@@ -293,6 +294,26 @@ export interface SubstrateWriter extends SubstrateReader {
    */
   useUpdateResource: () => MutationHandle<ResourceUpdate, ResourceWithBody>
   useDeleteResource: () => MutationHandle<string, { id: string }>
+  /**
+   * Uploads one file as a resource (PDF, Word, PowerPoint, Excel, PNG, JPEG,
+   * text or Markdown, up to 20 MB). Rejects with an Error whose message is
+   * safe to show the student. Sent with the panel's board.
+   */
+  useUploadResourceFile: () => MutationHandle<UploadResourceFile, ResourceWithBody>
+  /**
+   * A link to open a file resource, good for a few minutes: ask when the
+   * student presses it, not before.
+   */
+  useResourceFileUrl: () => MutationHandle<string, ResourceFileUrl>
+}
+
+/** A file to upload as a resource, and where it goes (a lecture, or a course, or neither). */
+export interface UploadResourceFile {
+  file: File
+  lectureId?: string | null
+  courseTag?: string | null
+  /** Called as the upload goes, with the fraction sent (0 to 1). */
+  onProgress?: (fraction: number) => void
 }
 
 // ---------------------------------------------------------------------------
