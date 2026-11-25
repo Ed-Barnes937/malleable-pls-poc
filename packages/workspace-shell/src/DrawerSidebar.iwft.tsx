@@ -1,7 +1,7 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { ShellProviders } from '../../../playwright/mount-wrapper'
 import { DrawerSidebar } from './DrawerSidebar'
-import { BoardMenuHarness } from './shell-overlay-harness'
+import { BoardMenuHarness, BoardMenuOpenerGoneHarness } from './shell-overlay-harness'
 
 // The palette adds to the open board, so these run against the backend
 // simulator's boards (its first board opens).
@@ -194,5 +194,53 @@ test('dragging a widget tile keeps the tile laid out through the dragstart task,
     expect(w).toBeGreaterThan(0)
     expect(h).toBeGreaterThan(0)
   }
+  await expect(menu).toBeHidden()
+})
+
+test('when the button that opened the menu is gone, Escape returns focus to the menu button', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <BoardMenuOpenerGoneHarness />
+    </ShellProviders>,
+  )
+  await page.getByRole('button', { name: 'Add a widget' }).click()
+  const menu = page.getByRole('dialog', { name: 'Board menu' })
+  await expect(menu).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Add a widget' })).toHaveCount(0)
+
+  await page.keyboard.press('Escape')
+  await expect(menu).toBeHidden()
+  await expect(page.getByTestId('drawer-trigger')).toBeFocused()
+})
+
+test('on a phone the theme menu opens inside the board menu without closing it, and Escape closes the theme menu alone', async ({ mount, page, simulator: _boards }) => {
+  await page.setViewportSize({ width: 400, height: 800 })
+  await mount(
+    <ShellProviders>
+      <BoardMenuHarness />
+    </ShellProviders>,
+  )
+  await page.getByRole('button', { name: 'Open board menu' }).click()
+  const menu = page.getByRole('dialog', { name: 'Board menu' })
+  const theme = menu.getByRole('button', { name: 'Theme' })
+  await theme.focus()
+  await page.keyboard.press('Enter')
+  const dark = page.getByRole('menuitemradio', { name: 'Dark' })
+  await expect(dark).toBeVisible()
+  await expect(page.getByRole('menuitemradio', { name: 'Light' })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(dark).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expect(menu).toBeVisible()
+
+  await theme.click()
+  await expect(dark).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dark).toBeHidden()
+  await expect(menu).toBeVisible()
+  await expect(theme).toBeFocused()
+
+  await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
 })

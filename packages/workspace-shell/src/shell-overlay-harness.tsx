@@ -21,3 +21,32 @@ export function BoardMenuHarness() {
     </div>
   )
 }
+
+/**
+ * The board menu opened from a button that goes away once the menu is open
+ * (like the empty-board button once a widget is added), with the top bar's
+ * menu button elsewhere on the page.
+ */
+export function BoardMenuOpenerGoneHarness() {
+  const [open, setOpen] = useState(false)
+  const [openerGone, setOpenerGone] = useState(false)
+  return (
+    <div className="p-4">
+      <button type="button" data-testid="drawer-trigger" onClick={() => setOpen(true)}>
+        Menu
+      </button>
+      {!openerGone && (
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(true)
+            setOpenerGone(true)
+          }}
+        >
+          Add a widget
+        </button>
+      )}
+      <DrawerSidebar open={open} onClose={() => setOpen(false)} onAddWidget={() => {}} />
+    </div>
+  )
+}
