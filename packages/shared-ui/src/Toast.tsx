@@ -46,7 +46,9 @@ export function ToastBar({ toaster, maxVisible, narrow = false, icon, actionIcon
       aria-label="Notifications"
       data-layout={narrow ? 'narrow' : 'wide'}
       className={cn(
-        'fixed bottom-0 flex flex-row-reverse items-center gap-2 overflow-hidden bg-transparent',
+        'fixed bottom-0 overflow-hidden bg-transparent',
+        // The list is the row: newest at the right (it is first in the list).
+        '[&>ol]:flex [&>ol]:h-full [&>ol]:flex-row-reverse [&>ol]:items-center [&>ol]:gap-2',
         narrow ? 'inset-x-0 h-[4.25rem] px-3 py-1.5' : 'right-0 h-16 px-5 py-2.5',
       )}
     >

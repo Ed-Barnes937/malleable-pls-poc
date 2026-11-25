@@ -373,7 +373,7 @@ test.describe('Phone top bar', () => {
 
     const host = page.getByTestId('toast-host')
     await expect(host).toHaveAttribute('data-layout', 'bar')
-    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
+    await expect(page.locator('[data-ui-sdk-announcer=""]')).toHaveAttribute('aria-live', 'polite')
     await expect(host).toContainText('Opened 36:40 in Evening Review')
     const back = host.getByRole('button', { name: 'Back to My week' })
     await expect(back).toBeInViewport()
