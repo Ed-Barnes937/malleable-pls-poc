@@ -24,12 +24,15 @@ type Styled<T> = Omit<T, 'className'> & { className?: string }
  * bottom is a sheet). UI SDK slides it and owns its translate and the
  * backdrop's opacity; it can be swiped back to its edge.
  */
-export function DrawerContent({ className, ...props }: Styled<ComponentProps<typeof UiDrawerContent>>) {
+export function DrawerContent({ className, onPointerDown, ...props }: Styled<ComponentProps<typeof UiDrawerContent>>) {
   return (
     <>
       <UiDrawerBackdrop className="fixed inset-0 bg-scrim-light" />
       <UiDrawerContent
-        onPointerDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => {
+          onPointerDown?.(e)
+          e.stopPropagation()
+        }}
         className={cn(
           'relative flex flex-col bg-surface-raised text-body text-text-primary shadow-pop outline-none',
           'data-[side=left]:h-full data-[side=left]:w-80 data-[side=left]:max-w-[calc(100vw-48px)] data-[side=left]:rounded-r-widget',
