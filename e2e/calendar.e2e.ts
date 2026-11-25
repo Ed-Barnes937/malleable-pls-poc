@@ -104,6 +104,35 @@ test.describe('Calendar', () => {
     await expect(shift).toBeFocused()
   })
 
+  test('keyboard: Add opens a new block; arrows pick its kind and step its start by 15 minutes; arrows switch the view', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    await calendar.root.getByRole('button', { name: 'Add to calendar' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(calendar.popover.getByLabel('Title')).toBeFocused()
+    await page.keyboard.type('Keyboard reading')
+    await calendar.popover.getByRole('radio', { name: 'Class / commitment' }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(calendar.popover.getByRole('radio', { name: 'Study time' })).toBeChecked()
+    const start = calendar.time('Start time')
+    await start.fill('09:00')
+    await start.minute.focus()
+    await page.keyboard.press('ArrowUp')
+    await start.expectValue('09:15')
+    await calendar.time('End time').expectValue('10:15')
+    await calendar.popover.getByRole('button', { name: 'Add' }).press('Enter')
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(calendar.block('Keyboard reading')).toHaveAttribute('aria-label', /study time, 09:15 - 10:15/)
+
+    const week = calendar.root.getByRole('radio', { name: 'Week' })
+    await week.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(calendar.root.getByRole('radio', { name: 'Day' })).toBeChecked()
+    await expect(calendar.root.getByTestId('calendar-day-header')).toHaveCount(1)
+  })
+
   test('on a slow network the pressed button says it is saving until the save lands', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     // Saturday, clear of the seeded week's blocks.

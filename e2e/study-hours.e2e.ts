@@ -107,6 +107,28 @@ test.describe('Study hours', () => {
     await expect(editor.getByLabel('Study time per day')).toHaveValue('60')
   })
 
+  test('keyboard: Change opens the editor on the first time, arrows step it by half an hour, Enter on Save saves it', async ({ page, request }) => {
+    await emptyWeek(request)
+    await trpcMutation(request, 'planItems.create', { kind: 'task', title: 'Essay plan', duration_min: 120, due_at: null, course: 'biology' })
+    const calendar = await openCalendar(page)
+    await calendar.nextWeek()
+    await calendar.root.getByTestId('help-me-plan').click()
+    const panel = calendar.root.getByTestId('help-me-plan-panel')
+    const change = panel.getByRole('button', { name: 'Change when you study' })
+    await change.focus()
+    await page.keyboard.press('Enter')
+    const editor = page.getByRole('dialog', { name: 'When do you study?' })
+    const start = new TimeInputPom(editor.getByLabel('Start time, every day', { exact: true }))
+    await expect(start.hour).toBeFocused()
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('ArrowUp')
+    await start.expectValue('09:30')
+    await editor.getByRole('button', { name: 'Save' }).press('Enter')
+    await expect(editor).toBeHidden()
+    await expect(change).toBeFocused()
+    await expect.poll(async () => (await trpcQuery<UserPreferences>(request, 'preferences.get')).study_hours?.mon).toEqual({ start: '09:30', end: '22:00' })
+  })
+
   for (const { name, viewport } of [
     { name: 'on a laptop', viewport: { width: 1440, height: 900 } },
     { name: 'on a phone', viewport: { width: 400, height: 860 } },

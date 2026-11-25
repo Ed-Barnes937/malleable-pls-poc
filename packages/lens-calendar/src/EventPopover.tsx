@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, DatePicker, SegmentedControl, Select, TextField, TimeInput, cn } from '@pls/shared-ui'
+import { COURSES, DatePicker, SegmentedControl, Select, TextField, TimeInput } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
