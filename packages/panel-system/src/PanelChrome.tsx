@@ -11,7 +11,7 @@ export interface PanelChromeProps {
   icon?: ComponentType<{ className?: string; size?: number }>
   children?: ReactNode
   onClose?: () => void
-  /** Passed down so the header can initiate drag via dragControls */
+  /** Starts a drag of the panel from its header (UI SDK move.pointerdown) */
   onDragHandlePointerDown?: (e: React.PointerEvent) => void
   /** Whether this panel is currently fullscreen */
   isFullscreen?: boolean

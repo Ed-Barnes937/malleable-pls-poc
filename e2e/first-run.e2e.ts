@@ -27,16 +27,20 @@ async function newBoard(page: Page, name = 'My week') {
 }
 
 /**
- * Where a panel sits in the viewport once settled: its layout (the style the
- * canvas sets, not mid-animation geometry) offset by the canvas's position.
+ * Where a panel sits in the viewport once settled: its layout (the computed
+ * left/top/width/height the canvas sets, not mid-animation geometry) offset by
+ * the canvas's position.
  */
 async function box(grid: PanelGridPom, label: string): Promise<Box> {
   const canvas = await grid.root.boundingBox()
   if (!canvas) throw new Error('no canvas')
-  const layout = await grid.panelByLabel(label).evaluate((el: HTMLElement) => ({
-    x: parseFloat(el.style.left), y: parseFloat(el.style.top),
-    width: parseFloat(el.style.width), height: parseFloat(el.style.height),
-  }))
+  const layout = await grid.panelByLabel(label).evaluate((el: HTMLElement) => {
+    const style = getComputedStyle(el)
+    return {
+      x: parseFloat(style.left), y: parseFloat(style.top),
+      width: parseFloat(style.width), height: parseFloat(style.height),
+    }
+  })
   return { ...layout, x: canvas.x + layout.x, y: canvas.y + layout.y }
 }
 
