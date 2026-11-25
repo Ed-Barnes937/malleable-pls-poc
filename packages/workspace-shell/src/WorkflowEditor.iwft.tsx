@@ -18,12 +18,11 @@ const workflow: WorkflowWithJobs = {
   ],
 } as unknown as WorkflowWithJobs
 
-const mountEditor = (mount: (c: React.ReactNode) => Promise<unknown>) =>
-  mount(
-    <ShellProviders>
-      <WorkflowEditor open onClose={() => {}} workspaceId="ws-in-lecture" sourceLens="transcript" workflow={workflow} />
-    </ShellProviders>,
-  )
+const editor = (
+  <ShellProviders>
+    <WorkflowEditor open onClose={() => {}} workspaceId="ws-in-lecture" sourceLens="transcript" workflow={workflow} />
+  </ShellProviders>
+)
 
 /** The step types in the order shown, read from each row's select. */
 const stepTypes = (page: import('@playwright/test').Page) =>
@@ -36,7 +35,7 @@ const savedTypes = (simulator: { db: { workflowJobs: { workflow_id: string; job_
 test.describe('workflow step order', () => {
   test('keyboard: Space picks a step up, arrows move it, Space drops it; the order saves', async ({ mount, page, simulator }) => {
     simulator.db.workflows.push({ ...workflow, workspace_id: null } as never)
-    await mountEditor(mount)
+    await mount(editor)
     expect(await stepTypes(page)).toEqual(['ai:transcribe', 'ai:summarize-lecture', 'plan:review-task'])
 
     await page.getByRole('button', { name: 'Drag to reorder step 1' }).focus()
@@ -56,7 +55,7 @@ test.describe('workflow step order', () => {
   })
 
   test('Escape puts the step back', async ({ mount, page }) => {
-    await mountEditor(mount)
+    await mount(editor)
     await page.getByRole('button', { name: 'Drag to reorder step 2' }).focus()
     await page.keyboard.press('Space')
     await page.keyboard.press('ArrowUp')
@@ -68,7 +67,7 @@ test.describe('workflow step order', () => {
   })
 
   test('dragging the grip with the mouse moves the step', async ({ mount, page }) => {
-    await mountEditor(mount)
+    await mount(editor)
     const grip = (await page.getByRole('button', { name: 'Drag to reorder step 1' }).boundingBox())!
     const third = (await page.getByTestId('workflow-step').nth(2).boundingBox())!
     await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
@@ -79,7 +78,7 @@ test.describe('workflow step order', () => {
   })
 
   test('the up and down buttons still move a step', async ({ mount, page }) => {
-    await mountEditor(mount)
+    await mount(editor)
     await page.getByTestId('workflow-step').nth(2).getByRole('button', { name: 'Move step up' }).click()
     expect(await stepTypes(page)).toEqual(['ai:transcribe', 'plan:review-task', 'ai:summarize-lecture'])
     await page.getByTestId('workflow-step').nth(0).getByRole('button', { name: 'Move step down' }).click()
@@ -87,7 +86,7 @@ test.describe('workflow step order', () => {
   })
 
   test('a step keeps its own settings when others move around it', async ({ mount, page }) => {
-    await mountEditor(mount)
+    await mount(editor)
     await page.getByTestId('workflow-step').nth(1).getByLabel(/Days to wait before step/).fill('3')
     await page.getByTestId('workflow-step').nth(1).getByRole('button', { name: 'Move step up' }).click()
     await expect(page.getByTestId('workflow-step').nth(0).getByLabel(/Days to wait before step/)).toHaveValue('3')
