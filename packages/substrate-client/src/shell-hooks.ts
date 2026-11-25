@@ -105,8 +105,28 @@ export function useRemoveWorkspacePanel() {
   })
 }
 
-export function useUpdatePanelLayouts() {
-  return trpc.workspaces.updateLayouts.useMutation()
+/**
+ * Saves a board's panel layout. On success the board's cached panels take the
+ * saved positions, so the board shows them when it is opened again. A refetch
+ * would do the same, but it would land mid-drag on the open board; patching
+ * the cache touches nothing else.
+ */
+export function useUpdatePanelLayouts(workspaceId: string | null) {
+  const utils = trpc.useUtils()
+  return trpc.workspaces.updateLayouts.useMutation({
+    onSuccess: (_data, layouts) => {
+      if (workspaceId === null) return
+      const byId = new Map(layouts.map((l) => [l.id, l]))
+      utils.workspaces.panels.setData(workspaceId, (panels) => {
+        if (!panels) return panels
+        // The wire is JSON, so the client only ever holds a plain array here, whatever the server's row type.
+        return panels.map((p) => {
+          const l = byId.get(p.id)
+          return l ? { ...p, ...l } : p
+        }) as unknown as typeof panels
+      })
+    },
+  })
 }
 
 export function useUpdatePanelConfig() {

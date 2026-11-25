@@ -99,7 +99,7 @@ export function WorkspaceShell() {
 
   const addPanel = useAddWorkspacePanel()
   const removePanel = useRemoveWorkspacePanel()
-  const updateLayouts = useUpdatePanelLayouts()
+  const updateLayouts = useUpdatePanelLayouts(activeWorkspaceId)
   const updatePanelConfig = useUpdatePanelConfig()
   const setWorkspaceScope = useSetWorkspaceScope()
 

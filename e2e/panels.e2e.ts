@@ -160,6 +160,49 @@ test.describe('Moving and resizing widgets', () => {
     expect(await layoutOf(transcript)).toEqual({ x: 60, y: 60, width: 460, height: 440 })
   })
 
+  test('a moved widget stays where it was put after switching to another board and back', async ({ page }) => {
+    const grid = await openEveningReview(page)
+    const topBar = new TopBarPom(page)
+    const transcript = grid.panelByLabel('Transcript')
+    const transcriptTopLeft = transcript.getByRole('button', { name: 'Resize Transcript top left' })
+    for (let i = 0; i < 4 && (await transcriptTopLeft.getAttribute('tabindex')) !== '0'; i++) await page.keyboard.press(']')
+    await expect(transcriptTopLeft).toHaveAttribute('tabindex', '0')
+    const saved = layoutSaved(page, transcript, { x: 60, y: 60, width: 460, height: 420 })
+    await page.keyboard.press('Alt+ArrowDown')
+    await page.keyboard.press('Alt+ArrowRight')
+    await expect.poll(() => layoutOf(transcript)).toMatchObject({ x: 60, y: 60 })
+    await saved
+
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.expectActiveWorkspace('In Lecture')
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
+    await grid.expectPanelCount(4)
+    expect(await layoutOf(grid.panelByLabel('Transcript'))).toEqual({ x: 60, y: 60, width: 460, height: 420 })
+  })
+
+  test('a resized widget keeps its size after switching to another board and back', async ({ page }) => {
+    const grid = await openEveningReview(page)
+    const topBar = new TopBarPom(page)
+    const transcript = grid.panelByLabel('Transcript')
+    const transcriptTopLeft = transcript.getByRole('button', { name: 'Resize Transcript top left' })
+    for (let i = 0; i < 4 && (await transcriptTopLeft.getAttribute('tabindex')) !== '0'; i++) await page.keyboard.press(']')
+    await expect(transcriptTopLeft).toHaveAttribute('tabindex', '0')
+    const bottom = transcript.getByRole('button', { name: 'Resize Transcript bottom', exact: true })
+    await bottom.focus()
+    const saved = layoutSaved(page, transcript, { x: 40, y: 40, width: 460, height: 440 })
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => layoutOf(transcript)).toEqual({ x: 40, y: 40, width: 460, height: 440 })
+    await saved
+
+    await topBar.switchToWorkspace('In Lecture')
+    await topBar.expectActiveWorkspace('In Lecture')
+    await topBar.switchToWorkspace('Evening Review')
+    await topBar.expectActiveWorkspace('Evening Review')
+    await grid.expectPanelCount(4)
+    expect(await layoutOf(grid.panelByLabel('Transcript'))).toEqual({ x: 40, y: 40, width: 460, height: 440 })
+  })
+
   test('dragging a handle resizes the widget on the grid and keeps it at its minimum', async ({ page }) => {
     const grid = await openEveningReview(page)
     const weekly = grid.panelByLabel('Your Progress')
