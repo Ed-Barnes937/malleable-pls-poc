@@ -1,4 +1,4 @@
-import { type ComponentProps } from 'react'
+import { type ComponentProps, type ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import {
   MenuContent as UiMenuContent,
@@ -53,7 +53,7 @@ export function MenuItem({ className, ...props }: Styled<ComponentProps<typeof U
  * announced as checked. Closes the menu when picked (UI SDK's radio items stay
  * open by default; a one-of-three setting is done once chosen).
  */
-export function MenuRadioItem({ className, children, closeOnSelect = true, ...props }: Styled<ComponentProps<typeof UiMenuRadioItem>>) {
+export function MenuRadioItem({ className, children, closeOnSelect = true, ...props }: Omit<Styled<ComponentProps<typeof UiMenuRadioItem>>, 'children'> & { children?: ReactNode }) {
   return (
     <UiMenuRadioItem
       closeOnSelect={closeOnSelect}
