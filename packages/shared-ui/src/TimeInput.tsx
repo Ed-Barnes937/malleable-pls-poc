@@ -22,6 +22,8 @@ export interface TimeInputProps {
   min?: string
   max?: string
   disabled?: boolean
+  /** Shown and focusable, but takes no edits (not greyed out). */
+  readOnly?: boolean
   className?: string
 }
 
@@ -47,13 +49,14 @@ export function TimeInput({
   min,
   max,
   disabled,
+  readOnly,
   className,
 }: TimeInputProps) {
   const [controller] = useState(() => createTimeInputController())
   const minuteStep = Number.isInteger(step) && step > 0 ? step : 1
 
   function onKeyDownCapture(event: KeyboardEvent<HTMLElement>) {
-    if (minuteStep === 1 || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+    if (minuteStep === 1 || readOnly || disabled || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     const segment = (event.target as HTMLElement).closest('[data-slot="time-input-segment"]')
     if (segment?.getAttribute('data-type') !== 'minute') return
@@ -75,6 +78,7 @@ export function TimeInput({
         min={min}
         max={max}
         disabled={disabled}
+        readOnly={readOnly}
         className={cn(
           'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}

@@ -24,6 +24,9 @@ export interface DatePickerProps {
   min?: string
   max?: string
   disabled?: boolean
+  /** Shown and focusable, and its calendar opens, but no date can be picked or typed. */
+  readOnly?: boolean
+  /** On the root; `w-full` makes the field fill the row. */
   className?: string
 }
 
@@ -43,6 +46,7 @@ export function DatePicker({
   min,
   max,
   disabled,
+  readOnly,
   className,
 }: DatePickerProps) {
   return (
@@ -52,11 +56,12 @@ export function DatePicker({
       min={min}
       max={max}
       disabled={disabled}
+      readOnly={readOnly}
       className={cn('inline-flex items-center gap-1', className)}
     >
       <DatePickerInput
         aria-label={label}
-        className="h-10 w-36 rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50"
+        className="h-10 w-36 min-w-0 flex-1 rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50"
       />
       <DatePickerTrigger
         aria-label={`Choose ${label.toLowerCase()} from calendar`}
