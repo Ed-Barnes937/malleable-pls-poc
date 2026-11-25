@@ -117,6 +117,19 @@ test('AlertDialog: focus starts on Cancel, a press outside does nothing, Escape 
   expect(events).toEqual(['alert:confirmed'])
 })
 
+test('AlertDialog: the page takes a press as soon as it closes', async ({ mount, page }) => {
+  const events: string[] = []
+  await mount(<Overlays onEvent={(e) => events.push(e)} />)
+  await page.getByRole('button', { name: 'Delete board' }).click()
+  const alert = page.getByRole('alertdialog', { name: 'Delete board?' })
+  await expect(alert.getByRole('button', { name: 'Cancel' })).toBeFocused()
+  const ask = await page.getByRole('button', { name: 'Delete block' }).boundingBox()
+  await page.keyboard.press('Escape')
+  // At once, while it fades out: the closing alert doesn't eat the press.
+  await page.mouse.click(ask!.x + ask!.width / 2, ask!.y + ask!.height / 2)
+  await expect(page.getByRole('alertdialog', { name: 'Delete it?' })).toBeVisible()
+})
+
 test('useConfirm by keyboard: Enter on Cancel answers no, Tab then Enter answers yes', async ({ mount, page }) => {
   const events: string[] = []
   await mount(<Overlays onEvent={(e) => events.push(e)} />)

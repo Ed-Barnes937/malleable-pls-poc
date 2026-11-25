@@ -63,6 +63,21 @@ export function StackedDialogs() {
   )
 }
 
+/** A dialog and, on the page behind it, a button that counts its presses. */
+export function DialogBesidePage() {
+  const [open, setOpen] = useState(false)
+  const [presses, setPresses] = useState(0)
+  return (
+    <div className="flex gap-3 p-6">
+      <button type="button" onClick={() => setOpen(true)}>New board</button>
+      <button type="button" onClick={() => setPresses((n) => n + 1)}>Pressed {presses}</button>
+      <Dialog open={open} onClose={() => setOpen(false)} title="New board">
+        <input aria-label="Name" />
+      </Dialog>
+    </div>
+  )
+}
+
 /** One of each overlay, as the app would use them. `onEvent` reports what ran. */
 export function Overlays({ onEvent = () => {} }: { onEvent?: (event: string) => void }) {
   const [alertOpen, setAlertOpen] = useState(false)

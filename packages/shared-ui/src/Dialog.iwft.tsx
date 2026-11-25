@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Locator, Page } from '@playwright/test'
-import { DialogFromPopover, StackedDialogs } from './overlay-harness'
+import { DialogBesidePage, DialogFromPopover, StackedDialogs } from './overlay-harness'
 import { THEMES, setTheme, tokenColor } from './ct-themes'
 
 /** The name of the dialog painted at the centre of `box`, or null. */
@@ -109,5 +109,18 @@ test('a press on the backdrop closes it', async ({ mount, page }) => {
   const dialog = page.getByRole('dialog', { name: 'Automations' })
   await expect(dialog).toBeVisible()
   await page.mouse.click(10, 10)
+  await expect(dialog).toBeHidden()
+})
+
+test('the page takes a press as soon as the dialog closes', async ({ mount, page }) => {
+  await mount(<DialogBesidePage />)
+  await page.getByRole('button', { name: 'New board' }).click()
+  const dialog = page.getByRole('dialog', { name: 'New board' })
+  await expect(dialog.getByRole('button', { name: 'Close' })).toBeFocused()
+  const pressed = await boxOf(page.getByRole('button', { name: 'Pressed 0' }))
+  await page.keyboard.press('Escape')
+  // At once, as a quick hand would, while it fades out: the closing dialog doesn't eat the press.
+  await page.mouse.click(pressed.x + pressed.width / 2, pressed.y + pressed.height / 2)
+  await expect(page.getByRole('button', { name: 'Pressed 1' })).toBeVisible()
   await expect(dialog).toBeHidden()
 })
