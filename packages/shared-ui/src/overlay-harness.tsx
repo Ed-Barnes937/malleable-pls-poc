@@ -45,3 +45,21 @@ export function DialogFromPopover() {
     </div>
   )
 }
+
+/** A dialog that opens a second one beside it (AutomationDialog and its WorkflowEditor). */
+export function StackedDialogs() {
+  const [first, setFirst] = useState(false)
+  const [second, setSecond] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setFirst(true)}>Automations</button>
+      <Dialog open={first} onClose={() => setFirst(false)} title="Automations">
+        <button type="button" onClick={() => setSecond(true)}>Edit</button>
+        <button type="button">Delete</button>
+      </Dialog>
+      <Dialog open={second} onClose={() => setSecond(false)} title="Edit automation">
+        <input aria-label="Sentence" />
+      </Dialog>
+    </>
+  )
+}

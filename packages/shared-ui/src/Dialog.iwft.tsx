@@ -1,5 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/experimental-ct-react'
-import { DialogFromPopover } from './overlay-harness'
+import { DialogFromPopover, StackedDialogs } from './overlay-harness'
+import { THEMES, setTheme } from './ct-themes'
 
 /** The name of the dialog painted at the centre of `box`, or null. */
 async function topmostAt(page: Page, box: { x: number; y: number; width: number; height: number }) {
@@ -40,4 +41,72 @@ test('a dialog opened from a popover stacks above it', async ({ mount, page }) =
   await dialog.getByRole('button', { name: 'Close' }).click()
   await expect(dialog).toBeHidden()
   await expect(popover).toBeVisible()
+})
+
+for (const theme of THEMES) {
+  test(`renders from our tokens in the ${theme.name} theme`, async ({ mount, page }) => {
+    await setTheme(page, theme.name)
+    await mount(<StackedDialogs />)
+    await page.getByRole('button', { name: 'Automations' }).click()
+    const dialog = page.getByRole('dialog', { name: 'Automations' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog).toHaveCSS('background-color', theme.surfaceRaised)
+    await expect(dialog).toHaveCSS('color', theme.textPrimary)
+    await expect(dialog).toHaveCSS('border-radius', '20px')
+    // Centred in the viewport.
+    const box = await boxOf(dialog)
+    const viewport = page.viewportSize()!
+    expect(Math.abs(box.x + box.width / 2 - viewport.width / 2)).toBeLessThan(2)
+    expect(Math.abs(box.y + box.height / 2 - viewport.height / 2)).toBeLessThan(2)
+  })
+}
+
+test('Escape closes only the topmost of two dialogs, and focus goes back each time', async ({ mount, page }) => {
+  await mount(<StackedDialogs />)
+  const opener = page.getByRole('button', { name: 'Automations' })
+  await opener.focus()
+  await page.keyboard.press('Enter')
+  const first = page.getByRole('dialog', { name: 'Automations' })
+  await expect(first).toBeVisible()
+
+  const edit = first.getByRole('button', { name: 'Edit' })
+  await edit.focus()
+  await page.keyboard.press('Enter')
+  const second = page.getByRole('dialog', { name: 'Edit automation' })
+  await expect(second.getByRole('button', { name: 'Close' })).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(second).toBeHidden()
+  await expect(first).toBeVisible()
+  await expect(edit).toBeFocused()
+
+  await page.keyboard.press('Escape')
+  await expect(first).toBeHidden()
+  await expect(opener).toBeFocused()
+})
+
+test('Tab and Shift+Tab stay inside the dialog', async ({ mount, page }) => {
+  await mount(<StackedDialogs />)
+  await page.getByRole('button', { name: 'Automations' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Automations' })
+  const close = dialog.getByRole('button', { name: 'Close' })
+  const del = dialog.getByRole('button', { name: 'Delete' })
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Edit' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(del).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(del).toBeFocused()
+})
+
+test('a press on the backdrop closes it', async ({ mount, page }) => {
+  await mount(<StackedDialogs />)
+  await page.getByRole('button', { name: 'Automations' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Automations' })
+  await expect(dialog).toBeVisible()
+  await page.mouse.click(10, 10)
+  await expect(dialog).toBeHidden()
 })
