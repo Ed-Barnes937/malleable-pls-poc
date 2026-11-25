@@ -34,3 +34,6 @@ export {
 
 // Colour scheme (K1b)
 export { colorScheme, followTheme, resolvedTheme, useColorScheme, type Theme, type ThemeChoice } from './theme'
+
+// Toast (K1b)
+export { ToastBar, createToaster, type ToastBarProps, type Toaster, type ToastData } from './Toast'

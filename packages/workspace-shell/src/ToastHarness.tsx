@@ -1,0 +1,23 @@
+import { ArrowLeft } from 'lucide-react'
+import { ShellProviders } from '../../../playwright/mount-wrapper'
+import { ToastHost, useToastStore } from './toast'
+
+/** Test fixture for the toast bar (component tests only): buttons that push toasts, and the bar. */
+export function ToastHarness({ durationMs, onAction }: { durationMs?: number; onAction?: () => void }) {
+  const push = useToastStore((s) => s.push)
+  const base = durationMs === undefined ? {} : { durationMs }
+  return (
+    <ShellProviders>
+      <div className="flex h-screen flex-col">
+        <div className="flex-1 p-4">
+          <button type="button" onClick={() => push({ message: 'Transcript added', tone: 'success', ...base })}>Add plain</button>
+          <button type="button" onClick={() => push({ message: 'Opened in In Lecture', tone: 'success', ...base, action: { label: 'Back to My week', icon: ArrowLeft, onClick: () => onAction?.() } })}>Add with action</button>
+          <button type="button" onClick={() => push({ message: 'Widget added', tone: 'success', key: 'widget', ...base })}>Add keyed</button>
+          <button type="button" onClick={() => push({ message: 'Stays until dismissed', tone: 'success', durationMs: null })}>Add forever</button>
+          <button type="button" onClick={() => push({ message: 'Could not save', tone: 'error', ...base })}>Add error</button>
+        </div>
+        <ToastHost />
+      </div>
+    </ShellProviders>
+  )
+}
