@@ -1,10 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
 import { RevealCallout } from './RevealCallout'
+import { bindHold, stackSpans } from '@ui-sdk/core'
+import { useGridSpans, type GridSpan } from './spike-spans'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
@@ -117,23 +119,6 @@ function opacityFor(dimmed: boolean | undefined, done: boolean): string | false 
 const DRAG_THRESHOLD_PX = 4
 const GUTTER = 'w-12'
 
-type Drag =
-  | { type: 'create'; dayIndex: number; fromMin: number; toMin: number; x: number; y: number; moved: boolean }
-  | {
-      type: 'move' | 'resize'
-      item: PlanItemOccurrence
-      grabOffsetMs: number
-      start: Date
-      end: Date
-      x: number
-      y: number
-      moved: boolean
-      /** The press closed this block's own popover: a click (no move) leaves it closed. */
-      closedOwnPopover: boolean
-      /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
-      span: { top: number; bottom: number }
-    }
-
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
@@ -148,7 +133,6 @@ export function TimeGrid({
   const userScrolled = useRef(false)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
-  const [drag, setDrag] = useState<Drag | null>(null)
   /**
    * A touch tap just opened a popover. The tap's mouse events and click come
    * after pointerup, at the point tapped, where the popover now is (on a
@@ -208,6 +192,89 @@ export function TimeGrid({
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // SPIKE: createSpans owns move / resize / draw. `localStorage['spike-touch'] = 'hold'`
+  // switches touch to long-press-to-drag (tracks pan-y, swipes scroll).
+  const holdMode = useMemo(() => typeof localStorage !== 'undefined' && localStorage.getItem('spike-touch') === 'hold', [])
+  const { spans, state: spanState } = useGridSpans(segments, {
+    days: () => days.length,
+    disabled: (s) => !s.seg || !isMovable(s.seg.item) || (ghostId(s.seg.item) != null && (savedProposalIds?.has(ghostId(s.seg.item)!) ?? false)),
+    label: (s) => `${s.seg?.item.title ?? 'New block'}, ${formatWeekday(days[Number(s.track)])} ${formatSpan(atMinutes(days[Number(s.track)], s.start), atMinutes(days[Number(s.track)], s.end))}`,
+    commit: (next, before, action, event) => {
+      const day = days[Number(next.track)]
+      const log = (window as unknown as { __spikeCommits?: unknown[] }).__spikeCommits ??= []
+      if (action === 'draw') {
+        const top = areaRef.current!.getBoundingClientRect().top
+        const pe = event as PointerEvent | undefined
+        log.push({ action, track: next.track, start: next.start, end: next.end })
+        onCreate(atMinutes(day, next.start), atMinutes(day, next.end), {
+          clientX: pe?.clientX ?? 0, clientY: pe?.clientY ?? 0,
+          span: { top: top + (next.start / 60) * hourPx, bottom: top + (next.end / 60) * hourPx },
+        })
+        return false as const
+      }
+      if (!before?.seg || (action !== 'move' && action !== 'resize')) return false
+      const item = before.seg.item
+      let start = Date.parse(item.starts_at!)
+      let end = Date.parse(item.ends_at!)
+      if (action === 'move') {
+        // A segment's move shifts the whole block (both segments of one across midnight).
+        const delta = (next.start - before.start) * 60_000 + (Number(next.track) - Number(before.track)) * 86_400_000
+        start += delta
+        end += delta
+      } else {
+        // A resize edits the edge it moved, on that segment's day.
+        if (next.end !== before.end) end = atMinutes(day, next.end).getTime()
+        if (next.start !== before.start) start = atMinutes(day, next.start).getTime()
+      }
+      log.push({ action, title: item.title, start: new Date(start).toISOString(), end: new Date(end).toISOString() })
+      const ghost = ghostId(item)
+      if (ghost) onProposalMove?.(ghost, new Date(start), new Date(end))
+      else onMove(item, new Date(start), new Date(end))
+      return { ...item, starts_at: new Date(start).toISOString(), ends_at: new Date(end).toISOString() }
+    },
+  })
+  const shownSpans = spans.spans(spanState)
+  const lanes = useMemo(() => stackSpans(shownSpans), [shownSpans])
+  const spanDown = (e: ReactPointerEvent, id: string) => {
+    if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
+    if (holdMode && e.pointerType === 'touch') return
+    spans.spanPointerdown(e.nativeEvent, id)
+  }
+  const trackDown = (e: ReactPointerEvent, track: string) => {
+    if (closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
+    if (holdMode && e.pointerType === 'touch') return
+    spans.trackPointerdown(e.nativeEvent, track)
+  }
+  useEffect(() => {
+    if (!holdMode) return
+    const el = areaRef.current
+    if (!el) return
+    let holding = false
+    const unbind = bindHold(el, {
+      delay: 400,
+      onPress: (d) => d.input === 'touch',
+      onHold: (d) => {
+        holding = true
+        const ev = d.event as PointerEvent
+        const target = ev.target as Element
+        const spanEl = target.closest<HTMLElement>('[data-span-id]')
+        if (spanEl) spans.spanPointerdown(ev, spanEl.dataset.spanId!)
+        else {
+          const track = target.closest<HTMLElement>('[data-track]')
+          if (track) spans.trackPointerdown(ev, track.dataset.track!)
+        }
+        return false
+      },
+      onEnd: () => { holding = false },
+    })
+    // Once held, the finger's moves drag instead of scrolling.
+    const noScroll = (e: TouchEvent) => { if (holding && e.cancelable) e.preventDefault() }
+    el.addEventListener('touchmove', noScroll, { passive: false })
+    return () => {
+      unbind()
+      el.removeEventListener('touchmove', noScroll)
+    }
+  }, [holdMode, spans])
   // Short blocks' title captions, per day (see captionSides).
   const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
@@ -260,119 +327,12 @@ export function TimeGrid({
   const markers = useMemo(() => dueMarkers(items, days), [items, days])
   const hasDue = markers.some((m) => m.length > 0)
 
-  // The dragged block's would-be position, laid out like any other block.
-  const preview = useMemo(() => {
-    if (!drag || drag.type === 'create' || !drag.moved || !isMovable(drag.item)) return null
-    const row = { ...drag.item, starts_at: drag.start.toISOString(), ends_at: drag.end.toISOString(), occurrence_key: 'preview' }
-    return layoutDays([row], days)
-  }, [drag, days])
-
   /** Day column and wall-clock minute under the pointer. */
   const pointAt = (clientX: number, clientY: number) => {
     const rect = areaRef.current!.getBoundingClientRect()
     const dayIndex = clamp(Math.floor(((clientX - rect.left) / rect.width) * days.length), 0, days.length - 1)
     const minute = clamp(((clientY - rect.top) / hourPx) * 60, 0, MINUTES_PER_DAY)
     return { dayIndex, minute }
-  }
-
-  const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // A press that closed a popover only closes it: no new block from it.
-    if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    areaRef.current!.setPointerCapture(e.pointerId)
-    setDrag({ type: 'create', dayIndex, fromMin: minute, toMin: minute, x: e.clientX, y: e.clientY, moved: false })
-  }
-
-  const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
-    // A press that only closes a popover (its save is in flight) moves nothing.
-    if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
-    e.stopPropagation()
-    const box = ((e.target as Element).closest('[data-block]') ?? e.currentTarget).getBoundingClientRect()
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    const start = new Date(item.starts_at!)
-    const end = new Date(item.ends_at!)
-    areaRef.current!.setPointerCapture(e.pointerId)
-    setDrag({
-      type,
-      item,
-      grabOffsetMs: atMinutes(days[dayIndex], minute).getTime() - start.getTime(),
-      start,
-      end,
-      x: e.clientX,
-      y: e.clientY,
-      moved: false,
-      closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
-      span: { top: box.top, bottom: box.bottom },
-    })
-  }
-
-  const handleMove = (e: ReactPointerEvent) => {
-    if (!drag) return
-    const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > DRAG_THRESHOLD_PX
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    if (drag.type === 'create') {
-      setDrag({ ...drag, moved, dayIndex: drag.dayIndex, toMin: minute })
-      return
-    }
-    if (!isMovable(drag.item)) {
-      if (moved !== drag.moved) setDrag({ ...drag, moved })
-      return
-    }
-    const original = { start: new Date(drag.item.starts_at!), end: new Date(drag.item.ends_at!) }
-    const pointer = atMinutes(days[dayIndex], minute)
-    if (drag.type === 'move') {
-      const rawStart = new Date(pointer.getTime() - drag.grabOffsetMs)
-      const day = new Date(rawStart.getFullYear(), rawStart.getMonth(), rawStart.getDate())
-      const start = atMinutes(day, snap(wallMinutes(rawStart)))
-      const end = new Date(start.getTime() + (original.end.getTime() - original.start.getTime()))
-      setDrag({ ...drag, moved, start, end })
-    } else {
-      // Resizing stays on the block's own day, whichever column the pointer is over.
-      const day = startOfDay(original.start)
-      const dayEnd = addDays(day, 1).getTime()
-      const pointerDay = startOfDay(days[dayIndex]).getTime()
-      const snapped = pointerDay > day.getTime() ? dayEnd : pointerDay < day.getTime() ? 0 : atMinutes(day, snap(minute)).getTime()
-      const minEnd = original.start.getTime() + SNAP_MIN * 60_000
-      setDrag({ ...drag, moved, start: original.start, end: new Date(clamp(snapped, minEnd, Math.max(minEnd, dayEnd))) })
-    }
-  }
-
-  const handleUp = (e: ReactPointerEvent) => {
-    if (!drag) return
-    setDrag(null)
-    const anchor = { clientX: e.clientX, clientY: e.clientY }
-    if (drag.type === 'create') {
-      const day = days[drag.dayIndex]
-      // A drag makes the block it covers; a tap, an hour from the half hour.
-      const from = drag.moved ? snap(Math.min(drag.fromMin, drag.toMin)) : Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
-      const to = drag.moved ? Math.max(snap(Math.max(drag.fromMin, drag.toMin)), from + SNAP_MIN) : from + 60
-      // Its popover keeps clear of the new block.
-      const top = areaRef.current!.getBoundingClientRect().top
-      onCreate(atMinutes(day, from), atMinutes(day, to), { ...anchor, span: { top: top + (from / 60) * hourPx, bottom: top + (to / 60) * hourPx } })
-      tapOpened.current = e.pointerType === 'touch'
-      return
-    }
-    const ghost = ghostId(drag.item)
-    if (!drag.moved) {
-      // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
-      if (!ghost) {
-        // A click on the block whose popover it just closed leaves it closed (a toggle).
-        if (!drag.closedOwnPopover) {
-          onOpen(drag.item, { ...anchor, span: drag.span })
-          tapOpened.current = e.pointerType === 'touch'
-        }
-      }
-      // A tap or click selects it instead: focused, its buttons show (on a
-      // short ghost they are hidden until then, and touch has no hover).
-      // After the click that follows, which would otherwise take focus away.
-      else requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
-      return
-    }
-    if (!isMovable(drag.item)) return
-    const unchanged = drag.start.getTime() === Date.parse(drag.item.starts_at!) && drag.end.getTime() === Date.parse(drag.item.ends_at!)
-    if (unchanged) return
-    if (ghost) onProposalMove?.(ghost, drag.start, drag.end)
-    else onMove(drag.item, drag.start, drag.end)
   }
 
   // A to-do dragged in from Help me plan (native drag and drop).
@@ -406,10 +366,6 @@ export function TimeGrid({
       }], days)
     : null
 
-  const createDraft = drag?.type === 'create' && drag.moved
-    ? { dayIndex: drag.dayIndex, from: snap(Math.min(drag.fromMin, drag.toMin)), to: snap(Math.max(drag.fromMin, drag.toMin)) }
-    : null
-  const draggingKey = preview && drag?.type !== 'create' ? drag?.item.occurrence_key : undefined
   const cols = { gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }
 
   return (
@@ -518,13 +474,9 @@ export function TimeGrid({
           <div
             ref={areaRef}
             data-testid="calendar-grid"
-            className={cn('relative grid flex-1 select-none', drag?.type === 'create' && 'cursor-ns-resize')}
-            style={{ ...cols, touchAction: 'none' }}
+            className={cn('relative grid flex-1 select-none', spanState.draft?.action === 'draw' && 'cursor-ns-resize')}
+            style={{ ...cols, touchAction: holdMode ? 'pan-y' : 'none' }}
             onPointerDownCapture={() => { tapOpened.current = false }}
-            onPointerDown={startCreate}
-            onPointerMove={handleMove}
-            onPointerUp={handleUp}
-            onPointerCancel={() => setDrag(null)}
             onTouchEnd={(e) => {
               if (!tapOpened.current) return
               tapOpened.current = false
@@ -549,6 +501,9 @@ export function TimeGrid({
               return (
                 <div
                   key={day.toISOString()}
+                  ref={(el) => (el ? spans.bindTrack(el, String(dayIndex)) : undefined)}
+                  data-track={dayIndex}
+                  onPointerDown={(e) => trackDown(e, String(dayIndex))}
                   data-testid="calendar-day"
                   data-date={day.toISOString()}
                   className={cn('relative border-l border-border-subtle', startOfDay(day) < startOfDay(now) && 'bg-past')}
@@ -577,33 +532,61 @@ export function TimeGrid({
                     )
                   })}
 
-                  {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
-                    <GhostBlock
-                      key={seg.key}
-                      seg={seg}
-                      hourPx={hourPx}
-                      saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
-                      lifted={draggingKey === seg.item.occurrence_key}
-                      onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
-                      onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
-                      onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
-                      onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
-                    />
-                  ) : (
-                    <Block
-                      key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
-                      seg={seg}
-                      hourPx={hourPx}
-                      caption={captions[dayIndex].get(seg.key) ?? null}
-                      dimmed={isDimmed(seg.item)}
-                      linked={isLinked(seg.item)}
-                      active={activeKey === seg.item.occurrence_key}
-                      lifted={draggingKey === seg.item.occurrence_key}
-                      glow={revealed?.key === seg.key}
-                      onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
-                      onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
-                    />
-                  ))}
+                  {shownSpans.filter((sp) => sp.track === String(dayIndex)).map((sp: GridSpan) => {
+                    if (!sp.seg) {
+                      return (
+                        <div
+                          key={sp.id}
+                          data-testid="calendar-draft"
+                          className="pointer-events-none absolute inset-x-1 rounded-item bg-accent-soft ring-1 ring-inset ring-accent-line"
+                          style={{ top: (sp.start / 60) * hourPx, height: ((sp.end - sp.start) / 60) * hourPx }}
+                        >
+                          <span className="block px-2 py-0.5 text-meta font-semibold tabular-nums text-accent">
+                            {formatSpan(atMinutes(day, sp.start), atMinutes(day, sp.end))}
+                          </span>
+                        </div>
+                      )
+                    }
+                    const lane = lanes.get(sp.id) ?? { lane: 0, lanes: 1 }
+                    const seg = { ...sp.seg, dayIndex, startMin: sp.start, endMin: sp.end, column: lane.lane, columns: lane.lanes }
+                    const spanProps = {
+                      ref: (el: HTMLDivElement | null) => (el ? spans.bindSpan(el, sp.id) : undefined),
+                      ...spans.spanAttrs(spanState, sp.id),
+                      onPointerDown: (e: ReactPointerEvent) => spanDown(e, sp.id),
+                    }
+                    return ghostId(seg.item) ? (
+                      <GhostBlock
+                        key={sp.id}
+                        seg={seg}
+                        hourPx={hourPx}
+                        saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
+                        lifted={false}
+                        spanProps={spanProps}
+                        onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
+                        onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
+                        onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
+                      />
+                    ) : (
+                      <Block
+                        key={revealed?.key === seg.key ? `${sp.id}:${revealed.requestId}` : sp.id}
+                        seg={seg}
+                        hourPx={hourPx}
+                        caption={captions[dayIndex]?.get(seg.key) ?? null}
+                        dimmed={isDimmed(seg.item)}
+                        linked={isLinked(seg.item)}
+                        active={activeKey === seg.item.occurrence_key}
+                        glow={revealed?.key === seg.key}
+                        spanProps={spanProps}
+                        onSpanKey={(e) => {
+                          // Delete waits for K4's confirm; arrows go to createSpans.
+                          if (e.key === 'Delete' || e.key === 'Backspace') return
+                          spans.keydown(e.nativeEvent, sp.id)
+                        }}
+                        onClickOpen={(anchor) => onOpen(seg.item, anchor)}
+                        onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
+                      />
+                    )
+                  })}
 
                   {segments[dayIndex].filter((seg) => revealed?.key === seg.key).map((seg) => (
                     <RevealCallout
@@ -625,9 +608,6 @@ export function TimeGrid({
                     </div>
                   ))}
 
-                  {preview?.[dayIndex].map((seg) => (
-                    <Block key={seg.key} seg={seg} hourPx={hourPx} preview />
-                  ))}
 
                   {dropPreview?.[dayIndex].map((seg) => (
                     <div
@@ -642,17 +622,6 @@ export function TimeGrid({
                     </div>
                   ))}
 
-                  {createDraft?.dayIndex === dayIndex && createDraft.to > createDraft.from && (
-                    <div
-                      data-testid="calendar-draft"
-                      className="pointer-events-none absolute inset-x-1 rounded-item bg-accent-soft ring-1 ring-inset ring-accent-line"
-                      style={{ top: (createDraft.from / 60) * hourPx, height: ((createDraft.to - createDraft.from) / 60) * hourPx }}
-                    >
-                      <span className="block px-2 py-0.5 text-meta font-semibold tabular-nums text-accent">
-                        {formatSpan(atMinutes(day, createDraft.from), atMinutes(day, createDraft.to))}
-                      </span>
-                    </div>
-                  )}
 
                   {isToday && (
                     <div
@@ -688,11 +657,14 @@ interface BlockProps {
   glow?: boolean
   /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
-  onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
+  /** SPIKE: createSpans' ref, data attributes and pointerdown. */
+  spanProps?: { ref: (el: HTMLDivElement | null) => void; onPointerDown: (e: ReactPointerEvent) => void } & Record<string, unknown>
+  onSpanKey?: (e: ReactKeyboardEvent) => void
+  onClickOpen?: (anchor: Anchor) => void
   onKeyOpen?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, spanProps, onSpanKey, onClickOpen, onKeyOpen }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -728,9 +700,13 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       data-revealed={glow || undefined}
       aria-label={`${item.title}, ${kindLabel.toLowerCase()}, ${formatSpan(start, end)}${done ? ', done' : ''}`}
       title={`${item.title}, ${formatSpan(start, end)}${isCommitment ? ' - fixed, open to edit' : movable ? ' - drag to move' : ''}`}
-      onPointerDown={preview ? undefined : (e) => onPointerDown?.(e, 'move')}
+      {...spanProps}
+      onClick={(e) => {
+        const box = e.currentTarget.getBoundingClientRect()
+        onClickOpen?.({ clientX: e.clientX, clientY: e.clientY, span: { top: box.top, bottom: box.bottom } })
+      }}
       onKeyDown={(e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return
+        if (e.key !== 'Enter' && e.key !== ' ') return onSpanKey?.(e)
         e.preventDefault()
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
         onKeyOpen?.({ clientX: rect.right, clientY: rect.top })
@@ -748,6 +724,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
         linked && 'ring-2 ring-accent shadow-[0_0_0_4px_var(--color-accent-soft)]',
         active && 'ring-2 ring-accent',
         lifted && 'opacity-30',
+        '[&[data-dragging]]:z-30 [&[data-dragging]]:shadow-pop [&[data-resizing]]:z-30 [&[data-resizing]]:shadow-pop',
         preview && 'pointer-events-none z-30 shadow-pop ring-2 ring-accent',
         glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
@@ -816,8 +793,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       {movable && !preview && !compact && (
         <div
           data-testid="calendar-block-resize"
+          data-span-edge="end"
           aria-hidden
-          onPointerDown={(e) => onPointerDown?.(e, 'resize')}
           className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center overflow-hidden opacity-0 transition-opacity group-hover:opacity-100"
           // A third of a short block at most, so most of it still moves the block.
           style={{ height: Math.min(8, Math.floor(height / 3)) }}
@@ -853,7 +830,7 @@ interface GhostBlockProps {
   /** Accepted and saving: drawn until the real block arrives. */
   saved: boolean
   lifted: boolean
-  onPointerDown: (e: ReactPointerEvent, type: 'move' | 'resize') => void
+  spanProps?: { ref: (el: HTMLDivElement | null) => void; onPointerDown: (e: ReactPointerEvent) => void } & Record<string, unknown>
   onAccept: () => void
   onDismiss: () => void
   /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
@@ -863,7 +840,7 @@ interface GhostBlockProps {
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, spanProps, onAccept, onDismiss, onNudge }: GhostBlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
@@ -905,7 +882,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
         action()
       }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
-      onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
+      {...(saved ? {} : spanProps)}
       className={cn(
         'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
         compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
@@ -967,7 +944,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       {!saved && !compact && (
         <div
           aria-hidden
-          onPointerDown={(e) => onPointerDown(e, 'resize')}
+          data-span-edge="end"
           className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
           style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
