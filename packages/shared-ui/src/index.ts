@@ -12,6 +12,13 @@ export { StatusDot, type StatusDotProps, type StatusDotStatus } from './StatusDo
 export { IconButton, type IconButtonProps } from './IconButton'
 export { SectionLabel, type SectionLabelProps } from './SectionLabel'
 export { Switch, type SwitchProps } from './Switch'
+// K1c form controls
+export { Checkbox, type CheckboxProps } from './Checkbox'
+export { SegmentedControl, type SegmentedControlProps, type SegmentedOption } from './SegmentedControl'
+export { Tabs, TabsList, TabsTab, TabsPanel, type TabsListProps } from './Tabs'
+export { TimeInput, type TimeInputProps } from './TimeInput'
+export { DatePicker, type DatePickerProps } from './DatePicker'
+// end K1c form controls
 export { Dialog, type DialogProps } from './Dialog'
 export { Select, type SelectProps } from './Select'
 export { TextField, type TextFieldProps } from './TextField'
