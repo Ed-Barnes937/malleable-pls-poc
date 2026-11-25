@@ -1,7 +1,9 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { act, render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
+import { useState } from 'react'
 import { Dialog } from './Dialog'
+import { checkPattern, settle } from './testing'
 
 describe('Dialog', () => {
   it('does not render when open is false', () => {
@@ -50,7 +52,7 @@ describe('Dialog', () => {
     expect(screen.getByRole('dialog', { name: 'Pick a color' })).toBeInTheDocument()
   })
 
-  it('calls onClose when backdrop is clicked', () => {
+  it('calls onClose when backdrop is clicked', async () => {
     const onClose = vi.fn()
     render(
       <Dialog open={true} onClose={onClose} title="t">
@@ -58,7 +60,8 @@ describe('Dialog', () => {
       </Dialog>,
     )
     const backdrop = screen.getByTestId('dialog-backdrop')
-    fireEvent.click(backdrop)
+    // A whole press (down and up), as UI SDK counts an outside press on release.
+    await userEvent.click(backdrop)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -73,14 +76,16 @@ describe('Dialog', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('calls onClose when Escape is pressed', () => {
+  it('calls onClose when Escape is pressed', async () => {
     const onClose = vi.fn()
     render(
       <Dialog open={true} onClose={onClose} title="t">
         <p>body</p>
       </Dialog>,
     )
-    fireEvent.keyDown(window, { key: 'Escape' })
+    // Pressed where a real key lands: the focused element in the dialog.
+    await act(settle)
+    await userEvent.keyboard('{Escape}')
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
@@ -105,5 +110,23 @@ describe('Dialog', () => {
     const closeBtn = screen.getByRole('button', { name: /close/i })
     await userEvent.click(closeBtn)
     expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('meets the WAI-ARIA modal dialog pattern', async () => {
+    function Harness() {
+      const [open, setOpen] = useState(false)
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Colors</button>
+          <Dialog open={open} onClose={() => setOpen(false)} title="Pick a color">
+            <button type="button">Red</button>
+          </Dialog>
+        </>
+      )
+    }
+    render(<Harness />)
+    await userEvent.click(screen.getByRole('button', { name: 'Colors' }))
+    await act(settle)
+    await checkPattern(screen.getByRole('dialog'), 'dialog')
   })
 })
