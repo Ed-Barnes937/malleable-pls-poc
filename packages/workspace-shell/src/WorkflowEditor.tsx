@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { Dialog, Select, TextField, cn } from '@pls/shared-ui'
-import { Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react'
+import { Dialog, Select, Sortable, SortableHandle, SortableItem, TextField, cn } from '@pls/shared-ui'
+import { Plus, Trash2, ArrowUp, ArrowDown, GripVertical } from 'lucide-react'
 import {
   DEFAULT_REVIEW_PARAMS,
   getAvailableJobTypes,
@@ -16,10 +16,15 @@ const JOB_LABELS = new Map(getAvailableJobTypes().map((j) => [j.type, j.label]))
 const DAY_MS = 86400000
 
 interface JobDraft {
+  /** Stable while the editor is open, so a step keeps its place when others move. */
+  id: string
   jobType: string
   delayMs: number
   params: Record<string, unknown>
 }
+
+let nextStepId = 0
+const newStepId = () => `step-${++nextStepId}`
 
 function defaultParams(jobType: string): Record<string, unknown> {
   return jobType === REVIEW_TASK_JOB ? { ...DEFAULT_REVIEW_PARAMS } : {}
@@ -47,7 +52,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
   const [conditionValue, setConditionValue] = useState(() => workflow?.condition_value ?? '')
   const [jobs, setJobs] = useState<JobDraft[]>(
     () =>
-      workflow?.jobs.map((j) => ({ jobType: j.job_type, delayMs: j.delay_ms, params: j.params ?? {} })) ?? [],
+      workflow?.jobs.map((j) => ({ id: newStepId(), jobType: j.job_type, delayMs: j.delay_ms, params: j.params ?? {} })) ?? [],
   )
 
   const createWorkflow = useCreateWorkflow()
@@ -63,7 +68,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
   const addJob = () => {
     const used = new Set(jobs.map((j) => j.jobType))
     const next = jobTypes.find((t) => !used.has(t.type)) ?? jobTypes[0]
-    if (next) setJobs((prev) => [...prev, { jobType: next.type, delayMs: 0, params: defaultParams(next.type) }])
+    if (next) setJobs((prev) => [...prev, { id: newStepId(), jobType: next.type, delayMs: 0, params: defaultParams(next.type) }])
   }
 
   const removeJob = (idx: number) => setJobs((prev) => prev.filter((_, i) => i !== idx))
@@ -77,6 +82,13 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
       return next
     })
   }
+
+  /** The order a drop (or keyboard move) of a step asks for. */
+  const reorderJobs = (ids: string[]) =>
+    setJobs((prev) => {
+      const byId = new Map(prev.map((j) => [j.id, j]))
+      return ids.map((id) => byId.get(id)).filter((j): j is JobDraft => !!j)
+    })
 
   const updateJob = (idx: number, patch: Partial<JobDraft>) =>
     setJobs((prev) => prev.map((j, i) => (i === idx ? { ...j, ...patch } : j)))
@@ -181,9 +193,25 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
               {jobTypes.length === 0 ? 'Nothing can run after this yet' : 'No steps yet - add at least one'}
             </p>
           ) : (
-            <div className="flex flex-col gap-1.5">
-              {jobs.map((job, idx) => (
-                <div key={idx} className="flex flex-wrap items-center gap-1.5 rounded-item bg-surface-inset p-2">
+            <Sortable
+              aria-label="Steps"
+              value={jobs.map((j) => j.id)}
+              onValueChange={reorderJobs}
+              label={(id) => `"${JOB_LABELS.get(jobs.find((j) => j.id === id)?.jobType ?? '') ?? 'Step'}" step`}
+              className="flex flex-col gap-1.5"
+            >
+              {({ order }) =>
+                order.map((id) => {
+                  const idx = jobs.findIndex((j) => j.id === id)
+                  const job = jobs[idx]
+                  if (!job) return null
+                  return (
+                <SortableItem
+                  key={id}
+                  value={id}
+                  data-testid="workflow-step"
+                  className="flex flex-wrap items-center gap-1.5 rounded-item bg-surface-inset p-2"
+                >
                   <select
                     value={job.jobType}
                     onChange={(e) => updateJob(idx, { jobType: e.target.value, params: defaultParams(e.target.value) })}
@@ -196,6 +224,13 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                       </option>
                     ))}
                   </select>
+                  <SortableHandle
+                    aria-label={`Drag to reorder step ${idx + 1}`}
+                    title="Drag to reorder"
+                    className={cn(stepButton, 'cursor-grab touch-none')}
+                  >
+                    <GripVertical className="h-4 w-4" />
+                  </SortableHandle>
                   <label className="mr-auto flex items-center gap-1.5 text-meta text-text-muted">
                     Wait
                     <input
@@ -237,9 +272,11 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
-                </div>
-              ))}
-            </div>
+                </SortableItem>
+                  )
+                })
+              }
+            </Sortable>
           )}
         </div>
 
