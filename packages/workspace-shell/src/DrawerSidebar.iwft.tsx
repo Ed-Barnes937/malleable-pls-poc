@@ -163,3 +163,36 @@ test('the page takes a press, and the menu reopens, the moment it is closed', as
   await page.waitForTimeout(600)
   await expect(menu).toBeVisible()
 })
+
+test('dragging a widget tile keeps the tile laid out through the dragstart task, then the menu closes', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <BoardMenuHarness />
+    </ShellProviders>,
+  )
+  const menu = page.getByRole('dialog', { name: 'Board menu' })
+  await page.getByRole('button', { name: 'Open board menu' }).click()
+  await expect(menu).toBeVisible()
+  const tile = menu.getByRole('button', { name: 'Add Transcript', exact: true })
+
+  // A drag source hidden while dragstart is still being handled cancels the
+  // native drag in Chrome, so the tile must still have a size on the next task.
+  const sizes = await tile.evaluate(async (el) => {
+    const size = () => {
+      const r = el.getBoundingClientRect()
+      return [r.width, r.height]
+    }
+    el.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }))
+    const sync = size()
+    await Promise.resolve()
+    const microtask = size()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const macrotask = size()
+    return { sync, microtask, macrotask }
+  })
+  for (const [w, h] of Object.values(sizes)) {
+    expect(w).toBeGreaterThan(0)
+    expect(h).toBeGreaterThan(0)
+  }
+  await expect(menu).toBeHidden()
+})

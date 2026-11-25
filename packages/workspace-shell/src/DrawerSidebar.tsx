@@ -197,9 +197,11 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
     return opener?.isConnected ? opener : document.querySelector<HTMLElement>('[data-testid="drawer-trigger"]')
   }, [])
 
-  // Dragging needs the board uncovered, so the drawer gets out of the way.
+  // Dragging needs the board uncovered, so the drawer gets out of the way. Not
+  // inside dragstart itself: hiding the drag source while the event is handled
+  // makes Chrome cancel the drag, so close on a later task.
   const handleWidgetDragStart = useCallback(() => {
-    onClose()
+    setTimeout(onClose, 0)
   }, [onClose])
 
   return (
