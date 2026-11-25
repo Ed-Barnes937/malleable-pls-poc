@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test'
 /** Both app themes (index.css). */
 export const THEMES = ['light', 'dark'] as const
 
-/** Switches the theme the way ThemeToggle does. */
+/** Switches the theme the way the theme menu does. */
 export async function setTheme(page: Page, name: (typeof THEMES)[number]) {
   await page.evaluate((theme) => document.documentElement.setAttribute('data-theme', theme), name)
 }
