@@ -91,6 +91,29 @@ test('Drawer by keyboard: Enter opens it, Tab stays inside, Escape closes it bac
   await expect(trigger).toBeFocused()
 })
 
+test('Drawer: still on screen, sliding out, just after Escape, then gone', async ({ mount, page }) => {
+  await mount(<Overlays />)
+  await page.getByRole('button', { name: 'Activity' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Activity' })
+  await expect(drawer.getByRole('button', { name: 'Close' })).toBeFocused()
+  await expect(drawer).toBeVisible()
+  await page.keyboard.press('Escape')
+  // Mid-exit: still painted, not removed at once.
+  await expect(drawer).toBeVisible({ timeout: 100 })
+  await expect(drawer).toBeHidden()
+})
+
+test('Drawer: the page takes a press as soon as it closes, while it slides out', async ({ mount, page }) => {
+  await mount(<Overlays />)
+  await page.getByRole('button', { name: 'Activity' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Activity' })
+  await expect(drawer.getByRole('button', { name: 'Close' })).toBeFocused()
+  const ask = await page.getByRole('button', { name: 'Delete block' }).boundingBox()
+  await page.keyboard.press('Escape')
+  await page.mouse.click(ask!.x + ask!.width / 2, ask!.y + ask!.height / 2)
+  await expect(page.getByRole('alertdialog', { name: 'Delete it?' })).toBeVisible()
+})
+
 test('Tooltip shows on keyboard focus and Escape hides it', async ({ mount, page }) => {
   await mount(<Overlays />)
   await page.getByRole('button', { name: 'Delete board' }).focus()
