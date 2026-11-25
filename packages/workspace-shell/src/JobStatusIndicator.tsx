@@ -1,9 +1,8 @@
-import { createPortal } from 'react-dom'
 import { useRunningJobCount, useRecentJobs, useRetryJob } from '@pls/substrate-client'
 import { getAvailableJobTypes } from '@pls/substrate'
 import { Zap, X, RotateCcw } from 'lucide-react'
-import { cn, StatusDot, SectionLabel, useFocusTrap } from '@pls/shared-ui'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { cn, Drawer, DrawerClose, DrawerContent, DrawerTitle, DrawerTrigger, StatusDot, SectionLabel } from '@pls/shared-ui'
+import { useState, useEffect } from 'react'
 
 const JOB_LABELS: Record<string, string> = Object.fromEntries(
   getAvailableJobTypes().map((j) => [j.type, j.label]),
@@ -127,38 +126,17 @@ function FailedJobDetails({ job }: { job: JobRow }) {
   )
 }
 
-function ActivityDrawer({ onClose }: { onClose: () => void }) {
+/**
+ * What Activity shows, inside its Drawer. Mounted only while the drawer is
+ * open, so the job list is fetched, and the clock ticks, only then.
+ */
+function ActivityPanel() {
   const { data: jobs } = useRecentJobs(20)
   const [now, setNow] = useState(() => Date.now())
 
   const rows = jobs ?? []
   const running = rows.filter((j) => j.status === 'running' || j.status === 'pending')
   const finished = rows.filter((j) => j.status === 'completed' || j.status === 'failed')
-
-  const closeRef = useRef<HTMLButtonElement>(null)
-  const panelRef = useRef<HTMLElement>(null)
-  useFocusTrap(panelRef)
-
-  // Escape closes Activity alone, even when the board menu (which opens it
-  // on a phone) is open underneath: caught first, and marked handled.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape') return
-      e.preventDefault()
-      onClose()
-    }
-    document.addEventListener('keydown', handler, true)
-    return () => document.removeEventListener('keydown', handler, true)
-  }, [onClose])
-
-  // Focus moves in, and back to the Activity button on close.
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null
-    closeRef.current?.focus()
-    return () => {
-      if (opener?.isConnected) opener.focus()
-    }
-  }, [])
 
   // Tick once a second while jobs are running so elapsed time stays live.
   useEffect(() => {
@@ -167,100 +145,85 @@ function ActivityDrawer({ onClose }: { onClose: () => void }) {
     return () => clearInterval(handle)
   }, [running.length])
 
-  return createPortal(
+  return (
     <>
-      {/* Above the top bar (z 9999) and the board menu (10000-10001), which
-          opens it on a phone. Tapping beside the panel closes it. */}
-      <div data-testid="activity-backdrop" className="fixed inset-0 z-[10002] bg-scrim-light" onClick={onClose} />
-      <aside
-        ref={panelRef}
-        className="fixed bottom-0 right-0 top-0 z-[10003] flex w-80 max-w-[calc(100vw-48px)] flex-col rounded-l-widget bg-surface-raised shadow-pop"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Activity"
-      >
-        <div className="flex items-center justify-between px-5 pt-4 pb-2">
-          <div className="flex items-center gap-2">
-            <Zap className="h-4 w-4 text-accent" />
-            <h2 className="text-title font-semibold text-text-primary">Activity</h2>
-          </div>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Close activity"
-            title="Close activity"
-            className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
-          >
-            <X className="h-4 w-4" />
-          </button>
+      <div className="flex items-center justify-between px-5 pt-4 pb-2">
+        <div className="flex items-center gap-2">
+          <Zap className="h-4 w-4 text-accent" />
+          <DrawerTitle>Activity</DrawerTitle>
         </div>
+        <DrawerClose
+          aria-label="Close activity"
+          title="Close activity"
+          className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <X className="h-4 w-4" />
+        </DrawerClose>
+      </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {rows.length === 0 ? (
-            <div className="px-6 py-8 text-center text-body text-text-muted">
-              Nothing here yet. When an automation runs, like transcribing a lecture, you can follow it here.
-            </div>
-          ) : (
-            <>
-              {running.length > 0 && (
-                <div>
-                  <div className="px-5 pt-3 pb-1">
-                    <SectionLabel>In progress</SectionLabel>
-                  </div>
-                  {running.map((job) => (
-                    <JobItem key={job.id} job={job} now={now} />
-                  ))}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {rows.length === 0 ? (
+          <div className="px-6 py-8 text-center text-body text-text-muted">
+            Nothing here yet. When an automation runs, like transcribing a lecture, you can follow it here.
+          </div>
+        ) : (
+          <>
+            {running.length > 0 && (
+              <div>
+                <div className="px-5 pt-3 pb-1">
+                  <SectionLabel>In progress</SectionLabel>
                 </div>
-              )}
-              {finished.length > 0 && (
-                <div>
-                  <div className="px-5 pt-3 pb-1">
-                    <SectionLabel>Recent</SectionLabel>
-                  </div>
-                  {finished.map((job) => (
-                    <JobItem key={job.id} job={job} now={now} />
-                  ))}
+                {running.map((job) => (
+                  <JobItem key={job.id} job={job} now={now} />
+                ))}
+              </div>
+            )}
+            {finished.length > 0 && (
+              <div>
+                <div className="px-5 pt-3 pb-1">
+                  <SectionLabel>Recent</SectionLabel>
                 </div>
-              )}
-            </>
-          )}
-        </div>
-      </aside>
-    </>,
-    document.body,
+                {finished.map((job) => (
+                  <JobItem key={job.id} job={job} now={now} />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
   )
 }
 
+/**
+ * The Activity button and its drawer. The drawer is a layer of its own, so when
+ * this sits inside the board menu (on a phone) it opens over it: Escape or a
+ * press outside closes Activity alone, and focus returns to this button.
+ */
 export function JobStatusIndicator() {
   const { data: count } = useRunningJobCount()
-  const [showDrawer, setShowDrawer] = useState(false)
   const isActive = (count ?? 0) > 0
-
-  const toggle = useCallback(() => setShowDrawer((v) => !v), [])
   const label = isActive ? `Activity: ${count} running` : 'Activity'
 
   return (
-    <>
-      <button
-        type="button"
+    <Drawer side="right">
+      <DrawerTrigger
         data-testid="activity-button"
-        onClick={toggle}
         aria-label={label}
-        aria-haspopup="dialog"
-        aria-expanded={showDrawer}
+        title={label}
         className={cn(
-          'flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-control px-2 text-meta transition-colors',
+          'flex h-9 min-w-9 items-center justify-center gap-1.5 rounded-control px-2 text-meta transition-colors focus-visible:outline-2 focus-visible:outline-accent',
           isActive
             ? 'text-accent hover:bg-accent-soft'
             : 'text-text-secondary hover:bg-surface-overlay hover:text-text-primary',
         )}
-        title={label}
       >
         <Zap className={cn('h-[18px] w-[18px]', isActive && 'animate-pulse')} />
         {isActive && <span>{count} running</span>}
-      </button>
-      {showDrawer && <ActivityDrawer onClose={() => setShowDrawer(false)} />}
-    </>
+      </DrawerTrigger>
+      <DrawerContent data-testid="activity-drawer">
+        <ActivityPanel />
+      </DrawerContent>
+    </Drawer>
   )
 }

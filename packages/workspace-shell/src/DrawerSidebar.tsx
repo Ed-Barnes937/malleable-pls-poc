@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
 import {
   useWorkspaces,
@@ -8,7 +8,7 @@ import {
   useFocusedRecording,
   decodeScope,
 } from '@pls/substrate-client'
-import { COURSES, SectionLabel, Select, useNarrowScreen, useFocusTrap } from '@pls/shared-ui'
+import { COURSES, Drawer, DrawerClose, DrawerContent, DrawerTitle, SectionLabel, Select, useNarrowScreen } from '@pls/shared-ui'
 import { useActiveWorkspaceId } from './activeBoard'
 import { useManifests, type ScopeDim } from '@pls/lens-framework'
 import { useBoardScopeDims } from './useBoardScopeDims'
@@ -120,7 +120,8 @@ function WidgetPalette({
   )
 
   return (
-    <div className="flex flex-col gap-3">
+    // Tiles are dragged onto the board (native drag and drop); keep the drawer's own swipe off them.
+    <div data-drawer-no-drag className="flex flex-col gap-3">
       {groupWidgets(manifests).map((group) => (
         <div key={group.id} data-testid={`widget-group-${group.id}`} role="group" aria-label={group.label}>
           <div className="mb-1.5 px-1 text-meta font-semibold text-text-muted">{group.label}</div>
@@ -167,11 +168,12 @@ export interface DrawerSidebarProps {
   onAddWidget: (lensType: string) => void
 }
 
+/**
+ * The board menu: a modal sheet from the left (shared Drawer). Escape, a press
+ * on the page beside it, or its Close button close it. Activity, opened from
+ * in here on a phone, is a drawer of its own and closes first.
+ */
 export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps) {
-  const asideRef = useRef<HTMLElement>(null)
-  // Modal while open: focus stays in the menu (or in Activity, opened from it).
-  useFocusTrap(asideRef, open)
-  const previousFocusRef = useRef<Element | null>(null)
   const activeWorkspaceId = useActiveWorkspaceId()
   const { data: boards } = useWorkspaces()
   const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
@@ -179,39 +181,21 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
   // button: Activity, the theme and the board's appearance move in here.
   const narrow = useNarrowScreen()
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      // Activity, opened from in here, closes first.
-      if (e.key === 'Escape' && !e.defaultPrevented) onClose()
-    }
-    document.addEventListener('keydown', handler)
-    return () => document.removeEventListener('keydown', handler)
-  }, [open, onClose])
+  // Where focus was when the menu opened (the menu button, the Showing chip,
+  // the empty board's button). The menu is opened from outside, so it has no
+  // trigger of its own to return to. Read while rendering, before the sheet
+  // takes focus.
+  const openerRef = useRef<Element | null>(null)
+  const wasOpen = useRef(false)
+  if (open && !wasOpen.current) openerRef.current = document.activeElement
+  wasOpen.current = open
 
-  // The menu opens at the top, Showing first. It stays mounted while closed,
-  // so without this it keeps an old scroll position (e.g. the one scroll
-  // anchoring gave it when adding the first widget brought Showing in above).
-  const scrollRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (open && scrollRef.current) scrollRef.current.scrollTop = 0
-  }, [open])
-
-  useEffect(() => {
-    if (open) {
-      previousFocusRef.current = document.activeElement
-      asideRef.current?.focus()
-    } else if (previousFocusRef.current) {
-      // The opener may be gone (e.g. the empty-board button once a widget is
-      // added); fall back to the menu button so focus never drops to <body>.
-      const el = previousFocusRef.current as HTMLElement
-      const target = el.isConnected
-        ? el
-        : document.querySelector<HTMLElement>('[data-testid="drawer-trigger"]')
-      target?.focus()
-      previousFocusRef.current = null
-    }
-  }, [open])
+  // The opener may be gone (e.g. the empty-board button once a widget is
+  // added); fall back to the menu button so focus never drops to <body>.
+  const returnFocusTo = useCallback(() => {
+    const opener = openerRef.current as HTMLElement | null
+    return opener?.isConnected ? opener : document.querySelector<HTMLElement>('[data-testid="drawer-trigger"]')
+  }, [])
 
   // Dragging needs the board uncovered, so the drawer gets out of the way.
   const handleWidgetDragStart = useCallback(() => {
@@ -219,68 +203,31 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
   }, [onClose])
 
   return (
-    <>
-      {/* Backdrop */}
-      {open && (
-        <div
-          data-testid="drawer-backdrop"
-          onClick={onClose}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 10000,
-            background: 'color-mix(in oklab, var(--color-text-primary) 25%, transparent)',
-            transition: 'var(--transition-panel)',
-          }}
-        />
-      )}
-
-      {/* Drawer panel */}
-      <aside
-        ref={asideRef}
-        tabIndex={-1}
-        data-testid="drawer-sidebar"
-        role="dialog"
-        aria-modal={open}
-        aria-label="Board menu"
-        aria-hidden={!open}
-        inert={!open}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          bottom: 0,
-          width: 'min(300px, calc(100vw - 48px))',
-          zIndex: 10001,
-          background: 'var(--color-surface-raised)',
-          boxShadow: open ? 'var(--shadow-pop)' : 'none',
-          transform: open ? 'translateX(0)' : 'translateX(-100%)',
-          transition: `transform var(--transition-panel), box-shadow var(--transition-panel)`,
-          borderRadius: '0 var(--radius-widget) var(--radius-widget) 0',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-        }}
-      >
+    <Drawer
+      side="left"
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
+      <DrawerContent data-testid="drawer-sidebar" initialFocus="content" finalFocus={returnFocusTo}>
         <div className="flex shrink-0 items-center gap-1 px-5 pt-4 pb-2">
-          <h2 className="mr-auto text-title font-semibold text-text-primary">Board menu</h2>
+          <DrawerTitle className="mr-auto">Board menu</DrawerTitle>
           {narrow && (
             <div data-testid="drawer-app-controls" className="flex items-center gap-1">
               <JobStatusIndicator />
               <ThemeToggle />
             </div>
           )}
-          <button
-            type="button"
-            onClick={onClose}
+          <DrawerClose
             aria-label="Close board menu"
             title="Close board menu"
-            className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
+            className="flex h-8 w-8 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent"
           >
             <X className="h-4 w-4" />
-          </button>
+          </DrawerClose>
         </div>
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
             {/* Widgets, scope, automations and appearance all belong to a board. */}
             {boards?.length === 0 && (
@@ -325,7 +272,7 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
             )}
           </div>
         </div>
-      </aside>
-    </>
+      </DrawerContent>
+    </Drawer>
   )
 }
