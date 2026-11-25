@@ -1,11 +1,23 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ComponentType, type ReactNode } from 'react'
-import { motion, useDragControls, useMotionValue } from 'motion/react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from 'react'
+import { usePart, usePrimitive, type PrimitiveHandle } from '@ui-sdk/react/primitive'
 import { useCanvasStore, clampDimensions, persistableLayout, type PanelItem } from './canvas-store'
-import { useShiftKey } from './useShiftKey'
 import { useCanvasKeyboard } from './useCanvasKeyboard'
-import { snapToGrid } from './snap'
 import { PanelChrome } from './PanelChrome'
-import { clampToCanvas, resizeDimensions, anchoredPosition, PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
+import { PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
+import { panelBoard, type PanelBoardCommit } from './panel-board'
+
+type BoardHandle = PrimitiveHandle<typeof panelBoard>
+
+/**
+ * How long after the last key press a keyboard move or resize is saved, so a
+ * held Alt+arrow (key repeat) saves once, not once per step.
+ */
+export const KEY_SAVE_DELAY = 400
+
+/** What a panel is called: its title, else its lens's label. */
+function panelLabel(panel: PanelItem, getLabel?: (lensType: string) => string | undefined): string {
+  return panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
+}
 
 export interface CanvasEngineProps {
   onLayoutChange?: (panels: PanelItem[]) => void
@@ -30,25 +42,103 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const selectedPanelId = useCanvasStore((s) => s.selectedPanelId)
   const exitFocusMode = useCanvasStore((s) => s.exitFocusMode)
   const selectPanel = useCanvasStore((s) => s.selectPanel)
-  const shiftRef = useShiftKey()
   const canvasRef = useRef<HTMLDivElement>(null)
+  const narrow = useNarrowCanvas(canvasRef)
 
-  // Activate keyboard shortcuts (] / [ cycle, f fullscreen, Backspace remove, Escape)
-  useCanvasKeyboard({ onRemovePanel, canvasRef })
+  /* ── Moving and resizing (UI SDK createMove / createResize) ── */
+
+  /** Why the panels last changed through the board, read by the save below. */
+  const lastCommitRef = useRef<PanelBoardCommit['reason'] | null>(null)
+  const onCommit = useCallback(({ boxes, reason }: PanelBoardCommit) => {
+    const { panels: current, movePanel, resizePanel } = useCanvasStore.getState()
+    for (const p of current) {
+      const b = boxes[p.id]
+      if (!b) continue
+      if (b.width !== p.width || b.height !== p.height) {
+        lastCommitRef.current = reason
+        resizePanel(p.id, b.x, b.y, b.width, b.height)
+      } else if (b.x !== p.pos_x || b.y !== p.pos_y) {
+        lastCommitRef.current = reason
+        movePanel(p.id, b.x, b.y)
+      }
+    }
+  }, [])
+  const boxes = useMemo(
+    () => Object.fromEntries(panels.map((p) => [p.id, { x: p.pos_x, y: p.pos_y, width: p.width, height: p.height }])),
+    [panels],
+  )
+  const panelById = (key: string) => useCanvasStore.getState().panels.find((p) => p.id === key)
+  const board = usePrimitive(panelBoard, {
+    boxes,
+    onCommit,
+    canvas: () => {
+      const c = canvasRef.current
+      return c ? { width: c.clientWidth, height: Math.max(c.clientHeight, c.scrollHeight) } : undefined
+    },
+    // Stacked, nothing moves; while a widget fills the board, the others are out of sight.
+    disabled: () => narrow || useCanvasStore.getState().fullscreenPanelId !== null,
+    min: (key) => clampDimensions(0, 0, panelById(key)?.constraints),
+    max: (key) => clampDimensions(Infinity, Infinity, panelById(key)?.constraints),
+    label: (key) => {
+      const panel = panelById(key)
+      return panel ? panelLabel(panel, getLabel) : undefined
+    },
+  })
+  const onMoveKey = useCallback((e: KeyboardEvent, panelId: string) => board.api.move.keydown(e, panelId), [board])
+
+  // Activate keyboard shortcuts (] / [ cycle, f fullscreen, Backspace remove, Escape, Alt+arrow move)
+  useCanvasKeyboard({ onRemovePanel, canvasRef, onMoveKey })
 
   const prevPanelsRef = useRef(panels)
+  const onLayoutChangeRef = useRef(onLayoutChange)
+  useLayoutEffect(() => {
+    onLayoutChangeRef.current = onLayoutChange
+  })
+  /** A keyboard move or resize waiting for the keys to stop before it is saved. */
+  const pendingSaveRef = useRef<{ layout: PanelItem[]; timer: ReturnType<typeof setTimeout> } | null>(null)
 
   // Compute max z_index to determine which panel is focused
   const maxZIndex = panels.length > 0
     ? Math.max(...panels.map((p) => p.z_index))
     : 0
 
+  // Save each change of the panels once: a drop, a click that raises a
+  // panel, an add or a remove at once; a run of key presses once the keys stop.
   useEffect(() => {
-    if (prevPanelsRef.current !== panels) {
-      prevPanelsRef.current = panels
-      onLayoutChange?.(persistableLayout(useCanvasStore.getState()))
+    if (prevPanelsRef.current === panels) return
+    prevPanelsRef.current = panels
+    const layout = persistableLayout(useCanvasStore.getState())
+    const reason = lastCommitRef.current
+    lastCommitRef.current = null
+    const pending = pendingSaveRef.current
+    if (pending) clearTimeout(pending.timer)
+    pendingSaveRef.current = null
+    if (reason === 'move-key' || reason === 'resize-key') {
+      pendingSaveRef.current = {
+        layout,
+        timer: setTimeout(() => {
+          pendingSaveRef.current = null
+          onLayoutChangeRef.current?.(layout)
+        }, KEY_SAVE_DELAY),
+      }
+      return
     }
+    // This layout includes a pending keyboard change to the same panels; one
+    // to another board's panels (the board just switched) still needs saving.
+    if (pending && !pending.layout.some((p) => layout.some((q) => q.id === p.id))) {
+      onLayoutChange?.(pending.layout)
+    }
+    onLayoutChange?.(layout)
   }, [panels, onLayoutChange])
+
+  // Leaving the board doesn't drop a keyboard change still waiting to be saved.
+  useEffect(() => () => {
+    const pending = pendingSaveRef.current
+    if (!pending) return
+    clearTimeout(pending.timer)
+    pendingSaveRef.current = null
+    onLayoutChangeRef.current?.(pending.layout)
+  }, [])
 
   // A fullscreen panel fills the canvas from its top-left, so show the top;
   // leaving fullscreen puts the board back where it was scrolled to.
@@ -65,7 +155,6 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     }
   }, [fullscreenPanelId])
 
-  const narrow = useNarrowCanvas(canvasRef)
   const stackOrder = new Map([...panels].sort(byPosition).map((p, i) => [p.id, i]))
 
   /** Clicking the canvas background clears the selection and exits focus mode */
@@ -78,60 +167,60 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     [focusModePanelId, exitFocusMode, selectPanel],
   )
 
-  return (
-    <div
-      ref={canvasRef}
-      data-testid="canvas-container"
-      data-canvas-scroll
-      data-layout={narrow ? 'stack' : 'free'}
-      className={
-        narrow
-          ? 'relative z-[1] flex h-full w-full flex-col gap-3 overflow-y-auto p-3'
-          // Free layout scrolls down when widgets sit below the fold (a full
-          // board grows downward rather than stacking widgets on top of each
-          // other), except while a widget fills the view.
-          : fullscreenPanelId
-            ? 'relative z-[1] h-full w-full overflow-hidden'
-            : 'relative z-[1] h-full w-full overflow-y-auto overflow-x-hidden'
-      }
-      onPointerDown={handleCanvasPointerDown}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-    >
-      {/* One element per panel in both layouts, in store order, so crossing the
-          breakpoint only restyles panels: widgets never remount (an
-          in-progress recording survives). Stacked reading order comes from CSS
-          `order`, not from re-sorting children. */}
-      {panels.map((panel) => (
-        <DraggablePanel
-          key={panel.id}
-          panel={panel}
-          shiftRef={shiftRef}
-          stackOrder={narrow ? stackOrder.get(panel.id) ?? 0 : undefined}
-          // A fullscreen panel sits above every other, even ones sharing its z_index.
-          zIndex={fullscreenPanelId === panel.id ? maxZIndex + 1 : panel.z_index}
-          isFocused={panel.z_index === maxZIndex}
-          isSelected={selectedPanelId === panel.id}
-          isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
-          isFullscreen={!narrow && fullscreenPanelId === panel.id}
-          canvasRef={canvasRef}
-          onRemovePanel={onRemovePanel}
-          renderPanel={renderPanel}
-          getIcon={getIcon}
-          getLabel={getLabel}
-          renderHeaderActions={renderHeaderActions}
-        />
-      ))}
-      {/* Air under the lowest widget once the free board scrolls. */}
-      {!narrow && panels.length > 0 && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute left-0 w-px"
-          style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
-        />
-      )}
-    </div>
-  )
+  // usePart's props reject data-* keys in an object literal (JSX allows them), hence the cast.
+  const canvasData = { 'data-testid': 'canvas-container', 'data-canvas-scroll': true, 'data-layout': narrow ? 'stack' : 'free' } as Record<string, unknown>
+  return usePart(board, 'root', {}, {
+    ...canvasData,
+    ref: canvasRef,
+    className:
+      narrow
+        ? 'relative z-[1] flex h-full w-full flex-col gap-3 overflow-y-auto p-3'
+        // Free layout scrolls down when widgets sit below the fold (a full
+        // board grows downward rather than stacking widgets on top of each
+        // other), except while a widget fills the view.
+        : fullscreenPanelId
+          ? 'relative z-[1] h-full w-full overflow-hidden'
+          : 'relative z-[1] h-full w-full overflow-y-auto overflow-x-hidden',
+    onPointerDown: handleCanvasPointerDown,
+    onDragOver,
+    onDrop,
+    children: (
+      <>
+        {/* One element per panel in both layouts, in store order, so crossing the
+            breakpoint only restyles panels: widgets never remount (an
+            in-progress recording survives). Stacked reading order comes from CSS
+            `order`, not from re-sorting children. */}
+        {panels.map((panel) => (
+          <DraggablePanel
+            key={panel.id}
+            board={board}
+            panel={panel}
+            stackOrder={narrow ? stackOrder.get(panel.id) ?? 0 : undefined}
+            // A fullscreen panel sits above every other, even ones sharing its z_index.
+            zIndex={fullscreenPanelId === panel.id ? maxZIndex + 1 : panel.z_index}
+            isFocused={panel.z_index === maxZIndex}
+            isSelected={selectedPanelId === panel.id}
+            isDimmed={focusModePanelId !== null && focusModePanelId !== panel.id}
+            isFullscreen={!narrow && fullscreenPanelId === panel.id}
+            canvasRef={canvasRef}
+            onRemovePanel={onRemovePanel}
+            renderPanel={renderPanel}
+            getIcon={getIcon}
+            getLabel={getLabel}
+            renderHeaderActions={renderHeaderActions}
+          />
+        ))}
+        {/* Air under the lowest widget once the free board scrolls. */}
+        {!narrow && panels.length > 0 && (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute left-0 w-px"
+            style={{ top: Math.max(...panels.map((p) => p.pos_y + p.height)), height: PLACEMENT_GAP }}
+          />
+        )}
+      </>
+    ),
+  }, 'div')
 }
 
 /* ── Narrow layout ── */
@@ -161,45 +250,24 @@ function byPosition(a: PanelItem, b: PanelItem): number {
   return a.pos_y - b.pos_y || a.pos_x - b.pos_x
 }
 
-/* ── Handle directions ── */
+/* ── Resize handles ── */
 
 export type HandleDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
 
-const HANDLE_CURSORS: Record<HandleDirection, string> = {
-  nw: 'nw-resize',
-  n: 'n-resize',
-  ne: 'ne-resize',
-  e: 'e-resize',
-  se: 'se-resize',
-  s: 's-resize',
-  sw: 'sw-resize',
-  w: 'w-resize',
-}
-
-const HANDLE_AXES: Record<HandleDirection, { dx: -1 | 0 | 1; dy: -1 | 0 | 1 }> = {
-  nw: { dx: -1, dy: -1 },
-  n:  { dx:  0, dy: -1 },
-  ne: { dx:  1, dy: -1 },
-  e:  { dx:  1, dy:  0 },
-  se: { dx:  1, dy:  1 },
-  s:  { dx:  0, dy:  1 },
-  sw: { dx: -1, dy:  1 },
-  w:  { dx: -1, dy:  0 },
-}
-
 const ALL_DIRECTIONS: HandleDirection[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 
-/* ── Handle positioning styles ── */
+/** How a handle's button is named: "Resize Transcript top left". */
+const HANDLE_NAMES: Record<HandleDirection, string> = {
+  nw: 'top left', n: 'top', ne: 'top right', e: 'right', se: 'bottom right', s: 'bottom', sw: 'bottom left', w: 'left',
+}
 
 const CORNER_SIZE = 12
 const EDGE_SIZE = 8
 
+/** Where a handle sits on the panel's edge. Its cursor comes from UI SDK's handleAttrs. */
 function getHandleStyle(dir: HandleDirection): React.CSSProperties {
   const half = (size: number) => -size / 2
-  const base: React.CSSProperties = {
-    position: 'absolute',
-    cursor: HANDLE_CURSORS[dir],
-  }
+  const base: React.CSSProperties = { position: 'absolute' }
 
   switch (dir) {
     case 'nw':
@@ -221,200 +289,39 @@ function getHandleStyle(dir: HandleDirection): React.CSSProperties {
   }
 }
 
-/* ── Resize handle component ── */
-
-interface ResizeHandleProps {
+/**
+ * A focusable button on the panel's edge or corner: drag it, or focus it and
+ * use the arrows (20px a press, Shift for more). Only the selected panel's
+ * handles are tab stops, so the board isn't eight stops per widget.
+ */
+function ResizeHandle({ board, direction, panelId, title, tabStop }: {
+  board: BoardHandle
   direction: HandleDirection
   panelId: string
-  shiftRef: React.RefObject<boolean>
-  onGestureChange: (active: boolean) => void
-}
-
-function ResizeHandle({ direction, panelId, shiftRef, onGestureChange }: ResizeHandleProps) {
-  const resizePanel = useCanvasStore((s) => s.resizePanel)
-  const bringToFront = useCanvasStore((s) => s.bringToFront)
-  const startRef = useRef<{
-    startX: number
-    startY: number
-    panelX: number
-    panelY: number
-    panelW: number
-    panelH: number
-  } | null>(null)
-
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.stopPropagation()
-      e.preventDefault()
-      const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
-      if (!panel) return
-
-      bringToFront(panelId)
-
-      startRef.current = {
-        startX: e.clientX,
-        startY: e.clientY,
-        panelX: panel.pos_x,
-        panelY: panel.pos_y,
-        panelW: panel.width,
-        panelH: panel.height,
-      }
-
-      onGestureChange(true)
-      const target = e.currentTarget as HTMLElement
-      target.setPointerCapture(e.pointerId)
+  title: string
+  tabStop: boolean
+}) {
+  return usePart(
+    board,
+    'handle',
+    { id: `${panelId}-${direction}`, box: panelId, handle: direction },
+    {
+      ...({ 'data-testid': `resize-handle-${direction}` } as Record<string, unknown>),
+      type: 'button',
+      tabIndex: tabStop ? 0 : -1,
+      'aria-label': `Resize ${title} ${HANDLE_NAMES[direction]}`,
+      style: getHandleStyle(direction),
+      className: 'rounded-full focus-visible:bg-accent focus-visible:outline-none',
     },
-    [panelId, bringToFront, onGestureChange],
+    'button',
   )
-
-  const handlePointerMove = useCallback(
-    (e: React.PointerEvent) => {
-      if (!startRef.current) return
-      e.stopPropagation()
-
-      const { startX, startY, panelX, panelY, panelW, panelH } = startRef.current
-      const axes = HANDLE_AXES[direction]
-      const delta = { x: e.clientX - startX, y: e.clientY - startY }
-
-      let { w: newW, h: newH } = resizeDimensions({ w: panelW, h: panelH }, axes, delta)
-
-      if (shiftRef.current) {
-        newW = snapToGrid(newW)
-        newH = snapToGrid(newH)
-      }
-
-      const panel = useCanvasStore.getState().panels.find((p) => p.id === panelId)
-      const clamped = clampDimensions(newW, newH, panel?.constraints)
-      const { x: newX, y: newY } = anchoredPosition(
-        { x: panelX, y: panelY, w: panelW, h: panelH },
-        axes,
-        clamped.width,
-        clamped.height,
-      )
-
-      resizePanel(panelId, newX, newY, clamped.width, clamped.height)
-    },
-    [direction, panelId, resizePanel, shiftRef],
-  )
-
-  const handlePointerUp = useCallback(
-    (e: React.PointerEvent) => {
-      if (!startRef.current) return
-      e.stopPropagation()
-      startRef.current = null
-      onGestureChange(false)
-      const target = e.currentTarget as HTMLElement
-      target.releasePointerCapture(e.pointerId)
-    },
-    [onGestureChange],
-  )
-
-  return (
-    <div
-      data-testid={`resize-handle-${direction}`}
-      style={getHandleStyle(direction)}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-    />
-  )
-}
-
-/* ── Drag hook ── */
-
-function usePanelDrag(
-  panel: PanelItem,
-  opts: { shiftRef: React.RefObject<boolean>; canvasRef: React.RefObject<HTMLDivElement | null>; isFullscreen: boolean },
-) {
-  const movePanel = useCanvasStore((s) => s.movePanel)
-  const dragControls = useDragControls()
-  const x = useMotionValue(0)
-  const y = useMotionValue(0)
-  const [isGesturing, setIsGesturing] = useState(false)
-  const { shiftRef, canvasRef, isFullscreen } = opts
-
-  const onGestureChange = useCallback((active: boolean) => setIsGesturing(active), [])
-
-  const onDragStart = useCallback(() => setIsGesturing(true), [])
-
-  const onDrag = useCallback(
-    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
-      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-      if (!current) return
-
-      let offsetX = info.offset.x
-      let offsetY = info.offset.y
-
-      if (shiftRef.current) {
-        offsetX = snapToGrid(current.pos_x + offsetX) - current.pos_x
-        offsetY = snapToGrid(current.pos_y + offsetY) - current.pos_y
-      }
-
-      const canvas = canvasRef.current
-      if (canvas) {
-        const clamped = clampToCanvas(
-          { x: current.pos_x + offsetX, y: current.pos_y + offsetY },
-          { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
-        )
-        offsetX = clamped.x - current.pos_x
-        offsetY = clamped.y - current.pos_y
-      }
-
-      x.set(offsetX)
-      y.set(offsetY)
-    },
-    [panel.id, shiftRef, x, y, canvasRef],
-  )
-
-  const onDragEnd = useCallback(
-    (_event: PointerEvent | MouseEvent | TouchEvent, info: { offset: { x: number; y: number } }) => {
-      const current = useCanvasStore.getState().panels.find((p) => p.id === panel.id)
-      if (!current) return
-
-      let newX = current.pos_x + info.offset.x
-      let newY = current.pos_y + info.offset.y
-
-      if (shiftRef.current) {
-        newX = snapToGrid(newX)
-        newY = snapToGrid(newY)
-      }
-
-      const canvas = canvasRef.current
-      if (canvas) {
-        const clamped = clampToCanvas(
-          { x: newX, y: newY },
-          { width: current.width, height: current.height },
-          { width: canvas.clientWidth, height: Math.max(canvas.clientHeight, canvas.scrollHeight) },
-        )
-        newX = clamped.x
-        newY = clamped.y
-      }
-
-      x.jump(0)
-      y.jump(0)
-      movePanel(panel.id, newX, newY)
-      requestAnimationFrame(() => setIsGesturing(false))
-    },
-    [panel.id, movePanel, x, y, shiftRef, canvasRef],
-  )
-
-  const onDragHandlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (isFullscreen) return
-      dragControls.start(e)
-    },
-    [dragControls, isFullscreen],
-  )
-
-  return { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown }
 }
 
 /* ── Draggable panel ── */
 
 interface DraggablePanelProps {
+  board: BoardHandle
   panel: PanelItem
-  shiftRef: React.RefObject<boolean>
   /**
    * Set in the narrow layout: the panel's place in the stacked column. It
    * then renders full width at its saved height, without drag, resize or
@@ -434,15 +341,15 @@ interface DraggablePanelProps {
   renderHeaderActions?: (panelId: string) => ReactNode
 }
 
-function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
+const PANEL_TRANSITION =
+  'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel), scale var(--transition-panel)'
+
+function DraggablePanel({ board, panel, stackOrder, zIndex, isFocused, isSelected, isDimmed, isFullscreen, canvasRef, onRemovePanel, renderPanel, getIcon, getLabel, renderHeaderActions }: DraggablePanelProps) {
   const stacked = stackOrder !== undefined
   const bringToFront = useCanvasStore((s) => s.bringToFront)
   const removePanel = useCanvasStore((s) => s.removePanel)
   const toggleFullscreen = useCanvasStore((s) => s.toggleFullscreen)
   const [isHovered, setIsHovered] = useState(false)
-
-  const { x, y, isGesturing, onGestureChange, dragControls, onDragStart, onDrag, onDragEnd, onDragHandlePointerDown } =
-    usePanelDrag(panel, { shiftRef, canvasRef: canvasRef ?? { current: null }, isFullscreen: isFullscreen ?? false })
 
   const handlePointerDown = useCallback(() => {
     bringToFront(panel.id)
@@ -463,96 +370,79 @@ function DraggablePanel({ panel, shiftRef, stackOrder, zIndex, isFocused, isSele
     toggleFullscreen(panel.id, rect.width, rect.height)
   }, [panel.id, toggleFullscreen, bringToFront, canvasRef])
 
-  const shadow = isGesturing
-    ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 50%, transparent)'
-    : isSelected
-      ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 70%, transparent)'
-      : (isFocused || isHovered)
-        ? 'var(--shadow-panel-focused)'
-        : 'var(--shadow-panel)'
-
-  // No layout animation while gesturing or stacked (switching layouts should snap).
-  const transitionStyle = isGesturing || stacked
-    ? undefined
-    : 'left var(--transition-panel), top var(--transition-panel), width var(--transition-panel), height var(--transition-panel), box-shadow var(--transition-panel), opacity var(--transition-panel)'
+  const onHeaderPointerDown = useCallback(
+    (e: React.PointerEvent) => board.api.move.pointerdown(e.nativeEvent, panel.id, e.currentTarget as HTMLElement),
+    [board, panel.id],
+  )
 
   const icon = panel.lensType ? getIcon?.(panel.lensType) : undefined
-  const label = panel.title ?? (panel.lensType ? getLabel?.(panel.lensType) : undefined) ?? 'Untitled'
+  const label = panelLabel(panel, getLabel)
+  const movable = !isFullscreen && !stacked
 
-  return (
-    <motion.div
-      data-testid={`panel-${panel.id}`}
-      data-panel-id={panel.id}
-      data-stack-order={stacked ? stackOrder : undefined}
-      // Where the panel is headed, not where a transition has it now (see reveal.ts).
-      data-layout-top={stacked ? undefined : panel.pos_y}
-      data-layout-height={stacked ? undefined : panel.height}
-      drag={!isFullscreen && !stacked}
-      dragControls={dragControls}
-      dragListener={false}
-      dragMomentum={false}
-      style={{
-        ...(stacked
-          ? {
-              position: 'relative',
-              order: stackOrder,
-              flexShrink: 0,
-              width: '100%',
-              height: Math.max(panel.height, panel.constraints?.minHeight ?? 0),
-            }
-          : {
-              position: 'absolute',
-              left: panel.pos_x,
-              top: panel.pos_y,
-              width: panel.width,
-              height: panel.height,
-              zIndex,
-            }),
-        backgroundColor: 'var(--color-surface-raised)',
-        boxShadow: shadow,
-        opacity: isDimmed ? 0.3 : 1,
-        transition: transitionStyle,
-        x,
-        y,
-      }}
-      onDragStart={onDragStart}
-      onDrag={onDrag}
-      onDragEnd={onDragEnd}
-      onPointerDown={handlePointerDown}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
-      className="rounded-widget border border-border-subtle"
-      initial={{ scale: 0.95 }}
-      animate={{ scale: isGesturing ? 1.015 : 1 }}
-      transition={{ type: 'tween', duration: 0.2 }}
-    >
-      <div
-        style={{ pointerEvents: (isHovered && !isFullscreen && !stacked) ? 'auto' : 'none' }}
-        data-testid={`resize-handles-${panel.id}`}
-      >
-        {ALL_DIRECTIONS.map((dir) => (
-          <ResizeHandle
-            key={dir}
-            direction={dir}
-            panelId={panel.id}
-            shiftRef={shiftRef}
-            onGestureChange={onGestureChange}
-          />
-        ))}
-      </div>
-
-      <PanelChrome
-        panelId={panel.id}
-        title={label}
-        icon={icon}
-        onClose={handleClose}
-        onDragHandlePointerDown={stacked ? undefined : onDragHandlePointerDown}
-        isFullscreen={isFullscreen}
-        onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
-        headerActions={renderHeaderActions?.(panel.id)}
-      >
-        {renderPanel?.(panel.id)}
-      </PanelChrome>
-    </motion.div>
-  )
+  const data = {
+    'data-testid': `panel-${panel.id}`,
+    'data-panel-id': panel.id,
+    'data-stack-order': stacked ? stackOrder : undefined,
+    // Where the panel is headed, not where a transition has it now (see reveal.ts).
+    'data-layout-top': stacked ? undefined : panel.pos_y,
+    'data-layout-height': stacked ? undefined : panel.height,
+  } as Record<string, unknown>
+  return usePart(board, 'panel', { value: panel.id, stacked }, {
+    ...data,
+    // Scales in as it arrives (motion-safe), as the panels always have.
+    className: 'rounded-widget border border-border-subtle motion-safe:animate-panel-in',
+    onPointerDown: handlePointerDown,
+    onMouseEnter: () => setIsHovered(true),
+    onMouseLeave: () => setIsHovered(false),
+    style: ({ dragging }: { dragging: boolean }) => ({
+      ...(stacked
+        ? {
+            position: 'relative',
+            order: stackOrder,
+            flexShrink: 0,
+            width: '100%',
+            height: Math.max(panel.height, panel.constraints?.minHeight ?? 0),
+          }
+        : { zIndex }),
+      backgroundColor: 'var(--color-surface-raised)',
+      boxShadow: dragging
+        ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 50%, transparent)'
+        : isSelected
+          ? 'var(--shadow-panel-focused), inset 0 0 0 2px color-mix(in oklab, var(--color-accent) 70%, transparent)'
+          : (isFocused || isHovered)
+            ? 'var(--shadow-panel-focused)'
+            : 'var(--shadow-panel)',
+      opacity: isDimmed ? 0.3 : 1,
+      // Lifted while dragged. The box follows the pointer with no transition
+      // (so it doesn't lag); switching layouts snaps too.
+      scale: dragging ? '1.015' : undefined,
+      transition: stacked ? undefined : dragging ? 'scale var(--transition-panel)' : PANEL_TRANSITION,
+    }),
+    children: (
+      <>
+        {movable && (
+          <div
+            style={{ pointerEvents: isHovered ? 'auto' : 'none' }}
+            data-testid={`resize-handles-${panel.id}`}
+          >
+            {ALL_DIRECTIONS.map((dir) => (
+              <ResizeHandle key={dir} board={board} direction={dir} panelId={panel.id} title={label} tabStop={!!isSelected} />
+            ))}
+          </div>
+        )}
+        <PanelChrome
+          panelId={panel.id}
+          title={label}
+          icon={icon}
+          onClose={handleClose}
+          onDragHandlePointerDown={movable ? onHeaderPointerDown : undefined}
+          isFullscreen={isFullscreen}
+          onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
+          headerActions={renderHeaderActions?.(panel.id)}
+        >
+          {renderPanel?.(panel.id)}
+        </PanelChrome>
+      </>
+    ),
+  }, 'div')
 }
