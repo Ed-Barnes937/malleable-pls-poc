@@ -112,6 +112,7 @@ export function Overlays({ onEvent = () => {} }: { onEvent?: (event: string) => 
             <DrawerClose>Close</DrawerClose>
           </div>
           <p className="px-5">Nothing running</p>
+          <button type="button" className="px-5">Clear history</button>
         </DrawerContent>
       </Drawer>
       <Tooltip delay={0}>
