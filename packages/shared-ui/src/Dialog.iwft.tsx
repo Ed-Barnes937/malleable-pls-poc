@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Locator, Page } from '@playwright/test'
 import { DialogFromPopover, StackedDialogs } from './overlay-harness'
-import { THEMES, setTheme } from './ct-themes'
+import { THEMES, setTheme, tokenColor } from './ct-themes'
 
 /** The name of the dialog painted at the centre of `box`, or null. */
 async function topmostAt(page: Page, box: { x: number; y: number; width: number; height: number }) {
@@ -45,14 +45,14 @@ test('a dialog opened from a popover stacks above it', async ({ mount, page }) =
 })
 
 for (const theme of THEMES) {
-  test(`renders from our tokens in the ${theme.name} theme`, async ({ mount, page }) => {
-    await setTheme(page, theme.name)
+  test(`renders from our tokens in the ${theme} theme`, async ({ mount, page }) => {
+    await setTheme(page, theme)
     await mount(<StackedDialogs />)
     await page.getByRole('button', { name: 'Automations' }).click()
     const dialog = page.getByRole('dialog', { name: 'Automations' })
     await expect(dialog).toBeVisible()
-    await expect(dialog).toHaveCSS('background-color', theme.surfaceRaised)
-    await expect(dialog).toHaveCSS('color', theme.textPrimary)
+    await expect(dialog).toHaveCSS('background-color', await tokenColor(page, '--color-surface-raised'))
+    await expect(dialog).toHaveCSS('color', await tokenColor(page, '--color-text-primary'))
     await expect(dialog).toHaveCSS('border-radius', '20px')
     // Centred in the viewport.
     const box = await boxOf(dialog)

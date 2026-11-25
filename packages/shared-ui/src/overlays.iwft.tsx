@@ -1,26 +1,26 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import { LayersInDialog, Overlays } from './overlay-harness'
-import { THEMES, setTheme } from './ct-themes'
+import { THEMES, setTheme, tokenColor } from './ct-themes'
 
 for (const theme of THEMES) {
-  test(`each overlay renders from our tokens in the ${theme.name} theme`, async ({ mount, page }) => {
-    await setTheme(page, theme.name)
+  test(`each overlay renders from our tokens in the ${theme} theme`, async ({ mount, page }) => {
+    await setTheme(page, theme)
     await mount(<Overlays />)
 
     await page.getByRole('button', { name: 'Details' }).click()
     const popover = page.getByRole('dialog', { name: 'Maths study' })
-    await expect(popover).toHaveCSS('background-color', theme.surfaceRaised)
-    await expect(popover).toHaveCSS('color', theme.textPrimary)
+    await expect(popover).toHaveCSS('background-color', await tokenColor(page, '--color-surface-raised'))
+    await expect(popover).toHaveCSS('color', await tokenColor(page, '--color-text-primary'))
     await page.keyboard.press('Escape')
 
     await page.getByRole('button', { name: 'Board menu' }).click()
     const menu = page.getByRole('menu')
-    await expect(menu).toHaveCSS('background-color', theme.surfaceRaised)
+    await expect(menu).toHaveCSS('background-color', await tokenColor(page, '--color-surface-raised'))
     await page.keyboard.press('Escape')
 
     await page.getByRole('button', { name: 'Activity' }).click()
     const drawer = page.getByRole('dialog', { name: 'Activity' })
-    await expect(drawer).toHaveCSS('background-color', theme.surfaceRaised)
+    await expect(drawer).toHaveCSS('background-color', await tokenColor(page, '--color-surface-raised'))
     // A right-hand panel, full height, 320px wide, against the right edge.
     const box = (await drawer.boundingBox())!
     const viewport = page.viewportSize()!
@@ -33,11 +33,11 @@ for (const theme of THEMES) {
     await page.getByRole('button', { name: 'Add to calendar' }).hover()
     const tip = page.getByRole('tooltip')
     await expect(tip).toBeVisible()
-    await expect(tip).toHaveCSS('background-color', theme.inverse)
+    await expect(tip).toHaveCSS('background-color', await tokenColor(page, '--color-inverse'))
 
     await page.getByRole('button', { name: 'Delete board' }).click()
     const alert = page.getByRole('alertdialog', { name: 'Delete board?' })
-    await expect(alert).toHaveCSS('background-color', theme.surfaceRaised)
+    await expect(alert).toHaveCSS('background-color', await tokenColor(page, '--color-surface-raised'))
   })
 }
 
