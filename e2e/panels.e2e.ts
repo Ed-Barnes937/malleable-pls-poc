@@ -13,9 +13,15 @@ function layoutOf(panel: Locator) {
 
 const isLayoutSave = (url: string) => url.includes('workspaces.updateLayouts')
 
-/** Waits for the next layout save to land. */
-function layoutSaved(page: Page) {
-  return page.waitForResponse((r) => r.request().method() === 'POST' && isLayoutSave(r.url()))
+/**
+ * Waits for a layout save that has `panel` at `box` to land (each save carries
+ * the whole board, so later saves keep it).
+ */
+async function layoutSaved(page: Page, panel: Locator, box: { x: number; y: number; width: number; height: number }) {
+  const id = await panel.getAttribute('data-panel-id')
+  const saved = `"id":"${id}","pos_x":${box.x},"pos_y":${box.y},"width":${box.width},"height":${box.height}`
+  return page.waitForResponse((r) =>
+    r.request().method() === 'POST' && isLayoutSave(r.url()) && (r.request().postData() ?? '').includes(saved))
 }
 
 /** Counts layout saves from now on. */
@@ -97,7 +103,7 @@ test.describe('Moving and resizing widgets', () => {
     await grabHeader(page, testMe, 103, 57)
     // Shown where it will land while still dragging: 643 -> 640, 97 -> 100.
     await expect.poll(() => layoutOf(testMe)).toMatchObject({ x: 640, y: 100 })
-    const saved = layoutSaved(page)
+    const saved = layoutSaved(page, testMe, { x: 640, y: 100, width: 420, height: 460 })
     await page.mouse.up()
     await saved
 
@@ -129,9 +135,7 @@ test.describe('Moving and resizing widgets', () => {
 
     // ] selects the first widget in board order: Transcript (40, 40, 460 x 420).
     await page.keyboard.press(']')
-    // Selecting raised it; that save goes first.
-    await page.waitForLoadState('networkidle')
-    let saved = layoutSaved(page)
+    let saved = layoutSaved(page, transcript, { x: 60, y: 60, width: 460, height: 420 })
     await page.keyboard.press('Alt+ArrowDown')
     await page.keyboard.press('Alt+ArrowRight')
     await expect.poll(() => layoutOf(transcript)).toMatchObject({ x: 60, y: 60 })
@@ -143,7 +147,7 @@ test.describe('Moving and resizing widgets', () => {
     await expect(grid.root.getByRole('button', { name: /^Resize / }).and(grid.root.locator('[tabindex="0"]'))).toHaveCount(8)
     const bottom = transcript.getByRole('button', { name: 'Resize Transcript bottom', exact: true })
     await bottom.focus()
-    saved = layoutSaved(page)
+    saved = layoutSaved(page, transcript, { x: 60, y: 60, width: 460, height: 440 })
     await page.keyboard.press('ArrowDown')
     await expect.poll(() => layoutOf(transcript)).toEqual({ x: 60, y: 60, width: 460, height: 440 })
     await saved
@@ -165,7 +169,7 @@ test.describe('Moving and resizing widgets', () => {
     await page.mouse.move(box.x - 300, box.y - 300, { steps: 8 })
     // Your Progress is at least 350 x 250; on the grid that is 360 x 260.
     await expect.poll(() => layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 360, height: 260 })
-    const saved = layoutSaved(page)
+    const saved = layoutSaved(page, weekly, { x: 40, y: 500, width: 360, height: 260 })
     await page.mouse.up()
     await saved
     await page.reload()

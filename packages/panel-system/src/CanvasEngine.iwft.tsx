@@ -157,7 +157,7 @@ test.describe('resizing a panel by a handle', () => {
 })
 
 test.describe('by keyboard', () => {
-  test('Alt+arrow moves the selected panel 20px and a held key saves once it stops', async ({ mount, page }) => {
+  test('Alt+arrow moves the selected panel 20px; a held key saves once it stops', async ({ mount, page }) => {
     const { jsx, saves } = board()
     await mount(jsx)
     await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
@@ -167,13 +167,22 @@ test.describe('by keyboard', () => {
     await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 520, y: 300 })
     await expect(announced(page)).toHaveText('Plan moved to 520, 300.')
 
-    // A held key: repeats well inside the save delay.
-    for (let i = 0; i < 5; i++) await page.keyboard.press('Alt+ArrowDown')
-    await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 520, y: 400 })
+    // One press, one save.
     await expect.poll(() => saves.length).toBe(1)
-    expect(saves[0]!.find((p) => p.id === 'plan')).toMatchObject({ pos_x: 520, pos_y: 400 })
+    expect(saves[0]!.find((p) => p.id === 'plan')).toMatchObject({ pos_x: 520, pos_y: 300 })
+
+    // A held key: the keyboard repeats keydown (repeat: true) far faster than
+    // the save delay. Dispatched in one go so a busy machine can't space them out.
+    await page.evaluate(() => {
+      for (let i = 0; i < 5; i++) {
+        document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', altKey: true, repeat: i > 0, bubbles: true, cancelable: true }))
+      }
+    })
+    await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 520, y: 400 })
+    await expect.poll(() => saves.length).toBe(2)
+    expect(saves[1]!.find((p) => p.id === 'plan')).toMatchObject({ pos_x: 520, pos_y: 400 })
     await page.waitForTimeout(600)
-    expect(saves).toHaveLength(1)
+    expect(saves).toHaveLength(2)
   })
 
   test("Tab reaches only the selected panel's handles; arrows on one resize along its edge", async ({ mount, page }) => {
