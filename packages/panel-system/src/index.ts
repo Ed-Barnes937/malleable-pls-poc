@@ -1,4 +1,4 @@
-export { CanvasEngine, STACK_BREAKPOINT, type CanvasEngineProps } from './CanvasEngine'
+export { CanvasEngine, STACK_BREAKPOINT, KEY_SAVE_DELAY, type CanvasEngineProps } from './CanvasEngine'
 export { PanelChrome, type PanelChromeProps } from './PanelChrome'
 export { WorkspaceBackground } from './WorkspaceBackground'
 export { BackgroundPicker } from './BackgroundPicker'
