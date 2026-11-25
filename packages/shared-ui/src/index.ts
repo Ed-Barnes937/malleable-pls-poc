@@ -44,3 +44,6 @@ export { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle
 export { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger, createMenuController, type MenuController, type MenuProps } from './Menu'
 export { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger, createDrawerController, type DrawerController, type DrawerProps } from './Drawer'
 export { Tooltip, TooltipContent, TooltipTrigger, type TooltipProps } from './Tooltip'
+// Reorder on UI SDK (K2b)
+export { Sortable, SortableItem, SortableHandle, type SortableProps } from './Sortable'
+export { sortableMessage, sortableInstructions } from './sortable-primitive'
