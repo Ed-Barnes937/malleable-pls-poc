@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { CheckCircle2, XCircle, type LucideIcon } from 'lucide-react'
 import { ToastBar, cn, createToaster, useNarrowScreen } from '@pls/shared-ui'
 import { useActiveWorkspaceId } from './activeBoard'
+import { useWorkspaceStore } from './store'
 
 export type ToastTone = 'success' | 'error'
 
@@ -53,9 +54,6 @@ interface ToastData {
  */
 const toaster = createToaster<string>({ duration: TOAST_MS })
 
-/** The open board as the bar last saw it (undefined until a bar is mounted). */
-let shownBoard: string | null | undefined
-
 /** Toasts that go when their board is left. */
 const boardOf = new Map<string, string>()
 
@@ -90,8 +88,12 @@ let lastShownAt = 0
 let queued = Promise.resolve()
 
 function show(toast: Omit<Toast, 'id'>) {
-  // It may have waited its turn while the student left its board.
-  if (toast.board && shownBoard !== undefined && shownBoard !== toast.board) return
+  // It may have waited its turn while the student left its board. The store's
+  // choice is current the moment a board is switched to (the bar's effect only
+  // runs after the next render), so a toast pushed right after opening its own
+  // board is not mistaken for one about a board already left.
+  const chosen = useWorkspaceStore.getState().activeWorkspaceId
+  if (toast.board && chosen !== null && chosen !== toast.board) return
   const id = toast.key ?? `toast-${++nextId}`
   const data: ToastData = { icon: toast.icon, actionIcon: toast.action?.icon, board: toast.board }
   if (toast.board) boardOf.set(id, toast.board)
@@ -169,7 +171,6 @@ export function ToastHost() {
   // A toast about one board (e.g. "Back to My week" after opening a moment
   // there) goes once the student leaves it.
   useEffect(() => {
-    shownBoard = activeBoard
     for (const [id, board] of boardOf) if (board !== activeBoard) toaster.dismiss(id)
   }, [activeBoard])
 

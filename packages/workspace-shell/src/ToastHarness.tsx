@@ -28,6 +28,11 @@ function Buttons({ durationMs, onAction }: { durationMs?: number; onAction?: () 
             push({ message: 'About this board', tone: 'success', durationMs: null, board: board ?? undefined })
             setBoard('ws-evening-review')
           }}>Add board toast and leave</button>
+          {/* The way "Go to moment" says it: switch boards, then push a toast about the board just opened. */}
+          <button type="button" onClick={() => {
+            setBoard('ws-evening-review')
+            push({ message: 'Opened on the new board', tone: 'success', durationMs: null, board: 'ws-evening-review' })
+          }}>Switch board and say so</button>
           <button type="button" onClick={() => push({ message: 'Could not save', tone: 'error', ...base })}>Add error</button>
         </div>
         <ToastHost />

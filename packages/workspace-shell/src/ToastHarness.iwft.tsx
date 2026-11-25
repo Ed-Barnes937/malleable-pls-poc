@@ -118,3 +118,10 @@ test('a board toast waiting its turn is dropped if the student leaves the board 
   await page.waitForTimeout(600)
   await expect(page.getByTestId('toast').filter({ hasText: 'About this board' })).toHaveCount(0)
 })
+
+test('a board toast pushed right after switching to its board is shown', async ({ mount, page, simulator: _boards }) => {
+  await mount(<ToastHarness />)
+  await expect(page.getByRole('button', { name: 'Switch board and say so' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Switch board and say so' }).click()
+  await expect(page.getByTestId('toast').filter({ hasText: 'Opened on the new board' })).toBeVisible()
+})
