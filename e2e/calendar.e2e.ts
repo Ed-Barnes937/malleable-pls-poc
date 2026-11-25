@@ -427,7 +427,7 @@ test.describe('Calendar', () => {
 
     // The toasts' live region is there before anything is said, so the first toast is announced.
     const toast = page.getByTestId('toast-host')
-    const announcer = page.getByTestId('toast-announcer')
+    const announcer = page.locator('[data-ui-sdk-announcer=""]')
     await expect(announcer).toBeAttached()
     await expect(announcer).toHaveAttribute('aria-live', 'polite')
     await expect(announcer).toHaveAttribute('role', 'status')
