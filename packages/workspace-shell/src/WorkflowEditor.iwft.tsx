@@ -40,12 +40,12 @@ test.describe('workflow step order', () => {
 
     await page.getByRole('button', { name: 'Drag to reorder step 1' }).focus()
     await page.keyboard.press('Space')
-    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('Picked up "Write a transcript" step, position 1 of 3.')
+    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('Picked up Write a transcript step, position 1 of 3.')
     await page.keyboard.press('ArrowDown')
-    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('"Write a transcript" step moved to position 2 of 3')
+    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('Write a transcript step moved to position 2 of 3')
     await page.keyboard.press('ArrowDown')
     await page.keyboard.press('Space')
-    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('"Write a transcript" step dropped at position 3 of 3')
+    await expect(page.locator('[data-ui-sdk-announcer="assertive"]')).toHaveText('Write a transcript step dropped at position 3 of 3')
     expect(await stepTypes(page)).toEqual(['ai:summarize-lecture', 'plan:review-task', 'ai:transcribe'])
     // Focus stays on the step that moved.
     await expect(page.getByRole('button', { name: 'Drag to reorder step 3' })).toBeFocused()

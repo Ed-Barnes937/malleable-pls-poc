@@ -197,7 +197,7 @@ export function WorkflowEditor({ open, onClose, workspaceId, sourceLens, workflo
               aria-label="Steps"
               value={jobs.map((j) => j.id)}
               onValueChange={reorderJobs}
-              label={(id) => `"${JOB_LABELS.get(jobs.find((j) => j.id === id)?.jobType ?? '') ?? 'Step'}" step`}
+              label={(id) => `${JOB_LABELS.get(jobs.find((j) => j.id === id)?.jobType ?? '') ?? 'Step'} step`}
               className="flex flex-col gap-1.5"
             >
               {({ order }) =>
