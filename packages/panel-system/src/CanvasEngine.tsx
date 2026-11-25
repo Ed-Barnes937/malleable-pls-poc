@@ -43,7 +43,7 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const exitFocusMode = useCanvasStore((s) => s.exitFocusMode)
   const selectPanel = useCanvasStore((s) => s.selectPanel)
   const canvasRef = useRef<HTMLDivElement>(null)
-  const narrow = useNarrowCanvas(canvasRef)
+  const { narrow, size: canvasSize } = useCanvasSize(canvasRef)
 
   /* ── Moving and resizing (UI SDK createMove / createResize) ── */
 
@@ -71,9 +71,14 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   const board = usePrimitive(panelBoard, {
     boxes,
     onCommit,
+    // Measured by an observer, not read from the element here: a layout read
+    // while a drop commits would show the panel back at its old spot for a
+    // frame, then slide it over. The board's scroll height is its lowest panel
+    // plus the air under it.
     canvas: () => {
-      const c = canvasRef.current
-      return c ? { width: c.clientWidth, height: Math.max(c.clientHeight, c.scrollHeight) } : undefined
+      const { width, height } = canvasSize.current
+      const lowest = Math.max(0, ...useCanvasStore.getState().panels.map((p) => p.pos_y + p.height))
+      return { width, height: Math.max(height, lowest + PLACEMENT_GAP) }
     },
     // Stacked, nothing moves; while a widget fills the board, the others are out of sight.
     disabled: () => narrow || useCanvasStore.getState().fullscreenPanelId !== null,
@@ -227,12 +232,17 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
 
 export { STACK_BREAKPOINT }
 
-function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
+/** Whether the canvas is narrow enough to stack, and its size (kept current in a ref). */
+function useCanvasSize(ref: React.RefObject<HTMLDivElement | null>) {
   const [narrow, setNarrow] = useState(false)
+  const size = useRef({ width: 0, height: 0 })
   useEffect(() => {
     const el = ref.current
     if (!el) return
-    const update = () => setNarrow(el.clientWidth > 0 && el.clientWidth < STACK_BREAKPOINT)
+    const update = () => {
+      size.current = { width: el.clientWidth, height: el.clientHeight }
+      setNarrow(el.clientWidth > 0 && el.clientWidth < STACK_BREAKPOINT)
+    }
     update()
     if (typeof ResizeObserver === 'undefined') {
       window.addEventListener('resize', update)
@@ -242,7 +252,7 @@ function useNarrowCanvas(ref: React.RefObject<HTMLDivElement | null>): boolean {
     observer.observe(el)
     return () => observer.disconnect()
   }, [ref])
-  return narrow
+  return { narrow, size }
 }
 
 /** Reading order for the stacked layout: top to bottom, then left to right. */
