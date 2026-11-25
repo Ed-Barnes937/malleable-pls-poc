@@ -50,9 +50,10 @@ export function TimeInput({
   className,
 }: TimeInputProps) {
   const [controller] = useState(() => createTimeInputController())
+  const minuteStep = Number.isInteger(step) && step > 0 ? step : 1
 
   function onKeyDownCapture(event: KeyboardEvent<HTMLElement>) {
-    if (step === 1 || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
+    if (minuteStep === 1 || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
     const segment = (event.target as HTMLElement).closest('[data-slot="time-input-segment"]')
     if (segment?.getAttribute('data-type') !== 'minute') return
@@ -60,11 +61,11 @@ export function TimeInput({
     if (current === null) return
     event.preventDefault()
     event.stopPropagation()
-    controller.setValue(stepMinute(current, step, event.key === 'ArrowUp' ? 1 : -1))
+    controller.setValue(stepMinute(current, minuteStep, event.key === 'ArrowUp' ? 1 : -1))
   }
 
   return (
-    <span onKeyDownCapture={onKeyDownCapture} className="inline-flex">
+    <span onKeyDownCapture={onKeyDownCapture} className={cn('inline-flex', className)}>
       <SdkTimeInput
         controller={controller}
         value={value}
@@ -75,8 +76,7 @@ export function TimeInput({
         max={max}
         disabled={disabled}
         className={cn(
-          'inline-flex h-10 items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
-          className,
+          'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}
       />
     </span>

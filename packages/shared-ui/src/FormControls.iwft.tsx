@@ -6,6 +6,20 @@ const state = async (page: Page) => JSON.parse((await page.getByTestId('state').
 const setTheme = (page: Page, theme: 'light' | 'dark') =>
   page.evaluate((t: string) => document.documentElement.setAttribute('data-theme', t), theme)
 
+/** The computed value of `prop` on a throwaway element carrying the token classes, in the current theme. */
+const token = (page: Page, className: string, prop: 'backgroundColor' | 'color' | 'borderTopColor') =>
+  page.evaluate(
+    ([cls, p]) => {
+      const probe = document.createElement('div')
+      probe.className = `border-2 ${cls}`
+      document.body.append(probe)
+      const value = getComputedStyle(probe)[p as 'backgroundColor']
+      probe.remove()
+      return value
+    },
+    [className, prop] as const,
+  )
+
 for (const theme of ['light', 'dark'] as const) {
   test(`every control renders and is operable in ${theme}`, async ({ mount, page }) => {
     await mount(<FormControlsHarness />)
@@ -18,17 +32,32 @@ for (const theme of ['light', 'dark'] as const) {
       page.getByRole('group', { name: 'Starts' }),
       page.getByRole('textbox', { name: 'Date' }),
     ]) await expect(el).toBeVisible()
-    // The checked switch and checkbox are filled from the accent token.
-    const accent = await page.evaluate(() => {
-      const probe = document.createElement('div')
-      probe.className = 'bg-accent'
-      document.body.append(probe)
-      const c = getComputedStyle(probe).backgroundColor
-      probe.remove()
-      return c
-    })
+    const accent = await token(page, 'bg-accent', 'backgroundColor')
     await expect(page.getByRole('switch', { name: 'Enabled' })).toHaveCSS('background-color', accent)
     await expect(page.getByRole('checkbox', { name: 'Repeat weekly' })).toHaveCSS('background-color', accent)
+    // SegmentedControl: track, sliding indicator and checked text follow the theme.
+    await expect(page.getByRole('radiogroup', { name: 'Kind' })).toHaveCSS('background-color', await token(page, 'bg-surface-overlay', 'backgroundColor'))
+    await expect(page.locator('[data-slot="segmented-control-indicator"]')).toHaveCSS('background-color', await token(page, 'bg-surface-raised', 'backgroundColor'))
+    await expect(page.getByRole('radio', { name: 'Study' })).toHaveCSS('color', await token(page, 'text-text-primary', 'color'))
+    // Tabs: the selected tab carries the accent underline.
+    await expect(page.getByRole('tab', { name: 'Day' })).toHaveCSS('border-bottom-color', accent)
+    // TimeInput and the date field are raised surfaces.
+    const raised = await token(page, 'bg-surface-raised', 'backgroundColor')
+    await expect(page.getByRole('group', { name: 'Starts' })).toHaveCSS('background-color', raised)
+    await expect(page.getByRole('textbox', { name: 'Date' })).toHaveCSS('background-color', raised)
+  })
+
+  test(`the DatePicker calendar follows the theme in ${theme}`, async ({ mount, page }) => {
+    await mount(<FormControlsHarness />)
+    await setTheme(page, theme)
+    await page.getByRole('button', { name: /from calendar/i }).click()
+    const calendar = page.getByRole('dialog', { name: 'Date calendar' })
+    await expect(calendar).toBeVisible()
+    await expect(calendar).toHaveCSS('background-color', await token(page, 'bg-surface-raised', 'backgroundColor'))
+    await expect(calendar).toHaveCSS('color', await token(page, 'text-text-primary', 'color'))
+    const selected = calendar.locator('[data-selected]').first()
+    await expect(selected).toHaveCSS('background-color', await token(page, 'bg-accent', 'backgroundColor'))
+    await expect(selected).toHaveCSS('color', await token(page, 'text-accent-foreground', 'color'))
   })
 }
 
@@ -36,9 +65,20 @@ test('the accent differs between light and dark, so the controls follow the them
   await mount(<FormControlsHarness />)
   const sw = page.getByRole('switch', { name: 'Enabled' })
   await setTheme(page, 'light')
-  await expect(sw).toHaveCSS('background-color', 'rgb(61, 95, 214)')
+  const light = await token(page, 'bg-accent', 'backgroundColor')
+  await expect(sw).toHaveCSS('background-color', light)
   await setTheme(page, 'dark')
-  await expect(sw).toHaveCSS('background-color', 'rgb(147, 169, 255)')
+  const dark = await token(page, 'bg-accent', 'backgroundColor')
+  expect(dark).not.toBe(light)
+  await expect(sw).toHaveCSS('background-color', dark)
+})
+
+test('TimeInput with w-full fills its container', async ({ mount, page }) => {
+  await mount(<FormControlsHarness />)
+  const container = await page.getByTestId('wide-time').boundingBox()
+  const group = await page.getByRole('group', { name: 'Wide start' }).boundingBox()
+  expect(container).not.toBeNull()
+  expect(group?.width).toBeCloseTo(container?.width ?? -1, 0)
 })
 
 test('Switch and Checkbox toggle with Space', async ({ mount, page }) => {
@@ -77,13 +117,13 @@ test('Tabs: arrows move and show the matching panel', async ({ mount, page }) =>
 
 test('TimeInput: stepping by 15 and typing', async ({ mount, page }) => {
   await mount(<FormControlsHarness />)
-  await page.getByRole('spinbutton', { name: 'minute' }).focus()
+  await page.getByRole('group', { name: 'Starts' }).getByRole('spinbutton', { name: 'minute' }).focus()
   await page.keyboard.press('ArrowUp')
   expect((await state(page)).time).toBe('09:45')
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('ArrowDown')
   expect((await state(page)).time).toBe('09:15')
-  await page.getByRole('spinbutton', { name: 'hour' }).focus()
+  await page.getByRole('group', { name: 'Starts' }).getByRole('spinbutton', { name: 'hour' }).focus()
   await page.keyboard.type('2230')
   expect((await state(page)).time).toBe('22:30')
 })

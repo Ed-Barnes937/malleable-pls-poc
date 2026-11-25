@@ -24,6 +24,7 @@ describe('Checkbox', () => {
     screen.getByRole('checkbox', { name: 'Repeat weekly' }).focus()
     await user.keyboard(' ')
     expect(onCheckedChange).toHaveBeenCalledTimes(2)
+    expect(onCheckedChange).toHaveBeenLastCalledWith(true)
   })
 
   it('does not change when disabled', async () => {
@@ -32,5 +33,17 @@ describe('Checkbox', () => {
     render(<Checkbox checked onCheckedChange={onCheckedChange} disabled>Locked</Checkbox>)
     await user.click(screen.getByText('Locked'))
     expect(onCheckedChange).not.toHaveBeenCalled()
+  })
+
+  it('indeterminate shows the Minus icon, is exposed as mixed, and a click reports true', async () => {
+    const user = userEvent.setup()
+    const onCheckedChange = vi.fn()
+    render(<Checkbox checked="indeterminate" onCheckedChange={onCheckedChange}>Some</Checkbox>)
+    const box = screen.getByRole('checkbox', { name: 'Some' })
+    expect(box).toHaveAttribute('aria-checked', 'mixed')
+    expect(box.querySelector('svg.lucide-minus')).not.toBeNull()
+    expect(box.querySelector('svg.lucide-check')).toBeNull()
+    await user.click(box)
+    expect(onCheckedChange).toHaveBeenLastCalledWith(true)
   })
 })

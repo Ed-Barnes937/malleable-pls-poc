@@ -36,6 +36,9 @@ export function FormControlsHarness() {
         <TabsPanel value="week">Week panel</TabsPanel>
       </Tabs>
       <TimeInput label="Starts" value={time} onValueChange={setTime} step={15} hourCycle={24} />
+      <div data-testid="wide-time" className="w-full">
+        <TimeInput label="Wide start" value={time} onValueChange={setTime} hourCycle={24} className="w-full" />
+      </div>
       <DatePicker label="Date" value={date} onValueChange={setDate} />
       <output data-testid="state">{JSON.stringify({ on, tick, kind, time, date })}</output>
     </div>
