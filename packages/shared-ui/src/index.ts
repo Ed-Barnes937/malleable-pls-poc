@@ -31,3 +31,6 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+
+// Colour scheme (K1b)
+export { colorScheme, followTheme, resolvedTheme, useColorScheme, type Theme, type ThemeChoice } from './theme'

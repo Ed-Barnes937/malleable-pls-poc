@@ -1,33 +1,15 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useEffect, useCallback } from 'react'
 import { Sun, Moon } from 'lucide-react'
-
-type Theme = 'dark' | 'light'
-
-function getStoredTheme(): Theme {
-  try {
-    const stored = localStorage.getItem('pls-theme')
-    if (stored === 'light' || stored === 'dark') return stored
-  } catch {}
-  // Light unless the student picked dark (the redesign leads with light).
-  return 'light'
-}
-
-function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute('data-theme', theme)
-  try {
-    localStorage.setItem('pls-theme', theme)
-  } catch {}
-}
+import { colorScheme, followTheme, useColorScheme } from '@pls/shared-ui'
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const { theme } = useColorScheme()
 
-  useEffect(() => {
-    applyTheme(theme)
-  }, [theme])
+  useEffect(() => followTheme(), [])
 
+  // Picks the opposite of what is showing, so it also works from "system".
   const toggle = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
+    colorScheme.set(colorScheme.get().resolved === 'dark' ? 'light' : 'dark')
   }, [])
 
   return (
