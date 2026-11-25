@@ -25,6 +25,16 @@ if (typeof HTMLElement !== 'undefined') {
   HTMLElement.prototype.showPopover ??= function () {}
   HTMLElement.prototype.hidePopover ??= function () {}
   Element.prototype.getAnimations ??= () => []
+  // A modal Dialog locks page scroll and asks CSS.supports, which jsdom lacks.
+  CSS.supports ??= () => false
+  // jsdom has no layout, so UI SDK's focus trap would find nothing visible to
+  // Tab to. Treat what isn't hidden (attribute, display or visibility) as visible.
+  Element.prototype.checkVisibility ??= function (this: Element) {
+    for (let el: Element | null = this; el; el = el.parentElement) {
+      if (el.hasAttribute('hidden') || getComputedStyle(el).display === 'none') return false
+    }
+    return getComputedStyle(this).visibility !== 'hidden'
+  }
   document.head.append(
     Object.assign(document.createElement('style'), {
       textContent: '[popover] { display: block !important }',
