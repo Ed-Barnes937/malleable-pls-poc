@@ -133,8 +133,11 @@ test.describe('Moving and resizing widgets', () => {
     const grid = await openEveningReview(page)
     const transcript = grid.panelByLabel('Transcript')
 
-    // ] selects the first widget in board order: Transcript (40, 40, 460 x 420).
-    await page.keyboard.press(']')
+    // ] cycles the selection through the widgets; stop on Transcript (40, 40, 460 x 420),
+    // whose handles then become tab stops.
+    const transcriptTopLeft = transcript.getByRole('button', { name: 'Resize Transcript top left' })
+    for (let i = 0; i < 4 && (await transcriptTopLeft.getAttribute('tabindex')) !== '0'; i++) await page.keyboard.press(']')
+    await expect(transcriptTopLeft).toHaveAttribute('tabindex', '0')
     let saved = layoutSaved(page, transcript, { x: 60, y: 60, width: 460, height: 420 })
     await page.keyboard.press('Alt+ArrowDown')
     await page.keyboard.press('Alt+ArrowRight')
@@ -207,7 +210,7 @@ test.describe('Moving and resizing widgets', () => {
     const grid = await openEveningReview(page)
     await expect(grid.root).toHaveAttribute('data-layout', 'stack')
     await expect(grid.root.getByRole('button', { name: /^Resize / })).toHaveCount(0)
-    // ] selects (and raises, which is saved) the first widget.
+    // ] selects (and raises, which is saved) a widget.
     await page.keyboard.press(']')
     await page.waitForLoadState('networkidle')
     const saves = countLayoutSaves(page)
