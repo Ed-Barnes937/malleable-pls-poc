@@ -1,44 +1,50 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Sun, Moon } from 'lucide-react'
+import { useEffect } from 'react'
+import { Sun, Moon, Monitor } from 'lucide-react'
+import {
+  Menu,
+  MenuContent,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuTrigger,
+  colorScheme,
+  followTheme,
+  useColorScheme,
+  type ThemeChoice,
+} from '@pls/shared-ui'
 
-type Theme = 'dark' | 'light'
+const CHOICES: { value: ThemeChoice; label: string; Icon: typeof Sun }[] = [
+  { value: 'light', label: 'Light', Icon: Sun },
+  { value: 'dark', label: 'Dark', Icon: Moon },
+  { value: 'system', label: 'System', Icon: Monitor },
+]
 
-function getStoredTheme(): Theme {
-  try {
-    const stored = localStorage.getItem('pls-theme')
-    if (stored === 'light' || stored === 'dark') return stored
-  } catch {}
-  // Light unless the student picked dark (the redesign leads with light).
-  return 'light'
-}
-
-function applyTheme(theme: Theme) {
-  document.documentElement.setAttribute('data-theme', theme)
-  try {
-    localStorage.setItem('pls-theme', theme)
-  } catch {}
-}
-
+/** The colour scheme menu: Light, Dark or System (follow the OS). The button shows what is chosen. */
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(getStoredTheme)
+  const { choice } = useColorScheme()
 
-  useEffect(() => {
-    applyTheme(theme)
-  }, [theme])
+  useEffect(() => followTheme(), [])
 
-  const toggle = useCallback(() => {
-    setTheme((t) => (t === 'dark' ? 'light' : 'dark'))
-  }, [])
+  const Current = CHOICES.find((c) => c.value === choice)?.Icon ?? Monitor
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
-      title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-    >
-      {theme === 'dark' ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
-    </button>
+    <Menu>
+      <MenuTrigger
+        aria-label="Theme"
+        title="Theme"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
+      >
+        <Current className="h-[18px] w-[18px]" aria-hidden="true" />
+      </MenuTrigger>
+      <MenuContent side="bottom" align="end">
+        <MenuRadioGroup value={choice} onValueChange={(value) => colorScheme.set(value as ThemeChoice)} aria-label="Theme">
+          {CHOICES.map(({ value, label, Icon }) => (
+            <MenuRadioItem key={value} value={value}>
+              <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {label}
+            </MenuRadioItem>
+          ))}
+        </MenuRadioGroup>
+      </MenuContent>
+    </Menu>
   )
 }
