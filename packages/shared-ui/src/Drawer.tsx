@@ -22,19 +22,22 @@ type Styled<T> = Omit<T, 'className'> & { className?: string }
  * A UI SDK Drawer's sheet and the dimmed page behind it, styled from our
  * tokens for each edge (`side` on `Drawer`: left and right are 320px panels,
  * bottom is a sheet). UI SDK slides it and owns its translate and the
- * backdrop's opacity; it can be swiped back to its edge.
+ * backdrop's opacity; it can be swiped back to its edge. Slides in, and goes
+ * at once on close: UI SDK keeps the page inert (and eats presses) until an
+ * exit animation ends, so a quick press on the page right after closing would
+ * be lost. Hiding both parts once closed (`data-closed`) leaves nothing to wait for.
  */
 export function DrawerContent({ className, onPointerDown, ...props }: Styled<ComponentProps<typeof UiDrawerContent>>) {
   return (
     <>
-      <UiDrawerBackdrop className="fixed inset-0 bg-scrim-light" />
+      <UiDrawerBackdrop className="fixed inset-0 bg-scrim-light data-closed:hidden" />
       <UiDrawerContent
         onPointerDown={(e) => {
           onPointerDown?.(e)
           e.stopPropagation()
         }}
         className={cn(
-          'relative flex flex-col bg-surface-raised text-body text-text-primary shadow-pop outline-none',
+          'relative flex flex-col bg-surface-raised text-body text-text-primary shadow-pop outline-none data-closed:hidden',
           'data-[side=left]:h-full data-[side=left]:w-80 data-[side=left]:max-w-[calc(100vw-48px)] data-[side=left]:rounded-r-widget',
           'data-[side=right]:h-full data-[side=right]:w-80 data-[side=right]:max-w-[calc(100vw-48px)] data-[side=right]:rounded-l-widget',
           'data-[side=bottom]:max-h-[85dvh] data-[side=bottom]:w-full data-[side=bottom]:rounded-t-widget',

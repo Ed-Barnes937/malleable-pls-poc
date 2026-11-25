@@ -137,3 +137,29 @@ test('on a phone Activity opens over the menu: Escape closes Activity alone, the
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
 })
+
+test('the page takes a press, and the menu reopens, the moment it is closed', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <BoardMenuHarness />
+    </ShellProviders>,
+  )
+  const opener = page.getByRole('button', { name: 'Open board menu' })
+  const menu = page.getByRole('dialog', { name: 'Board menu' })
+  await opener.click()
+  await expect(menu).toBeVisible()
+  const pressed = (await page.getByRole('button', { name: /^Pressed/ }).boundingBox())!
+
+  // At once, while it slides away: nothing left behind eats the press.
+  await page.keyboard.press('Escape')
+  await page.mouse.click(pressed.x + pressed.width / 2, pressed.y + pressed.height / 2)
+  await expect(page.getByRole('button', { name: 'Pressed 1' })).toBeVisible()
+
+  // And it opens again straight away, staying open.
+  await page.keyboard.press('Escape')
+  await opener.click()
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('button', { name: 'Close board menu' })).toBeVisible()
+  await page.waitForTimeout(600)
+  await expect(menu).toBeVisible()
+})

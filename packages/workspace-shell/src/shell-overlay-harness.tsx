@@ -8,10 +8,14 @@ import { DrawerSidebar } from './DrawerSidebar'
 
 export function BoardMenuHarness() {
   const [open, setOpen] = useState(false)
+  const [presses, setPresses] = useState(0)
   return (
     <div className="p-4">
       <button type="button" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
         Open board menu
+      </button>
+      <button type="button" onClick={() => setPresses((n) => n + 1)}>
+        Pressed {presses}
       </button>
       <DrawerSidebar open={open} onClose={() => setOpen(false)} onAddWidget={() => {}} />
     </div>
