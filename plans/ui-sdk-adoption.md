@@ -1,7 +1,7 @@
 # UI SDK Adoption - Orchestration Plan
 
 **Date:** 2026-11-25
-**Status:** Ready to orchestrate (decisions settled 2026-11-25)
+**Status:** K0 done; K1 next (decisions settled 2026-11-25, revised after the spikes)
 **Owner:** Ed
 **Goal:** Replace the app's hand-rolled interaction code (popups, focus traps, menus, toasts, calendar block drag, board panel drag) with UI SDK behaviours and components, so every direct-manipulation surface also works by keyboard, screen reader and touch, and we stop paying for interaction bugs like #100 and #103.
 
@@ -24,6 +24,15 @@ Inputs:
 3. **Styled from our tokens only.** Don't import `@ui-sdk/core/web.css`. Style the parts with our Tailwind tokens through their data attributes and CSS variables.
 4. **No new capabilities during the migration.** Pan and zoom, lasso selection, command palette, undo and the rest are recorded in section 6 to pick up once K1-K5 are merged.
 
+### After the K0 spikes (Ed, 2026-11-25)
+Results are in `plans/ui-sdk-spikes.md`. No answer was a no-go.
+5. **Merging:** the orchestrator merges each ticket PR into `ui-sdk` once its review passes and the full suite is green.
+6. **Midnight:** a dragged block can't cross midnight (`createSpans` clamps to the day). Accepted.
+7. **Calendar popovers** are kept inside the viewport, not the calendar panel; spilling past the panel on desktop and covering the panel header on a phone is accepted while the pressed block stays visible.
+8. **Panels always snap to 20px** (pointer and Alt+arrow); Shift on a resize corner locks the aspect ratio, as in design tools. Panels stay clamped and snapped during the drag, not only on release. Only the selected panel's resize handles are tab stops.
+9. **K5 fixes the z-order bug** where seeded panels all have `z_index` 0, so pressing a panel on a fresh board raises nothing.
+10. **Phone long-press drag** on the time grid is checked by Ed on a real iPhone before K4b.
+
 ## 3. Ground rules
 
 Section 3 of `plans/student-planning-demo.md` applies (hygiene, no real AI in tests, per-ticket DB and ports, browser verification by implementer and reviewer, fresh-context reviewer). Plus:
@@ -38,10 +47,10 @@ Section 3 of `plans/student-planning-demo.md` applies (hygiene, no real AI in te
 
 ```
 K0 ── K1 ──┬── K2
-           ├── K3 ── K4
+           ├── K3 ── K4a ── K4b
            └── K5
 ```
-K0 gates everything. K2, K3 and K5 run in parallel after K1. K4 follows K3 because both touch the calendar's press handling.
+K0 gates everything. K2, K3 and K5 run in parallel after K1. K4a follows K3 because both touch the calendar's press handling; K4b follows K4a and Ed's iPhone check.
 
 ### K0 - Foundation and spikes
 - Install `@ui-sdk/core` and `@ui-sdk/react` (exact pin) in the packages that need them. Confirm a component renders in the Vite app, in vitest (jsdom stubs from the testing docs: `showPopover`, `hidePopover`, `getAnimations`, the `[popover]` style, in `vitest.setup.ts`) and in Playwright CT (`playwright-ct.config.ts`).
@@ -55,6 +64,7 @@ K0 gates everything. K2, K3 and K5 run in parallel after K1. K4 follows K3 becau
 ### K1 - Shared-ui on UI SDK
 Wrap and style in `packages/shared-ui`, replacing the hand-rolled versions:
 - `Dialog` (replaces `Dialog.tsx` internals and `useFocusTrap.ts`), `AlertDialog` / confirm, `Popover`, `Menu`, `Drawer`, `Tooltip`.
+- Dialogs render on the top layer above UI SDK popovers (spike 1: a UI SDK popover drew above today's `fixed z-50` dialogs, and `AutomationDialog` opens from the calendar popover footer). A CT proves a dialog opened from a popover stacks above it.
 - `Toast`: keep our `toast()` call sites; the facade in `workspace-shell/src/toast.tsx` delegates to UI SDK Toast (timers that pause, priorities, F6).
 - Form controls: `Checkbox`, `Switch`, `SegmentedControl`, `Tabs`, `TimeInput`, `DatePicker`. Keep `Select` native unless a surface needs more.
 - `createColorScheme` behind `ThemeToggle` (adds "system", syncs across tabs; keep the `pls-theme` key or migrate it).
@@ -69,22 +79,32 @@ Wrap and style in `packages/shared-ui`, replacing the hand-rolled versions:
 
 ### K3 - Calendar popovers and forms
 - `EventPopover`, `StudyBlockPopover`, `StudyHoursEditor`, `RevealCallout` on the shared `Popover`, anchored to the pressed block (or a virtual anchor at the press point for new blocks). Match today's placement (beside the press, above or below the block on a phone) with `side`/`align`/`collisionPadding`; note anything lost.
-- Replace `popover-position.ts` and `useEscapeToClose`. Replace `closing-press.ts` only if spike 1 said yes; otherwise keep it on top of the new popover.
+- Replace `popover-position.ts` and `useEscapeToClose`. **Keep `closing-press.ts`** and CalendarLens's capture `pointerdown` handler on top of the new popover (spike 1: UI SDK closes on the click after a tap, which our #103 fix cancels, so touch never closed it). Cancel UI SDK's `outside-press`, `focus-out` and `window-blur` dismissals; UI SDK handles Escape.
+- Focus return: keep the popover mounted with `open=false` while it closes and set `finalFocus` to the opener (or use `controller.open({ anchor })` if it proves to return focus by itself).
 - Form: kind radio group -> `SegmentedControl`; date and times -> `DatePicker` and `TimeInput` (15-minute step); calendar view tabs -> `SegmentedControl`; `StudyHoursEditor` selects -> `TimeInput`.
 - The #100 and #103 e2e cases must pass unchanged.
 
-### K4 - Calendar grid on `createSpans`
-- Move, resize and draw blocks through `createSpans` in `TimeGrid.tsx`, replacing the pointer drag code and the lane/column maths (`stackSpans`). Persistence stays on our mutations, called from the commit.
-- New for keyboard users on committed blocks: arrows move (Up/Down in time, Left/Right across days), Shift+arrows resize, Delete asks the same "Delete it?" / "Delete every week?" confirm as the block popover (`EventPopover.tsx:207`), Escape cancels. Commitments stay fixed.
+### K4a - Calendar grid on `createSpans` (desktop pointer and keyboard)
+- Move, resize and draw blocks through `createSpans` in `TimeGrid.tsx`, replacing the pointer drag code and the lane/column maths (`stackSpans`, with our own pixel styling; spike 2 found lanes identical once spans are in key order). Persistence stays on our mutations, called from the commit, through a latest-wins save queue per block (spike 2: 8 quick key presses sent 8 saves and the server kept the first).
+- New for keyboard users on committed blocks: arrows move (Up/Down in time, Left/Right across days), Shift+arrows resize, Delete asks the same "Delete it?" / "Delete every week?" confirm as the block popover (`EventPopover.tsx:207`; catch Delete before `createSpans` deletes), Escape cancels. Commitments stay fixed (`disabled`).
+- A tap on empty time keeps today's half-hour snap.
 - AI suggestions (proposals) use the same spans; keep Enter accepts and Delete dismisses, and drop the hand-rolled nudge handler.
 - Announcements use our copy via `message` (e.g. "Maths study moved to Tuesday 14:00 to 15:00").
 - Help me plan drop-in stays native (decision 2.1); the grid's `onDragOver`/`onDrop` keep working next to the spans.
-- Phone behaviour per spike 2 (scrolling must still work).
+- Keep the closing-press toggle and phone tap fix (`calendar.e2e.ts:245`, `phone.e2e.ts:246`).
+- Today's touch behaviour is kept as is (`touch-action: none`); K4b changes it.
+
+### K4b - Calendar grid: phone and midnight
+- Phone: `bindHold` (400 ms) starts a drag or draw; tracks get `touch-action: pan-y`, plus a non-passive `touchmove` that stops scrolling once a press is held, so swipes scroll the grid. Starts after Ed's iPhone check of spike 2.
+- Midnight (decision 6): each day's piece of a block is its own span and moving either piece moves the whole block; a piece that runs into the next day has no resize edge at its midnight end.
 
 ### K5 - Board panels on `createMove` / `createResize`
 - Header drag and the 8 resize handles in `CanvasEngine.tsx` / `PanelChrome.tsx` on the behaviours, replacing the pointer code, `snap.ts` and the resize maths in `geometry.ts` (keep `anchoredPosition` and placement helpers that aren't drag-related).
-- New for keyboard users: Alt+arrow moves the selected panel, resize handles are focusable buttons with arrow keys, Escape puts a drag back. Extend `useCanvasKeyboard.ts` shortcuts only where they don't clash.
-- Narrow stacked layout: moving and resizing disabled, as today.
+- New for keyboard users: Alt+arrow moves the selected panel, resize handles are focusable buttons with arrow keys (only the selected panel's handles are tab stops), Escape puts a drag back. Alt+arrow is ignored in text fields. Extend `useCanvasKeyboard.ts` shortcuts only where they don't clash (spike 3 found no clash).
+- Snap to 20px always (`step` 20); Shift on a resize corner locks the aspect ratio (decision 8). Clamp and snap the panel during the drag in our own `live` binding, not only on release. Turn transitions off while dragging. Debounce persistence for held Alt+arrow key repeat.
+- Fix seeded panels all having `z_index` 0, so pressing a panel on a fresh board brings it to front (decision 9).
+- Two `panel-system` unit assertions change with the new markup (`style.left` becomes a CSS variable; fullscreen has no handles); keep what they check.
+- Narrow stacked layout and fullscreen: moving and resizing disabled, as today.
 
 ### Wrap-up
 When K5 merges: run the full suite on `ui-sdk`, do one keyboard-only and VoiceOver walkthrough of the demo journeys, list any hand-rolled interaction code still left (with why), and hand `ui-sdk` to Ed to merge.
@@ -138,4 +158,4 @@ Our main surfaces (calendar blocks, board panels, tab and step reorder) are dire
 
 ## 9. Estimated shape
 - K0: 1 ticket with 3 parallel spikes.
-- K1-K5: 5 PRs into `ui-sdk`, each one implementer, one reviewer, one fix round. K4 is the largest.
+- K1-K5: 6 PRs into `ui-sdk` (K4 split into K4a and K4b), each one implementer, one reviewer, one fix round.
