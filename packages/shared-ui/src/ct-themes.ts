@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/experimental-ct-react'
+import type { Page } from '@playwright/test'
 
 /** Both app themes with the computed colours of the tokens overlays use (index.css). */
 export const THEMES = [

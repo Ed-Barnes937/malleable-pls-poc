@@ -1,4 +1,5 @@
-import { test, expect, type Locator, type Page } from '@playwright/experimental-ct-react'
+import { test, expect } from '@playwright/experimental-ct-react'
+import type { Locator, Page } from '@playwright/test'
 import { DialogFromPopover, StackedDialogs } from './overlay-harness'
 import { THEMES, setTheme } from './ct-themes'
 

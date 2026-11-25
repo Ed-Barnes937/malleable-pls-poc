@@ -31,3 +31,9 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+// Overlays on UI SDK (K1a). Lenses import these, never @ui-sdk/react.
+export { AlertDialog, useConfirm, type AlertDialogProps, type ConfirmRequest } from './AlertDialog'
+export { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger, createPopoverController, type PopoverContentProps, type PopoverController, type PopoverProps } from './Popover'
+export { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger, createMenuController, type MenuController, type MenuProps } from './Menu'
+export { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger, createDrawerController, type DrawerController, type DrawerProps } from './Drawer'
+export { Tooltip, TooltipContent, TooltipTrigger, type TooltipProps } from './Tooltip'

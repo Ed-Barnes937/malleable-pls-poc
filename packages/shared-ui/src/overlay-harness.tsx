@@ -4,13 +4,12 @@
  * app imports this file.
  */
 import { useState } from 'react'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTitle,
-  PopoverTrigger,
-} from '@ui-sdk/react/popover'
+import { AlertDialog, useConfirm } from './AlertDialog'
 import { Dialog } from './Dialog'
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle, DrawerTrigger } from './Drawer'
+import { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuSeparator, MenuTrigger } from './Menu'
+import { Popover, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger } from './Popover'
+import { Tooltip, TooltipContent, TooltipTrigger } from './Tooltip'
 
 /**
  * The calendar case: a popover stays open (as the calendar keeps its block
@@ -31,7 +30,7 @@ export function DialogFromPopover() {
         <PopoverContent
           side="bottom"
           sideOffset={-40}
-          className="h-48 w-80 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
+          className="h-48 w-80"
         >
           <PopoverTitle>Block</PopoverTitle>
           <button type="button" onClick={() => setDialogOpen(true)}>
@@ -59,6 +58,93 @@ export function StackedDialogs() {
       </Dialog>
       <Dialog open={second} onClose={() => setSecond(false)} title="Edit automation">
         <input aria-label="Sentence" />
+      </Dialog>
+    </>
+  )
+}
+
+/** One of each overlay, as the app would use them. `onEvent` reports what ran. */
+export function Overlays({ onEvent = () => {} }: { onEvent?: (event: string) => void }) {
+  const [alertOpen, setAlertOpen] = useState(false)
+  const { confirm, confirmDialog } = useConfirm()
+  return (
+    <div className="flex flex-wrap items-start gap-3 p-6">
+      <Popover>
+        <PopoverTrigger>Details</PopoverTrigger>
+        <PopoverContent side="bottom" align="start">
+          <PopoverTitle>Maths study</PopoverTitle>
+          <PopoverDescription>Tuesday 14:00 to 15:00</PopoverDescription>
+          <button type="button">Edit</button>
+        </PopoverContent>
+      </Popover>
+      <Menu onAction={(value) => onEvent(`menu:${value}`)}>
+        <MenuTrigger>Board menu</MenuTrigger>
+        <MenuContent side="bottom" align="start">
+          <MenuGroup>
+            <MenuGroupLabel>Boards</MenuGroupLabel>
+            <MenuItem value="rename">Rename</MenuItem>
+            <MenuItem value="duplicate">Duplicate</MenuItem>
+          </MenuGroup>
+          <MenuSeparator />
+          <MenuItem value="delete" destructive>Delete</MenuItem>
+        </MenuContent>
+      </Menu>
+      <Drawer side="right">
+        <DrawerTrigger>Activity</DrawerTrigger>
+        <DrawerContent>
+          <div className="flex items-center justify-between px-5 pt-4 pb-2">
+            <DrawerTitle>Activity</DrawerTitle>
+            <DrawerClose>Close</DrawerClose>
+          </div>
+          <p className="px-5">Nothing running</p>
+        </DrawerContent>
+      </Drawer>
+      <Tooltip delay={0}>
+        <TooltipTrigger aria-label="Add to calendar">+</TooltipTrigger>
+        <TooltipContent>Add to calendar</TooltipContent>
+      </Tooltip>
+      <button type="button" onClick={() => setAlertOpen(true)}>Delete board</button>
+      <AlertDialog
+        open={alertOpen}
+        onClose={() => setAlertOpen(false)}
+        title="Delete board?"
+        description="Its widgets and settings are removed."
+        confirmLabel="Delete board"
+        destructive
+        onConfirm={() => onEvent('alert:confirmed')}
+      />
+      <button
+        type="button"
+        onClick={async () => onEvent(`confirm:${await confirm({ title: 'Delete it?', description: 'Maths study on Tuesday is removed.', confirmLabel: 'Delete', destructive: true })}`)}
+      >
+        Delete block
+      </button>
+      {confirmDialog}
+    </div>
+  )
+}
+
+/** A popover and a menu inside a dialog: Escape closes the inner layer first. */
+export function LayersInDialog() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>New automation</button>
+      <Dialog open={open} onClose={() => setOpen(false)} title="New automation">
+        <div className="flex gap-2">
+          <Popover>
+            <PopoverTrigger>Help</PopoverTrigger>
+            <PopoverContent>
+              <PopoverTitle>About automations</PopoverTitle>
+            </PopoverContent>
+          </Popover>
+          <Menu>
+            <MenuTrigger>When</MenuTrigger>
+            <MenuContent>
+              <MenuItem value="marked">I mark something confusing</MenuItem>
+            </MenuContent>
+          </Menu>
+        </div>
       </Dialog>
     </>
   )
