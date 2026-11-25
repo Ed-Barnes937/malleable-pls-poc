@@ -91,6 +91,27 @@ test.describe('Workspace management', () => {
     await expect(topBar.root.getByRole('button', { name: 'Temp Workspace' })).toBeHidden()
   })
 
+  test('board appearance opens from the gear by keyboard and Escape closes it back to the gear', async ({ page }) => {
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await topBar.expectActiveWorkspace('Evening Review')
+
+    const gear = topBar.root.getByRole('button', { name: 'Board appearance' })
+    await gear.focus()
+    await page.keyboard.press('Enter')
+    const popover = page.getByTestId('settings-popover')
+    await expect(popover).toContainText('Background')
+    await page.keyboard.press('Escape')
+    await expect(popover).toBeHidden()
+    await expect(gear).toBeFocused()
+
+    // A press elsewhere closes it too.
+    await gear.click()
+    await expect(popover).toBeVisible()
+    await topBar.root.getByTestId('workspace-tab').first().click()
+    await expect(popover).toBeHidden()
+  })
+
   test('cancelling workspace deletion keeps it', async ({ page }) => {
     await page.goto('/')
     const topBar = new TopBarPom(page)

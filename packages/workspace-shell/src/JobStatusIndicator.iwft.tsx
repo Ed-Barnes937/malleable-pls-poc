@@ -56,3 +56,44 @@ test('failed job explains itself and can be retried from Activity', async ({ mou
   await expect(page.getByText('3 running')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
 })
+
+test('by keyboard: Enter opens Activity with focus on Close, Tab stays inside, Escape closes it back to the button', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <JobStatusIndicator />
+    </ShellProviders>,
+  )
+  const button = page.getByTestId('activity-button')
+  await button.focus()
+  await page.keyboard.press('Enter')
+  const activity = page.getByRole('dialog', { name: 'Activity' })
+  await expect(activity).toHaveAttribute('aria-modal', 'true')
+  await expect(activity.getByRole('button', { name: 'Close activity' })).toBeFocused()
+  await expect(activity.getByTestId('job-item').first()).toBeVisible()
+
+  for (const key of ['Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key)
+    expect(await activity.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+  }
+
+  await page.keyboard.press('Escape')
+  await expect(activity).toBeHidden()
+  await expect(button).toBeFocused()
+})
+
+test('the Close button and a press beside the panel close Activity', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <JobStatusIndicator />
+    </ShellProviders>,
+  )
+  const activity = page.getByRole('dialog', { name: 'Activity' })
+  await page.getByTestId('activity-button').click()
+  await activity.getByRole('button', { name: 'Close activity' }).click()
+  await expect(activity).toBeHidden()
+
+  await page.getByTestId('activity-button').click()
+  await expect(activity).toBeVisible()
+  await page.mouse.click(20, 200)
+  await expect(activity).toBeHidden()
+})

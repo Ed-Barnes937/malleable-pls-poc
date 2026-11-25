@@ -1,5 +1,5 @@
 import { Menu, LayoutGrid, Settings } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import { useWorkspaceScopes, useFocusedRecording, useRunningJobCount, decodeScope } from '@pls/substrate-client'
 import { useActiveWorkspaceId } from './activeBoard'
 import { ThemeToggle } from './ThemeToggle'
@@ -8,7 +8,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher'
 import { useBoardScopeDims } from './useBoardScopeDims'
 import { TodayLine } from './TodayLine'
 import { BoardAppearance } from './BoardAppearance'
-import { COURSES, cn, useNarrowScreen } from '@pls/shared-ui'
+import { COURSES, Popover, PopoverContent, PopoverTrigger, cn, useNarrowScreen } from '@pls/shared-ui'
 
 export interface TopBarProps {
   onMenuClick: () => void
@@ -184,56 +184,27 @@ function MenuButton({ onClick, open, showRunning }: { onClick: () => void; open:
   )
 }
 
+/** The board's appearance, in a popover from the gear button: Escape or a press outside closes it. */
 function SettingsPopover() {
-  const [open, setOpen] = useState(false)
-  const popoverRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-
-  const toggle = useCallback(() => {
-    setOpen((v) => !v)
-  }, [])
-
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (
-        popoverRef.current?.contains(e.target as Node) ||
-        buttonRef.current?.contains(e.target as Node)
-      ) return
-      setOpen(false)
-    }
-    document.addEventListener('pointerdown', handler)
-    return () => document.removeEventListener('pointerdown', handler)
-  }, [open])
-
   return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
+    <Popover>
+      <PopoverTrigger
         data-testid="settings-button"
-        type="button"
-        onClick={toggle}
         aria-label="Board appearance"
-        aria-expanded={open}
         title="Board appearance"
-        className={ICON_BUTTON}
+        className={cn(ICON_BUTTON, 'focus-visible:outline-2 focus-visible:outline-accent')}
       >
         <Settings size={18} />
-      </button>
-      {open && (
-        <div
-          ref={popoverRef}
-          data-testid="settings-popover"
-          className="absolute right-0 top-full mt-2 w-64 max-w-[calc(100vw-16px)] rounded-widget border border-border-subtle p-4"
-          style={{
-            background: 'var(--color-surface-raised)',
-            boxShadow: 'var(--shadow-pop)',
-            zIndex: 10002,
-          }}
-        >
-          <BoardAppearance />
-        </div>
-      )}
-    </div>
+      </PopoverTrigger>
+      <PopoverContent
+        data-testid="settings-popover"
+        side="bottom"
+        align="end"
+        aria-label="Board appearance"
+        className="w-64 max-w-[calc(100vw-16px)] gap-0"
+      >
+        <BoardAppearance />
+      </PopoverContent>
+    </Popover>
   )
 }

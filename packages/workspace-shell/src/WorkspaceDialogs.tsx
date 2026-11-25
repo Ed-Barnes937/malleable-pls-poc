@@ -3,7 +3,7 @@ import {
   useCreateWorkspace,
   useDeleteWorkspace,
 } from '@pls/substrate-client'
-import { COURSES, Dialog, Select, TextField } from '@pls/shared-ui'
+import { AlertDialog, COURSES, Dialog, Select, TextField } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 
 export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -97,36 +97,36 @@ export function DeleteWorkspaceDialog({
   workspace: { id: string; name: string } | null
 }) {
   const deleteWorkspace = useDeleteWorkspace()
+  // The caller clears `workspace` as it closes us; keep the board's name for the fade-out.
+  const shown = useRef(workspace)
+  if (workspace) shown.current = workspace
 
   // Deleting the open board opens the first one left (see useActiveWorkspaceId).
-  const handleDelete = () => {
+  // A failed delete keeps the dialog open (AlertDialog shows the message) so it can be retried.
+  const handleDelete = async () => {
     if (!workspace) return
-    deleteWorkspace.mutate(workspace.id, { onSuccess: onClose })
+    try {
+      await deleteWorkspace.mutateAsync(workspace.id)
+    } catch {
+      throw new Error("Couldn't delete this board. Try again.")
+    }
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="Delete board">
-      <p className="mb-4 text-body text-text-secondary">
-        Delete <span className="font-semibold text-text-primary">{workspace?.name}</span>? Its widgets
-        and settings are removed. Your lectures, notes and to-dos stay.
-      </p>
-      <div className="flex justify-end gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleteWorkspace.isPending}
-          className="h-9 rounded-control bg-confused px-3.5 text-body font-medium text-surface-raised transition-colors hover:bg-confused/90 disabled:opacity-40"
-        >
-          {deleteWorkspace.isPending ? 'Deleting...' : 'Delete board'}
-        </button>
-      </div>
-    </Dialog>
+    <AlertDialog
+      open={open}
+      onClose={onClose}
+      onConfirm={handleDelete}
+      title="Delete board"
+      description={
+        <>
+          Delete <span className="font-semibold text-text-primary">{shown.current?.name}</span>? Its widgets
+          and settings are removed. Your lectures, notes and to-dos stay.
+        </>
+      }
+      confirmLabel="Delete board"
+      pendingLabel="Deleting..."
+      destructive
+    />
   )
 }
