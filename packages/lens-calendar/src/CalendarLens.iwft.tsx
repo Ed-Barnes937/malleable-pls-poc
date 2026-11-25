@@ -228,6 +228,52 @@ test.describe('on a phone', () => {
     await page.setViewportSize({ width: 400, height: 800 })
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   })
+
+  // Too narrow for a popover beside the press: it goes above or below the
+  // block pressed, so the block stays in view, and stays inside the window.
+  const day = (h: number, m = 0) => new Date(FROZEN_MONDAY.getFullYear(), FROZEN_MONDAY.getMonth(), FROZEN_MONDAY.getDate(), h, m).toISOString()
+  const PLACED: [string, string, string][] = [
+    ['high', 'Early seminar', 'Edit Early seminar'],
+    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance'],
+    ['low', 'Evening shift', 'Edit Evening shift'],
+  ]
+  for (const [where, title, dialog] of PLACED) {
+    test(`a popover on a block ${where} on the screen keeps clear of the block, inside the window`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        {
+          id: 'review', kind: 'task', title: 'Review: maternal inheritance', starts_at: day(14), ends_at: day(14, 30), duration_min: 30,
+          source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, course: 'biology', created_by_workflow_id: 'wf-confused-review',
+        },
+        { id: 'late', kind: 'commitment', title: 'Evening shift', subtype: 'shift', starts_at: day(20), ends_at: day(21) },
+      ])
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+
+      await block(page, title).click()
+      const popover = page.getByRole('dialog', { name: dialog })
+      await expect(popover).toBeVisible()
+      // Measured once it has stopped moving (its content loads, then it is placed again).
+      let last = ''
+      await expect.poll(async () => {
+        const box = JSON.stringify(await popover.boundingBox())
+        const settled = box === last
+        last = box
+        return settled
+      }, { intervals: [100] }).toBe(true)
+      const box = (await popover.boundingBox())!
+      const pressed = (await block(page, title).boundingBox())!
+
+      const viewport = page.viewportSize()!
+      expect(box.x).toBeGreaterThanOrEqual(0)
+      expect(box.y).toBeGreaterThanOrEqual(0)
+      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+      const clear = box.y + box.height <= pressed.y || box.y >= pressed.y + pressed.height
+      expect(clear, 'the popover is above or below the block, not over it').toBe(true)
+    })
+  }
 })
 
 test('on a wide screen, picking a view saves it', async ({ mount, page, simulator }) => {
