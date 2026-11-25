@@ -125,8 +125,6 @@ export function useUpdatePanelLayouts(workspaceId: string | null) {
           return l ? { ...p, ...l } : p
         }) as unknown as typeof panels
       })
-        return Object.assign(patched, { columns: panels.columns, count: panels.count, command: panels.command, statement: panels.statement, state: panels.state }) as typeof panels
-      })
     },
   })
 }
