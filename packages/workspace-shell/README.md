@@ -16,7 +16,7 @@ Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` s
 | `TopBar` | Board menu button, board tabs, "Showing: ..." chip, activity, theme, appearance, tidy up |
 | `DrawerSidebar` | Board menu: "Showing" scope pickers first (compact, in view at 900px), widget palette, board automations; opens at the top |
 | `PanelContainer` | Wrapper connecting a panel slot to its lens |
-| `ThemeToggle` | Light / dark mode switch |
+| `ThemeToggle` | Light / Dark / System theme menu |
 | `JobStatusIndicator` | Activity button and panel for background automation runs |
 | `WorkspaceSwitcher` | Board tabs (scroll sideways on narrow screens); the open board's tab carries its delete button |
 | `WorkspaceDialogs` | New board (name + optional course) and delete board dialogs |

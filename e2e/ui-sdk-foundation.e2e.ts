@@ -6,8 +6,16 @@ import { test, expect } from '@playwright/test'
 // The fixture is loaded through the app's module graph, so no product UI is needed.
 const fixture = path.resolve(__dirname, '../packages/shared-ui/src/UiSdkSmoke.tsx')
 
-test('a UI SDK Popover opens in the Vite web app', async ({ page }) => {
+test('a UI SDK Popover opens in the Vite web app', async ({ page, request }) => {
+  // On a cold dev server, the first request for a module that pulls in a
+  // dependency Vite has not optimised yet makes Vite optimise it and reload the
+  // page, which destroys an evaluate in flight. Ask for the fixture (and so
+  // the optimisation) before the page exists, then let the app finish loading.
+  const warm = await request.get(`/@fs${fixture}`)
+  expect(warm.ok()).toBe(true)
   await page.goto('/')
+  await page.waitForLoadState('networkidle')
+  await expect(page.getByTestId('toast-host')).toBeAttached()
   await page.evaluate(async (file) => {
     const host = document.createElement('div')
     host.id = 'ui-sdk-smoke-host'
