@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { TopBarPom, PanelGridPom, PanelContainerPom } from './pom'
+import { TopBarPom, PanelGridPom, PanelContainerPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 
 /** A widget's box as laid out (left, top, width, height on the board), without its scale-in. */
@@ -182,7 +182,7 @@ test.describe('Moving and resizing widgets', () => {
   test('a widget dropped from the board menu is still added (native drag and drop)', async ({ page }) => {
     const grid = await openEveningReview(page)
     await new TopBarPom(page).openDrawer()
-    const tile = page.locator('aside [draggable="true"]').filter({ hasText: 'All Courses' })
+    const tile = new SidebarPom(page).lensItems.filter({ hasText: 'All Courses' })
     // Synthetic HTML5 drag events through the real handlers (the drawer tile's
     // dragstart, the board's dragover and drop): Playwright's mouse doesn't
     // drive a native drag here.
