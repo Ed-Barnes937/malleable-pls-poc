@@ -653,6 +653,23 @@ test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add
   await expect(add).toBeFocused()
 })
 
+test('pressing another block while one is open opens that block, focused on its first field', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Biology lecture').click()
+  const first = page.getByRole('dialog', { name: 'Edit Biology lecture' })
+  await expect(first.getByLabel('Title')).toBeFocused()
+
+  await block(page, 'Chemistry lecture').click()
+  const second = page.getByRole('dialog', { name: 'Edit Chemistry lecture' })
+  await expect(second).toBeVisible()
+  await expect(first).toHaveCount(0)
+  await expect(second.getByLabel('Title')).toBeFocused()
+  // Still there once the first popover's close has finished (its focus return included).
+  await page.waitForTimeout(1000)
+  await expect(second.getByLabel('Title')).toBeFocused()
+})
+
 test('keyboard: in a new block, arrows pick the kind and step a time by 15 minutes, and the date picks from its calendar', async ({ mount, page, simulator }) => {
   await freezeAt(page, simulator, FROZEN_MONDAY, 10, 0)
   await mount(<CalendarHarness />)

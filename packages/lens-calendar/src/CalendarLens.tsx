@@ -430,7 +430,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
-  const popoverId = popover ? (popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`) : null
+  const popoverId = popover ? popoverIdOf(popover) : null
   const popoverIdRef = useRef(popoverId)
   useEffect(() => { popoverIdRef.current = popoverId }, [popoverId])
   /** The popover action waiting on the server: its button says so ("Saving...") until the save lands. */
@@ -713,6 +713,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
 
       {shown && (shown.mode === 'create' || shownRow) && (
         <CalendarPopover
+          // One UI SDK Popover per popover opened: pressing block B while A's
+          // is open drops A's at once rather than reopening it as B's, so A's
+          // focus return (to what opened it, now B) can't follow B's first field.
+          key={popoverIdOf(shown)}
           open={!!popover}
           root={rootRef}
           press={shown}
@@ -792,6 +796,11 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       )}
     </div>
   )
+}
+
+/** Which popover this is: what it creates (by start) or the occurrence it edits. */
+function popoverIdOf(p: Popover) {
+  return p.mode === 'create' ? `create-${p.draft.start.toISOString()}` : `edit-${p.key}`
 }
 
 const VIEW_OPTIONS = [{ value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }]
