@@ -1,8 +1,11 @@
 import { type ComponentProps } from 'react'
+import { Check } from 'lucide-react'
 import {
   MenuContent as UiMenuContent,
   MenuGroupLabel as UiMenuGroupLabel,
   MenuItem as UiMenuItem,
+  MenuItemIndicator as UiMenuItemIndicator,
+  MenuRadioItem as UiMenuRadioItem,
   MenuSeparator as UiMenuSeparator,
 } from '@ui-sdk/react/menu'
 import { POPOVER_SURFACE_CLASS } from './Popover'
@@ -11,6 +14,7 @@ import { cn } from './utils'
 export {
   Menu,
   MenuGroup,
+  MenuRadioGroup,
   MenuTrigger,
   createMenuController,
   type MenuProps,
@@ -41,6 +45,29 @@ export function MenuItem({ className, ...props }: Styled<ComponentProps<typeof U
       )}
       {...props}
     />
+  )
+}
+
+/**
+ * One choice in a `MenuRadioGroup`: the checked one has a check mark and is
+ * announced as checked. Closes the menu when picked (UI SDK's radio items stay
+ * open by default; a one-of-three setting is done once chosen).
+ */
+export function MenuRadioItem({ className, children, closeOnSelect = true, ...props }: Styled<ComponentProps<typeof UiMenuRadioItem>>) {
+  return (
+    <UiMenuRadioItem
+      closeOnSelect={closeOnSelect}
+      className={cn(
+        'flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-item px-2.5 py-1.5 text-body text-text-secondary outline-none data-highlighted:bg-surface-overlay data-highlighted:text-text-primary data-disabled:opacity-40',
+        className,
+      )}
+      {...props}
+    >
+      <span aria-hidden="true" className="flex h-4 w-4 shrink-0 items-center justify-center">
+        <UiMenuItemIndicator><Check className="h-4 w-4" /></UiMenuItemIndicator>
+      </span>
+      {children}
+    </UiMenuRadioItem>
   )
 }
 

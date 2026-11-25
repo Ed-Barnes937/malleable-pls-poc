@@ -125,3 +125,36 @@ test('a board toast pushed right after switching to its board is shown', async (
   await page.getByRole('button', { name: 'Switch board and say so' }).click()
   await expect(page.getByTestId('toast').filter({ hasText: 'Opened on the new board' })).toBeVisible()
 })
+
+test.describe('what a screen reader hears', () => {
+  const announcer = (page: import('@playwright/test').Page) => page.locator('[data-ui-sdk-announcer=""]')
+
+  test('a plain toast is announced as its message', async ({ mount, page }) => {
+    await mount(<ToastHarness />)
+    await page.getByRole('button', { name: 'Add plain' }).click()
+    await expect(announcer(page)).toHaveText('Transcript added')
+  })
+
+  test('a toast with an action is announced as its message, then where the action is', async ({ mount, page }) => {
+    await mount(<ToastHarness />)
+    await page.getByRole('button', { name: 'Add with action' }).click()
+    await expect(announcer(page)).toHaveText('Opened in In Lecture. Notifications has a Back to My week button.')
+  })
+})
+
+test('after a hover the countdown resumes from the time that was left, not from the start', async ({ mount, page }) => {
+  await page.clock.install()
+  await mount(<ToastHarness />)
+  await page.getByRole('button', { name: 'Add plain' }).click() // 4000ms
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await page.clock.runFor(3000)
+  await page.getByTestId('toast').hover()
+  await page.clock.runFor(10000) // held: nothing counts down
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await page.mouse.move(0, 0)
+  await page.clock.runFor(500)
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  // About 1000ms were left: gone well before another full 4000ms.
+  await page.clock.runFor(1000)
+  await expect(page.getByTestId('toast')).toHaveCount(0)
+})
