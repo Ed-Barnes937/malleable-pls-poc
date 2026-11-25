@@ -15,3 +15,19 @@ delete process.env.OPENROUTER_API_KEY
 if (expect.getState().testPath?.endsWith('.db.test.ts')) {
   vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 })
 }
+
+// UI SDK popups (Popover, Dialog, Menu, ...) use the browser's top layer and
+// the Web Animations API, which jsdom lacks. These are the stubs from UI SDK's
+// testing docs ("Testing in a Framework"): enough for a popup to render and
+// open. They don't exercise native popup or animation behaviour; use Playwright
+// CT for that. Assert ARIA with `checkPattern` (see packages/shared-ui/src/testing.ts).
+if (typeof HTMLElement !== 'undefined') {
+  HTMLElement.prototype.showPopover ??= function () {}
+  HTMLElement.prototype.hidePopover ??= function () {}
+  Element.prototype.getAnimations ??= () => []
+  document.head.append(
+    Object.assign(document.createElement('style'), {
+      textContent: '[popover] { display: block !important }',
+    }),
+  )
+}
