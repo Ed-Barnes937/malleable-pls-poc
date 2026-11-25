@@ -109,3 +109,12 @@ test.describe('how long a toast stays', () => {
     await expect(page.getByTestId('toast')).toHaveCount(0)
   })
 })
+
+test('a board toast waiting its turn is dropped if the student leaves the board first', async ({ mount, page, simulator: _boards }) => {
+  await mount(<ToastHarness />)
+  await expect(page.getByRole('button', { name: 'Add board toast and leave' })).toBeEnabled()
+  await page.getByRole('button', { name: 'Add board toast and leave' }).click()
+  await expect(page.getByTestId('toast').filter({ hasText: 'Transcript added' })).toBeVisible()
+  await page.waitForTimeout(600)
+  await expect(page.getByTestId('toast').filter({ hasText: 'About this board' })).toHaveCount(0)
+})

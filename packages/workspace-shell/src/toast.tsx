@@ -53,6 +53,9 @@ interface ToastData {
  */
 const toaster = createToaster<string>({ duration: TOAST_MS })
 
+/** The open board as the bar last saw it (undefined until a bar is mounted). */
+let shownBoard: string | null | undefined
+
 /** Toasts that go when their board is left. */
 const boardOf = new Map<string, string>()
 
@@ -87,6 +90,8 @@ let lastShownAt = 0
 let queued = Promise.resolve()
 
 function show(toast: Omit<Toast, 'id'>) {
+  // It may have waited its turn while the student left its board.
+  if (toast.board && shownBoard !== undefined && shownBoard !== toast.board) return
   const id = toast.key ?? `toast-${++nextId}`
   const data: ToastData = { icon: toast.icon, actionIcon: toast.action?.icon, board: toast.board }
   if (toast.board) boardOf.set(id, toast.board)
@@ -164,6 +169,7 @@ export function ToastHost() {
   // A toast about one board (e.g. "Back to My week" after opening a moment
   // there) goes once the student leaves it.
   useEffect(() => {
+    shownBoard = activeBoard
     for (const [id, board] of boardOf) if (board !== activeBoard) toaster.dismiss(id)
   }, [activeBoard])
 

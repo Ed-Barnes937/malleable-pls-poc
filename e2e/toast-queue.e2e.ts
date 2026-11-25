@@ -100,6 +100,7 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
       await reseed()
       await page.goto('/')
       await expect(page.getByTestId('toast-host')).toBeAttached()
+      await expect(page.locator('[data-ui-sdk-announcer=""]')).toBeAttached()
       await page.evaluate(() => {
         const w = window as unknown as { announced: string[] }
         w.announced = []
@@ -135,6 +136,7 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
       await reseed()
       await page.goto('/')
       await expect(page.getByTestId('toast-host')).toBeAttached()
+      await expect(page.locator('[data-ui-sdk-announcer=""]')).toBeAttached()
       const push = (message: string, durationMs?: number) => page.evaluate(async ({ mod, message, durationMs }) => {
         // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
         const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((n) => new URL(n).pathname.endsWith('/workspace-shell/src/toast.tsx')).at(-1)
