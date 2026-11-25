@@ -5,6 +5,7 @@ import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuratio
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
+import { SpikePopoverShell, sdk } from './spike-popover'
 
 /**
  * "From Mitochondrial DNA - today · 1:18", with the time kept on the line of
@@ -86,7 +87,7 @@ export function StudyBlockPopover({
 }: StudyBlockPopoverProps) {
   const ref = useRef<HTMLDivElement>(null)
   const pos = usePopoverPosition(ref, { x, y, span, bounds, width: WIDTH })
-  useEscapeToClose(onClose)
+  useEscapeToClose(sdk ? () => {} : onClose)
 
   const substrate = useSubstrate()
   const recordingId = row.source_id ?? ''
@@ -116,18 +117,18 @@ export function StudyBlockPopover({
 
   const button = 'inline-flex h-10 items-center justify-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors disabled:opacity-50'
 
-  return (
+  const body = (
     <div
       ref={ref}
-      role="dialog"
+      role={sdk ? undefined : 'dialog'}
       aria-label={row.title}
       data-testid="calendar-popover"
       data-variant="study-block"
       // A press in here doesn't close it (CalendarLens).
       data-calendar-popover
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
-      style={{ left: pos.left, top: pos.top, width: WIDTH }}
+      className={cn(sdk ? 'relative' : 'absolute z-50', 'flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop')}
+      style={sdk ? { width: WIDTH } : { left: pos.left, top: pos.top, width: WIDTH }}
     >
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
@@ -250,5 +251,11 @@ export function StudyBlockPopover({
         </p>
       )}
     </div>
+  )
+  if (!sdk) return body
+  return (
+    <SpikePopoverShell x={x} y={y} span={span} bounds={bounds} width={WIDTH} label={row.title}>
+      {body}
+    </SpikePopoverShell>
   )
 }

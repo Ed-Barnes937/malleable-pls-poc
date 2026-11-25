@@ -9,6 +9,7 @@ import type { PendingAction } from './pending'
 import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
 import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
+import { sdk, spikeHost, spikeMode } from './spike-popover'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
 import { ProposalTray } from './ProposalTray'
 import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
@@ -74,6 +75,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const [view, setViewState] = useState<View>(() => (narrow ? 'day' : savedView))
   const [anchorDay, setAnchorDay] = useState(() => startOfDay(new Date()))
   const [popover, setPopover] = useState<Popover | null>(null)
+  /** SPIKE: the popover UI SDK is closing (kept mounted with open=false so it can return focus). */
+  const [closing, setClosing] = useState<Popover | null>(null)
+  const popoverRef = useRef<Popover | null>(null)
+  popoverRef.current = popover
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
   const [planOpen, setPlanOpen] = useState(false)
@@ -99,15 +104,20 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   const openPopover = (next: Popover) => {
     const active = document.activeElement
     openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
+    spikeHost.opener = openerRef.current
     setError(null)
     setNotice(null)
+    setClosing(null)
     setPopover(next)
   }
   const closePopover = useCallback(() => {
+    if (sdk && spikeMode !== 'sdk-capture' && popoverRef.current) setClosing(popoverRef.current)
     setPopover(null)
     const opener = openerRef.current
     openerRef.current = null
     if (!opener?.isConnected) return
+    // SPIKE: in sdk / sdk-marks, UI SDK's own focus return is what we're testing.
+    if (sdk && spikeMode !== 'sdk-capture') return
     requestAnimationFrame(() => {
       // Focus goes back to what opened the popover, unless the press that
       // closed it put focus on something else in the calendar (another
@@ -128,8 +138,31 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
    * edits the automation its footer opened.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
+    // SPIKE: sdk / sdk-marks leave outside presses to UI SDK.
+    if (spikeMode === 'sdk' || spikeMode === 'sdk-marks') return
     if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
     markClosingPress(e.nativeEvent, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
+    closePopover()
+  }
+
+  // SPIKE: what a UI SDK dismissal does, per mode (see spike-popover.tsx).
+  spikeHost.root = rootRef.current
+  spikeHost.open = !!popover
+  spikeHost.onClosed = () => setClosing(null)
+  spikeHost.onDismiss = (reason, event, cancel) => {
+    if (!popover) return
+    if (spikeMode === 'sdk-capture') {
+      // The capture handler and closing-press.ts own presses; today nothing closes on focus leaving.
+      if (reason === 'outside-press' || reason === 'focus-out' || reason === 'window-blur') return cancel()
+      return closePopover()
+    }
+    if (spikeMode === 'sdk-marks' && (reason === 'focus-out' || reason === 'window-blur')) return cancel()
+    if (spikeMode === 'sdk-marks' && reason === 'outside-press') {
+      const target = event?.target as Node | null
+      // Presses outside the calendar leave it open, as today.
+      if (target && rootRef.current && !rootRef.current.contains(target)) return cancel()
+      if (event) markClosingPress(event, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
+    }
     closePopover()
   }
 
@@ -447,6 +480,9 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }
 
   const editing = popover?.mode === 'edit' ? items.find((r) => r.occurrence_key === popover.key) : undefined
+  // SPIKE: render the open popover, or the one UI SDK is closing.
+  const shown = popover ?? closing
+  const shownEditing = shown?.mode === 'edit' ? items.find((r) => r.occurrence_key === shown.key) : undefined
   // A deleted or moved-away row closes its popover.
   useEffect(() => {
     if (popover?.mode === 'edit' && data && !editing) setPopover(null)
@@ -707,14 +743,14 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
         )}
       </div>
 
-      {popover?.mode === 'create' && (
+      {shown?.mode === 'create' && (
         <EventPopover
-          key={`create-${popover.draft.start.toISOString()}`}
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
+          key={`create-${shown.draft.start.toISOString()}`}
+          x={shown.x}
+          y={shown.y}
+          span={shown.span}
           bounds={bounds}
-          initial={popover.draft}
+          initial={shown.draft}
           canEdit
           busy={busy}
           pending={popoverPending}
@@ -723,25 +759,25 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onSubmit={(draft) => run('add', `Couldn't add "${draft.title}".`, () => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
         />
       )}
-      {popover?.mode === 'edit' && editing && fromMoment(editing) && !popover.editingTime && (
+      {shown?.mode === 'edit' && shownEditing && fromMoment(shownEditing) && !shown.editingTime && (
         <StudyBlockPopover
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
+          x={shown.x}
+          y={shown.y}
+          span={shown.span}
           bounds={bounds}
-          row={editing}
-          moment={popover.moment}
+          row={shownEditing}
+          moment={shown.moment}
           canShowMoment={!!onShowMoment}
           canEdit
           busy={busy}
           pending={popoverPending}
           error={error}
           onClose={closePopover}
-          onGoToMoment={() => void showMoment(editing, editing.occurrence_key)}
-          onToggleDone={() => run('done', doneFailed(editing), () =>
-            editing.status === 'done'
-              ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
-              : completeItem.mutateAsync(editing.id),
+          onGoToMoment={() => void showMoment(shownEditing, shownEditing.occurrence_key)}
+          onToggleDone={() => run('done', doneFailed(shownEditing), () =>
+            shownEditing.status === 'done'
+              ? updateItem.mutateAsync({ id: shownEditing.id, patch: { status: 'open' } })
+              : completeItem.mutateAsync(shownEditing.id),
           )}
           onEditTime={() => {
             setError(null)
@@ -750,36 +786,36 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onEditAutomation={onEditAutomation}
         />
       )}
-      {popover?.mode === 'edit' && editing && (!fromMoment(editing) || popover.editingTime) && (
+      {shown?.mode === 'edit' && shownEditing && (!fromMoment(shownEditing) || shown.editingTime) && (
         <EventPopover
           // Keyed by the stored version too: if the item changes underneath
           // (an automation moves it), the form starts again from what is
           // stored instead of showing the old times.
-          key={`edit-${editing.occurrence_key}-${editing.updated_at}`}
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
+          key={`edit-${shownEditing.occurrence_key}-${shownEditing.updated_at}`}
+          x={shown.x}
+          y={shown.y}
+          span={shown.span}
           bounds={bounds}
-          row={editing}
-          initial={draftFromRow(editing)}
+          row={shownEditing}
+          initial={draftFromRow(shownEditing)}
           canEdit
           busy={busy}
           pending={popoverPending}
           error={error}
           onClose={closePopover}
           onSubmit={(draft) => {
-            const patch = patchFromDraft(editing, draft, localTimeZone())
+            const patch = patchFromDraft(shownEditing, draft, localTimeZone())
             if (Object.keys(patch).length === 0) return closePopover()
-            void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
+            void run('save', `Couldn't save "${shownEditing.title}".`, () => updateItem.mutateAsync({ id: shownEditing.id, patch }))
           }}
-          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, () => deleteItem.mutateAsync(editing.id))}
+          onDelete={() => run('delete', `Couldn't delete "${shownEditing.title}".`, () => deleteItem.mutateAsync(shownEditing.id))}
           onToggleDone={
-            editing.kind === 'commitment'
+            shownEditing.kind === 'commitment'
               ? undefined
-              : () => run('done', doneFailed(editing), () =>
-                  editing.status === 'done'
-                    ? updateItem.mutateAsync({ id: editing.id, patch: { status: 'open' } })
-                    : completeItem.mutateAsync(editing.id),
+              : () => run('done', doneFailed(shownEditing), () =>
+                  shownEditing.status === 'done'
+                    ? updateItem.mutateAsync({ id: shownEditing.id, patch: { status: 'open' } })
+                    : completeItem.mutateAsync(shownEditing.id),
                 )
           }
         />

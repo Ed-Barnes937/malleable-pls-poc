@@ -6,6 +6,7 @@ import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
 import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
+import { SpikePopoverShell, sdk } from './spike-popover'
 
 export interface EventPopoverProps {
   /** Position relative to the calendar root. */
@@ -47,7 +48,7 @@ export function EventPopover({
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
 
-  useEscapeToClose(onClose)
+  useEscapeToClose(sdk ? () => {} : onClose)
 
   // While a save is in flight the fields stay readable and focusable but
   // refuse edits: they would be lost when the save closes the popover.
@@ -78,10 +79,10 @@ export function EventPopover({
   const length = Math.round((draft.end.getTime() - draft.start.getTime()) / 60_000)
   const fieldLabel = 'mb-1 block text-meta font-semibold text-text-muted'
 
-  return (
+  const body = (
     <form
       ref={ref}
-      role="dialog"
+      role={sdk ? undefined : 'dialog'}
       aria-label={isCreate ? 'Add to calendar' : `Edit ${row.title}`}
       data-testid="calendar-popover"
       // A press in here doesn't close it (CalendarLens).
@@ -91,8 +92,8 @@ export function EventPopover({
         if (!invalid && canEdit && !busy) onSubmit(draft)
       }}
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
-      style={{ left: pos.left, top: pos.top, width: WIDTH }}
+      className={cn(sdk ? 'relative' : 'absolute z-50', 'flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop')}
+      style={sdk ? { width: WIDTH } : { left: pos.left, top: pos.top, width: WIDTH }}
     >
       <div className="flex items-start gap-2">
         <TextField
@@ -240,5 +241,11 @@ export function EventPopover({
         </div>
       )}
     </form>
+  )
+  if (!sdk) return body
+  return (
+    <SpikePopoverShell x={x} y={y} span={span} bounds={bounds} width={WIDTH} label={isCreate ? 'Add to calendar' : `Edit ${row.title}`}>
+      {body}
+    </SpikePopoverShell>
   )
 }
