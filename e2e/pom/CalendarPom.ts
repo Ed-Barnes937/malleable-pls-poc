@@ -1,4 +1,5 @@
 import { expect, type Locator, type Page } from '@playwright/test'
+import { TimeInputPom } from './TimeInputPom'
 
 /**
  * The Calendar widget (`packages/lens-calendar`): a Mon-Sun hours grid.
@@ -16,6 +17,11 @@ export class CalendarPom {
     this.grid = this.root.getByTestId('calendar-grid')
     this.days = this.root.getByTestId('calendar-day')
     this.popover = this.root.getByTestId('calendar-popover')
+  }
+
+  /** A time field in the open popover, e.g. "Start time". */
+  time(label: string): TimeInputPom {
+    return new TimeInputPom(this.popover.getByLabel(label, { exact: true }))
   }
 
   block(title: string): Locator {

@@ -24,6 +24,10 @@ export interface TimeInputProps {
   disabled?: boolean
   /** Shown and focusable, but takes no edits (not greyed out). */
   readOnly?: boolean
+  /** Marks it wrong (`aria-invalid`), e.g. an end before its start. */
+  invalid?: boolean
+  /** Id of the message that says what is wrong (`aria-describedby`). */
+  describedBy?: string
   className?: string
 }
 
@@ -50,6 +54,8 @@ export function TimeInput({
   max,
   disabled,
   readOnly,
+  invalid,
+  describedBy,
   className,
 }: TimeInputProps) {
   const [controller] = useState(() => createTimeInputController())
@@ -79,8 +85,10 @@ export function TimeInput({
         max={max}
         disabled={disabled}
         readOnly={readOnly}
+        aria-invalid={invalid || undefined}
+        aria-describedby={describedBy}
         className={cn(
-          'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
+          'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused aria-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
         )}
       />
     </span>

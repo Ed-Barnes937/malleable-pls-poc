@@ -1,10 +1,11 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect } from '../../../playwright/fixtures'
 import { CalendarHarness } from '../../../playwright/calendar-harness'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredPlanItem } from '../../../playwright/backend-simulator/in-memory-db'
 import { WEEKDAYS, type StudyHours } from '@pls/substrate'
 import { startOfWeek } from './time'
+import { TimeInputPom } from '../../../e2e/pom/TimeInputPom'
 
 // Plans next week, so "now" never eats into the study time being tested.
 const monday = startOfWeek(new Date())
@@ -31,6 +32,8 @@ const every = (start: string, end: string): StudyHours =>
 const editor = (page: Page) => page.getByRole('dialog', { name: 'When do you study?' })
 const line = (page: Page) => page.getByTestId('study-rhythm')
 const change = (page: Page) => page.getByRole('button', { name: 'Change when you study' })
+/** A time in the editor (a UI SDK TimeInput: an hour and a minute spinbutton). */
+const time = (scope: Locator, label: string) => new TimeInputPom(scope.getByLabel(label, { exact: true }))
 
 test('one range for every day: the line, the editor, and Save keeps the hours, the zone and the wash', async ({ mount, page, simulator }) => {
   seed(simulator)
@@ -43,14 +46,15 @@ test('one range for every day: the line, the editor, and Save keeps the hours, t
   const dialog = editor(page)
   await expect(dialog).toBeVisible()
   // Focus moves in, to the first time.
-  await expect(dialog.getByLabel('Start time, every day')).toBeFocused()
-  await expect(dialog.getByLabel('End time, every day')).toHaveValue('22:00')
+  await time(dialog, 'Start time, every day').expectFocused()
+  await time(dialog, 'End time, every day').expectValue('22:00')
   await expect(dialog.getByLabel('Study time per day')).toHaveValue('120')
-  // 24:00 is a valid end.
-  await expect(dialog.getByLabel('End time, every day').locator('option', { hasText: '24:00' })).toHaveCount(1)
+  // Midnight is a valid end (a time field shows 24:00 as 00:00).
+  await time(dialog, 'End time, every day').fill('00:00')
+  await expect(dialog.getByTestId('study-hours-error')).toHaveCount(0)
 
-  await dialog.getByLabel('Start time, every day').selectOption('10:00')
-  await dialog.getByLabel('End time, every day').selectOption('21:00')
+  await time(dialog, 'Start time, every day').fill('10:00')
+  await time(dialog, 'End time, every day').fill('21:00')
   await dialog.getByLabel('Study time per day').selectOption('60')
   await dialog.getByRole('button', { name: 'Save' }).click()
 
@@ -76,13 +80,35 @@ test('one range for every day: the line, the editor, and Save keeps the hours, t
   await expect(page.getByTestId('calendar-off-hours')).toHaveCount(0)
 })
 
+test('keyboard: arrows step a time by half an hour, and an end of 00:00 saves as midnight (24:00)', async ({ mount, page, simulator }) => {
+  seed(simulator)
+  await mount(<CalendarHarness />)
+  await openPlan(page)
+  await change(page).focus()
+  await page.keyboard.press('Enter')
+  const dialog = editor(page)
+  const start = time(dialog, 'Start time, every day')
+  await start.expectFocused()
+  // Hour, then minute: ArrowUp moves the minute on by half an hour.
+  await page.keyboard.press('Tab')
+  await expect(start.minute).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await start.expectValue('09:30')
+  await time(dialog, 'End time, every day').fill('00:00')
+  await expect(dialog.getByTestId('study-hours-error')).toHaveCount(0)
+  await dialog.getByRole('button', { name: 'Save' }).press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(change(page)).toBeFocused()
+  await expect.poll(() => simulator.db.preferences?.study_hours).toEqual(every('09:30', '24:00'))
+})
+
 test('different on some days: a range per day, No study on Sunday, and the line sums it up', async ({ mount, page, simulator }) => {
   seed(simulator)
   await mount(<CalendarHarness />)
   await openPlan(page)
   await change(page).click()
   const dialog = editor(page)
-  await dialog.getByLabel('Start time, every day').selectOption('10:00')
+  await time(dialog, 'Start time, every day').fill('10:00')
 
   const different = dialog.getByRole('button', { name: 'Different on some days' })
   await expect(different).toHaveAttribute('aria-expanded', 'false')
@@ -90,11 +116,11 @@ test('different on some days: a range per day, No study on Sunday, and the line 
   await expect(different).toHaveAttribute('aria-expanded', 'true')
   // Each day starts from what "Every day" said.
   for (const day of ['Monday', 'Saturday', 'Sunday']) {
-    await expect(dialog.getByLabel(`Start time, ${day}`)).toHaveValue('10:00')
-    await expect(dialog.getByLabel(`End time, ${day}`)).toHaveValue('22:00')
+    await time(dialog, `Start time, ${day}`).expectValue('10:00')
+    await time(dialog, `End time, ${day}`).expectValue('22:00')
   }
   await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
-  await expect(dialog.getByLabel('Start time, Sunday')).toBeDisabled()
+  await expect(time(dialog, 'Start time, Sunday').hour).toBeDisabled()
   await dialog.getByRole('button', { name: 'Save' }).click()
 
   await expect(line(page)).toHaveText(/^Study 10:00-22:00, no study Sun\W+2h a day\W+Change$/)
@@ -111,7 +137,7 @@ test('different on some days: a range per day, No study on Sunday, and the line 
   await change(page).click()
   await expect(different).toHaveAttribute('aria-expanded', 'true')
   await expect(dialog.getByRole('checkbox', { name: 'No study on Sunday' })).toBeChecked()
-  await dialog.getByLabel('Start time, Saturday').selectOption('11:00')
+  await time(dialog, 'Start time, Saturday').fill('11:00')
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(line(page)).toHaveText(/^Study hours vary by day\W+2h a day\W+Change$/)
   await expect.poll(() => simulator.db.preferences?.study_hours?.sat).toEqual({ start: '11:00', end: '22:00' })
@@ -166,11 +192,11 @@ test('closing and opening the days again keeps the edits made in them', async ({
   const dialog = editor(page)
   const different = dialog.getByRole('button', { name: 'Different on some days' })
   await different.click()
-  await dialog.getByLabel('Start time, Monday').selectOption('11:00')
+  await time(dialog, 'Start time, Monday').fill('11:00')
   await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
   await different.click()
   await different.click()
-  await expect(dialog.getByLabel('Start time, Monday')).toHaveValue('11:00')
+  await time(dialog, 'Start time, Monday').expectValue('11:00')
   await expect(dialog.getByRole('checkbox', { name: 'No study on Sunday' })).toBeChecked()
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => simulator.db.preferences?.study_hours).toEqual({ ...every('09:00', '22:00'), mon: { start: '11:00', end: '22:00' }, sun: null })
@@ -185,11 +211,11 @@ test('days edited to the same times, but not the "Every day" ones, get the note 
   const different = dialog.getByRole('button', { name: 'Different on some days' })
   await different.click()
   for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
-    await dialog.getByLabel(`Start time, ${day}`).selectOption('10:00')
+    await time(dialog, `Start time, ${day}`).fill('10:00')
   }
   await different.click()
   // "Every day" still says 09:00: Save would put that back on every day, so it says so.
-  await expect(dialog.getByLabel('Start time, every day')).toHaveValue('09:00')
+  await time(dialog, 'Start time, every day').expectValue('09:00')
   await expect(dialog.getByTestId('study-hours-note')).toBeVisible()
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(dialog).toBeHidden()
@@ -215,7 +241,7 @@ test('study hours saved while Auto-fill is drafting shape the draft it lands', a
 
   await change(page).click()
   const dialog = editor(page)
-  await dialog.getByLabel('Start time, every day').selectOption('10:00')
+  await time(dialog, 'Start time, every day').fill('10:00')
   await dialog.getByRole('button', { name: 'Different on some days' }).click()
   await dialog.getByRole('checkbox', { name: 'No study on Sunday' }).check()
   await dialog.getByRole('button', { name: 'Save' }).click()
@@ -240,7 +266,7 @@ test('if the preference cannot load, saving study hours does not set a time zone
   // The defaults apply.
   await expect(line(page)).toHaveText(/^Study 09:00-22:00\W+2h a day\W+Change$/)
   await change(page).click()
-  await editor(page).getByLabel('Start time, every day').selectOption('10:00')
+  await time(editor(page), 'Start time, every day').fill('10:00')
   await editor(page).getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => simulator.db.preferences?.study_hours).toEqual(every('10:00', '22:00'))
   expect(sent).toHaveLength(1)
@@ -294,31 +320,31 @@ test('an end before the start is refused with a clear message, and nothing is sa
   await openPlan(page)
   await change(page).click()
   const dialog = editor(page)
-  const end = dialog.getByLabel('End time, every day')
-  await end.selectOption('08:00')
+  const end = time(dialog, 'End time, every day')
+  await end.fill('08:00')
   await expect(dialog.getByText('End time must be after the start time.')).toBeVisible()
-  await expect(end).toHaveAttribute('aria-invalid', 'true')
-  await expect(end).toHaveAccessibleDescription('End time must be after the start time.')
+  await expect(end.root).toHaveAttribute('aria-invalid', 'true')
+  await expect(end.root).toHaveAccessibleDescription('End time must be after the start time.')
   // The same time is not after it either.
-  await end.selectOption('09:00')
+  await end.fill('09:00')
   await expect(dialog.getByText('End time must be after the start time.')).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Save' }).click()
   await expect(dialog).toBeVisible()
-  await expect(end).toBeFocused()
+  await end.expectFocused()
   expect(simulator.db.preferences).toBeNull()
 
   // Fixed, the message goes.
-  await end.selectOption('22:00')
+  await end.fill('22:00')
   await expect(dialog.getByTestId('study-hours-error')).toHaveCount(0)
 
   // Per day too.
   await dialog.getByRole('button', { name: 'Different on some days' }).click()
-  await dialog.getByLabel('End time, Wednesday').selectOption('07:00')
+  await time(dialog, 'End time, Wednesday').fill('07:00')
   await expect(dialog.getByTestId('study-hours-error')).toHaveCount(1)
-  await expect(dialog.getByLabel('End time, Wednesday')).toHaveAttribute('aria-invalid', 'true')
+  await expect(time(dialog, 'End time, Wednesday').root).toHaveAttribute('aria-invalid', 'true')
   await dialog.getByRole('button', { name: 'Save' }).click()
-  await expect(dialog.getByLabel('End time, Wednesday')).toBeFocused()
+  await time(dialog, 'End time, Wednesday').expectFocused()
   expect(simulator.db.preferences).toBeNull()
   // A "No study" day is never wrong.
   await dialog.getByRole('checkbox', { name: 'No study on Wednesday' }).check()
@@ -332,15 +358,15 @@ test('Cancel, Escape and a press outside close it with nothing saved; focus goes
   const dialog = editor(page)
 
   await change(page).click()
-  await dialog.getByLabel('Start time, every day').selectOption('11:00')
+  await time(dialog, 'Start time, every day').fill('11:00')
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect(dialog).toBeHidden()
   await expect(change(page)).toBeFocused()
 
   await change(page).press('Enter')
   // Opens fresh, not with the cancelled change.
-  await expect(dialog.getByLabel('Start time, every day')).toHaveValue('09:00')
-  await dialog.getByLabel('Start time, every day').selectOption('11:00')
+  await time(dialog, 'Start time, every day').expectValue('09:00')
+  await time(dialog, 'Start time, every day').fill('11:00')
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   await expect(change(page)).toBeFocused()
@@ -361,11 +387,11 @@ test('Tab stays inside the editor while it is open', async ({ mount, page, simul
   await openPlan(page)
   await change(page).click()
   const dialog = editor(page)
-  await expect(dialog.getByLabel('Start time, every day')).toBeFocused()
+  await time(dialog, 'Start time, every day').expectFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Save' })).toBeFocused()
   await page.keyboard.press('Tab')
-  await expect(dialog.getByLabel('Start time, every day')).toBeFocused()
+  await time(dialog, 'Start time, every day').expectFocused()
 })
 
 test('a change shows straight away while it saves, and two quick saves land in order', async ({ mount, page, simulator }) => {
@@ -410,7 +436,7 @@ test('a save that fails goes back to what is saved, and says so', async ({ mount
   await openPlan(page)
   await page.route('**/preferences.update**', (route) => route.fulfill({ status: 500, body: '{}' }))
   await change(page).click()
-  await editor(page).getByLabel('Start time, every day').selectOption('10:00')
+  await time(editor(page), 'Start time, every day').fill('10:00')
   await editor(page).getByRole('button', { name: 'Save' }).click()
   await expect(page.getByText("Couldn't save your study hours. Try again?")).toBeVisible()
   await expect(line(page)).toHaveText(/^Study 09:00-22:00\W+2h a day\W+Change$/)
@@ -458,7 +484,7 @@ test('on a phone (400px), the editor fits on screen', async ({ mount, page, simu
   seed(simulator)
   await page.setViewportSize({ width: 400, height: 760 })
   await mount(<CalendarHarness width="100%" height={720} />)
-  await page.getByRole('tab', { name: 'Week' }).click()
+  await page.getByRole('radio', { name: 'Week' }).click()
   await openPlan(page)
   await change(page).click()
   await expectFits(page, { width: 400, height: 760 })

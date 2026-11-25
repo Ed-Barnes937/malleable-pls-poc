@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 import { startOfLocalDay, wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
 import { WEEKDAYS, type PlanItemOccurrence, type StudyHours, type UserPreferences } from '../packages/substrate/src'
-import { CalendarPom, TopBarPom } from './pom'
+import { CalendarPom, TimeInputPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
 import { expectedReviewSlots } from './review-placement'
@@ -119,7 +119,7 @@ test.describe('Study hours', () => {
       }
       const calendar = await openCalendar(page)
       // A phone opens on Day view; Help me plan plans a week.
-      if (viewport.width < 600) await calendar.root.getByRole('tab', { name: 'Week' }).click()
+      if (viewport.width < 600) await calendar.root.getByRole('radio', { name: 'Week' }).click()
       await calendar.nextWeek()
       await calendar.root.getByTestId('help-me-plan').click()
       const panel = calendar.root.getByTestId('help-me-plan-panel')
@@ -136,7 +136,7 @@ test.describe('Study hours', () => {
       // From 10:00, and no study on Sunday.
       await panel.getByRole('button', { name: 'Change when you study' }).click()
       const editor = page.getByRole('dialog', { name: 'When do you study?' })
-      await editor.getByLabel('Start time, every day').selectOption('10:00')
+      await new TimeInputPom(editor.getByLabel('Start time, every day', { exact: true })).fill('10:00')
       await editor.getByRole('button', { name: 'Different on some days' }).click()
       await editor.getByRole('checkbox', { name: 'No study on Sunday' }).check()
       await editor.getByRole('button', { name: 'Save' }).click()
@@ -162,7 +162,7 @@ test.describe('Study hours', () => {
       // A reload keeps them; while planning, the hours outside study time are washed, all of Sunday included.
       await page.reload()
       await new TopBarPom(page).switchToWorkspace('Week plan')
-      if (viewport.width < 600) await calendar.root.getByRole('tab', { name: 'Week' }).click()
+      if (viewport.width < 600) await calendar.root.getByRole('radio', { name: 'Week' }).click()
       await calendar.nextWeek()
       await expect(calendar.root.getByTestId('calendar-off-hours')).toHaveCount(0)
       await calendar.root.getByTestId('help-me-plan').click()

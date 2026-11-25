@@ -653,6 +653,66 @@ test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add
   await expect(add).toBeFocused()
 })
 
+test('keyboard: in a new block, arrows pick the kind and step a time by 15 minutes, and the date picks from its calendar', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, FROZEN_MONDAY, 10, 0)
+  await mount(<CalendarHarness />)
+  await page.getByRole('button', { name: 'Add to calendar' }).focus()
+  await page.keyboard.press('Enter')
+  const popover = page.getByTestId('calendar-popover')
+  await expect(popover.getByLabel('Title')).toBeFocused()
+  await page.keyboard.type('Reading')
+
+  // Kind: one tab stop, arrows move the choice.
+  await popover.getByRole('radio', { name: 'Class / commitment' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(popover.getByRole('radio', { name: 'Study time' })).toBeChecked()
+
+  // The next half hour, an hour long; ArrowUp on the minute moves the start on 15 minutes, keeping the length.
+  const start = time(popover, 'Start time')
+  await start.expectValue('10:30')
+  await start.minute.focus()
+  await page.keyboard.press('ArrowUp')
+  await start.expectValue('10:45')
+  await time(popover, 'End time').expectValue('11:45')
+
+  // Date: Alt+ArrowDown opens its calendar; Escape closes only the calendar.
+  const date = popover.getByLabel('Date', { exact: true })
+  await date.focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  const calendar = page.getByRole('dialog', { name: 'Date calendar' })
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(calendar).toBeHidden()
+  await expect(popover).toBeVisible()
+  // Focus stays in the date field (UI SDK hands it to the field's calendar button).
+  await expect(popover.getByRole('button', { name: 'Choose date from calendar' })).toBeFocused()
+  // Then the next day, picked with arrows and Enter.
+  await date.focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+  await expect(calendar).toBeHidden()
+
+  await popover.getByRole('button', { name: 'Add' }).press('Enter')
+  await expect(block(page, 'Reading')).toBeVisible()
+  const tuesday = (h: number, m: number) => new Date(2026, 9, 27, h, m).toISOString()
+  expect(simulator.db.planItems.find((p) => p.title === 'Reading')).toMatchObject({ kind: 'task', starts_at: tuesday(10, 45), ends_at: tuesday(11, 45) })
+})
+
+test('keyboard: the view switch is one tab stop; arrows move between Week and Day', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const week = page.getByRole('radio', { name: 'Week' })
+  await expect(week).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'Day' })).toHaveAttribute('tabindex', '-1')
+  await week.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('radio', { name: 'Day' })).toBeChecked()
+  await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+  await expect(page.getByTestId('config-calls')).toHaveText('{"view":"day"}')
+})
+
 test('a 20-minute block, drawn to scale, reads by its title in a caption just under it', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seed(simulator, [{ id: 'short', kind: 'task', title: 'Quick review', starts_at: iso(4, 19), ends_at: iso(4, 19, 20), duration_min: 20 }])

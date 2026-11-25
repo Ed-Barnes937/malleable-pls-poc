@@ -81,7 +81,7 @@ test.describe('Calendar', () => {
     await expect(calendar.popover).toHaveCount(0)
     // The next click on the grid starts a new item straight away.
     await calendar.clickAt(3, 15.1)
-    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('15:00')
+    await calendar.time('Start time').expectValue('15:00')
   })
 
   test('keyboard: Tab reaches a block, Enter opens it, Escape returns focus', async ({ page, request }) => {
@@ -328,8 +328,8 @@ test.describe('Calendar', () => {
     const block = calendar.block('Alpha')
 
     await block.click()
-    await calendar.popover.getByLabel('Start time').fill('12:00')
-    await calendar.popover.getByLabel('End time').fill('13:00')
+    await calendar.time('Start time').fill('12:00')
+    await calendar.time('End time').fill('13:00')
     const saved = page.waitForResponse((r) => r.url().includes('planItems.update'))
     await calendar.popover.getByRole('button', { name: 'Save' }).click()
     await expect(calendar.popover.getByRole('status')).toHaveText('Saving...')
