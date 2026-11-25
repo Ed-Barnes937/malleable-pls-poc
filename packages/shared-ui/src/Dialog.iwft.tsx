@@ -44,6 +44,22 @@ test('a dialog opened from a popover stacks above it', async ({ mount, page }) =
   await expect(popover).toBeVisible()
 })
 
+test('Escape on a dialog opened from a popover closes only the dialog, and focus goes back to its opener', async ({ mount, page }) => {
+  await mount(<DialogFromPopover />)
+  await page.getByRole('button', { name: 'Open popover' }).click()
+  const popover = page.getByRole('dialog', { name: 'Block' })
+  const edit = popover.getByRole('button', { name: 'Edit automation' })
+  await edit.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Automation' })
+  await expect(dialog).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(popover).toBeVisible()
+  await expect(edit).toBeFocused()
+})
+
 for (const theme of THEMES) {
   test(`renders from our tokens in the ${theme} theme`, async ({ mount, page }) => {
     await setTheme(page, theme)
