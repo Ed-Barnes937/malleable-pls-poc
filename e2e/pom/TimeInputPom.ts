@@ -30,8 +30,8 @@ export class TimeInputPom {
     await expect(this.minute).toHaveAttribute('aria-valuenow', String(mm))
   }
 
-  /** Focus is on one of its segments. */
-  async expectFocused() {
-    await expect(this.root.locator(':focus')).toHaveCount(1)
+  /** Focus is on its hour (where focus lands in it), or on `segment`. */
+  async expectFocused(segment: 'hour' | 'minute' = 'hour') {
+    await expect(this[segment]).toBeFocused()
   }
 }
