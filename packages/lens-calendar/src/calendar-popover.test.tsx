@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useRef, useState } from 'react'
 import { checkPattern, settle } from '@pls/shared-ui/src/testing'
-import { CalendarPopover, anchorShift, pressPlacement } from './calendar-popover'
+import { CalendarPopover, anchoredTop, popoverTop, pressPlacement } from './calendar-popover'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { SubstrateProvider, type SubstrateReader, type SubstrateWriter } from '@pls/lens-framework'
 import { EventPopover } from './EventPopover'
@@ -33,27 +33,69 @@ describe('pressPlacement', () => {
   })
 })
 
-describe('anchorShift', () => {
-  const base = { anchorBefore: 200, heightBefore: 360, pinned: 'top' as const }
+// Where its top goes (px below the calendar's top), as main placed it. A
+// phone's calendar: 640px tall from the calendar's top (0) to its bottom.
+const phone = { top: 0, bottom: 640 }
+
+describe('popoverTop', () => {
+  it('beside the point, a little above it, when there is room', () => {
+    expect(popoverTop({ placement: 'beside', y: 300, height: 320, bounds: phone })).toBe(276)
+  })
+
+  it('beside a point low in the calendar, it is kept inside, still beside it', () => {
+    expect(popoverTop({ placement: 'beside', y: 600, height: 320, bounds: phone })).toBe(312)
+  })
+
+  it('beside the point, the block pressed makes no difference', () => {
+    expect(popoverTop({ placement: 'beside', y: 300, span: { top: 280, bottom: 360 }, height: 320, bounds: phone })).toBe(276)
+  })
+
+  it('on a phone, goes above the block pressed when there is room, clear of all of it', () => {
+    const span = { top: 520, bottom: 580 }
+    const top = popoverTop({ placement: 'vertical', y: 560, span, height: 360, bounds: phone })
+    expect(top).toBe(148)
+    expect(top + 360).toBeLessThan(span.top)
+  })
+
+  it('on a phone, goes below the block pressed when only that fits', () => {
+    expect(popoverTop({ placement: 'vertical', y: 120, span: { top: 100, bottom: 160 }, height: 360, bounds: phone })).toBe(172)
+  })
+
+  it('on a phone, covers the block (kept inside) only when neither above nor below fits', () => {
+    expect(popoverTop({ placement: 'vertical', y: 330, span: { top: 300, bottom: 360 }, height: 360, bounds: phone })).toBe(272)
+  })
+
+  it('with no block (a due marker), keeps clear of the point itself', () => {
+    expect(popoverTop({ placement: 'vertical', y: 560, height: 360, bounds: phone })).toBe(188)
+  })
+
+  it('above only if it fits inside the bounds: a calendar scrolled partly off the window goes below', () => {
+    // The window cuts the calendar's top 200px off: 148 would be off screen.
+    expect(popoverTop({ placement: 'vertical', y: 560, span: { top: 520, bottom: 580 }, height: 340, bounds: { top: 200, bottom: 1100 } })).toBe(592)
+  })
+})
+
+describe('anchoredTop', () => {
+  const base = { top: 200, height: 360, bounds: phone }
 
   it('keeps the anchor where it is when content above it grows (the popover grows upward)', () => {
     // The anchor was 200px down and is now 280px down: the top moves up by 80.
-    expect(anchorShift({ ...base, anchorAfter: 280, heightAfter: 440 })).toBe(-80)
+    expect(anchoredTop({ ...base, anchorBefore: 200, anchorAfter: 280, height: 440 })).toBe(120)
   })
 
   it('keeps the anchor where it is when content above it goes (the popover shrinks upward)', () => {
-    expect(anchorShift({ ...base, anchorAfter: 120, heightAfter: 280 })).toBe(80)
+    expect(anchoredTop({ ...base, anchorBefore: 200, anchorAfter: 120, height: 280 })).toBe(280)
   })
 
   it('leaves the top alone when only what is below the anchor changes', () => {
-    expect(anchorShift({ ...base, anchorAfter: 200, heightAfter: 420 })).toBe(0)
+    expect(anchoredTop({ ...base, anchorBefore: 200, anchorAfter: 200, height: 420 })).toBe(200)
   })
 
-  it('above what was pressed (its bottom held still), counts the move the popover makes on its own', () => {
-    // Content above the anchor grows: the top already moves up with it.
-    expect(anchorShift({ ...base, pinned: 'bottom', anchorAfter: 280, heightAfter: 440 })).toBe(0)
-    // Content below it grows: the top would move up and take the anchor with it.
-    expect(anchorShift({ ...base, pinned: 'bottom', anchorAfter: 200, heightAfter: 420 })).toBe(60)
+  it('moves the anchor only as far as keeping the popover inside the bounds needs', () => {
+    // Growing upward by 240 would put the top at -40: held at the margin.
+    expect(anchoredTop({ top: 200, anchorBefore: 200, anchorAfter: 440, height: 600, bounds: phone })).toBe(8)
+    // Growing downward past the bottom edge: held to it.
+    expect(anchoredTop({ top: 200, anchorBefore: 200, anchorAfter: 200, height: 500, bounds: phone })).toBe(132)
   })
 })
 
