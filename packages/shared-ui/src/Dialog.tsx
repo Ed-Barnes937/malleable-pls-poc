@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { type ComponentProps, type ReactNode } from 'react'
 import { X } from 'lucide-react'
 import {
   Dialog as UiDialog,
@@ -15,6 +15,8 @@ export interface DialogProps {
   title?: string
   children: ReactNode
   className?: string
+  /** What takes focus when it opens (an element, a function returning one, or 'none'); by default the first thing Tab reaches. */
+  initialFocus?: ComponentProps<typeof DialogContent>['initialFocus']
 }
 
 /**
@@ -41,7 +43,7 @@ const CLOSE_CLASS =
  * press on the backdrop closes it, Tab stays inside, and focus returns to
  * where it was when it closes.
  */
-export function Dialog({ open, onClose, title, children, className }: DialogProps) {
+export function Dialog({ open, onClose, title, children, className, initialFocus }: DialogProps) {
   return (
     <UiDialog
       open={open}
@@ -52,6 +54,7 @@ export function Dialog({ open, onClose, title, children, className }: DialogProp
     >
       <DialogBackdrop data-testid="dialog-backdrop" className={BACKDROP_CLASS} />
       <DialogContent
+        initialFocus={initialFocus}
         // It renders in place, so presses would otherwise bubble to what it sits in (a panel's drag).
         onPointerDown={(e) => e.stopPropagation()}
         className={cn(DIALOG_CLASS, className)}

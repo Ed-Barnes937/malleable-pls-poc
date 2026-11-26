@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import type { Locator, Page } from '@playwright/test'
-import { DialogBesidePage, DialogFromPopover, StackedDialogs } from './overlay-harness'
+import { DialogBesidePage, DialogFromPopover, DialogInitialFocus, StackedDialogs } from './overlay-harness'
 import { THEMES, setTheme, tokenColor } from './ct-themes'
 
 /** The name of the dialog painted at the centre of `box`, or null. */
@@ -139,4 +139,11 @@ test('the page takes a press as soon as the dialog closes', async ({ mount, page
   await page.mouse.click(pressed.x + pressed.width / 2, pressed.y + pressed.height / 2)
   await expect(page.getByRole('button', { name: 'Pressed 1' })).toBeVisible()
   await expect(dialog).toBeHidden()
+})
+
+test('initialFocus picks which element has focus when the dialog opens', async ({ mount, page }) => {
+  await mount(<DialogInitialFocus />)
+  await page.getByRole('button', { name: 'Open dialog' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Fields' })
+  await expect(dialog.getByLabel('Second')).toBeFocused()
 })

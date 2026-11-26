@@ -17,7 +17,6 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
     if (open) {
       setName('')
       setCourseTag('')
-      setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [open])
 
@@ -37,7 +36,7 @@ export function CreateWorkspaceDialog({ open, onClose }: { open: boolean; onClos
   }
 
   return (
-    <Dialog open={open} onClose={onClose} title="New board">
+    <Dialog open={open} onClose={onClose} title="New board" initialFocus={() => inputRef.current}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="ws-name" className="mb-1.5 block text-meta font-semibold text-text-secondary">

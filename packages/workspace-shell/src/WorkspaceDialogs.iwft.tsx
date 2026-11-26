@@ -1,6 +1,6 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { ShellProviders } from '../../../playwright/mount-wrapper'
-import { DeleteWorkspaceDialog } from './WorkspaceDialogs'
+import { CreateWorkspaceDialog, DeleteWorkspaceDialog } from './WorkspaceDialogs'
 
 const board = { id: 'ws-evening-review', name: 'Evening Review' }
 
@@ -52,4 +52,14 @@ test('the dialog names the board, Cancel keeps it', async ({ mount, page, simula
   await dialog.getByRole('button', { name: 'Cancel' }).click()
   await expect.poll(() => closed).toBe(true)
   expect(simulator.db.workspaces.some((w) => w.id === board.id)).toBe(true)
+})
+
+test('the New board dialog opens with the Name field focused', async ({ mount, page }) => {
+  await mount(
+    <ShellProviders>
+      <CreateWorkspaceDialog open onClose={() => {}} />
+    </ShellProviders>,
+  )
+  const dialog = page.getByRole('dialog', { name: 'New board' })
+  await expect(dialog.getByLabel('Name')).toBeFocused()
 })
