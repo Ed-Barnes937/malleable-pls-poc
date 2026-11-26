@@ -1,6 +1,9 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Popover, PopoverContent, PopoverTitle } from '@pls/shared-ui'
 
+/** A side UI SDK placed a popover on (its `data-side`). */
+type Side = 'top' | 'bottom' | 'left' | 'right'
+
 /** Gap between the press (or the block pressed) and the popover. */
 const GAP = 12
 /** Kept this far inside the window. */
@@ -81,53 +84,87 @@ export function anchorShift(
   return anchorBefore - anchorAfter - ownMove
 }
 
+/** Where a popover's anchor is in it, its height and the side it was placed on. */
+interface Measure {
+  anchor: number | null
+  height: number
+  side: Side | null
+}
+
+/**
+ * The anchor's distance below the top of the popover's content and the
+ * content's height, in layout px. Its content, not its box: UI SDK caps the
+ * box's height at the room on its side, which changes as it moves, so a box
+ * read would move it again, and again. Nothing while it scales in or out:
+ * read on screen then, a distance is short by the scale.
+ */
+function measure(content: HTMLElement): Measure | null {
+  const { scale } = getComputedStyle(content)
+  if (scale !== 'none' && scale !== '1') return null
+  const anchor = content.querySelector<HTMLElement>('[data-popover-anchor]')
+  return {
+    anchor: anchor ? anchor.getBoundingClientRect().top - content.getBoundingClientRect().top + content.scrollTop : null,
+    height: content.scrollHeight,
+    side: content.getAttribute('data-side') as Side | null,
+  }
+}
+
 /**
  * Keeps a popover's anchor still as its content changes size after it is
- * shown (a lecture line that loads, "Also open in" arriving): the total shift
- * down to add to UI SDK's placement (see `anchorShift`), which UI SDK still
- * keeps inside the window, so the anchor only moves as far as that needs.
- * Starts again for each press placed (`pressKey`): a frame's change to the
- * calendar's box (a scrollbar) is no press, and never places it afresh.
- * Returns the ref for the popover's content and the shift.
+ * shown (a lecture line that loads, "Also open in" arriving).
+ *
+ * `shift()` is the total shift down to add to UI SDK's placement (see
+ * `anchorShift`), which UI SDK still keeps inside the window, so the anchor
+ * only moves as far as that needs. It is read by the anchor UI SDK checks
+ * every frame, so the first placement at the content's new size already has
+ * it: worked out after UI SDK had placed it (a resize callback, a render),
+ * the buttons would be drawn out of place for a frame or more.
+ *
+ * `side` is the side it was on when its content first changed size, asked
+ * for from then on: a popover shifted for its new size and placed afresh
+ * could otherwise be flipped to the other side of the press, moving every
+ * button. (Asked for any sooner, a new side would place it afresh as it
+ * scales in.)
+ *
+ * Both start again for each press placed (`pressKey`): a frame's change to
+ * the calendar's box (a scrollbar) is no press, and never places it afresh.
  */
 function useAnchorShift(pressKey: string) {
-  const [moved, setMoved] = useState({ pressKey, shift: 0 })
+  const [placed, setPlaced] = useState<{ pressKey: string; side: Side } | null>(null)
   const contentRef = useRef<HTMLElement | null>(null)
-  const observerRef = useRef<ResizeObserver | null>(null)
-  const pressKeyRef = useRef(pressKey)
-  pressKeyRef.current = pressKey
+  const heldRef = useRef<{ pressKey: string; last: Measure; shift: number } | null>(null)
   const ref = useCallback((content: HTMLElement | null) => {
-    observerRef.current?.disconnect()
-    observerRef.current = null
     contentRef.current = content
-    if (!content || typeof ResizeObserver === 'undefined') return
-    const measure = () => {
-      const anchor = content.querySelector<HTMLElement>('[data-popover-anchor]')
-      return {
-        anchor: anchor ? anchor.getBoundingClientRect().top - content.getBoundingClientRect().top : null,
-        height: content.offsetHeight,
-      }
-    }
-    let last = measure()
-    const observer = new ResizeObserver(() => {
-      const now = measure()
+    heldRef.current = null
+  }, [])
+  const shift = useCallback(() => {
+    const content = contentRef.current
+    const now = content && measure(content)
+    const held = heldRef.current?.pressKey === pressKey ? heldRef.current : null
+    if (!now) return held?.shift ?? 0
+    if (!held) {
+      heldRef.current = { pressKey, last: now, shift: 0 }
+    } else {
+      const { last } = held
+      // The side it was on with the anchor where it was.
+      const side = last.side ?? now.side
       if (last.anchor !== null && now.anchor !== null) {
         const by = anchorShift({
           anchorBefore: last.anchor,
           anchorAfter: now.anchor,
           heightBefore: last.height,
           heightAfter: now.height,
-          pinned: content.getAttribute('data-side') === 'top' ? 'bottom' : 'top',
+          // UI SDK holds its bottom still on the side above what was pressed.
+          pinned: side === 'top' ? 'bottom' : 'top',
         })
-        const key = pressKeyRef.current
-        if (by !== 0) setMoved((m) => ({ pressKey: key, shift: (m.pressKey === key ? m.shift : 0) + by }))
+        held.shift += by
+        if (by !== 0 && side) setPlaced((p) => (p?.pressKey === pressKey ? p : { pressKey, side }))
       }
-      last = now
-    })
-    observer.observe(content)
-    observerRef.current = observer
-  }, [])
-  return { ref, contentRef, shift: moved.pressKey === pressKey ? moved.shift : 0 }
+      held.last = now
+    }
+    return heldRef.current!.shift
+  }, [pressKey])
+  return { ref, shift, side: placed?.pressKey === pressKey ? placed.side : null }
 }
 
 /** Focuses the card itself (a callback ref: it runs as the card mounts). */
@@ -157,19 +194,22 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
     from: press.span?.left !== undefined && press.span.right !== undefined ? { left: rootLeft + left, right: rootLeft + right } : undefined,
   })
   const vertical = placement === 'vertical'
+  // As wide as it is drawn: no wider than the window less its margins.
+  const shownWidth = Math.min(width, (typeof window === 'undefined' ? 1024 : window.innerWidth) - 2 * MARGIN)
+  // The buttons stay where they are as content above them loads or goes.
+  const { ref: anchorRef, shift, side } = useAnchorShift(`${x}:${y}:${top}:${bottom}:${left}:${right}`)
   // Read on every check, so it follows the calendar when the board moves.
+  // Moved down by the shift (not offset from it): UI SDK keeps a popover
+  // beside its anchor, so an offset alone would be pulled back to the press.
   const anchor = useMemo(() => ({
     getBoundingClientRect: () => {
       const r = root.current?.getBoundingClientRect() ?? { left: 0, top: 0 }
+      const by = shift()
       return vertical
-        ? DOMRect.fromRect({ x: r.left + left, y: r.top + top, width: right - left, height: bottom - top })
-        : DOMRect.fromRect({ x: r.left + left, y: r.top + y, width: right - left, height: 0 })
+        ? DOMRect.fromRect({ x: r.left + left, y: r.top + top + by, width: right - left, height: bottom - top })
+        : DOMRect.fromRect({ x: r.left + left, y: r.top + y + by, width: right - left, height: 0 })
     },
-  }), [root, vertical, y, top, bottom, left, right])
-  // The buttons stay where they are as content above them loads or goes.
-  const { ref: anchorRef, contentRef: shown, shift } = useAnchorShift(`${x}:${y}:${top}:${bottom}:${left}:${right}`)
-  // Read as it renders: a shift re-renders it, and the side is UI SDK's by then.
-  const above = shift !== 0 && shown.current?.getAttribute('data-side') === 'top'
+  }), [root, vertical, y, top, bottom, left, right, shift])
   const contentRef = useCallback((el: HTMLElement | null) => {
     anchorRef(el)
     if (touch) focusCard(el)
@@ -192,12 +232,13 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
     >
       <PopoverContent
         anchor={anchor}
-        side={vertical ? 'top' : 'right'}
-        align={vertical ? 'center' : 'start'}
-        // Above what was pressed, a shift down is a smaller gap; below it, a bigger one.
-        sideOffset={vertical ? (above ? GAP - shift : GAP + shift) : GAP}
+        side={side ?? (vertical ? 'top' : 'right')}
+        // Centred on what was pressed by its known width, not the width UI SDK
+        // reads: read as it scales in, that is a pixel off.
+        align="start"
+        sideOffset={GAP}
         // A little above the press, as before.
-        alignOffset={vertical ? 0 : -24 + shift}
+        alignOffset={vertical ? (right - left - shownWidth) / 2 : -24}
         collisionPadding={MARGIN}
         // Mounted open, UI SDK moves no focus. The body focuses its own first
         // control (autoFocus); opened by touch, the card takes it (below).
