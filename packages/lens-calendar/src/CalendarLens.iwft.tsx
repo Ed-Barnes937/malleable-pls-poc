@@ -805,7 +805,58 @@ test('eight quick arrow presses leave the block, saved, on the eighth position',
   await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
 })
 
-test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them', async ({ mount, page, simulator }) => {
+test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // After the first save the rows' refetch is dropped: the move back comes
+  // with the page still holding the rows from before that save.
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => { saves++; await route.fallback() })
+  await page.route('**/planItems.list**', (route) => (saves > 0 ? route.abort() : route.fallback()))
+  const refetchDropped = page.waitForEvent('requestfailed', (r) => r.url().includes('planItems.list'))
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+  await refetchDropped
+  await page.keyboard.press('ArrowUp')
+
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 17), duration_min: 60 })
+  await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+})
+
+test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // The first save waits until the second move is queued behind it, then
+  // goes through; the second fails.
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => {
+    saves++
+    if (saves === 1) {
+      await held
+      return route.fallback()
+    }
+    return route.fulfill({ status: 500, body: '{}' })
+  })
+
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /16:30 - 17:30/)
+  release()
+
+  await expect(page.getByTestId('calendar-notice')).toHaveText(`Couldn't move "Revise respiration" there - it's at Wednesday 16:15 - 17:15, where it last saved. Try again?`)
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+})
+
+test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them',async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const shift = block(page, 'Cafe shift')

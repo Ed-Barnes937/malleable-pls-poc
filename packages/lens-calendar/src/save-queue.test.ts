@@ -60,4 +60,24 @@ describe('save queue (latest wins, per block)', () => {
     await flush()
     expect(done).toEqual([{ key: 'maths', value: 2, error: boom }])
   })
+
+  it('a last save that fails after an earlier one landed reports where it landed', async () => {
+    const { sent, send } = deferredSends()
+    const done: Array<{ key: string; value: number; error?: unknown; landed?: number }> = []
+    const queue = createSaveQueue(send, { onDone: (key, result) => done.push({ key, ...result }) })
+    queue.push('maths', 1)
+    queue.push('maths', 2)
+    sent[0].resolve()
+    await flush()
+    const boom = new Error('offline')
+    sent[1].reject(boom)
+    await flush()
+    expect(done).toEqual([{ key: 'maths', value: 2, error: boom, landed: 1 }])
+
+    // A fresh run starts with nothing landed.
+    queue.push('maths', 3)
+    sent[2].reject(boom)
+    await flush()
+    expect(done[1]).toEqual({ key: 'maths', value: 3, error: boom })
+  })
 })

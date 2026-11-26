@@ -17,7 +17,7 @@ import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
 import { createSaveQueue } from './save-queue'
 import { toneFor } from './colors'
-import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
+import { addDays, formatDayName, formatFullDay, formatRangeTitle, formatSpan, localTimeZone, startOfDay, startOfWeek } from './time'
 import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
@@ -86,6 +86,8 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   popoverRef.current = popover
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
   const [planOpen, setPlanOpen] = useState(false)
   /** In a narrow calendar the panel overlays the grid: the student can tuck it away to see the ghosts. */
   const [planCollapsed, setPlanCollapsed] = useState(false)
@@ -438,12 +440,16 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   dataRef.current = data
   const updateRef = useRef(updateItem)
   updateRef.current = updateItem
-  const [moveQueue] = useState(() => createSaveQueue<{ id: string; title: string; patch: PlanItemPatch }>(
+  const [moveQueue] = useState(() => createSaveQueue<{ id: string; title: string; patch: PlanItemPatch; start: Date; end: Date }>(
     (_key, save) => updateRef.current.mutateAsync({ id: save.id, patch: save.patch }),
     {
-      onDone: (key, { value, error }) => {
-        // Never snap back silently: say the move didn't stick.
-        if (error) setNotice(`Couldn't move "${value.title}" - it's back where it was. Try again?`)
+      onDone: (key, { value, error, landed }) => {
+        // Never snap back silently: say the move didn't stick, and where the block is.
+        if (error) {
+          setNotice(landed
+            ? `Couldn't move "${value.title}" there - it's at ${formatDayName(landed.start)} ${formatSpan(landed.start, landed.end)}, where it last saved. Try again?`
+            : `Couldn't move "${value.title}" - it's back where it was. Try again?`)
+        }
         // Saved: shown as put until rows newer than these arrive.
         const row = (dataRef.current as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key)
         setPending((prev) => {
@@ -461,14 +467,16 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     const key = item.occurrence_key
     // Patched from the row as stored, not as shown while earlier moves save.
     const stored = (data as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key) ?? item
-    const saving = moveQueue.busy(key)
-    const patch = movePatch(stored, start, end, { all: saving })
+    // While an earlier move is saving, or saved but its rows not yet here,
+    // the rows may not say where the server is: send every field.
+    const unsure = moveQueue.busy(key) || pendingRef.current.has(key)
+    const patch = movePatch(stored, start, end, { all: unsure })
     if (Object.keys(patch).length === 0) return
     setPending((prev) => new Map(prev).set(key, {
       starts_at: start.toISOString(), ends_at: end.toISOString(), basis: stored.updated_at, saving: true,
     }))
     setNotice(null)
-    moveQueue.push(key, { id: item.id, title: item.title, patch })
+    moveQueue.push(key, { id: item.id, title: item.title, patch, start, end })
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
