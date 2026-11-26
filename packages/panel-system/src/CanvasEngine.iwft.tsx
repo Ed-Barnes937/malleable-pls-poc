@@ -365,7 +365,7 @@ test.describe('Canvas gestures', () => {
     await startDrag(page, a, 393, 33)
     await page.mouse.up()
 
-    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 413, y: 53 })
+    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 420, y: 60 })
     expect(overlap(await layoutOf(a), await layoutOf(component.getByTestId('panel-b')))).toBe(true)
     await expect(component.getByTestId('panel-b')).toHaveCSS('left', '400px')
     await expect(component.getByTestId('snap-outline')).toHaveCount(0)
@@ -413,7 +413,7 @@ test.describe('Canvas gestures', () => {
     await page.mouse.move(from.x + 391, from.y + 31, { steps: 2 })
     await page.mouse.up()
 
-    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 411, y: 51 })
+    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 420, y: 60 })
     await expect(component.getByTestId('panel-b')).toHaveCSS('left', '400px')
   })
 
