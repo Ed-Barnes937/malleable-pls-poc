@@ -683,7 +683,10 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           proposals={layer.proposals}
           savedProposalIds={layer.savedIds}
           onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
-          onProposalNudge={layer.nudge}
+          onProposalNudge={(id, minutes, days) => {
+            const put = layer.nudge(id, minutes, days)
+            return put && { start: new Date(put.startsAt), end: new Date(put.endsAt) }
+          }}
           onProposalAccept={(id) => void layer.accept(id)}
           onProposalDismiss={layer.dismiss}
           freeTime={freeTime}

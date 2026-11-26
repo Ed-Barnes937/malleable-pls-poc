@@ -44,9 +44,13 @@ export interface TimeGridProps {
   proposals?: Proposal[]
   /** Proposals accepted and being saved: drawn, but no longer actionable. */
   savedProposalIds?: ReadonlySet<string>
-  onProposalMove?: (id: string, start: Date, end: Date) => void
-  /** Keyboard adjust: by `minutes` or `days`, hopping past anything in the way (see `ProposalLayer.nudge`). */
-  onProposalNudge?: (id: string, minutes: number, days: number) => void
+  /** A ghost dragged, resized or Shift+arrowed: returns whether it went through. */
+  onProposalMove?: (id: string, start: Date, end: Date) => boolean
+  /**
+   * A ghost moved by an arrow key, by `minutes` or `days`, hopping past
+   * anything in the way (see `ProposalLayer.nudge`): returns where it went, or null.
+   */
+  onProposalNudge?: (id: string, minutes: number, days: number) => { start: Date; end: Date } | null
   onProposalAccept?: (id: string) => void
   onProposalDismiss?: (id: string) => void
   /** Free study time to outline and label with its length (UTC ms intervals), e.g. while planning. */
@@ -334,10 +338,16 @@ export function TimeGrid({
       const { item } = before.seg
       const { start, end } = blockTimes(item, before, pointerRules(next, action, pe ? pointAt(pe.clientX, pe.clientY) : null), days)
       if (start.getTime() === Date.parse(item.starts_at!) && end.getTime() === Date.parse(item.ends_at!)) return false
-      placed.current = { id: next.id, start, end }
       const ghost = ghostId(item)
-      if (ghost) onProposalMove?.(ghost, start, end)
-      else onMove(item, start, end)
+      let put: { start: Date; end: Date } | null = { start, end }
+      if (!ghost) onMove(item, start, end)
+      else if (action === 'move' && event instanceof KeyboardEvent) {
+        // An arrow step onto something keeps going to the next place that holds.
+        const dayShift = Number(next.track) - Number(before.track)
+        put = onProposalNudge?.(ghost, dayShift === 0 ? next.start - before.start : 0, dayShift) ?? null
+      } else if (!onProposalMove?.(ghost, start, end)) put = null
+      if (!put) return false
+      placed.current = { id: next.id, ...put }
       return true
     },
   })
@@ -639,10 +649,14 @@ export function TimeGrid({
                       hourPx={hourPx}
                       saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
                       lifted={draggingKey === seg.item.occurrence_key}
-                      span={{ ref: bindSpan(spanIdOf(seg)), attrs: spans.spanAttrs(spanState, spanIdOf(seg)), onPointerDown: (e) => pressBlock(e, seg) }}
+                      span={{
+                        ref: bindSpan(spanIdOf(seg)),
+                        attrs: spans.spanAttrs(spanState, spanIdOf(seg)),
+                        onPointerDown: (e) => pressBlock(e, seg),
+                        onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
+                      }}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
-                      onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
                     />
                   ) : (
                     <Block
@@ -942,14 +956,12 @@ interface GhostBlockProps {
   span: SpanBinding
   onAccept: () => void
   onDismiss: () => void
-  /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
-  onNudge: (minutes: number, days: number) => void
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss }: GhostBlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
@@ -972,23 +984,21 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
-      aria-description={saved ? undefined : 'Arrow keys move it, Enter accepts, Delete dismisses'}
+      aria-description={saved ? undefined : 'Arrow keys move it, Shift with Up or Down resizes it, Enter accepts, Delete dismisses'}
       tabIndex={saved ? undefined : 0}
       onKeyDown={saved ? undefined : (e) => {
         if (e.target !== e.currentTarget) return
-        const keys: Record<string, () => void> = {
-          ArrowUp: () => onNudge(-SNAP_MIN, 0),
-          ArrowDown: () => onNudge(SNAP_MIN, 0),
-          ArrowLeft: () => onNudge(0, -1),
-          ArrowRight: () => onNudge(0, 1),
-          Enter: onAccept,
-          Delete: onDismiss,
-          Backspace: onDismiss,
-        }
-        const action = keys[e.key]
-        if (!action) return
-        e.preventDefault()
-        action()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onAccept()
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          // Caught before createSpans, which would delete it outright.
+          e.preventDefault()
+          onDismiss()
+        } else if (seg.continuesAfter && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          // Its end is the midnight it runs past: no resize there (decision 6).
+          e.preventDefault()
+        } else spanBinding.onKeyDown?.(e)
       }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       ref={saved ? undefined : spanBinding.ref}
@@ -1052,7 +1062,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
         )}
       </div>
       {/* No edge to resize on a compact draft: on touch it would catch the taps meant for Accept (drag it, or use the keyboard). */}
-      {!saved && !compact && (
+      {!saved && !compact && !seg.continuesAfter && (
         <div
           aria-hidden
           data-span-edge="end"
