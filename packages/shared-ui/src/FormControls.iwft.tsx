@@ -164,7 +164,6 @@ for (const theme of ['light', 'dark'] as const) {
       await mount(<FormControlsHarness />)
       await setTheme(page, theme)
       const group = page.getByRole('group', { name: 'Starts' })
-      await group.screenshot({ path: `${process.env.TI_SHOTS ?? 'test-results/ct'}/time-${theme}-${width}.png` })
       // Each segment's box is no wider than its two digits, so "09" meets ":" meets "30".
       const slack = await group.evaluate((g) =>
         [...g.querySelectorAll<HTMLInputElement>('input[role="spinbutton"]')].map((input) => {

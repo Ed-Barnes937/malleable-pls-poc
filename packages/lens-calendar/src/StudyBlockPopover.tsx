@@ -39,6 +39,8 @@ export interface StudyBlockPopoverProps {
   moment?: MomentState
   canShowMoment: boolean
   canEdit: boolean
+  /** Focus "Go to moment" as it opens (not when a touch opened it). Default true. */
+  focusFirst?: boolean
   busy?: boolean
   /** The action this popover is waiting on, named on its button while it saves. */
   pending?: PendingAction | null
@@ -76,7 +78,7 @@ function minutesLabel(minutes: number): string {
  * `CalendarPopover` named by the block's title.
  */
 export function StudyBlockPopover({
-  row, moment, canShowMoment, canEdit, busy, pending, error,
+  row, moment, canShowMoment, canEdit, focusFirst = true, busy, pending, error,
   onGoToMoment, onToggleDone, onEditTime, onEditAutomation, onClose,
 }: StudyBlockPopoverProps) {
   const substrate = useSubstrate()
@@ -164,7 +166,7 @@ export function StudyBlockPopover({
         {canShowMoment && moment !== 'nowhere' && (
           <button
             type="button"
-            autoFocus
+            autoFocus={focusFirst}
             onClick={onGoToMoment}
             disabled={moment === 'opening'}
             className={cn(button, 'w-full bg-accent text-accent-foreground hover:opacity-90')}

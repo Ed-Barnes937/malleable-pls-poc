@@ -274,6 +274,58 @@ test.describe('on a phone', () => {
       expect(clear, 'the popover is above or below the block, not over it').toBe(true)
     })
   }
+
+  // A touch press raises the on-screen keyboard if a field takes focus, so the
+  // card itself does; a mouse click or a key still focuses the first field.
+  test.describe('opened by touch', () => {
+    test.use({ hasTouch: true })
+
+    const seedDay = async (page: Page, simulator: BackendSimulator) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        {
+          id: 'review', kind: 'task', title: 'Review: maternal inheritance', starts_at: day(14), ends_at: day(14, 30), duration_min: 30,
+          source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, course: 'biology', created_by_workflow_id: 'wf-confused-review',
+        },
+      ])
+    }
+
+    test('a tap on a block opens its popover with focus on the card, not Title', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Early seminar').tap()
+      const popover = page.getByRole('dialog', { name: 'Edit Early seminar' })
+      await expect(popover.getByLabel('Title')).toBeVisible()
+      await expect(popover).toBeFocused()
+      await expect(popover.getByLabel('Title')).not.toBeFocused()
+    })
+
+    test('a tap on a study block opens it with focus on the card, not Go to moment', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Review: maternal inheritance').tap()
+      const popover = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+      await expect(popover.getByRole('button', { name: 'Go to moment' })).toBeVisible()
+      await expect(popover).toBeFocused()
+      await expect(popover.getByRole('button', { name: 'Go to moment' })).not.toBeFocused()
+    })
+
+    test('tapping another block while one is open focuses that block\'s card', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Early seminar').tap()
+      await expect(page.getByRole('dialog', { name: 'Edit Early seminar' })).toBeFocused()
+      await block(page, 'Review: maternal inheritance').tap()
+      const second = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+      await expect(second).toBeVisible()
+      await expect(page.getByRole('dialog', { name: 'Edit Early seminar' })).toHaveCount(0)
+      await expect(second).toBeFocused()
+      // Still there once the first popover's close has finished (its focus return included).
+      await page.waitForTimeout(1000)
+      await expect(second).toBeFocused()
+    })
+  })
 })
 
 test('on a wide screen, picking a view saves it', async ({ mount, page, simulator }) => {

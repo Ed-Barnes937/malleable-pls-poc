@@ -105,7 +105,17 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     return () => clearTimeout(timer)
   }, [notice])
 
+  /**
+   * Whether the last input was a touch press (not a mouse press or a key). A
+   * popover opened by touch focuses its card, not its first field, so a phone's
+   * on-screen keyboard doesn't open over the block just tapped. Decided by the
+   * press's pointer type, not the screen width: a mouse on a narrow window
+   * still gets the first field, a finger on a tablet doesn't.
+   */
+  const touchedRef = useRef(false)
+  const [touchOpened, setTouchOpened] = useState(false)
   const openPopover = (next: Popover) => {
+    setTouchOpened(touchedRef.current)
     const active = document.activeElement
     openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
     setError(null)
@@ -139,6 +149,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
    * edits the automation its footer opened.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
+    touchedRef.current = e.pointerType === 'touch'
     if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
     markClosingPress(e.nativeEvent, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
     closePopover()
@@ -498,7 +509,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
   }
 
   return (
-    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway}>
+    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway} onKeyDownCapture={() => { touchedRef.current = false }}>
       <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2">
         {phoneDay ? (
           // Phone: the day in the middle, a step either side.
@@ -723,12 +734,14 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           width={shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime ? STUDY_BLOCK_POPOVER_WIDTH : EVENT_POPOVER_WIDTH}
           label={shown.mode === 'create' ? eventPopoverLabel() : shownRow && fromMoment(shownRow) && !shown.editingTime ? shownRow.title : eventPopoverLabel(shownRow)}
           variant={shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime ? 'study-block' : undefined}
+          touch={touchOpened}
           finalFocus={returnFocus}
           onClose={closePopover}
           onClosed={() => setClosing(null)}
         >
           {shown.mode === 'create' && (
             <EventPopover
+              focusFirst={!touchOpened}
               key={`create-${shown.draft.start.toISOString()}`}
               initial={shown.draft}
               canEdit
@@ -741,6 +754,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           )}
           {shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime && (
             <StudyBlockPopover
+              focusFirst={!touchOpened}
               row={shownRow}
               moment={shown.moment}
               canShowMoment={!!onShowMoment}
@@ -764,6 +778,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           )}
           {shown.mode === 'edit' && shownRow && (!fromMoment(shownRow) || shown.editingTime) && (
             <EventPopover
+              focusFirst={!touchOpened}
               // Keyed by the stored version too: if the item changes underneath
               // (an automation moves it), the form starts again from what is
               // stored instead of showing the old times.

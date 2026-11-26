@@ -41,6 +41,8 @@ export interface CalendarPopoverProps {
   label: string
   /** `data-variant`, e.g. "study-block". */
   variant?: string
+  /** Opened by a touch press: focus goes to the card, so no on-screen keyboard rises over what was tapped. */
+  touch?: boolean
   /** Where focus goes when it closes while focus is inside it (what opened it). */
   finalFocus: () => HTMLElement | null
   /** Escape. Every other close is the calendar's (`closing-press.ts`). */
@@ -50,6 +52,11 @@ export interface CalendarPopoverProps {
   children: ReactNode
 }
 
+/** Focuses the card itself (a callback ref: it runs as the card mounts). */
+function focusCard(card: HTMLElement | null) {
+  card?.focus({ preventScroll: true })
+}
+
 /**
  * A calendar popover on UI SDK Popover, anchored to the press: beside the
  * point pressed when it fits in the window, else above (or below) the block
@@ -57,7 +64,7 @@ export interface CalendarPopoverProps {
  * never close it here: CalendarLens's capture `pointerdown` does that, so a
  * press can close it and still reach what is under it (see closing-press.ts).
  */
-export function CalendarPopover({ open, root, press, width, label, variant, finalFocus, onClose, onClosed, children }: CalendarPopoverProps) {
+export function CalendarPopover({ open, root, press, width, label, variant, touch, finalFocus, onClose, onClosed, children }: CalendarPopoverProps) {
   const { x, y } = press
   const top = press.span?.top ?? y
   const bottom = press.span?.bottom ?? y
@@ -97,8 +104,10 @@ export function CalendarPopover({ open, root, press, width, label, variant, fina
         // A little above the press, as before.
         alignOffset={vertical ? 0 : -24}
         collisionPadding={MARGIN}
-        // The body focuses its own first control (autoFocus), however it was opened.
+        // Mounted open, UI SDK moves no focus. The body focuses its own first
+        // control (autoFocus); opened by touch, the card takes it (below).
         initialFocus="none"
+        ref={touch ? focusCard : undefined}
         finalFocus={finalFocus}
         data-testid="calendar-popover"
         data-variant={variant}

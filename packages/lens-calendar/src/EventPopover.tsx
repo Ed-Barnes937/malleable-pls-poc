@@ -12,6 +12,8 @@ export interface EventPopoverProps {
   initial: Draft
   /** Can this widget write? Read-only hosts get a view-only popover. */
   canEdit: boolean
+  /** Focus Title as it opens (not when a touch opened it: the keyboard would rise). Default true. */
+  focusFirst?: boolean
   busy?: boolean
   /** The action this popover is waiting on, named on its button while it saves. */
   pending?: PendingAction | null
@@ -39,7 +41,7 @@ export function eventPopoverLabel(row?: PlanItemOccurrence): string {
  * anchored where the student clicked.
  */
 export function EventPopover({
-  row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  row, initial, canEdit, focusFirst = true, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
 }: EventPopoverProps) {
   const [draft, setDraft] = useState<Draft>(initial)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -88,8 +90,8 @@ export function EventPopover({
     >
       <div className="flex items-start gap-2">
         <TextField
-          // Focus moves into the popover however it was opened (click or Enter).
-          autoFocus
+          // Focus moves into the popover when a click or Enter opened it.
+          autoFocus={focusFirst}
           aria-label="Title"
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}
