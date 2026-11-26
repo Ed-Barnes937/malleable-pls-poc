@@ -219,6 +219,9 @@ test.describe('Up next', () => {
     for (const item of await trpcQuery<{ id: string }[]>(request, 'planItems.list')) {
       await trpcMutation(request, 'planItems.delete', item.id)
     }
+    // Four boards open, as the comment below counts: the seed's Weekly plan makes a fifth.
+    const boards = await trpcQuery<{ id: string; name: string }[]>(request, 'workspaces.list')
+    await trpcMutation(request, 'workspaces.delete', boards.find((b) => b.name === 'Weekly plan')!.id)
     await page.reload()
     for (const width of [768, 1024, 1280, 1440]) {
       await page.setViewportSize({ width, height: 900 })
