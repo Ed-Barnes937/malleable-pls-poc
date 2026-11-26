@@ -9,7 +9,7 @@ import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
-import { DRAWN_SPAN_ID, spanIdOf, useGridSpans, type GridSpan } from './grid-spans'
+import { DRAWN_SPAN_ID, blockTimes, spanIdOf, useGridSpans, type GridSpan } from './grid-spans'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatDayName, formatHour, formatSpan, formatWeekday,
@@ -148,30 +148,6 @@ function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number
   if (at.dayIndex > day) return { ...next, end: MINUTES_PER_DAY }
   if (at.dayIndex < day) return { ...next, end: next.start + SNAP_MIN }
   return next
-}
-
-/**
- * Where a whole block goes when one of its day pieces is put somewhere new:
- * moving a piece moves the whole block (both days of one across midnight),
- * resizing a piece moves the edge it changed.
- */
-function blockTimes(item: PlanItemOccurrence, before: GridSpan, next: GridSpan, days: Date[]): { start: Date; end: Date } {
-  const start = new Date(item.starts_at!)
-  const end = new Date(item.ends_at!)
-  const day = days[Number(next.track)]
-  const moved = next.track !== before.track || (next.start !== before.start && next.end - next.start === before.end - before.start)
-  if (moved) {
-    const length = end.getTime() - start.getTime()
-    const whole = !before.seg?.continuesBefore && !before.seg?.continuesAfter
-    const shifted = whole
-      ? atMinutes(day, next.start)
-      : new Date(addDays(start, Number(next.track) - Number(before.track)).getTime() + (next.start - before.start) * 60_000)
-    return { start: shifted, end: new Date(shifted.getTime() + length) }
-  }
-  return {
-    start: next.start !== before.start ? atMinutes(day, next.start) : start,
-    end: next.end !== before.end ? atMinutes(day, next.end) : end,
-  }
 }
 
 export function TimeGrid({
@@ -314,15 +290,19 @@ export function TimeGrid({
     return { dayIndex, minute }
   }
 
+  /** The whole block's new times from the last move or resize, for its announcement. */
+  const placed = useRef<{ id: string; start: Date; end: Date } | null>(null)
   // Blocks move, resize and draw through UI SDK createSpans (pointer and keyboard).
   const { spans, state: spanState, store: spanStore, bindSpan } = useGridSpans(segments, {
     days: () => days.length,
     disabled: (s) => !isMovable(s.seg!.item) || (ghostId(s.seg!.item) != null && (savedProposalIds?.has(ghostId(s.seg!.item)!) ?? false)),
     label: (s) => s.seg?.item.title ?? 'New block',
+    // Says where the whole block went (both days of one across midnight), as put by `commit`.
     message: ({ type, span, label }) => {
       const day = days[Number(span.track)]
-      const range = `${formatClock(atMinutes(day, span.start))} to ${formatClock(atMinutes(day, span.end))}`
-      if (type === 'move') return `${label} moved to ${formatDayName(day)} ${range}`
+      const { start, end } = placed.current?.id === span.id ? placed.current : { start: atMinutes(day, span.start), end: atMinutes(day, span.end) }
+      const range = `${formatClock(start)} to ${formatClock(end)}`
+      if (type === 'move') return `${label} moved to ${formatDayName(start)} ${range}`
       if (type === 'resize') return `${label} now ${range}`
       return spansMessage({ type, span, label })
     },
@@ -354,6 +334,7 @@ export function TimeGrid({
       const { item } = before.seg
       const { start, end } = blockTimes(item, before, pointerRules(next, action, pe ? pointAt(pe.clientX, pe.clientY) : null), days)
       if (start.getTime() === Date.parse(item.starts_at!) && end.getTime() === Date.parse(item.ends_at!)) return false
+      placed.current = { id: next.id, start, end }
       const ghost = ghostId(item)
       if (ghost) onProposalMove?.(ghost, start, end)
       else onMove(item, start, end)
@@ -653,7 +634,7 @@ export function TimeGrid({
 
                   {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
                     <GhostBlock
-                      key={seg.key}
+                      key={spanIdOf(seg)}
                       seg={seg}
                       hourPx={hourPx}
                       saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
@@ -665,7 +646,8 @@ export function TimeGrid({
                     />
                   ) : (
                     <Block
-                      key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
+                      // Keyed by span, so a day piece moved to another day is a new element there, which createSpans focuses.
+                      key={revealed?.key === seg.key ? `${spanIdOf(seg)}:${revealed.requestId}` : spanIdOf(seg)}
                       seg={seg}
                       hourPx={hourPx}
                       caption={captions[dayIndex].get(seg.key) ?? null}
@@ -833,6 +815,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
           // Caught before createSpans, which would delete it outright.
           e.preventDefault()
           onKeyDelete?.(anchor)
+        } else if (seg.continuesAfter && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          // Its end is the midnight it runs past: no resize there (decision 6).
+          e.preventDefault()
         } else span?.onKeyDown?.(e)
       }}
       className={cn(
@@ -913,7 +898,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       {/* A compact block (a 20-min review is about 9px) has no edge to resize:
           any edge would take most of the bar, so pressing it to move the block
           would stretch it instead. Edit time in its popover changes its length. */}
-      {movable && !preview && !compact && (
+      {/* A piece that runs into the next day has no edge at its midnight end (decision 6). */}
+      {movable && !preview && !compact && !seg.continuesAfter && (
         <div
           data-testid="calendar-block-resize"
           data-span-edge="end"

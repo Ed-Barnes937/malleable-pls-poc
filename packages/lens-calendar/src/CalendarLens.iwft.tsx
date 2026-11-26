@@ -856,7 +856,68 @@ test('a later move that does not save says where the block is: at the earlier mo
   expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
 })
 
-test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them',async ({ mount, page, simulator }) => {
+test.describe('a block across midnight', () => {
+  const focusedPiece = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.segmentKey)
+  const pieces = (page: Page) => block(page, 'Late revision')
+  const seedLate = (simulator: BackendSimulator) => {
+    seedWeek(simulator)
+    seed(simulator, [{ id: 'late', kind: 'task', title: 'Late revision', starts_at: iso(2, 23), ends_at: iso(3, 1), duration_min: 120 }])
+  }
+
+  test('keyboard: arrows on either day piece move the whole block, focus staying on the piece moved, and say where it went', async ({ mount, page, simulator }) => {
+    seedLate(simulator)
+    await mount(<CalendarHarness />)
+    await expect(pieces(page)).toHaveCount(2)
+
+    // The second piece (Thursday's), down a step: the whole block moves.
+    await pieces(page).nth(1).focus()
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(2, 23, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(3, 1, 15), duration_min: 120 })
+    await expect(announced(page)).toHaveText('Late revision moved to Wednesday 23:15 to 01:15')
+    await expect.poll(() => focusedPiece(page)).toBe('late:3')
+
+    // Right: a day later, focus on the moved piece (now Friday's).
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(3, 23, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(4, 1, 15) })
+    await expect(announced(page)).toHaveText('Late revision moved to Thursday 23:15 to 01:15')
+    await expect.poll(() => focusedPiece(page)).toBe('late:4')
+
+    // The first piece (Thursday's now), up and back a day.
+    await pieces(page).nth(0).focus()
+    await page.keyboard.press('ArrowUp')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(3, 23))
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(2, 23))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(3, 1), duration_min: 120 })
+    await expect.poll(() => focusedPiece(page)).toBe('late:2')
+  })
+
+  test('the piece running into the next day has no edge to resize at midnight, by pointer or keyboard', async ({ mount, page, simulator }) => {
+    seedLate(simulator)
+    await mount(<CalendarHarness />)
+    const first = pieces(page).nth(0)
+    await expect(first.getByTestId('calendar-block-resize')).toHaveCount(0)
+    // The second piece's end is its own: that edge resizes.
+    await expect(pieces(page).nth(1).getByTestId('calendar-block-resize')).toHaveCount(1)
+
+    await first.focus()
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect(first).toBeFocused()
+    await expect(announced(page).filter({ hasText: 'Late revision' })).toHaveCount(0)
+    expect(stored(simulator, 'late')).toMatchObject({ starts_at: iso(2, 23), ends_at: iso(3, 1), duration_min: 120 })
+
+    // Shift+Down on the second piece moves the block's end.
+    await pieces(page).nth(1).focus()
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect.poll(() => stored(simulator, 'late')?.ends_at).toBe(iso(3, 1, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ starts_at: iso(2, 23), duration_min: 135 })
+  })
+})
+
+test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const shift = block(page, 'Cafe shift')

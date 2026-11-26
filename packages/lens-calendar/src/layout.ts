@@ -15,6 +15,8 @@ export interface DaySegment {
   /** The block started on an earlier day / runs into a later one. */
   continuesBefore: boolean
   continuesAfter: boolean
+  /** Which of the block's days this piece is: 0 for the day it starts on. */
+  piece: number
   /** Side-by-side position among overlapping blocks. */
   column: number
   columns: number
@@ -65,6 +67,7 @@ export function layoutDays(items: PlanItemOccurrence[], days: Date[]): DaySegmen
         endMin: continuesAfter || end.getTime() === nextDay ? MINUTES_PER_DAY : wallMinutes(end),
         continuesBefore,
         continuesAfter,
+        piece: continuesBefore ? Math.round((dayStart - startOfDay(start).getTime()) / 86_400_000) : 0,
         column: 0,
         columns: 1,
       })
