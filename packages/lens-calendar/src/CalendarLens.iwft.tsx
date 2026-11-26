@@ -254,16 +254,29 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   })
 
-  // Too narrow for a popover beside the press: it goes above or below the
-  // block pressed, so the block stays in view, and stays inside the window.
+  // Too narrow for a popover beside the press: it opens above the block
+  // pressed when it fits there, else below it, inside the window. What it
+  // shows then loads into it, and it grows around its buttons, which stay
+  // where they are even if it then covers the block (main #113).
   const day = (h: number, m = 0) => new Date(FROZEN_MONDAY.getFullYear(), FROZEN_MONDAY.getMonth(), FROZEN_MONDAY.getDate(), h, m).toISOString()
-  const PLACED: [string, string, string][] = [
-    ['high', 'Early seminar', 'Edit Early seminar'],
-    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance'],
-    ['low', 'Evening shift', 'Edit Evening shift'],
+  const PLACED: [string, string, string, 'above' | 'below'][] = [
+    ['high', 'Early seminar', 'Edit Early seminar', 'below'],
+    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance', 'above'],
+    ['low', 'Evening shift', 'Edit Evening shift', 'above'],
   ]
-  for (const [where, title, dialog] of PLACED) {
-    test(`a popover on a block ${where} on the screen keeps clear of the block, inside the window`, async ({ mount, page, simulator }) => {
+  /** Where `el` is once it has stopped moving. */
+  const settledBox = async (el: Locator) => {
+    let last = ''
+    await expect.poll(async () => {
+      const box = JSON.stringify(await el.boundingBox())
+      const settled = box === last
+      last = box
+      return settled
+    }, { intervals: [100] }).toBe(true)
+    return JSON.parse(last) as { x: number; y: number; width: number; height: number }
+  }
+  for (const [where, title, dialog, side] of PLACED) {
+    test(`a popover on a block ${where} on the screen opens ${side} it, inside the window, and its buttons stay put as it loads`, async ({ mount, page, simulator }) => {
       await freezeAt(page, simulator, FROZEN_MONDAY, 7)
       seed(simulator, [
         { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
@@ -275,28 +288,38 @@ test.describe('on a phone', () => {
       ])
       await mount(<CalendarHarness width="100%" height={800} />)
       await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+      // What the popover shows of the lecture is held, so it opens before it loads.
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => { release = resolve })
+      await page.route(/recordings\.byId|transcripts\.byRecording|tags\.list/, async (route) => {
+        await held
+        await route.fallback()
+      })
 
       await block(page, title).click()
       const popover = page.getByRole('dialog', { name: dialog })
       await expect(popover).toBeVisible()
-      // Measured once it has stopped moving (its content loads, then it is placed again).
-      let last = ''
-      await expect.poll(async () => {
-        const box = JSON.stringify(await popover.boundingBox())
-        const settled = box === last
-        last = box
-        return settled
-      }, { intervals: [100] }).toBe(true)
-      const box = (await popover.boundingBox())!
+      const opened = await settledBox(popover)
       const pressed = (await block(page, title).boundingBox())!
+      const buttons = popover.locator('[data-popover-anchor]').last()
+      const before = await buttons.boundingBox()
 
       const viewport = page.viewportSize()!
-      expect(box.x).toBeGreaterThanOrEqual(0)
-      expect(box.y).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
-      const clear = box.y + box.height <= pressed.y || box.y >= pressed.y + pressed.height
-      expect(clear, 'the popover is above or below the block, not over it').toBe(true)
+      const inside = (box: typeof opened) => {
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.y).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+      }
+      inside(opened)
+      if (side === 'above') expect(opened.y + opened.height, 'it opens above the block').toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y, 'it opens below the block').toBeGreaterThanOrEqual(pressed.y + pressed.height)
+
+      release()
+      if (title.startsWith('Review')) await expect(popover.getByTestId('calendar-moment-quote').locator('blockquote')).not.toBeEmpty()
+      const loaded = await settledBox(popover)
+      inside(loaded)
+      expect(await buttons.boundingBox(), 'its buttons stay where they are').toEqual(before)
     })
   }
 
