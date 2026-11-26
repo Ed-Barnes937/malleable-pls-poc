@@ -78,6 +78,13 @@ export function formatWeekday(d: Date): string {
   return dayFormat.format(d)
 }
 
+const dayNameFormat = new Intl.DateTimeFormat('en-GB', { weekday: 'long' })
+
+/** "Tuesday": what a screen reader hears a block moved to. */
+export function formatDayName(d: Date): string {
+  return dayNameFormat.format(d)
+}
+
 /** "Tue 27 Oct". */
 export function formatLongDay(d: Date): string {
   return longDayFormat.format(d).replace(',', '')

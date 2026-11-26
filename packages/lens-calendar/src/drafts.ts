@@ -67,17 +67,18 @@ function shift(row: PlanItemOccurrence, series: string | null, from: string | nu
  * Patch that moves / resizes a row to `start`-`end`. Updates apply to the
  * whole series, so the stored series times shift as far as this occurrence
  * did (see PlanItemOccurrence and `shift`). A study block keeps `duration_min` in
- * step with its length.
+ * step with its length. `all` patches every time field, changed or not (a
+ * move back to where the row is stored, after a save that moved it away).
  */
-export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): PlanItemPatch {
+export function movePatch(row: PlanItemOccurrence, start: Date, end: Date, { all = false }: { all?: boolean } = {}): PlanItemPatch {
   const patch: PlanItemPatch = {}
-  if (start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row, row.series_starts_at, row.starts_at, start)
-  if (end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row, row.series_ends_at, row.ends_at, end)
+  if (all || start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row, row.series_starts_at, row.starts_at, start)
+  if (all || end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row, row.series_ends_at, row.ends_at, end)
   // validatePlanItem needs both ends together.
   if (patch.starts_at && !patch.ends_at) patch.ends_at = row.series_ends_at ?? row.ends_at
   if (patch.ends_at && !patch.starts_at) patch.starts_at = row.series_starts_at ?? row.starts_at
   const length = minutesBetween(start, end)
-  if (row.kind === 'task' && row.duration_min !== length) patch.duration_min = length
+  if (row.kind === 'task' && (all || row.duration_min !== length)) patch.duration_min = length
   return patch
 }
 
