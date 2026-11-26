@@ -87,7 +87,9 @@ test.describe('Header scope pickers', () => {
     await topBar.expectScope('Chemistry', null)
     await expect(transcript.getByText('Pick a lecture to see its transcript')).toBeVisible({ timeout: 10000 })
     await expect(grid.panelByLabel('Your Progress').getByText('chemistry')).toBeVisible()
-    await expect(page.getByTestId('drawer-sidebar')).toHaveAttribute('aria-hidden', 'true')
+    // The board menu did not open: closed, the drawer is gone from the page.
+    await expect(topBar.drawerTrigger).toHaveAttribute('aria-expanded', 'false')
+    await expect(page.getByTestId('drawer-sidebar')).toHaveCount(0)
 
     await page.reload()
     await topBar.expectScope('Chemistry', null, { timeout: 10000 })
