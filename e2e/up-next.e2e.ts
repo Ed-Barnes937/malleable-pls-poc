@@ -214,6 +214,20 @@ test.describe('Up next', () => {
     await expect.poll(async () => (await topBar.upNext.boundingBox())!.width).toBeLessThanOrEqual(40)
   })
 
+  test('the seeded student, with four boards open, gets the icon at 1440x900', async ({ page }) => {
+    // Accepted by Ed (2026-11-26): the seeded Weekly plan tab takes the room the words had.
+    await reseed({ now: TUESDAY })
+    await page.clock.setFixedTime(TUESDAY)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/')
+    const topBar = new TopBarPom(page)
+    await expect(topBar.upNext).toHaveAccessibleName(/Chemistry 14:00/)
+    await expect.poll(async () => (await topBar.upNext.boundingBox())!.width).toBeLessThanOrEqual(40)
+  })
+
+  // Removes the seeded Weekly plan first: with it the seeded student has four
+  // tabs and gets the icon at 1440 (accepted by Ed, see the test above), so
+  // this proves the words layout when there is room.
   test('"Plan your week" is words, not an icon, wherever the bar has room for them', async ({ page, request }) => {
     const topBar = await openBlankBoard(page, TUESDAY)
     for (const item of await trpcQuery<{ id: string }[]>(request, 'planItems.list')) {
