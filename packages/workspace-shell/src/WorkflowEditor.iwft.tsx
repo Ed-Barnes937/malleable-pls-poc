@@ -54,7 +54,7 @@ test.describe('workflow step order', () => {
     await expect.poll(() => savedTypes(simulator)).toEqual(['ai:summarize-lecture', 'plan:review-task', 'ai:transcribe'])
   })
 
-  test('Escape puts the step back', async ({ mount, page }) => {
+  test('Escape puts the step back', async ({ mount, page, simulator: _backend }) => {
     await mount(editor)
     await page.getByRole('button', { name: 'Drag to reorder step 2' }).focus()
     await page.keyboard.press('Space')
@@ -66,7 +66,7 @@ test.describe('workflow step order', () => {
     await expect(page.getByRole('dialog')).toBeVisible()
   })
 
-  test('dragging the grip with the mouse moves the step', async ({ mount, page }) => {
+  test('dragging the grip with the mouse moves the step', async ({ mount, page, simulator: _backend }) => {
     await mount(editor)
     const grip = (await page.getByRole('button', { name: 'Drag to reorder step 1' }).boundingBox())!
     const third = (await page.getByTestId('workflow-step').nth(2).boundingBox())!
@@ -77,7 +77,7 @@ test.describe('workflow step order', () => {
     expect(await stepTypes(page)).toEqual(['ai:summarize-lecture', 'plan:review-task', 'ai:transcribe'])
   })
 
-  test('the up and down buttons still move a step', async ({ mount, page }) => {
+  test('the up and down buttons still move a step', async ({ mount, page, simulator: _backend }) => {
     await mount(editor)
     await page.getByTestId('workflow-step').nth(2).getByRole('button', { name: 'Move step up' }).click()
     expect(await stepTypes(page)).toEqual(['ai:transcribe', 'plan:review-task', 'ai:summarize-lecture'])
@@ -85,7 +85,7 @@ test.describe('workflow step order', () => {
     expect(await stepTypes(page)).toEqual(['plan:review-task', 'ai:transcribe', 'ai:summarize-lecture'])
   })
 
-  test('a step keeps its own settings when others move around it', async ({ mount, page }) => {
+  test('a step keeps its own settings when others move around it', async ({ mount, page, simulator: _backend }) => {
     await mount(editor)
     await page.getByTestId('workflow-step').nth(1).getByLabel(/Days to wait before step/).fill('3')
     await page.getByTestId('workflow-step').nth(1).getByRole('button', { name: 'Move step up' }).click()

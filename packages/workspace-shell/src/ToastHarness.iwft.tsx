@@ -1,6 +1,9 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { ToastHarness } from './ToastHarness'
 
+// The harness's ShellProviders load the boards and courses: the simulated backend answers them.
+test.beforeEach(async ({ simulator }) => { void simulator })
+
 test('shows a toast and removes it after its time', async ({ mount, page }) => {
   await mount(<ToastHarness durationMs={700} />)
   await page.getByRole('button', { name: 'Add plain' }).click()
@@ -123,7 +126,7 @@ test.describe('how long a toast stays', () => {
     await page.getByRole('button', { name: 'Add forever' }).click()
     await page.clock.runFor(120_000)
     await expect(page.getByTestId('toast')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Dismiss' }).click()
+    await page.getByTestId('toast').getByRole('button', { name: 'Dismiss' }).click()
     await expect(page.getByTestId('toast')).toHaveCount(0)
   })
 })

@@ -904,13 +904,15 @@ test('keyboard: Shift with Up / Down resizes study time from its end', async ({ 
   await block(page, 'Revise respiration').focus()
   await page.keyboard.press('Shift+ArrowDown')
   await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 17, 15))
+  // Lengthened past its 1h estimate: the estimate rises to the 1h 15m booked (flow-audit decision 16).
   expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
   await expect(announced(page)).toHaveText('Revise respiration now 16:00 to 17:15')
 
   await page.keyboard.press('Shift+ArrowUp')
   await page.keyboard.press('Shift+ArrowUp')
   await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 16, 45))
-  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 45 })
+  // Shortened: the block is the time booked, and the estimate is never lowered (flow-audit decision 8).
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
 })
 
 test('eight quick arrow presses leave the block, saved, on the eighth position', async ({ mount, page, simulator }) => {
@@ -925,7 +927,9 @@ test('eight quick arrow presses leave the block, saved, on the eighth position',
   await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
 })
 
-test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator }) => {
+test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator, consoleErrors }) => {
+  // The rows' refetch after the first save is dropped (its batch carries the refit preview too).
+  consoleErrors.allowFailedRequest('planItems.list', 'planItems.refitPreview')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
@@ -947,7 +951,8 @@ test('a block moved and straight back ends saved where it started, even when the
   await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
 })
 
-test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator }) => {
+test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
@@ -976,7 +981,8 @@ test('a later move that does not save says where the block is: at the earlier mo
   expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
 })
 
-test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator }) => {
+test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update', 'planItems.list', 'planItems.refitPreview')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
