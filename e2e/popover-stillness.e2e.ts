@@ -120,8 +120,8 @@ const CLASS_OUTCOMES = [
   { name: 'the focus fails', fails: true },
 ]
 
-// Tall enough (the calendar and the window) that a popover isn't pinned to
-// the calendar's bottom edge, where nothing above its buttons could move them.
+// Tall enough that a popover isn't pinned to the window's bottom edge, where
+// nothing above its buttons could move them.
 const CLASS_VIEWPORTS = VIEWPORTS.map((v) => ({ ...v, size: { ...v.size, height: 1300 } }))
 
 for (const viewport of CLASS_VIEWPORTS) {

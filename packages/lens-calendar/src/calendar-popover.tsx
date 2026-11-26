@@ -64,14 +64,18 @@ export interface CalendarPopoverProps {
   children: ReactNode
 }
 
-/** The top and bottom (px below the calendar's top) a popover is kept inside. */
-export interface Bounds {
-  top: number
-  bottom: number
+/**
+ * The window a popover is kept inside, seen from the calendar: the calendar's
+ * top (client px, negative once scrolled partly off) and the window's height.
+ * Only the window bounds it: it may spill past the calendar (K3 decision 7).
+ */
+export interface InWindow {
+  calendarTop: number
+  viewportHeight: number
 }
 
-function keptInside(top: number, height: number, bounds: Bounds) {
-  return Math.max(bounds.top + MARGIN, Math.min(top, bounds.bottom - height - MARGIN))
+function keptInside(top: number, height: number, { calendarTop, viewportHeight }: InWindow) {
+  return Math.max(MARGIN - calendarTop, Math.min(top, viewportHeight - calendarTop - height - MARGIN))
 }
 
 /**
@@ -79,22 +83,23 @@ function keptInside(top: number, height: number, bounds: Bounds) {
  * beside the point pressed (`y`), a little above it; or, where it can't sit
  * beside it (a phone), above what was pressed (`span`, the point when absent)
  * when it fits there, else below it when it fits there, so that stays in
- * view; only when neither fits does it cover it. Kept inside `bounds`.
+ * view; only when neither fits does it cover it. Kept inside the window.
  */
 export function popoverTop(
-  { placement, y, span = { top: y, bottom: y }, height, bounds }:
-  { placement: 'beside' | 'vertical'; y: number; span?: Span; height: number; bounds: Bounds },
+  { placement, y, span = { top: y, bottom: y }, height, ...inWindow }:
+  { placement: 'beside' | 'vertical'; y: number; span?: Span; height: number } & InWindow,
 ): number {
+  const { calendarTop, viewportHeight } = inWindow
   const above = span.top - GAP - height
   const below = span.bottom + GAP
   const top = placement === 'beside'
     ? y - 24
-    : above >= bounds.top + MARGIN
+    : above >= MARGIN - calendarTop
       ? above
-      : below + height <= bounds.bottom - MARGIN
+      : below + height <= viewportHeight - calendarTop - MARGIN
         ? below
         : y - 24
-  return keptInside(top, height, bounds)
+  return keptInside(top, height, inWindow)
 }
 
 /**
@@ -102,13 +107,13 @@ export function popoverTop(
  * the one that keeps its anchor (the buttons the student is reaching for)
  * where it was on screen, even over what was pressed. `anchorBefore` and
  * `anchorAfter` are the anchor's distance below the popover's top. Only when
- * keeping it still would take the popover out of `bounds` does the anchor move.
+ * keeping it still would take the popover out of the window does the anchor move.
  */
 export function anchoredTop(
-  { top, anchorBefore, anchorAfter, height, bounds }:
-  { top: number; anchorBefore: number; anchorAfter: number; height: number; bounds: Bounds },
+  { top, anchorBefore, anchorAfter, height, ...inWindow }:
+  { top: number; anchorBefore: number; anchorAfter: number; height: number } & InWindow,
 ): number {
-  return keptInside(top + anchorBefore - anchorAfter, height, bounds)
+  return keptInside(top + anchorBefore - anchorAfter, height, inWindow)
 }
 
 /**
@@ -138,7 +143,7 @@ function measure(content: HTMLElement): { anchor: number | null; height: number 
  * only grown or shrunk around its anchor, which stays where it is on screen
  * as content loads or goes (`anchoredTop`): a lecture line that loads, "Also
  * open in" arriving. Without an anchor it is placed afresh at each size. Kept
- * inside the calendar, inside the window. Read by the anchor UI SDK checks
+ * inside the window, spilling past the calendar where it must. Read by the anchor UI SDK checks
  * every frame, so the first placement at the content's new size already has
  * it: worked out after UI SDK had placed it (a resize callback, a render),
  * the buttons would be drawn out of place for a frame or more.
@@ -153,17 +158,16 @@ function usePlacedTop(pressKey: string) {
   const ref = useCallback((content: HTMLElement | null) => {
     contentRef.current = content
   }, [])
-  const placedTop = useCallback((root: DOMRect, at: Omit<Parameters<typeof popoverTop>[0], 'height' | 'bounds'>) => {
+  const placedTop = useCallback((root: DOMRect, at: Omit<Parameters<typeof popoverTop>[0], 'height' | keyof InWindow>) => {
     const content = contentRef.current
     let placed = placedRef.current?.pressKey === pressKey ? placedRef.current : null
     // Not laid out yet: placed once it has a height to place.
     if (!content?.offsetHeight) return placed?.top ?? at.y - 24
     const { anchor, height } = measure(content)
-    const viewport = window.visualViewport?.height ?? window.innerHeight
-    const bounds = { top: Math.max(0, -root.top), bottom: Math.min(root.height, viewport - root.top) }
+    const inWindow = { calendarTop: root.top, viewportHeight: window.visualViewport?.height ?? window.innerHeight }
     const top = placed && placed.anchor !== null && anchor !== null
-      ? anchoredTop({ top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, bounds })
-      : popoverTop({ ...at, height, bounds })
+      ? anchoredTop({ top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, ...inWindow })
+      : popoverTop({ ...at, height, ...inWindow })
     placed = placedRef.current = { pressKey, top, anchor }
     return placed.top
   }, [pressKey])
@@ -178,8 +182,8 @@ function focusCard(card: HTMLElement | null) {
 /**
  * A calendar popover on UI SDK Popover, anchored to the press: beside the
  * point pressed when it fits in the window, else above the block pressed when
- * it fits there, or below it (`popoverTop`), kept inside the calendar and the
- * window. UI SDK handles Escape and focus return; presses and focus leaving
+ * it fits there, or below it (`popoverTop`), kept inside the window (it may
+ * spill past the calendar). UI SDK handles Escape and focus return; presses and focus leaving
  * never close it here: CalendarLens's capture `pointerdown` does that, so a
  * press can close it and still reach what is under it (see closing-press.ts).
  */
