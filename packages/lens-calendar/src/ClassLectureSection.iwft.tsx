@@ -3,6 +3,7 @@ import { test, expect } from '../../../playwright/fixtures'
 import { ClassFocusHarness } from '../../../playwright/class-focus-harness'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import { seedPlanItem } from '../../../playwright/plan-items'
+import { motionSettled } from '../../../e2e/settle'
 
 /**
  * Opening a class block focuses its occurrence's lecture on the board (03):
@@ -294,6 +295,8 @@ test('Undo goes as soon as the board moves on from what the open left, and the r
   await expect(undo).toBeVisible()
   await expect(page.getByTestId('board-scope')).toHaveText(/^biology \/ lec-/)
   const row = page.getByTestId('class-lecture-row')
+  // The popover opens with a scale-in: measure once it has landed.
+  await motionSettled(page.getByTestId('calendar-popover'))
   const before = await row.boundingBox()
 
   // The header changes the board meanwhile: Undo has nothing left to put back.
@@ -460,6 +463,8 @@ test.describe('on a phone', () => {
     await mount(<ClassFocusHarness width="100%" height={760} lectureBoards={[{ id: 'ws-in-lecture', name: 'In Lecture' }, { id: 'ws-evening-review', name: 'Evening Review' }]} />)
     await block(page, 'Biology lecture').click()
     await expect(section(page).getByRole('status')).toHaveText(`Showing ${BIO_TITLE}Upcoming`)
+    // The popover opens with a scale-in: measure once it has landed.
+    await motionSettled(page.getByTestId('calendar-popover'))
     const popover = (await page.getByTestId('calendar-popover').boundingBox())!
     const save = (await page.getByTestId('calendar-popover').getByRole('button', { name: 'Save' }).boundingBox())!
     for (const name of ['Undo', 'In Lecture', 'Evening Review']) {
@@ -509,6 +514,8 @@ test.describe('on a phone', () => {
     await mount(<ClassFocusHarness width="100%" height={760} openResult="failed" lectureBoards={[{ id: 'ws-in-lecture', name: 'In Lecture' }]} />)
     await block(page, 'Biology lecture').click()
     await expect(section(page).getByRole('button', { name: 'Undo' })).toBeVisible()
+    // The popover opens with a scale-in: measure once it has landed.
+    await motionSettled(page.getByTestId('calendar-popover'))
     const before = await buttonBoxes(page)
 
     await section(page).getByRole('button', { name: 'Undo' }).click()
