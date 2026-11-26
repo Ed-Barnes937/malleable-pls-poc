@@ -11,21 +11,30 @@ export interface SaveQueue<T> {
 }
 
 export interface SaveQueueOptions<T> {
-  /** The key has nothing left to send: how its last save went. */
-  onDone?: (key: string, result: { value: T; error?: unknown }) => void
+  /**
+   * The key has nothing left to send: how its last save went. When that one
+   * failed after an earlier save in the same run went through, `landed` is
+   * the last value that did (where the server now is).
+   */
+  onDone?: (key: string, result: { value: T; error?: unknown; landed?: T }) => void
 }
 
 export function createSaveQueue<T>(send: (key: string, value: T) => Promise<unknown>, options: SaveQueueOptions<T> = {}): SaveQueue<T> {
   const inFlight = new Set<string>()
   const waiting = new Map<string, T>()
+  const landed = new Map<string, T>()
 
   const run = (key: string, value: T) => {
     inFlight.add(key)
     const settle = (error?: unknown) => {
+      if (error === undefined) landed.set(key, value)
       const next = waiting.get(key)
       if (waiting.delete(key)) return run(key, next as T)
       inFlight.delete(key)
-      options.onDone?.(key, error === undefined ? { value } : { value, error })
+      const before = landed.get(key)
+      const hadLanded = landed.delete(key)
+      if (error === undefined) options.onDone?.(key, { value })
+      else options.onDone?.(key, hadLanded ? { value, error, landed: before as T } : { value, error })
     }
     send(key, value).then(() => settle(), (error: unknown) => settle(error ?? new Error('Save failed')))
   }

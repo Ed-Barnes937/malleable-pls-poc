@@ -9,7 +9,7 @@ import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
-import { DRAWN_SPAN_ID, spanIdOf, useGridSpans, type GridSpan } from './grid-spans'
+import { DRAWN_SPAN_ID, blockTimes, spanIdOf, useGridSpans, type GridSpan } from './grid-spans'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
   addDays, atMinutes, clamp, startOfDay, formatClock, formatDayName, formatHour, formatSpan, formatWeekday,
@@ -44,9 +44,13 @@ export interface TimeGridProps {
   proposals?: Proposal[]
   /** Proposals accepted and being saved: drawn, but no longer actionable. */
   savedProposalIds?: ReadonlySet<string>
-  onProposalMove?: (id: string, start: Date, end: Date) => void
-  /** Keyboard adjust: by `minutes` or `days`, hopping past anything in the way (see `ProposalLayer.nudge`). */
-  onProposalNudge?: (id: string, minutes: number, days: number) => void
+  /** A ghost dragged, resized or Shift+arrowed: returns whether it went through. */
+  onProposalMove?: (id: string, start: Date, end: Date) => boolean
+  /**
+   * A ghost moved by an arrow key, by `minutes` or `days`, hopping past
+   * anything in the way (see `ProposalLayer.nudge`): returns where it went, or null.
+   */
+  onProposalNudge?: (id: string, minutes: number, days: number) => { start: Date; end: Date } | null
   onProposalAccept?: (id: string) => void
   onProposalDismiss?: (id: string) => void
   /** Free study time to outline and label with its length (UTC ms intervals), e.g. while planning. */
@@ -148,30 +152,6 @@ function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number
   if (at.dayIndex > day) return { ...next, end: MINUTES_PER_DAY }
   if (at.dayIndex < day) return { ...next, end: next.start + SNAP_MIN }
   return next
-}
-
-/**
- * Where a whole block goes when one of its day pieces is put somewhere new:
- * moving a piece moves the whole block (both days of one across midnight),
- * resizing a piece moves the edge it changed.
- */
-function blockTimes(item: PlanItemOccurrence, before: GridSpan, next: GridSpan, days: Date[]): { start: Date; end: Date } {
-  const start = new Date(item.starts_at!)
-  const end = new Date(item.ends_at!)
-  const day = days[Number(next.track)]
-  const moved = next.track !== before.track || (next.start !== before.start && next.end - next.start === before.end - before.start)
-  if (moved) {
-    const length = end.getTime() - start.getTime()
-    const whole = !before.seg?.continuesBefore && !before.seg?.continuesAfter
-    const shifted = whole
-      ? atMinutes(day, next.start)
-      : new Date(addDays(start, Number(next.track) - Number(before.track)).getTime() + (next.start - before.start) * 60_000)
-    return { start: shifted, end: new Date(shifted.getTime() + length) }
-  }
-  return {
-    start: next.start !== before.start ? atMinutes(day, next.start) : start,
-    end: next.end !== before.end ? atMinutes(day, next.end) : end,
-  }
 }
 
 export function TimeGrid({
@@ -314,15 +294,19 @@ export function TimeGrid({
     return { dayIndex, minute }
   }
 
+  /** The whole block's new times from the last move or resize, for its announcement. */
+  const placed = useRef<{ id: string; start: Date; end: Date } | null>(null)
   // Blocks move, resize and draw through UI SDK createSpans (pointer and keyboard).
   const { spans, state: spanState, store: spanStore, bindSpan } = useGridSpans(segments, {
     days: () => days.length,
     disabled: (s) => !isMovable(s.seg!.item) || (ghostId(s.seg!.item) != null && (savedProposalIds?.has(ghostId(s.seg!.item)!) ?? false)),
     label: (s) => s.seg?.item.title ?? 'New block',
+    // Says where the whole block went (both days of one across midnight), as put by `commit`.
     message: ({ type, span, label }) => {
       const day = days[Number(span.track)]
-      const range = `${formatClock(atMinutes(day, span.start))} to ${formatClock(atMinutes(day, span.end))}`
-      if (type === 'move') return `${label} moved to ${formatDayName(day)} ${range}`
+      const { start, end } = placed.current?.id === span.id ? placed.current : { start: atMinutes(day, span.start), end: atMinutes(day, span.end) }
+      const range = `${formatClock(start)} to ${formatClock(end)}`
+      if (type === 'move') return `${label} moved to ${formatDayName(start)} ${range}`
       if (type === 'resize') return `${label} now ${range}`
       return spansMessage({ type, span, label })
     },
@@ -355,8 +339,15 @@ export function TimeGrid({
       const { start, end } = blockTimes(item, before, pointerRules(next, action, pe ? pointAt(pe.clientX, pe.clientY) : null), days)
       if (start.getTime() === Date.parse(item.starts_at!) && end.getTime() === Date.parse(item.ends_at!)) return false
       const ghost = ghostId(item)
-      if (ghost) onProposalMove?.(ghost, start, end)
-      else onMove(item, start, end)
+      let put: { start: Date; end: Date } | null = { start, end }
+      if (!ghost) onMove(item, start, end)
+      else if (action === 'move' && event instanceof KeyboardEvent) {
+        // An arrow step onto something keeps going to the next place that holds.
+        const dayShift = Number(next.track) - Number(before.track)
+        put = onProposalNudge?.(ghost, dayShift === 0 ? next.start - before.start : 0, dayShift) ?? null
+      } else if (!onProposalMove?.(ghost, start, end)) put = null
+      if (!put) return false
+      placed.current = { id: next.id, ...put }
       return true
     },
   })
@@ -653,19 +644,24 @@ export function TimeGrid({
 
                   {segments[dayIndex].map((seg) => ghostId(seg.item) ? (
                     <GhostBlock
-                      key={seg.key}
+                      key={spanIdOf(seg)}
                       seg={seg}
                       hourPx={hourPx}
                       saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
                       lifted={draggingKey === seg.item.occurrence_key}
-                      span={{ ref: bindSpan(spanIdOf(seg)), attrs: spans.spanAttrs(spanState, spanIdOf(seg)), onPointerDown: (e) => pressBlock(e, seg) }}
+                      span={{
+                        ref: bindSpan(spanIdOf(seg)),
+                        attrs: spans.spanAttrs(spanState, spanIdOf(seg)),
+                        onPointerDown: (e) => pressBlock(e, seg),
+                        onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
+                      }}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
-                      onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
                     />
                   ) : (
                     <Block
-                      key={revealed?.key === seg.key ? `${seg.key}:${revealed.requestId}` : seg.key}
+                      // Keyed by span, so a day piece moved to another day is a new element there, which createSpans focuses.
+                      key={revealed?.key === seg.key ? `${spanIdOf(seg)}:${revealed.requestId}` : spanIdOf(seg)}
                       seg={seg}
                       hourPx={hourPx}
                       caption={captions[dayIndex].get(seg.key) ?? null}
@@ -833,6 +829,9 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
           // Caught before createSpans, which would delete it outright.
           e.preventDefault()
           onKeyDelete?.(anchor)
+        } else if (seg.continuesAfter && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          // Its end is the midnight it runs past: no resize there (decision 6).
+          e.preventDefault()
         } else span?.onKeyDown?.(e)
       }}
       className={cn(
@@ -913,7 +912,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       {/* A compact block (a 20-min review is about 9px) has no edge to resize:
           any edge would take most of the bar, so pressing it to move the block
           would stretch it instead. Edit time in its popover changes its length. */}
-      {movable && !preview && !compact && (
+      {/* A piece that runs into the next day has no edge at its midnight end (decision 6). */}
+      {movable && !preview && !compact && !seg.continuesAfter && (
         <div
           data-testid="calendar-block-resize"
           data-span-edge="end"
@@ -956,14 +956,12 @@ interface GhostBlockProps {
   span: SpanBinding
   onAccept: () => void
   onDismiss: () => void
-  /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
-  onNudge: (minutes: number, days: number) => void
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss }: GhostBlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
@@ -986,23 +984,21 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
-      aria-description={saved ? undefined : 'Arrow keys move it, Enter accepts, Delete dismisses'}
+      aria-description={saved ? undefined : 'Arrow keys move it, Shift with Up or Down resizes it, Enter accepts, Delete dismisses'}
       tabIndex={saved ? undefined : 0}
       onKeyDown={saved ? undefined : (e) => {
         if (e.target !== e.currentTarget) return
-        const keys: Record<string, () => void> = {
-          ArrowUp: () => onNudge(-SNAP_MIN, 0),
-          ArrowDown: () => onNudge(SNAP_MIN, 0),
-          ArrowLeft: () => onNudge(0, -1),
-          ArrowRight: () => onNudge(0, 1),
-          Enter: onAccept,
-          Delete: onDismiss,
-          Backspace: onDismiss,
-        }
-        const action = keys[e.key]
-        if (!action) return
-        e.preventDefault()
-        action()
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          onAccept()
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          // Caught before createSpans, which would delete it outright.
+          e.preventDefault()
+          onDismiss()
+        } else if (seg.continuesAfter && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+          // Its end is the midnight it runs past: no resize there (decision 6).
+          e.preventDefault()
+        } else spanBinding.onKeyDown?.(e)
       }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
       ref={saved ? undefined : spanBinding.ref}
@@ -1066,7 +1062,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
         )}
       </div>
       {/* No edge to resize on a compact draft: on touch it would catch the taps meant for Accept (drag it, or use the keyboard). */}
-      {!saved && !compact && (
+      {!saved && !compact && !seg.continuesAfter && (
         <div
           aria-hidden
           data-span-edge="end"

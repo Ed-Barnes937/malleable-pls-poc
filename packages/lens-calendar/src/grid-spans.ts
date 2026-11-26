@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo, useRef, useSyncExternalStore } from 'react'
 import { createSpans, type PrimitiveContext, type SpanAction, type Span, type SpansDraft, type SpansMessage } from '@ui-sdk/core'
+import type { PlanItemOccurrence } from '@pls/substrate'
 import type { DaySegment } from './layout'
+import { atMinutes } from './time'
 
 /** One day's piece of a block on the grid, as a UI SDK span: the day is its track, minutes from midnight its range. */
 export type GridSpan = Span & { seg?: DaySegment }
@@ -12,10 +14,39 @@ export const DRAWN_SPAN_ID = 'new'
 /**
  * A segment's span id: its occurrence, so a move to another day keeps the
  * same span (and focus on it); a block across midnight has one span per day,
- * keyed by the day too.
+ * keyed by which of its days it is (0 for the day it starts), so a piece
+ * moved to another day keeps its id (and focus) too.
  */
 export function spanIdOf(seg: DaySegment): string {
-  return seg.continuesBefore || seg.continuesAfter ? `${seg.item.occurrence_key}:${seg.dayIndex}` : seg.item.occurrence_key
+  return seg.continuesBefore || seg.continuesAfter ? `${seg.item.occurrence_key}:${seg.piece}` : seg.item.occurrence_key
+}
+
+/**
+ * Where a whole block goes when one of its day pieces is put somewhere new:
+ * moving a piece moves the whole block (both days of one across midnight),
+ * resizing a piece moves the edge it changed.
+ */
+export function blockTimes(item: PlanItemOccurrence, before: GridSpan, next: GridSpan, days: Date[]): { start: Date; end: Date } {
+  const start = new Date(item.starts_at!)
+  const end = new Date(item.ends_at!)
+  const day = days[Number(next.track)]
+  const moved = next.track !== before.track || (next.start !== before.start && next.end - next.start === before.end - before.start)
+  if (moved) {
+    const length = end.getTime() - start.getTime()
+    const whole = !before.seg?.continuesBefore && !before.seg?.continuesAfter
+    let shifted = atMinutes(day, next.start)
+    if (!whole) {
+      // Same time of day on the day it moved to (wall clock, so DST-safe), then the step within the day.
+      shifted = new Date(start)
+      shifted.setDate(shifted.getDate() + Number(next.track) - Number(before.track))
+      shifted = new Date(shifted.getTime() + (next.start - before.start) * 60_000)
+    }
+    return { start: shifted, end: new Date(shifted.getTime() + length) }
+  }
+  return {
+    start: next.start !== before.start ? atMinutes(day, next.start) : start,
+    end: next.end !== before.end ? atMinutes(day, next.end) : end,
+  }
 }
 
 /**
