@@ -56,6 +56,23 @@ export function planPanelPlacement(
 }
 
 /**
+ * The week's columns (0 = Monday) the floating panel reaches into, even
+ * partly: their blocks are under it, so they are not Tab stops while it is
+ * open. Docked, it covers none.
+ */
+export function coveredDays(grid: WeekGeometry, placement: PlanPanelPlacement): number[] {
+  if (placement.side === 'docked') return []
+  const column = (grid.width - grid.lead - grid.trail) / 7
+  const from = placement.side === 'left' ? placement.left : grid.width - placement.width
+  const to = from + placement.width
+  // Half a pixel of rounding aside, as in planPanelPlacement.
+  return [0, 1, 2, 3, 4, 5, 6].filter((day) => {
+    const left = grid.lead + day * column
+    return left + column > from + 0.5 && left < to - 0.5
+  })
+}
+
+/**
  * The week grid's geometry inside `area` (the grid and, when docked, the
  * panel), measured while `active` and kept current as it or the grid
  * resizes, and whenever `week` (the days shown) changes. The hour labels and

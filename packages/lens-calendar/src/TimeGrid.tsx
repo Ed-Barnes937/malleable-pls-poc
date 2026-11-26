@@ -68,6 +68,11 @@ export interface TimeGridProps {
   reveal?: Reveal | null
   /** A popover is open: a reveal callout gives way to it. */
   popoverOpen?: boolean
+  /**
+   * Day columns (0 = the first day shown) something floats over (Help me
+   * plan): their blocks can't be seen, so they are not Tab stops.
+   */
+  coveredDays?: ReadonlyArray<number>
 }
 
 /** A block to show: scrolled to in the grid and on the board, then glowing once. */
@@ -157,7 +162,7 @@ function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   onAskDelete, proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
-  reveal, popoverOpen,
+  reveal, popoverOpen, coveredDays,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -676,6 +681,7 @@ export function TimeGrid({
                         onPointerDown: (e) => pressBlock(e, seg),
                         onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
                       }}
+                      tabStop={!coveredDays?.includes(dayIndex)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
                       onKeyDelete={onAskDelete && ((anchor) => onAskDelete(seg.item, anchor))}
                     />
@@ -774,12 +780,14 @@ interface BlockProps {
   /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
   span?: SpanBinding
+  /** False while something covers it (Help me plan): it is then out of the tab order. */
+  tabStop?: boolean
   onKeyOpen?: (anchor: Anchor) => void
   /** Delete or Backspace: ask before deleting it (never deleted straight away). */
   onKeyDelete?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, onKeyOpen, onKeyDelete }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, tabStop = true, onKeyOpen, onKeyDelete }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -803,7 +811,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   return (
     <div
       role={preview ? undefined : 'button'}
-      tabIndex={preview ? undefined : 0}
+      tabIndex={preview ? undefined : tabStop ? 0 : -1}
       data-block={item.kind}
       data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
       data-plan-item-id={preview ? undefined : item.id}

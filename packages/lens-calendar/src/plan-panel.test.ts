@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { PLAN_PANEL_PX, PLAN_PANEL_WEEKEND_MIN_PX, planPanelPlacement } from './plan-panel'
+import { PLAN_PANEL_PX, PLAN_PANEL_WEEKEND_MIN_PX, coveredDays, planPanelPlacement } from './plan-panel'
 
 // The demo board's Calendar: about 900px wide, 48px of hour labels, a 12px
 // scrollbar gutter, so each day column is 120px and the weekend 252px.
@@ -44,5 +44,24 @@ describe('planPanelPlacement', () => {
 
   it('a week gone by has room on the left', () => {
     expect(planPanelPlacement(demo, 7, [])).toEqual({ side: 'left', left: 888 - PLAN_PANEL_PX, width: PLAN_PANEL_PX })
+  })
+})
+
+describe('coveredDays', () => {
+  it('over the days already past: those days, not today', () => {
+    expect(coveredDays(demo, planPanelPlacement(demo, WED, []))).toEqual([MON, TUE])
+  })
+
+  it('a day only partly under the panel counts as covered', () => {
+    // Friday: 280px ending where Friday starts (528) reaches into Tuesday (168-288).
+    expect(coveredDays(demo, planPanelPlacement(demo, FRI, []))).toEqual([TUE, WED, THU])
+  })
+
+  it('over the weekend: Saturday and Sunday, Friday clear', () => {
+    expect(coveredDays(demo, planPanelPlacement(demo, MON, []))).toEqual([SAT, SUN])
+  })
+
+  it('docked beside the grid, it covers none', () => {
+    expect(coveredDays(demo, { side: 'docked', width: 252 })).toEqual([])
   })
 })
