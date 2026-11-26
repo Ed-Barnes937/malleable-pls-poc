@@ -166,6 +166,34 @@ test.describe('Help me plan', () => {
     for (const minutes of perDay.values()) expect(minutes).toBeLessThanOrEqual(120)
   })
 
+  test('keyboard: move a suggested block with an arrow and accept it with Enter; dismiss another with Delete', async ({ page, request }) => {
+    const ids = await seedWeek(request)
+    const { calendar, panel } = await openPlanner(page)
+    await panel.getByTestId('autofill').click()
+    await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
+    const ghost = (title: string) => calendar.root.getByTestId('calendar-ghost').filter({ hasText: title })
+    const reading = ghost('Chemistry reading')
+    await expect(reading).toBeVisible()
+    const startOf = async () => /, (\d\d:\d\d) - /.exec((await reading.getAttribute('aria-label'))!)![1]
+    const before = await startOf()
+
+    await reading.focus()
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(startOf).not.toBe(before)
+    const moved = await startOf()
+    await page.keyboard.press('Enter')
+    await expect(reading).toHaveCount(0)
+    await expect(calendar.block('Chemistry reading')).toBeVisible()
+    const saved = (await tasks(request)).find((t) => t.id === ids.reading.id)!
+    const clock = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
+    expect(clock(saved.starts_at!)).toBe(moved)
+
+    await ghost('Flashcards').focus()
+    await page.keyboard.press('Delete')
+    await expect(ghost('Flashcards')).toHaveCount(0)
+    expect((await tasks(request)).find((t) => t.id === ids.cards.id)?.starts_at).toBeNull()
+  })
+
   test('Keep my plan leaves the calendar unchanged', async ({ page, request }) => {
     await seedWeek(request)
     const before = await trpcQuery<Row[]>(request, 'planItems.list')
