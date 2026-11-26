@@ -450,14 +450,18 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
             ? `Couldn't move "${value.title}" there - it's at ${formatDayName(landed.start)} ${formatSpan(landed.start, landed.end)}, where it last saved. Try again?`
             : `Couldn't move "${value.title}" - it's back where it was. Try again?`)
         }
-        // Saved: shown as put until rows newer than these arrive.
+        // Saved: shown as put until rows newer than these arrive. Failed after
+        // an earlier save landed: shown there (where it is) on the same terms.
+        // Failed with nothing saved: the rows say where it is.
         const row = (dataRef.current as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key)
         setPending((prev) => {
           const p = prev.get(key)
           if (!p) return prev
           const next = new Map(prev)
-          if (error) next.delete(key)
-          else next.set(key, { ...p, saving: false, basis: row?.updated_at ?? p.basis })
+          const basis = row?.updated_at ?? p.basis
+          if (!error) next.set(key, { ...p, saving: false, basis })
+          else if (landed) next.set(key, { starts_at: landed.start.toISOString(), ends_at: landed.end.toISOString(), saving: false, basis })
+          else next.delete(key)
           return next
         })
       },
