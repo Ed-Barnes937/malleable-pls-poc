@@ -187,6 +187,9 @@ test.describe('gliding, and not while dragging', () => {
     await page.keyboard.press('Alt+ArrowRight')
     expect(Math.max(...await glided())).toBeGreaterThan(0)
     await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 520, y: 300 })
+    // The glide has landed (a drag that starts mid-glide carries on from where
+    // the glide has the panel, so it would be drawn off its box throughout).
+    await expect.poll(async () => (await offsetsFrom(page, 'plan', 'now', 1))()).toEqual([0])
 
     await grabHeader(page, 'plan', 103, 57)
     await expect(panel(page, 'plan')).toHaveAttribute('data-dragging', '')
@@ -421,7 +424,10 @@ test.describe('Canvas gestures', () => {
     const component = await mount(<CanvasHarness panels={[A, B]} />)
     const a = component.getByTestId('panel-a')
     await a.hover()
-    const handle = (await a.getByTestId('resize-handle-e').boundingBox())!
+    // Shift on a handle also keeps the widget's shape (K5). On the right edge
+    // that grows it about its middle, which the canvas's top stops at 360px
+    // wide here, short of b; the corner grows it down and right, over b.
+    const handle = (await a.getByTestId('resize-handle-se').boundingBox())!
     await page.keyboard.down('Shift')
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
     await page.mouse.down()

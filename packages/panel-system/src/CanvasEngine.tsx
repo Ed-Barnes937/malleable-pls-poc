@@ -155,24 +155,21 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
     previewShift(id, state.moving ? snapMove(box, canvas?.clientWidth ?? Infinity) : box, canvas)
   }
 
-  // The outline follows the pointer (after the board has moved the widget).
+  // The outline follows the widget as the board moves or resizes it (each
+  // change to the board's draft, so it is never a pointer move behind).
+  useEffect(() => board.instance.subscribe(() => {
+    if (draftOf(board.instance.get() as BoardState)) updateShiftPreview.current()
+  }), [board])
   // Escape puts a dragged widget back: it glides there, and the outline goes.
   useEffect(() => {
-    const onMove = () => {
-      if (draftOf(board.instance.get() as BoardState)) updateShiftPreview.current()
-    }
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || !draftOf(board.instance.get() as BoardState)) return
       captureBefore(useCanvasStore.getState().panels, null)
       useCanvasStore.getState().setShiftPreview(null)
       requestAnimationFrame(() => runGlide())
     }
-    window.addEventListener('pointermove', onMove)
     window.addEventListener('keydown', onKey, true)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('keydown', onKey, true)
-    }
+    return () => window.removeEventListener('keydown', onKey, true)
   })
 
   /**
