@@ -201,13 +201,18 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
   // Read on every check, so it follows the calendar when the board moves.
   // Moved down by the shift (not offset from it): UI SDK keeps a popover
   // beside its anchor, so an offset alone would be pulled back to the press.
+  // On whole pixels, as is `alignOffset`: UI SDK rounds the popover's place
+  // to a pixel, and a place on a half pixel rounds either way on a hair of
+  // difference (its scale just short of 1 as the scale-in ends), so the
+  // popover would land a pixel off and step back a frame later.
   const anchor = useMemo(() => ({
     getBoundingClientRect: () => {
       const r = root.current?.getBoundingClientRect() ?? { left: 0, top: 0 }
       const by = shift()
+      const x = Math.round(r.left + left)
       return vertical
-        ? DOMRect.fromRect({ x: r.left + left, y: r.top + top + by, width: right - left, height: bottom - top })
-        : DOMRect.fromRect({ x: r.left + left, y: r.top + y + by, width: right - left, height: 0 })
+        ? DOMRect.fromRect({ x, y: Math.round(r.top + top + by), width: right - left, height: bottom - top })
+        : DOMRect.fromRect({ x, y: Math.round(r.top + y + by), width: right - left, height: 0 })
     },
   }), [root, vertical, y, top, bottom, left, right, shift])
   const contentRef = useCallback((el: HTMLElement | null) => {
@@ -238,7 +243,7 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
         align="start"
         sideOffset={GAP}
         // A little above the press, as before.
-        alignOffset={vertical ? (right - left - shownWidth) / 2 : -24}
+        alignOffset={vertical ? Math.round((right - left - shownWidth) / 2) : -24}
         collisionPadding={MARGIN}
         // Mounted open, UI SDK moves no focus. The body focuses its own first
         // control (autoFocus); opened by touch, the card takes it (below).

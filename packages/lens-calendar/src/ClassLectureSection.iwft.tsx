@@ -477,6 +477,32 @@ test.describe('on a phone', () => {
     expect(row.width).toBeGreaterThan(popover.width - 40)
   })
 
+  test('as its scale-in ends the popover is already on its last pixel: it never moves once full size', async ({ mount, page, simulator }) => {
+    await freezeAt(page, simulator, at(0, 8))
+    seedWeek(simulator)
+    await mount(<ClassFocusHarness width="100%" height={760} lectureBoards={[{ id: 'ws-in-lecture', name: 'In Lecture' }]} />)
+    // Every frame from the press on: where the popover is drawn once it is full size.
+    await page.evaluate(() => {
+      const w = window as unknown as { fullSize: string[] }
+      w.fullSize = []
+      const tick = () => {
+        const el = document.querySelector<HTMLElement>('[data-testid="calendar-popover"]')
+        const scale = el && getComputedStyle(el).scale
+        if (el && (scale === 'none' || scale === '1')) {
+          const r = el.getBoundingClientRect()
+          // To the pixel: on the scale-in's last frame its scale reads 1 a hair short of it.
+          w.fullSize.push(`${Math.round(r.left)},${Math.round(r.top)}`)
+        }
+        if (w.fullSize.length < 30) requestAnimationFrame(tick)
+      }
+      requestAnimationFrame(tick)
+    })
+    await block(page, 'Biology lecture').click()
+    await expect(section(page).getByRole('button', { name: 'Undo' })).toBeVisible()
+    await expect.poll(() => page.evaluate(() => (window as unknown as { fullSize: string[] }).fullSize.length)).toBe(30)
+    expect(new Set(await page.evaluate(() => (window as unknown as { fullSize: string[] }).fullSize)).size).toBe(1)
+  })
+
   /** Where the popover's buttons are: the first board and the footer's Save. */
   const buttonBoxes = async (page: Page) => ({
     board: await section(page).getByRole('button', { name: 'In Lecture' }).boundingBox(),
