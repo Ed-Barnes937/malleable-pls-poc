@@ -209,6 +209,8 @@ test.describe('Help me plan', () => {
 
   test('keyboard: move a suggested block with an arrow and accept it with Enter; dismiss another with Delete', async ({ page, request }) => {
     const ids = await seedWeek(request)
+    // Without the 4h lab report, which Auto-fill books first (it is due soonest), the reading and the flashcards fit.
+    await trpcMutation(request, 'planItems.delete', ids.lab.id)
     const { calendar, panel } = await openPlanner(page)
     await panel.getByTestId('autofill').click()
     await panel.getByRole('button', { name: 'Assume 1h and Auto-fill' }).click()
