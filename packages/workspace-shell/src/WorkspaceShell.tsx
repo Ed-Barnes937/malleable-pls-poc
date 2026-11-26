@@ -81,8 +81,9 @@ export function WorkspaceShell() {
         message: jobDoneMessage(event.jobType, event.unplaced),
         tone: 'success',
         // "See it" reveals the block on the board in view, so it goes if the student leaves it.
+        // Focus goes to the block too, so the keyboard carries on from there.
         ...(block && canShowPlanItemRef.current
-          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current(block) }, board: activeBoardRef.current ?? undefined }
+          ? { action: { label: 'See it', onClick: () => showPlanItemRef.current({ ...block, takeFocus: true }) }, board: activeBoardRef.current ?? undefined }
           : {}),
       })
     },

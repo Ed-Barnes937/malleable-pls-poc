@@ -204,6 +204,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       requestedAt: focusedPlanItem.requestedAt,
       keepInView: focusedPlanItem.keepInView,
       landsInMs: focusedPlanItem.landsInMs,
+      takeFocus: focusedPlanItem.takeFocus,
     })
     onPlanItemShown?.(focusedPlanItem.requestId)
   }, [focusedPlanItem, onPlanItemShown, view])
