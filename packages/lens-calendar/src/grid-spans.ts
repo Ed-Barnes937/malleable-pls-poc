@@ -83,6 +83,9 @@ export function useGridSpans(segments: DaySegment[][], options: GridSpansOptions
       disabled: (s) => !s.seg || optionsRef.current.disabled(s),
       label: (s) => optionsRef.current.label(s),
       message: (m) => optionsRef.current.message(m),
+      // As before: a drag near the grid's edge doesn't scroll it (it would
+      // move a block pressed near the edge further than the pointer went).
+      createAutoScroll: false,
     })
     return { store, spans, destroy: () => cleanups.forEach((c) => c()) }
   })
