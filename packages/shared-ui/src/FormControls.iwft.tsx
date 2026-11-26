@@ -156,3 +156,23 @@ test('DatePicker: Alt+ArrowDown opens, Escape closes, typing a date commits on E
   await input.press('Enter')
   expect((await state(page)).date).toBe('2026-12-24')
 })
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [1440, 400]) {
+    test(`TimeInput reads as one HH:MM, no gap, in ${theme} at ${width}`, async ({ mount, page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mount(<FormControlsHarness />)
+      await setTheme(page, theme)
+      const group = page.getByRole('group', { name: 'Starts' })
+      // Each segment's box is no wider than its two digits, so "09" meets ":" meets "30".
+      const slack = await group.evaluate((g) =>
+        [...g.querySelectorAll<HTMLInputElement>('input[role="spinbutton"]')].map((input) => {
+          const ctx = document.createElement('canvas').getContext('2d')!
+          ctx.font = getComputedStyle(input).font
+          return input.getBoundingClientRect().width - ctx.measureText(input.value).width
+        }),
+      )
+      for (const s of slack) expect(s).toBeLessThan(2)
+    })
+  }
+}

@@ -20,6 +20,8 @@ export interface SegmentedControlProps {
   onValueChange?: (value: string) => void
   disabled?: boolean
   className?: string
+  /** Extra classes for every option, e.g. a smaller type size in a narrow row. */
+  itemClassName?: string
 }
 
 /**
@@ -34,6 +36,7 @@ export function SegmentedControl({
   onValueChange,
   disabled,
   className,
+  itemClassName,
 }: SegmentedControlProps) {
   return (
     <SdkSegmentedControl
@@ -53,7 +56,10 @@ export function SegmentedControl({
           key={option.value}
           value={option.value}
           disabled={option.disabled}
-          className="inline-flex h-8 cursor-pointer items-center justify-center rounded-tab px-3 text-body text-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent data-checked:text-text-primary data-disabled:cursor-not-allowed data-disabled:opacity-50"
+          className={cn(
+            'inline-flex h-8 cursor-pointer items-center justify-center rounded-tab px-3 text-body text-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent data-checked:text-text-primary data-disabled:cursor-not-allowed data-disabled:opacity-50',
+            itemClassName,
+          )}
         >
           {option.label}
         </SegmentedControlItem>

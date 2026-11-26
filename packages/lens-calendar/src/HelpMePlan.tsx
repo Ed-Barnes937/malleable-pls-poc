@@ -23,7 +23,7 @@ import {
   type WeekLayout,
 } from '@pls/substrate'
 import { useSubstrateMutations } from '@pls/lens-framework'
-import { cn, doByLabel } from '@pls/shared-ui'
+import { Popover, PopoverTrigger, cn, doByLabel } from '@pls/shared-ui'
 import { CalendarClock, Check, ChevronsRight, GripVertical, Scissors, Sparkles, X } from 'lucide-react'
 import { buildAutofillDraft, proposalMinutes, unplacedReason, type AutofillState } from './autofill'
 import { toneFor } from './colors'
@@ -870,42 +870,31 @@ function FreeTime({
   )
   const perDay = layout.budget.minutesPerDay
   const [editing, setEditing] = useState(false)
-  const changeRef = useRef<HTMLButtonElement>(null)
-  const closeEditor = useCallback(() => setEditing(false), [])
 
   return (
     <section data-testid="plan-free-time" className="flex flex-col gap-2">
-      <div className="flex flex-col gap-0.5">
-        <h4 className={sectionLabel}>Study time left</h4>
-        <p data-testid="study-rhythm" className="text-meta text-text-secondary">
-          {studyHoursSummaryParts(studyHours).map((part, i) => (
-            <Fragment key={i}>{i > 0 && ' '}<span className="whitespace-nowrap">{part}</span></Fragment>
-          ))}
-          <Dot />
-          <span className="whitespace-nowrap">{formatMinutes(perDay)} a day</span>
-          <Dot />
-          <button
-            ref={changeRef}
-            type="button"
-            aria-label="Change when you study"
-            aria-expanded={editing}
-            aria-haspopup="dialog"
-            onClick={() => setEditing((open) => !open)}
-            className={linkButton}
-          >
-            Change
-          </button>
-        </p>
-      </div>
-      {editing && (
+      <Popover open={editing} onOpenChange={setEditing} modal="trap-focus">
+        <div className="flex flex-col gap-0.5">
+          <h4 className={sectionLabel}>Study time left</h4>
+          <p data-testid="study-rhythm" className="text-meta text-text-secondary">
+            {studyHoursSummaryParts(studyHours).map((part, i) => (
+              <Fragment key={i}>{i > 0 && ' '}<span className="whitespace-nowrap">{part}</span></Fragment>
+            ))}
+            <Dot />
+            <span className="whitespace-nowrap">{formatMinutes(perDay)} a day</span>
+            <Dot />
+            <PopoverTrigger aria-label="Change when you study" className={linkButton}>
+              Change
+            </PopoverTrigger>
+          </p>
+        </div>
         <StudyHoursEditor
-          anchor={changeRef}
           studyHours={studyHours}
           studyMinPerDay={perDay}
           onSave={onStudyRhythmChange}
-          onClose={closeEditor}
+          onDone={() => setEditing(false)}
         />
-      )}
+      </Popover>
       <ul className="flex flex-col gap-1.5">
         {days.map((d) => (
           <li

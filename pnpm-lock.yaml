@@ -248,6 +248,9 @@ importers:
       '@pls/substrate':
         specifier: workspace:*
         version: link:../substrate
+      '@ui-sdk/core':
+        specifier: 0.1.0-beta.16
+        version: 0.1.0-beta.16
       lucide-react:
         specifier: ^1.61.0
         version: 1.61.0(@types/react@19.3.0)(react@19.3.1)

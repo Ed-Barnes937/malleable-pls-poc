@@ -1,9 +1,8 @@
-import { useMemo, useRef } from 'react'
+import { useMemo } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
 import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
-import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 /**
@@ -35,17 +34,13 @@ export function MomentSourceText({ label }: { label: string }) {
 export type MomentState = 'opening' | 'shown' | 'nowhere' | 'failed'
 
 export interface StudyBlockPopoverProps {
-  /** Position relative to the calendar root. */
-  x: number
-  y: number
-  /** The block pressed, relative to the calendar root: a popover that can't sit beside it goes above or below it. */
-  span?: Span
-  bounds: { width: number; height: number }
   /** A block made from a lecture moment: `source_type = 'recording'`. */
   row: PlanItemOccurrence
   moment?: MomentState
   canShowMoment: boolean
   canEdit: boolean
+  /** Focus "Go to moment" as it opens (not when a touch opened it). Default true. */
+  focusFirst?: boolean
   busy?: boolean
   /** The action this popover is waiting on, named on its button while it saves. */
   pending?: PendingAction | null
@@ -58,7 +53,8 @@ export interface StudyBlockPopoverProps {
   onClose: () => void
 }
 
-const WIDTH = 340
+/** How wide the study block card is. */
+export const STUDY_BLOCK_POPOVER_WIDTH = 340
 
 /** What the student did to the moment, in the popover's words. */
 const MARK_WORDS: Record<string, string> = {
@@ -78,16 +74,13 @@ function minutesLabel(minutes: number): string {
  * behind it), and the automation that made it.
  *
  * Everything shown is read from `row` and the substrate on every render, so
- * when an automation moves the block the popover follows.
+ * when an automation moves the block the popover follows. The body of a
+ * `CalendarPopover` named by the block's title.
  */
 export function StudyBlockPopover({
-  x, y, span, bounds, row, moment, canShowMoment, canEdit, busy, pending, error,
+  row, moment, canShowMoment, canEdit, focusFirst = true, busy, pending, error,
   onGoToMoment, onToggleDone, onEditTime, onEditAutomation, onClose,
 }: StudyBlockPopoverProps) {
-  const ref = useRef<HTMLDivElement>(null)
-  const pos = usePopoverPosition(ref, { x, y, span, bounds, width: WIDTH })
-  useEscapeToClose(onClose)
-
   const substrate = useSubstrate()
   const recordingId = row.source_id ?? ''
   const offsetMs = row.source_offset_ms ?? 0
@@ -117,18 +110,7 @@ export function StudyBlockPopover({
   const button = 'inline-flex h-10 items-center justify-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors disabled:opacity-50'
 
   return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={row.title}
-      data-testid="calendar-popover"
-      data-variant="study-block"
-      // A press in here doesn't close it (CalendarLens).
-      data-calendar-popover
-      onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
-      style={{ left: pos.left, top: pos.top, width: WIDTH }}
-    >
+    <div className="flex flex-col gap-3 p-4">
       <div className="flex items-start gap-2">
         <p data-testid="calendar-moment-source" className={cn('flex min-w-0 flex-1 items-center gap-1.5 pt-1 text-body font-semibold', tone.ink)}>
           <AudioLines className="h-4 w-4 shrink-0" />
@@ -184,7 +166,7 @@ export function StudyBlockPopover({
         {canShowMoment && moment !== 'nowhere' && (
           <button
             type="button"
-            autoFocus
+            autoFocus={focusFirst}
             onClick={onGoToMoment}
             disabled={moment === 'opening'}
             className={cn(button, 'w-full bg-accent text-accent-foreground hover:opacity-90')}

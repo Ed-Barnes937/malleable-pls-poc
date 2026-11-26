@@ -42,7 +42,7 @@ test.describe('Phone', () => {
 
   test('the Calendar opens on today in Day view and steps a day at a time', async ({ page }) => {
     const calendar = new CalendarPom(page)
-    await expect(calendar.root.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true')
+    await expect(calendar.root.getByRole('radio', { name: 'Day' })).toBeChecked()
     await expect(calendar.days).toHaveCount(1)
     await expect(calendar.root.getByTestId('calendar-title')).toHaveText(fullDay(new Date()))
     await expect(calendar.root.getByText('Today', { exact: true })).toBeVisible()
