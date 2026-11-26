@@ -224,6 +224,58 @@ test.describe('Calendar', () => {
     expect(stored).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60 })
   })
 
+  test('keyboard: arrows move study time to another time and day, and the move persists after reload', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const task = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const revise = calendar.block('Revise respiration')
+    await revise.focus()
+
+    const saved = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
+    await page.keyboard.press('ArrowRight')
+    await expect(revise).toBeFocused()
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+    expect((await saved).ok()).toBe(true)
+    const resized = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:15/)
+    expect((await resized).ok()).toBe(true)
+
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:15/)
+    const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: task.id }))}`, { headers })
+    expect((await res.json()).result.data.json).toMatchObject({ starts_at: at(3, 16), ends_at: at(3, 17, 15), duration_min: 75 })
+  })
+
+  test('eight quick arrow presses end with the server on the eighth position', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const task = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const revise = calendar.block('Revise respiration')
+    await revise.focus()
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown')
+    await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+
+    const stored = async () => {
+      const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: task.id }))}`, { headers })
+      return (await res.json()).result.data.json as { starts_at: string; ends_at: string }
+    }
+    await expect.poll(async () => (await stored()).starts_at).toBe(at(2, 18))
+    expect(await stored()).toMatchObject({ ends_at: at(2, 19) })
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+  })
+
   test('drag a 20-minute review by its thin bar, within its day and to another day', async ({ page, request }) => {
     await board(request, 'Week plan', ['calendar'])
     const review = await call(request, 'planItems.create', {

@@ -751,6 +751,127 @@ test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add
   await expect(add).toBeFocused()
 })
 
+/** What a screen reader hears from the grid (UI SDK's polite live region). */
+const announced = (page: Page) => page.locator('[data-ui-sdk-announcer=""]')
+const stored = (simulator: BackendSimulator, id: string) => simulator.db.planItems.find((p) => p.id === id)
+
+test('keyboard: arrows move study time 15 minutes, Left / Right to another day with focus kept, and say where it went', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 17, 15), duration_min: 60 })
+  await expect(announced(page)).toHaveText('Revise respiration moved to Wednesday 16:15 to 17:15')
+
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(3, 16, 15))
+  await expect(announced(page)).toHaveText('Revise respiration moved to Thursday 16:15 to 17:15')
+  await expect(revise).toBeFocused()
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+  await expect(revise).toBeFocused()
+})
+
+test('keyboard: Shift with Up / Down resizes study time from its end', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Revise respiration').focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 17, 15))
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
+  await expect(announced(page)).toHaveText('Revise respiration now 16:00 to 17:15')
+
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 16, 45))
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 45 })
+})
+
+test('eight quick arrow presses leave the block, saved, on the eighth position', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 18))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 19), duration_min: 60 })
+  await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+})
+
+test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const shift = block(page, 'Cafe shift')
+  await shift.focus()
+  for (const key of ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Shift+ArrowDown', 'Shift+ArrowUp']) await page.keyboard.press(key)
+  await expect(shift).toHaveAttribute('aria-label', /18:00 - 22:00/)
+  await expect(shift).toBeFocused()
+  expect(stored(simulator, 'shift')).toMatchObject({ starts_at: iso(3, 18), ends_at: iso(3, 22) })
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('calendar-popover').getByLabel('Title')).toBeFocused()
+})
+
+test('Escape during a drag puts the block back', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await expect(revise).toBeVisible()
+  const grab = await point(page, 2, 16.25)
+  const drop = await point(page, 4, 10.25)
+  await page.mouse.move(grab.x, grab.y)
+  await page.mouse.down()
+  await page.mouse.move(drop.x, drop.y, { steps: 8 })
+  await expect(page.getByTestId('calendar-block-preview')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('calendar-block-preview')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+  await expect(page.getByTestId('calendar-popover')).toHaveCount(0)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+})
+
+test('keyboard: Delete opens the block with its delete confirm armed; Escape returns focus, Enter deletes', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const popover = page.getByTestId('calendar-popover')
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  await page.keyboard.press('Delete')
+  await expect(popover.getByRole('button', { name: 'Delete it?' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(revise).toBeFocused()
+  expect(stored(simulator, 'revise')).toBeDefined()
+
+  await page.keyboard.press('Delete')
+  await expect(popover.getByRole('button', { name: 'Delete it?' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(revise).toHaveCount(0)
+  await expect.poll(() => stored(simulator, 'revise')).toBeUndefined()
+
+  // A weekly class asks about every week; a commitment can be deleted, never moved.
+  await block(page, 'Biology lecture').first().focus()
+  await page.keyboard.press('Backspace')
+  await expect(popover.getByRole('button', { name: 'Delete every week?' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(block(page, 'Biology lecture').first()).toBeFocused()
+})
+
+test('keyboard: Delete on a block from a lecture moment asks in its edit view', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').focus()
+  await page.keyboard.press('Delete')
+  await expect(page.getByTestId('calendar-popover').getByRole('button', { name: 'Delete it?' })).toBeFocused()
+})
+
 test('pressing another block while one is open opens that block, focused on its first field', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)

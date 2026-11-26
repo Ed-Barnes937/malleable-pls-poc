@@ -22,6 +22,8 @@ export interface EventPopoverProps {
   children?: ReactNode
   onSubmit: (draft: Draft) => void
   onDelete?: () => void
+  /** Opens with its delete confirm armed and focused (Delete pressed on the block). */
+  armDelete?: boolean
   onToggleDone?: () => void
   onClose: () => void
 }
@@ -41,10 +43,10 @@ export function eventPopoverLabel(row?: PlanItemOccurrence): string {
  * anchored where the student clicked.
  */
 export function EventPopover({
-  row, initial, canEdit, focusFirst = true, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  row, initial, canEdit, focusFirst = true, busy, pending, error, children, onSubmit, onDelete, armDelete = false, onToggleDone, onClose,
 }: EventPopoverProps) {
   const [draft, setDraft] = useState<Draft>(initial)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(armDelete && !!onDelete)
   const isCreate = !row
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
@@ -91,7 +93,7 @@ export function EventPopover({
       <div className="flex items-start gap-2">
         <TextField
           // Focus moves into the popover when a click or Enter opened it.
-          autoFocus={focusFirst}
+          autoFocus={focusFirst && !confirmDelete}
           aria-label="Title"
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}
@@ -182,6 +184,7 @@ export function EventPopover({
           {onDelete && (confirmDelete ? (
             <button
               type="button"
+              autoFocus={armDelete}
               {...pendingProps(busy, pending === 'delete', onDelete)}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >

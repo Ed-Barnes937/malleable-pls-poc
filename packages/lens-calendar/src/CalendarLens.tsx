@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, openTime, outsideStudyHours, weekLayout, type PlanItemOccurrence, type PlanItemPatch } from '@pls/substrate'
 import { type LensProps, type DateRange, useMissedBlocks, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { COURSES, SegmentedControl, cn, courseTone, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
@@ -15,6 +15,7 @@ import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
 import { acceptPatch, useProposalLayer, type ProposalValidator } from './proposals'
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
+import { createSaveQueue } from './save-queue'
 import { toneFor } from './colors'
 import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
 import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
@@ -27,7 +28,7 @@ type Popover =
    * A block from a lecture moment opens on where it came from; `editingTime`
    * swaps that for the date and time pickers.
    */
-  | { mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean }
+  | { mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean; armDelete?: boolean }
 
 /** A drag the server hasn't confirmed yet, shown until fresher data arrives. */
 interface PendingMove {
@@ -35,6 +36,8 @@ interface PendingMove {
   ends_at: string
   /** The row's `updated_at` when dragged: newer data supersedes the override. */
   basis: string
+  /** Its saves are still going (see `createSaveQueue`): shown here whatever the rows say meanwhile. */
+  saving: boolean
 }
 
 function useNow(): Date {
@@ -222,7 +225,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     const rows = (data ?? []) as PlanItemOccurrence[]
     const moved = pending.size === 0 ? rows : rows.map((r) => {
       const p = pending.get(r.occurrence_key)
-      return p && p.basis === r.updated_at ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
+      return p && (p.saving || p.basis === r.updated_at) ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
     })
     const extra = [...assigning.values()].filter((a) => !moved.some((r) => r.id === a.id && r.starts_at))
     return extra.length ? [...moved, ...extra] : moved
@@ -249,7 +252,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     if (pending.size === 0 || !data) return
     const stale = [...pending].filter(([key, p]) => {
       const r = (data as PlanItemOccurrence[]).find((row) => row.occurrence_key === key)
-      return !r || r.updated_at !== p.basis
+      return !p.saving && (!r || r.updated_at !== p.basis)
     })
     if (stale.length === 0) return
     setPending((prev) => {
@@ -422,22 +425,50 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
     })
   }
 
+  const handleAskDelete = (item: PlanItemOccurrence, anchor: Anchor) => {
+    // A block from a moment asks in its edit view, where its Delete is.
+    openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key, armDelete: true, editingTime: fromMoment(item) || undefined })
+  }
+
+  /**
+   * Moves save one at a time per block, latest wins (quick arrow presses):
+   * the block shows where it was put until its last save lands.
+   */
+  const dataRef = useRef(data)
+  dataRef.current = data
+  const updateRef = useRef(updateItem)
+  updateRef.current = updateItem
+  const [moveQueue] = useState(() => createSaveQueue<{ id: string; title: string; patch: PlanItemPatch }>(
+    (_key, save) => updateRef.current.mutateAsync({ id: save.id, patch: save.patch }),
+    {
+      onDone: (key, { value, error }) => {
+        // Never snap back silently: say the move didn't stick.
+        if (error) setNotice(`Couldn't move "${value.title}" - it's back where it was. Try again?`)
+        // Saved: shown as put until rows newer than these arrive.
+        const row = (dataRef.current as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key)
+        setPending((prev) => {
+          const p = prev.get(key)
+          if (!p) return prev
+          const next = new Map(prev)
+          if (error) next.delete(key)
+          else next.set(key, { ...p, saving: false, basis: row?.updated_at ?? p.basis })
+          return next
+        })
+      },
+    },
+  ))
   const handleMove = (item: PlanItemOccurrence, start: Date, end: Date) => {
-    const patch = movePatch(item, start, end)
+    const key = item.occurrence_key
+    // Patched from the row as stored, not as shown while earlier moves save.
+    const stored = (data as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key) ?? item
+    const saving = moveQueue.busy(key)
+    const patch = movePatch(stored, start, end, { all: saving })
     if (Object.keys(patch).length === 0) return
-    setPending((prev) => new Map(prev).set(item.occurrence_key, {
-      starts_at: start.toISOString(), ends_at: end.toISOString(), basis: item.updated_at,
+    setPending((prev) => new Map(prev).set(key, {
+      starts_at: start.toISOString(), ends_at: end.toISOString(), basis: stored.updated_at, saving: true,
     }))
     setNotice(null)
-    updateItem.mutateAsync({ id: item.id, patch }).catch(() => {
-      // Never snap back silently: say the move didn't stick.
-      setNotice(`Couldn't move "${item.title}" - it's back where it was. Try again?`)
-      setPending((prev) => {
-        const next = new Map(prev)
-        next.delete(item.occurrence_key)
-        return next
-      })
-    })
+    moveQueue.push(key, { id: item.id, title: item.title, patch })
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
@@ -640,6 +671,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           onCreate={handleCreate}
           onOpen={handleOpen}
           onMove={handleMove}
+          onAskDelete={handleAskDelete}
           proposals={layer.proposals}
           savedProposalIds={layer.savedIds}
           onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
@@ -796,6 +828,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
                 void run('save', `Couldn't save "${shownRow.title}".`, () => updateItem.mutateAsync({ id: shownRow.id, patch }))
               }}
               onDelete={() => run('delete', `Couldn't delete "${shownRow.title}".`, () => deleteItem.mutateAsync(shownRow.id))}
+              armDelete={shown.armDelete}
               onToggleDone={
                 shownRow.kind === 'commitment'
                   ? undefined

@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { spansMessage, type SpanAction } from '@ui-sdk/core'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
 import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
@@ -8,9 +9,10 @@ import { RevealCallout } from './RevealCallout'
 import { blockHeight, captionSides, CAPTION_PX, COMPACT_BLOCK_PX } from './block-captions'
 import { ghostId, ghostRow, type Proposal } from './proposals'
 import { closedPopover, closedPopoverOf, pressOnlyCloses } from './closing-press'
+import { DRAWN_SPAN_ID, spanIdOf, useGridSpans, type GridSpan } from './grid-spans'
 import {
   DAY_END_HOUR, DAY_START_HOUR, MINUTES_PER_DAY, SNAP_MIN,
-  addDays, atMinutes, clamp, startOfDay, formatClock, formatHour, formatSpan, formatWeekday,
+  addDays, atMinutes, clamp, startOfDay, formatClock, formatDayName, formatHour, formatSpan, formatWeekday,
   sameDay, snap, snapDown, wallMinutes,
 } from './time'
 
@@ -36,6 +38,8 @@ export interface TimeGridProps {
   onOpen: (item: PlanItemOccurrence, anchor: Anchor) => void
   /** A study block was dragged to a new time or resized. */
   onMove: (item: PlanItemOccurrence, start: Date, end: Date) => void
+  /** Delete was pressed on a focused block: ask before deleting it. */
+  onAskDelete?: (item: PlanItemOccurrence, anchor: Anchor) => void
   /** Ghost blocks: drafted, not saved (see ./proposals.ts). */
   proposals?: Proposal[]
   /** Proposals accepted and being saved: drawn, but no longer actionable. */
@@ -114,29 +118,65 @@ function opacityFor(dimmed: boolean | undefined, done: boolean): string | false 
   if (dimmed) return done ? 'opacity-30' : 'opacity-40'
   return done && 'opacity-55'
 }
+/** A press that moves further than this is a drag, not a click. */
 const DRAG_THRESHOLD_PX = 4
 const GUTTER = 'w-12'
 
-type Drag =
-  | { type: 'create'; dayIndex: number; fromMin: number; toMin: number; x: number; y: number; moved: boolean }
+/** A press on the grid, until it is let go: a click opens or adds; a drag is createSpans'. */
+type Press =
+  | { type: 'empty'; dayIndex: number; minute: number; x: number; y: number; dragged: boolean }
   | {
-      type: 'move' | 'resize'
+      type: 'block'
       item: PlanItemOccurrence
-      grabOffsetMs: number
-      start: Date
-      end: Date
       x: number
       y: number
-      moved: boolean
+      dragged: boolean
       /** The press closed this block's own popover: a click (no move) leaves it closed. */
       closedOwnPopover: boolean
       /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
       span: { top: number; bottom: number }
     }
 
+/**
+ * Today's rule on top of createSpans for a pointer resizing a block: dragged
+ * into a later day it ends at midnight, into an earlier one it is as short as
+ * it gets (createSpans reads only the block's own day column).
+ */
+function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number } | null): GridSpan {
+  if (action !== 'resize' || !at) return next
+  const day = Number(next.track)
+  if (at.dayIndex > day) return { ...next, end: MINUTES_PER_DAY }
+  if (at.dayIndex < day) return { ...next, end: next.start + SNAP_MIN }
+  return next
+}
+
+/**
+ * Where a whole block goes when one of its day pieces is put somewhere new:
+ * moving a piece moves the whole block (both days of one across midnight),
+ * resizing a piece moves the edge it changed.
+ */
+function blockTimes(item: PlanItemOccurrence, before: GridSpan, next: GridSpan, days: Date[]): { start: Date; end: Date } {
+  const start = new Date(item.starts_at!)
+  const end = new Date(item.ends_at!)
+  const day = days[Number(next.track)]
+  const moved = next.track !== before.track || (next.start !== before.start && next.end - next.start === before.end - before.start)
+  if (moved) {
+    const length = end.getTime() - start.getTime()
+    const whole = !before.seg?.continuesBefore && !before.seg?.continuesAfter
+    const shifted = whole
+      ? atMinutes(day, next.start)
+      : new Date(addDays(start, Number(next.track) - Number(before.track)).getTime() + (next.start - before.start) * 60_000)
+    return { start: shifted, end: new Date(shifted.getTime() + length) }
+  }
+  return {
+    start: next.start !== before.start ? atMinutes(day, next.start) : start,
+    end: next.end !== before.end ? atMinutes(day, next.end) : end,
+  }
+}
+
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
-  proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
+  onAskDelete, proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
   reveal, popoverOpen,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -148,7 +188,13 @@ export function TimeGrid({
   const userScrolled = useRef(false)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
-  const [drag, setDrag] = useState<Drag | null>(null)
+  const press = useRef<Press | null>(null)
+  /**
+   * Where a pointer drawing, moving or resizing is (createSpans reads only the
+   * pressed day's column), and where a draw started: today's rules for a draw
+   * and a resize across days are kept on top of it (see `pointerRules`).
+   */
+  const [pointer, setPointer] = useState<{ dayIndex: number; minute: number; drawFrom: number | null } | null>(null)
   /**
    * A touch tap just opened a popover. The tap's mouse events and click come
    * after pointerup, at the point tapped, where the popover now is (on a
@@ -260,13 +306,6 @@ export function TimeGrid({
   const markers = useMemo(() => dueMarkers(items, days), [items, days])
   const hasDue = markers.some((m) => m.length > 0)
 
-  // The dragged block's would-be position, laid out like any other block.
-  const preview = useMemo(() => {
-    if (!drag || drag.type === 'create' || !drag.moved || !isMovable(drag.item)) return null
-    const row = { ...drag.item, starts_at: drag.start.toISOString(), ends_at: drag.end.toISOString(), occurrence_key: 'preview' }
-    return layoutDays([row], days)
-  }, [drag, days])
-
   /** Day column and wall-clock minute under the pointer. */
   const pointAt = (clientX: number, clientY: number) => {
     const rect = areaRef.current!.getBoundingClientRect()
@@ -275,104 +314,135 @@ export function TimeGrid({
     return { dayIndex, minute }
   }
 
-  const startCreate = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // A press that closed a popover only closes it: no new block from it.
-    if (e.button !== 0 || closedPopover(e.nativeEvent) || (e.target as HTMLElement).closest('[data-block]')) return
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    areaRef.current!.setPointerCapture(e.pointerId)
-    setDrag({ type: 'create', dayIndex, fromMin: minute, toMin: minute, x: e.clientX, y: e.clientY, moved: false })
-  }
+  // Blocks move, resize and draw through UI SDK createSpans (pointer and keyboard).
+  const { spans, state: spanState, store: spanStore, bindSpan } = useGridSpans(segments, {
+    days: () => days.length,
+    disabled: (s) => !isMovable(s.seg!.item) || (ghostId(s.seg!.item) != null && (savedProposalIds?.has(ghostId(s.seg!.item)!) ?? false)),
+    label: (s) => s.seg?.item.title ?? 'New block',
+    message: ({ type, span, label }) => {
+      const day = days[Number(span.track)]
+      const range = `${formatClock(atMinutes(day, span.start))} to ${formatClock(atMinutes(day, span.end))}`
+      if (type === 'move') return `${label} moved to ${formatDayName(day)} ${range}`
+      if (type === 'resize') return `${label} now ${range}`
+      return spansMessage({ type, span, label })
+    },
+    commit: (next, before, action, event) => {
+      const pe = event instanceof PointerEvent ? event : undefined
+      if (action === 'draw') {
+        const current = press.current
+        if (current) current.dragged = true
+        const day = days[Number(next.track)]
+        // Both ends round to the nearest quarter hour, as before.
+        if (current?.type === 'empty' && pe) {
+          const to = pointAt(pe.clientX, pe.clientY).minute
+          const from = snap(Math.min(current.minute, to))
+          next = { ...next, start: from, end: Math.max(snap(Math.max(current.minute, to)), from + SNAP_MIN) }
+        }
+        // Its popover keeps clear of the new block.
+        const top = areaRef.current!.getBoundingClientRect().top
+        onCreate(atMinutes(day, next.start), atMinutes(day, next.end), {
+          clientX: pe?.clientX ?? 0,
+          clientY: pe?.clientY ?? 0,
+          span: { top: top + (next.start / 60) * hourPx, bottom: top + (next.end / 60) * hourPx },
+        })
+        tapOpened.current = pe?.pointerType === 'touch'
+        // The popover adds it.
+        return false
+      }
+      // Delete is caught before createSpans sees it (see Block).
+      if (!before?.seg || (action !== 'move' && action !== 'resize')) return false
+      const { item } = before.seg
+      const { start, end } = blockTimes(item, before, pointerRules(next, action, pe ? pointAt(pe.clientX, pe.clientY) : null), days)
+      if (start.getTime() === Date.parse(item.starts_at!) && end.getTime() === Date.parse(item.ends_at!)) return false
+      const ghost = ghostId(item)
+      if (ghost) onProposalMove?.(ghost, start, end)
+      else onMove(item, start, end)
+      return true
+    },
+  })
+  const shownDraft = spanState.draft
+  const draftSpan = shownDraft?.spans.find((sp) => sp.id === shownDraft.id)
+  // The dragged block's would-be position, laid out like any other block; the block stays put, faint, until it lands.
+  const dragged = shownDraft && shownDraft.action !== 'draw' ? spanState.spans.find((sp) => sp.id === shownDraft.id) : undefined
+  const preview = useMemo(() => {
+    if (!dragged?.seg || !draftSpan) return null
+    const { start, end } = blockTimes(dragged.seg.item, dragged, pointerRules(draftSpan, shownDraft!.action, pointer), days)
+    return layoutDays([{ ...dragged.seg.item, starts_at: start.toISOString(), ends_at: end.toISOString(), occurrence_key: 'preview' }], days)
+  }, [dragged, draftSpan, shownDraft, pointer, days])
 
-  const startBlockDrag = (e: ReactPointerEvent, item: PlanItemOccurrence, type: 'move' | 'resize') => {
+  const pressBlock = (e: ReactPointerEvent, seg: DaySegment) => {
+    if (e.button !== 0) return
     // A press that only closes a popover (its save is in flight) moves nothing.
-    if (e.button !== 0 || pressOnlyCloses(e.nativeEvent)) return
-    e.stopPropagation()
-    const box = ((e.target as Element).closest('[data-block]') ?? e.currentTarget).getBoundingClientRect()
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    const start = new Date(item.starts_at!)
-    const end = new Date(item.ends_at!)
-    areaRef.current!.setPointerCapture(e.pointerId)
-    setDrag({
-      type,
-      item,
-      grabOffsetMs: atMinutes(days[dayIndex], minute).getTime() - start.getTime(),
-      start,
-      end,
+    if (pressOnlyCloses(e.nativeEvent)) {
+      press.current = null
+      return
+    }
+    const box = e.currentTarget.getBoundingClientRect()
+    press.current = {
+      type: 'block',
+      item: seg.item,
       x: e.clientX,
       y: e.clientY,
-      moved: false,
-      closedOwnPopover: closedPopoverOf(e.nativeEvent, item.occurrence_key),
+      dragged: false,
+      closedOwnPopover: closedPopoverOf(e.nativeEvent, seg.item.occurrence_key),
       span: { top: box.top, bottom: box.bottom },
-    })
+    }
+    spans.spanPointerdown(e.nativeEvent, spanIdOf(seg))
+  }
+
+  const pressTrack = (e: ReactPointerEvent, dayIndex: number) => {
+    if (e.button !== 0 || (e.target as HTMLElement).closest('[data-block]')) return
+    // A press that closed a popover only closes it: no new block from it.
+    if (closedPopover(e.nativeEvent)) {
+      press.current = null
+      return
+    }
+    press.current = { type: 'empty', dayIndex, minute: pointAt(e.clientX, e.clientY).minute, x: e.clientX, y: e.clientY, dragged: false }
+    spans.trackPointerdown(e.nativeEvent, String(dayIndex))
   }
 
   const handleMove = (e: ReactPointerEvent) => {
-    if (!drag) return
-    const moved = drag.moved || Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > DRAG_THRESHOLD_PX
-    const { dayIndex, minute } = pointAt(e.clientX, e.clientY)
-    if (drag.type === 'create') {
-      setDrag({ ...drag, moved, dayIndex: drag.dayIndex, toMin: minute })
-      return
-    }
-    if (!isMovable(drag.item)) {
-      if (moved !== drag.moved) setDrag({ ...drag, moved })
-      return
-    }
-    const original = { start: new Date(drag.item.starts_at!), end: new Date(drag.item.ends_at!) }
-    const pointer = atMinutes(days[dayIndex], minute)
-    if (drag.type === 'move') {
-      const rawStart = new Date(pointer.getTime() - drag.grabOffsetMs)
-      const day = new Date(rawStart.getFullYear(), rawStart.getMonth(), rawStart.getDate())
-      const start = atMinutes(day, snap(wallMinutes(rawStart)))
-      const end = new Date(start.getTime() + (original.end.getTime() - original.start.getTime()))
-      setDrag({ ...drag, moved, start, end })
-    } else {
-      // Resizing stays on the block's own day, whichever column the pointer is over.
-      const day = startOfDay(original.start)
-      const dayEnd = addDays(day, 1).getTime()
-      const pointerDay = startOfDay(days[dayIndex]).getTime()
-      const snapped = pointerDay > day.getTime() ? dayEnd : pointerDay < day.getTime() ? 0 : atMinutes(day, snap(minute)).getTime()
-      const minEnd = original.start.getTime() + SNAP_MIN * 60_000
-      setDrag({ ...drag, moved, start: original.start, end: new Date(clamp(snapped, minEnd, Math.max(minEnd, dayEnd))) })
-    }
+    const current = press.current
+    if (!current) return
+    const drafting = !!spanStore.get().draft
+    if (!current.dragged && (drafting || Math.hypot(e.clientX - current.x, e.clientY - current.y) > DRAG_THRESHOLD_PX)) current.dragged = true
+    if (!drafting) return
+    const at = pointAt(e.clientX, e.clientY)
+    const drawFrom = current.type === 'empty' ? current.minute : null
+    setPointer((p) => (p && p.dayIndex === at.dayIndex && p.minute === at.minute && p.drawFrom === drawFrom ? p : { ...at, drawFrom }))
   }
 
+  /** A press let go without dragging: a click opens the block, or adds one on empty time. */
   const handleUp = (e: ReactPointerEvent) => {
-    if (!drag) return
-    setDrag(null)
+    const current = press.current
+    setPointer(null)
+    // A drag: createSpans commits it after this, reading the press.
+    if (!current || current.dragged) return
+    press.current = null
     const anchor = { clientX: e.clientX, clientY: e.clientY }
-    if (drag.type === 'create') {
-      const day = days[drag.dayIndex]
-      // A drag makes the block it covers; a tap, an hour from the half hour.
-      const from = drag.moved ? snap(Math.min(drag.fromMin, drag.toMin)) : Math.min(snapDown(drag.fromMin, 30), MINUTES_PER_DAY - 60)
-      const to = drag.moved ? Math.max(snap(Math.max(drag.fromMin, drag.toMin)), from + SNAP_MIN) : from + 60
-      // Its popover keeps clear of the new block.
+    if (current.type === 'empty') {
+      // A tap makes an hour from the half hour.
+      const from = Math.min(snapDown(current.minute, 30), MINUTES_PER_DAY - 60)
+      const to = from + 60
       const top = areaRef.current!.getBoundingClientRect().top
-      onCreate(atMinutes(day, from), atMinutes(day, to), { ...anchor, span: { top: top + (from / 60) * hourPx, bottom: top + (to / 60) * hourPx } })
+      onCreate(atMinutes(days[current.dayIndex], from), atMinutes(days[current.dayIndex], to), { ...anchor, span: { top: top + (from / 60) * hourPx, bottom: top + (to / 60) * hourPx } })
       tapOpened.current = e.pointerType === 'touch'
       return
     }
-    const ghost = ghostId(drag.item)
-    if (!drag.moved) {
-      // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
-      if (!ghost) {
-        // A click on the block whose popover it just closed leaves it closed (a toggle).
-        if (!drag.closedOwnPopover) {
-          onOpen(drag.item, { ...anchor, span: drag.span })
-          tapOpened.current = e.pointerType === 'touch'
-        }
+    const ghost = ghostId(current.item)
+    // A ghost has its own accept / dismiss buttons; clicking it opens nothing.
+    if (!ghost) {
+      // A click on the block whose popover it just closed leaves it closed (a toggle).
+      if (!current.closedOwnPopover) {
+        onOpen(current.item, { ...anchor, span: current.span })
+        tapOpened.current = e.pointerType === 'touch'
       }
-      // A tap or click selects it instead: focused, its buttons show (on a
-      // short ghost they are hidden until then, and touch has no hover).
-      // After the click that follows, which would otherwise take focus away.
-      else requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
       return
     }
-    if (!isMovable(drag.item)) return
-    const unchanged = drag.start.getTime() === Date.parse(drag.item.starts_at!) && drag.end.getTime() === Date.parse(drag.item.ends_at!)
-    if (unchanged) return
-    if (ghost) onProposalMove?.(ghost, drag.start, drag.end)
-    else onMove(drag.item, drag.start, drag.end)
+    // A tap or click selects it instead: focused, its buttons show (on a
+    // short ghost they are hidden until then, and touch has no hover).
+    // After the click that follows, which would otherwise take focus away.
+    requestAnimationFrame(() => areaRef.current?.querySelector<HTMLElement>(`[data-ghost-id="${CSS.escape(ghost)}"]`)?.focus({ preventScroll: true }))
   }
 
   // A to-do dragged in from Help me plan (native drag and drop).
@@ -406,10 +476,10 @@ export function TimeGrid({
       }], days)
     : null
 
-  const createDraft = drag?.type === 'create' && drag.moved
-    ? { dayIndex: drag.dayIndex, from: snap(Math.min(drag.fromMin, drag.toMin)), to: snap(Math.max(drag.fromMin, drag.toMin)) }
+  const createDraft = shownDraft?.action === 'draw' && draftSpan?.id === DRAWN_SPAN_ID && pointer?.drawFrom != null
+    ? { dayIndex: Number(draftSpan.track), from: snap(Math.min(pointer.drawFrom, pointer.minute)), to: snap(Math.max(pointer.drawFrom, pointer.minute)) }
     : null
-  const draggingKey = preview && drag?.type !== 'create' ? drag?.item.occurrence_key : undefined
+  const draggingKey = preview ? dragged?.seg?.item.occurrence_key : undefined
   const cols = { gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }
 
   return (
@@ -518,13 +588,15 @@ export function TimeGrid({
           <div
             ref={areaRef}
             data-testid="calendar-grid"
-            className={cn('relative grid flex-1 select-none', drag?.type === 'create' && 'cursor-ns-resize')}
+            className={cn('relative grid flex-1 select-none', createDraft && 'cursor-ns-resize')}
             style={{ ...cols, touchAction: 'none' }}
             onPointerDownCapture={() => { tapOpened.current = false }}
-            onPointerDown={startCreate}
             onPointerMove={handleMove}
             onPointerUp={handleUp}
-            onPointerCancel={() => setDrag(null)}
+            onPointerCancel={() => {
+              press.current = null
+              setPointer(null)
+            }}
             onTouchEnd={(e) => {
               if (!tapOpened.current) return
               tapOpened.current = false
@@ -551,6 +623,8 @@ export function TimeGrid({
                   key={day.toISOString()}
                   data-testid="calendar-day"
                   data-date={day.toISOString()}
+                  ref={(el) => (el ? spans.bindTrack(el, String(dayIndex)) : undefined)}
+                  onPointerDown={(e) => pressTrack(e, dayIndex)}
                   className={cn('relative border-l border-border-subtle', startOfDay(day) < startOfDay(now) && 'bg-past')}
                 >
                   {offSegments?.[dayIndex].map((o) => (
@@ -584,7 +658,7 @@ export function TimeGrid({
                       hourPx={hourPx}
                       saved={savedProposalIds?.has(ghostId(seg.item)!) ?? false}
                       lifted={draggingKey === seg.item.occurrence_key}
-                      onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
+                      span={{ ref: bindSpan(spanIdOf(seg)), attrs: spans.spanAttrs(spanState, spanIdOf(seg)), onPointerDown: (e) => pressBlock(e, seg) }}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
                       onNudge={(minutes, dayShift) => onProposalNudge?.(ghostId(seg.item)!, minutes, dayShift)}
@@ -600,8 +674,14 @@ export function TimeGrid({
                       active={activeKey === seg.item.occurrence_key}
                       lifted={draggingKey === seg.item.occurrence_key}
                       glow={revealed?.key === seg.key}
-                      onPointerDown={(e, type) => startBlockDrag(e, seg.item, type)}
+                      span={{
+                        ref: bindSpan(spanIdOf(seg)),
+                        attrs: spans.spanAttrs(spanState, spanIdOf(seg)),
+                        onPointerDown: (e) => pressBlock(e, seg),
+                        onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
+                      }}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
+                      onKeyDelete={onAskDelete && ((anchor) => onAskDelete(seg.item, anchor))}
                     />
                   ))}
 
@@ -674,6 +754,15 @@ export function TimeGrid({
   )
 }
 
+/** A block's part in createSpans: its element, drag state attributes and handlers. */
+interface SpanBinding {
+  ref: (el: HTMLElement | null) => (() => void) | undefined
+  attrs: Record<string, string | undefined>
+  onPointerDown: (e: ReactPointerEvent<HTMLElement>) => void
+  /** Arrows move it (Up / Down in time, Left / Right across days), Shift with them resizes. */
+  onKeyDown?: (e: ReactKeyboardEvent) => void
+}
+
 interface BlockProps {
   seg: DaySegment
   hourPx: number
@@ -688,11 +777,13 @@ interface BlockProps {
   glow?: boolean
   /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
-  onPointerDown?: (e: ReactPointerEvent, type: 'move' | 'resize') => void
+  span?: SpanBinding
   onKeyOpen?: (anchor: Anchor) => void
+  /** Delete or Backspace: ask before deleting it (never deleted straight away). */
+  onKeyDelete?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, onPointerDown, onKeyOpen }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, onKeyOpen, onKeyDelete }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -728,12 +819,21 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       data-revealed={glow || undefined}
       aria-label={`${item.title}, ${kindLabel.toLowerCase()}, ${formatSpan(start, end)}${done ? ', done' : ''}`}
       title={`${item.title}, ${formatSpan(start, end)}${isCommitment ? ' - fixed, open to edit' : movable ? ' - drag to move' : ''}`}
-      onPointerDown={preview ? undefined : (e) => onPointerDown?.(e, 'move')}
+      ref={preview ? undefined : span?.ref}
+      {...(preview ? {} : span?.attrs)}
+      onPointerDown={preview ? undefined : span?.onPointerDown}
       onKeyDown={(e) => {
-        if (e.key !== 'Enter' && e.key !== ' ') return
-        e.preventDefault()
+        if (e.target !== e.currentTarget) return
         const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        onKeyOpen?.({ clientX: rect.right, clientY: rect.top })
+        const anchor = { clientX: rect.right, clientY: rect.top, span: { top: rect.top, bottom: rect.bottom } }
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onKeyOpen?.({ clientX: rect.right, clientY: rect.top })
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+          // Caught before createSpans, which would delete it outright.
+          e.preventDefault()
+          onKeyDelete?.(anchor)
+        } else span?.onKeyDown?.(e)
       }}
       className={cn(
         'group absolute rounded-item text-left outline-none transition-[opacity,box-shadow] duration-150',
@@ -816,8 +916,8 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
       {movable && !preview && !compact && (
         <div
           data-testid="calendar-block-resize"
+          data-span-edge="end"
           aria-hidden
-          onPointerDown={(e) => onPointerDown?.(e, 'resize')}
           className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center overflow-hidden opacity-0 transition-opacity group-hover:opacity-100"
           // A third of a short block at most, so most of it still moves the block.
           style={{ height: Math.min(8, Math.floor(height / 3)) }}
@@ -853,7 +953,7 @@ interface GhostBlockProps {
   /** Accepted and saving: drawn until the real block arrives. */
   saved: boolean
   lifted: boolean
-  onPointerDown: (e: ReactPointerEvent, type: 'move' | 'resize') => void
+  span: SpanBinding
   onAccept: () => void
   onDismiss: () => void
   /** Keyboard adjust: arrows move by 15 minutes (up / down) or a day (left / right). */
@@ -863,7 +963,7 @@ interface GhostBlockProps {
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDismiss, onNudge }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss, onNudge }: GhostBlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const start = new Date(item.starts_at!)
@@ -905,7 +1005,9 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
         action()
       }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
-      onPointerDown={saved ? undefined : (e) => onPointerDown(e, 'move')}
+      ref={saved ? undefined : spanBinding.ref}
+      {...(saved ? {} : spanBinding.attrs)}
+      onPointerDown={saved ? undefined : spanBinding.onPointerDown}
       className={cn(
         'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
         compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
@@ -967,7 +1069,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, onPointerDown, onAccept, onDis
       {!saved && !compact && (
         <div
           aria-hidden
-          onPointerDown={(e) => onPointerDown(e, 'resize')}
+          data-span-edge="end"
           className="absolute inset-x-0 bottom-0 flex cursor-ns-resize items-end justify-center opacity-0 transition-opacity group-hover:opacity-100"
           style={{ height: Math.min(8, Math.floor(height / 3)) }}
         >
