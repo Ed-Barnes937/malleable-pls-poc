@@ -88,7 +88,7 @@ export function TimeInput({
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         className={cn(
-          'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused aria-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50',
+          'inline-flex h-10 w-full items-center rounded-control border border-border bg-surface-raised px-3 text-body text-text-primary focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-line data-invalid:border-confused aria-invalid:border-confused data-disabled:cursor-not-allowed data-disabled:opacity-50 [&_input]:w-[2ch] [&_input]:p-0 [&_input]:text-center',
         )}
       />
     </span>
