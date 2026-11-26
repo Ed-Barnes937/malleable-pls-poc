@@ -3,6 +3,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { untilFontsLoaded } from './fonts'
+import { motionSettled } from './settle'
 import { trpcMutation } from './api'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import { SEED_TIME_ZONE } from './seed-week'
@@ -91,6 +92,8 @@ for (const viewport of VIEWPORTS) {
           await expect(markDone).toBeVisible()
           await expect(calendar.popover.getByTestId('calendar-moment-quote')).toBeVisible()
           await untilFontsLoaded(page)
+          // The popover opens with a scale-in: measure once it has landed.
+          await motionSettled(calendar.popover)
           const before = (await markDone.boundingBox())!
 
           release()
