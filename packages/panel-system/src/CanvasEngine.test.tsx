@@ -157,6 +157,9 @@ describe('CanvasEngine', () => {
     for (const d of [10, 20, 30, 40]) fireEvent.pointerMove(handle, { ...mouse, clientX: 320 + d, clientY: 220 + d, buttons: 1 })
     expect(onLayoutChange).not.toHaveBeenCalled()
     fireEvent.pointerUp(handle, { ...mouse, clientX: 360, clientY: 260, buttons: 0 })
+    // The click a browser fires after the press lifts. UI SDK swallows it (it
+    // ended a drag); left unfired, its swallow would eat the next test's click.
+    fireEvent.click(handle)
     expect(onLayoutChange).toHaveBeenCalledTimes(1)
     expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'r', width: 340, height: 240 })])
   })
