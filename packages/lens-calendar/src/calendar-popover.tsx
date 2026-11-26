@@ -154,7 +154,7 @@ function measure(content: HTMLElement): { anchor: number | null; height: number 
  */
 function usePlacedTop(pressKey: string) {
   const contentRef = useRef<HTMLElement | null>(null)
-  const placedRef = useRef<{ pressKey: string; top: number; anchor: number | null } | null>(null)
+  const placedRef = useRef<{ pressKey: string; top: number; anchor: number | null; above: boolean } | null>(null)
   const ref = useCallback((content: HTMLElement | null) => {
     contentRef.current = content
   }, [])
@@ -165,10 +165,19 @@ function usePlacedTop(pressKey: string) {
     if (!content?.offsetHeight) return placed?.top ?? at.y - 24
     const { anchor, height } = measure(content)
     const inWindow = { calendarTop: root.top, viewportHeight: window.visualViewport?.height ?? window.innerHeight }
-    const top = placed && placed.anchor !== null && anchor !== null
-      ? anchoredTop({ top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, ...inWindow })
-      : popoverTop({ ...at, height, ...inWindow })
-    placed = placedRef.current = { pressKey, top, anchor }
+    let top: number
+    let above: boolean
+    if (placed && placed.anchor !== null && anchor !== null) {
+      top = anchoredTop({ top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, ...inWindow })
+      above = placed.above
+    } else {
+      top = popoverTop({ ...at, height, ...inWindow })
+      above = at.placement === 'vertical' && top + height <= (at.span?.top ?? at.y)
+    }
+    // Opened above what was pressed, it scales in from its bottom edge, next
+    // to it (`data-above`); set here, as it is placed, before it scales in.
+    content.toggleAttribute('data-above', above)
+    placed = placedRef.current = { pressKey, top, anchor, above }
     return placed.top
   }, [pressKey])
   return { ref, placedTop }
@@ -263,7 +272,9 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
         data-calendar-popover=""
         // Nor does it reach the board or the grid behind.
         onPointerDown={(e) => e.stopPropagation()}
-        className="block max-w-[calc(100vw-16px)] gap-0 p-0"
+        // Scales in from the edge next to what was pressed: UI SDK's origin
+        // is the anchor line along its top; opened above it, its bottom edge.
+        className="block max-w-[calc(100vw-16px)] gap-0 p-0 data-above:origin-bottom-left"
         style={{ width }}
       >
         {/* Names the dialog (it has no trigger to be named by). */}

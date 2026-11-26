@@ -323,6 +323,49 @@ test.describe('on a phone', () => {
     })
   }
 
+  // It scales in from the edge next to its block: its top edge below it, its
+  // bottom edge above it.
+  const SCALED: [string, string, 'above' | 'below'][] = [
+    ['Early seminar', 'Edit Early seminar', 'below'],
+    ['Evening shift', 'Edit Evening shift', 'above'],
+  ]
+  for (const [title, dialog, side] of SCALED) {
+    test(`a popover that opens ${side} its block scales in from its ${side === 'above' ? 'bottom' : 'top'} edge`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        { id: 'late', kind: 'commitment', title: 'Evening shift', subtype: 'shift', starts_at: day(20), ends_at: day(21) },
+      ])
+      await mount(<CalendarHarness width="100%" height={800} />)
+      // Every frame it is scaled (scaling in), for the next 10s or so: its
+      // origin's y, px below its top, as a share of its height.
+      await page.evaluate(() => {
+        const w = window as unknown as { __origins: number[] }
+        w.__origins = []
+        let frames = 0
+        const tick = () => {
+          const el = document.querySelector<HTMLElement>('[data-testid="calendar-popover"]')
+          const style = el && getComputedStyle(el)
+          if (el && style && style.scale !== 'none' && style.scale !== '1') {
+            w.__origins.push(parseFloat(style.transformOrigin.split(' ')[1]) / el.offsetHeight)
+          }
+          if (++frames < 600) requestAnimationFrame(tick)
+        }
+        tick()
+      })
+      await block(page, title).click()
+      const popover = page.getByRole('dialog', { name: dialog })
+      await expect(popover).toBeVisible()
+      const opened = await settledBox(popover)
+      const pressed = (await block(page, title).boundingBox())!
+      if (side === 'above') expect(opened.y + opened.height).toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y).toBeGreaterThanOrEqual(pressed.y + pressed.height)
+      const origins = await page.evaluate(() => (window as unknown as { __origins: number[] }).__origins)
+      expect(origins.length, 'it scaled in').toBeGreaterThan(0)
+      expect([...new Set(origins)]).toEqual([side === 'above' ? 1 : 0])
+    })
+  }
+
   // A touch press raises the on-screen keyboard if a field takes focus, so the
   // card itself does; a mouse click or a key still focuses the first field.
   test.describe('opened by touch', () => {
