@@ -7,11 +7,18 @@ import type { Locator, Page } from '@playwright/test'
  * spinner) are not waited for.
  */
 export async function motionSettled(locator: Locator): Promise<void> {
-  await locator.evaluateAll((els) => Promise.all(
-    els.flatMap((el) => el.getAnimations({ subtree: true }))
-      .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
-      .map((a) => a.finished.catch(() => undefined)),
-  ))
+  await locator.evaluateAll(async (els) => {
+    // A UI SDK popup is drawn in its starting style (data-starting-style) for
+    // a frame before it transitions from it: on a busy machine that frame can
+    // be now, with no motion yet to wait for.
+    const starting = () => els.some((el) => el.matches('[data-starting-style]') || el.querySelector('[data-starting-style]'))
+    while (starting()) await new Promise((resolve) => requestAnimationFrame(resolve))
+    await Promise.all(
+      els.flatMap((el) => el.getAnimations({ subtree: true }))
+        .filter((a) => a.effect?.getComputedTiming().endTime !== Infinity)
+        .map((a) => a.finished.catch(() => undefined)),
+    )
+  })
 }
 
 /**
