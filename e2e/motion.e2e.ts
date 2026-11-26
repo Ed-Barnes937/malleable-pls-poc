@@ -435,8 +435,8 @@ test.describe('Reduced motion', () => {
     await grid.expectPanelCount(2)
     await page.keyboard.press('Escape')
     const todo = grid.panelByLabel('To-do')
-    expect(await todo.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0)
     await expect(page.getByTestId('drawer-sidebar')).toHaveCount(0)
+    expect(await todo.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0)
     // The drawer faded in and out without moving: whenever it was on screen, it was at the one place.
     expect(await drawerPositions(page)).toHaveLength(1)
     await todo.getByRole('button', { name: 'Fullscreen To-do' }).click()
