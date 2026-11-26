@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode } from 'react'
+import { useCallback, useRef, type ComponentProps, type FocusEvent, type ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import {
   MenuContent as UiMenuContent,
@@ -23,24 +23,62 @@ export {
 
 type Styled<T> = Omit<T, 'className'> & { className?: string }
 
-/** A UI SDK Menu's list, styled like our popovers. Arrow keys, typeahead, Escape and focus return come from UI SDK. */
-export function MenuContent({ className, sideOffset = 6, collisionPadding = 8, ...props }: Styled<ComponentProps<typeof UiMenuContent>>) {
+/**
+ * A UI SDK Menu's list, styled like our popovers. Arrow keys, typeahead,
+ * Escape and focus return come from UI SDK. A menu holding a checked radio
+ * choice opens on that choice, as a radio menu should (UI SDK opens on the
+ * first item).
+ */
+export function MenuContent({ className, sideOffset = 6, collisionPadding = 8, onFocus, onBlur, ...props }: Styled<ComponentProps<typeof UiMenuContent>>) {
+  const { onFocus: openOnChecked, onBlur: leave } = useOpenOnChecked()
   return (
     <UiMenuContent
       sideOffset={sideOffset}
       collisionPadding={collisionPadding}
       className={cn(POPOVER_SURFACE_CLASS, 'min-w-44 rounded-control p-1', className)}
+      onFocus={(e: FocusEvent<HTMLDivElement>) => {
+        openOnChecked(e)
+        onFocus?.(e)
+      }}
+      onBlur={(e: FocusEvent<HTMLDivElement>) => {
+        leave(e)
+        onBlur?.(e)
+      }}
       {...props}
     />
   )
 }
+
+/**
+ * When focus enters the menu (it opens with focus inside), moves it on to the
+ * checked radio choice if there is one. Focus leaving the menu (it closes)
+ * resets this for the next open.
+ */
+function useOpenOnChecked() {
+  const inside = useRef(false)
+  const onFocus = useCallback((e: FocusEvent<HTMLElement>) => {
+    if (inside.current) return
+    inside.current = true
+    const checked = e.currentTarget.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')
+    if (checked && checked !== e.target) checked.focus()
+  }, [])
+  const onBlur = useCallback((e: FocusEvent<HTMLElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) inside.current = false
+  }, [])
+  return { onFocus, onBlur }
+}
+
+/** How a menu row shows keyboard focus: a fill, plus an accent outline when focus came from the keyboard. */
+const MENU_ROW_CLASS =
+  'flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-item px-2.5 py-1.5 text-body text-text-secondary outline-none data-highlighted:bg-surface-overlay data-highlighted:text-text-primary focus-visible:outline-2 focus-visible:outline-solid focus-visible:-outline-offset-2 focus-visible:outline-accent data-disabled:opacity-40'
 
 /** A menu row. `destructive` colours it as dangerous (e.g. Delete). */
 export function MenuItem({ className, ...props }: Styled<ComponentProps<typeof UiMenuItem>>) {
   return (
     <UiMenuItem
       className={cn(
-        'flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-item px-2.5 py-1.5 text-body text-text-secondary outline-none data-highlighted:bg-surface-overlay data-highlighted:text-text-primary data-disabled:opacity-40 data-destructive:text-confused data-highlighted:data-destructive:text-confused',
+        MENU_ROW_CLASS,
+        'data-destructive:text-confused data-highlighted:data-destructive:text-confused',
         className,
       )}
       {...props}
@@ -58,7 +96,7 @@ export function MenuRadioItem({ className, children, closeOnSelect = true, ...pr
     <UiMenuRadioItem
       closeOnSelect={closeOnSelect}
       className={cn(
-        'flex min-h-8 cursor-default select-none items-center gap-2.5 rounded-item px-2.5 py-1.5 text-body text-text-secondary outline-none data-highlighted:bg-surface-overlay data-highlighted:text-text-primary data-disabled:opacity-40',
+        MENU_ROW_CLASS,
         className,
       )}
       {...props}

@@ -227,8 +227,9 @@ test('on a phone the theme menu opens inside the board menu without closing it, 
   await page.keyboard.press('Enter')
   const dark = page.getByRole('menuitemradio', { name: 'Dark' })
   await expect(dark).toBeVisible()
-  await expect(page.getByRole('menuitemradio', { name: 'Light' })).toBeFocused()
-  await page.keyboard.press('ArrowDown')
+  // Opens on the checked choice (System when nothing is stored).
+  await expect(page.getByRole('menuitemradio', { name: 'System' })).toBeFocused()
+  await page.keyboard.press('ArrowUp')
   await expect(dark).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
