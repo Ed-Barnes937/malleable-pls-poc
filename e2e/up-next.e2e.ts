@@ -69,7 +69,7 @@ test.describe('Up next', () => {
     const calendar = new CalendarPom(page)
     await expect(calendar.root).toBeVisible()
     await expect(calendar.root.getByTestId('help-me-plan-panel')).toBeVisible()
-    await expect(calendar.root.getByRole('tab', { name: 'Week' })).toHaveAttribute('aria-selected', 'true')
+    await expect(calendar.root.getByRole('radio', { name: 'Week' })).toBeChecked()
     await expect(calendar.days).toHaveCount(7)
     await expect(new PanelGridPom(page).panels).toHaveCount(1)
 
@@ -351,7 +351,7 @@ test.describe('Up next on a phone', () => {
     await topBar.expectActiveWorkspace('My week')
     const calendar = new CalendarPom(page)
     // A phone opens Day view, which has no Help me plan: it is forced to Week.
-    await expect(calendar.root.getByRole('tab', { name: 'Week' })).toHaveAttribute('aria-selected', 'true')
+    await expect(calendar.root.getByRole('radio', { name: 'Week' })).toBeChecked()
     await expect(calendar.root.getByTestId('help-me-plan-panel')).toBeVisible()
   })
 

@@ -9,6 +9,7 @@ import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { trpcMutation, trpcQuery } from './api'
 import { apiUrl } from './ports'
 import { reseed } from './reseed'
+import { motionSettled } from './settle'
 import { untilFontsLoaded } from './fonts'
 import { SEED_TIME_ZONE } from './seed-week'
 
@@ -406,6 +407,8 @@ test.describe('A calendar class on a phone', () => {
     await expect.poll(async () => (await boardScope(request, plan)).course).toBe('biology')
 
     const target = section.getByRole('button', { name: 'In Lecture' })
+    // The popover opens with a scale-in: measure once it has landed.
+    await motionSettled(calendar.popover)
     const rect = (await target.boundingBox())!
     expect(rect.height).toBeGreaterThanOrEqual(44)
     await page.touchscreen.tap(rect.x + rect.width / 2, rect.y + rect.height / 2)

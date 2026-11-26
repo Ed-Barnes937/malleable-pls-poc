@@ -1,6 +1,6 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
-import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, PanelGridPom, SidebarPom, TimeInputPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 import { trpcMutation, trpcQuery } from './api'
@@ -265,7 +265,7 @@ test.describe('Phone calendar taps', () => {
     await page.touchscreen.tap(point.x, point.y)
     await expect(calendar.popover).toBeVisible()
     // The block opened at the time tapped, not wherever the grid had moved to.
-    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('03:30')
+    await new TimeInputPom(calendar.popover.getByLabel('Start time')).expectValue('03:30')
     expect(await pressesInPopover(page)).toEqual([])
   })
 })
