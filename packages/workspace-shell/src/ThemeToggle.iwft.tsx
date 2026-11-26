@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/experimental-ct-react'
 import { ThemeToggle } from './ThemeToggle'
+import { tokenColor } from '../../shared-ui/src/ct-themes'
 
 const trigger = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Theme' })
 const choice = (page: import('@playwright/test').Page, name: string) => page.getByRole('menuitemradio', { name })
@@ -51,6 +52,9 @@ test('by keyboard: Enter opens it, arrows move, Enter picks, Escape closes back 
   await mount(<ThemeToggle />)
   await trigger(page).focus()
   await page.keyboard.press('Enter')
+  // Opens on the checked choice (System when nothing is stored).
+  await expect(choice(page, 'System')).toBeFocused()
+  await page.keyboard.press('Home')
   await expect(choice(page, 'Light')).toBeFocused()
   await page.keyboard.press('End')
   await expect(choice(page, 'System')).toBeFocused()
@@ -67,6 +71,36 @@ test('by keyboard: Enter opens it, arrows move, Enter picks, Escape closes back 
   await expect(page.getByRole('menu')).toBeHidden()
   await expect(trigger(page)).toBeFocused()
   expect(await page.evaluate(() => localStorage.getItem('pls-theme'))).toBe('dark')
+})
+
+test('opens on the checked choice, as a radio menu does, and the arrows go on from there', async ({ mount, page }) => {
+  await page.evaluate(() => localStorage.setItem('pls-theme', 'dark'))
+  await mount(<ThemeToggle />)
+  await trigger(page).focus()
+  await page.keyboard.press('Enter')
+  await expect(choice(page, 'Dark')).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(choice(page, 'System')).toBeFocused()
+  await page.keyboard.press('Escape')
+
+  // Opened by a click too.
+  await trigger(page).click()
+  await expect(choice(page, 'Dark')).toBeFocused()
+})
+
+test('in dark, the focused choice has a clear accent outline, not only a faint fill', async ({ mount, page }) => {
+  await page.evaluate(() => localStorage.setItem('pls-theme', 'dark'))
+  await mount(<ThemeToggle />)
+  await trigger(page).focus()
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('End')
+  const focused = choice(page, 'System')
+  await expect(focused).toBeFocused()
+  await expect(focused).toHaveCSS('outline-style', 'solid')
+  await expect(focused).toHaveCSS('outline-width', '2px')
+  await expect(focused).toHaveCSS('outline-color', await tokenColor(page, '--color-accent'))
+  // The others show no outline.
+  await expect(choice(page, 'Dark')).toHaveCSS('outline-style', 'none')
 })
 
 test('keeps a stored dark choice', async ({ mount, page }) => {

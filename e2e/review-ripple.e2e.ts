@@ -352,6 +352,36 @@ test.describe('The confused-to-calendar ripple', () => {
     await page.getByTestId('toast-host').getByRole('button', { name: 'See it' }).click()
     await settledScrollTop(grid.root)
     await expect(block).toBeInViewport({ ratio: 1 })
+    // Focus goes with it, so the keyboard carries on from the block.
+    await expect(block).toBeFocused()
+  })
+
+  test('by keyboard: F6 to the toast, Enter on "See it" moves focus to the block, and it keeps it once the glow ends', async ({ page, request }) => {
+    await demoLikeBoard(request)
+    const { transcript, calendar, grid } = await selectMomentHalfScrolled(page)
+    const markedAt = Date.now()
+    const confused = transcript.getByRole('button', { name: 'confused', exact: true })
+    await confused.click()
+    const review = await newReview(request, markedAt)
+    const block = calendar.root.locator(`[data-plan-item-id="${review.id}"]`)
+    await expect(block).toHaveAttribute('data-revealed', 'true')
+    await expect(page.getByTestId('review-lift-off')).toHaveCount(0)
+    await grid.root.evaluate((el) => { el.scrollTop = el.scrollHeight })
+    await settledScrollTop(grid.root)
+    await expect(block).not.toBeInViewport()
+
+    await confused.focus()
+    await page.keyboard.press('F6')
+    const seeIt = page.getByTestId('toast-host').getByRole('button', { name: 'See it' })
+    await page.keyboard.press('Tab')
+    await expect(seeIt).toBeFocused()
+    await page.keyboard.press('Enter')
+    await settledScrollTop(grid.root)
+    await expect(block).toBeInViewport({ ratio: 1 })
+    await expect(block).toBeFocused()
+    // The glow ends (the block is drawn again without it): focus stays on the block.
+    await expect(block).not.toHaveAttribute('data-revealed', { timeout: 8000 })
+    await expect(block).toBeFocused()
   })
 
   test('with no Calendar on the board, a scheduled review is followed to its To-do row', async ({ page, request }) => {

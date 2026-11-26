@@ -68,6 +68,11 @@ export interface TimeGridProps {
   reveal?: Reveal | null
   /** A popover is open: a reveal callout gives way to it. */
   popoverOpen?: boolean
+  /**
+   * Day columns (0 = the first day shown) something floats over (Help me
+   * plan): their blocks can't be seen, so they are not Tab stops.
+   */
+  coveredDays?: ReadonlyArray<number>
 }
 
 /** A block to show: scrolled to in the grid and on the board, then glowing once. */
@@ -80,6 +85,8 @@ export interface Reveal {
   keepInView?: Element | null
   /** Glow this long after the request (a card from the moment lands then). */
   landsInMs?: number
+  /** Move keyboard focus to the block once it is shown ("See it"). */
+  takeFocus?: boolean
 }
 
 /** How long a revealed block keeps its callout (and, under reduced motion, its still ring). */
@@ -157,7 +164,7 @@ function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   onAskDelete, proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
-  reveal, popoverOpen,
+  reveal, popoverOpen, coveredDays,
 }: TimeGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
@@ -241,6 +248,14 @@ export function TimeGrid({
   // came from, when both fit), then glow it once (a still ring under reduced
   // motion) with a short callout.
   const [revealed, setRevealed] = useState<{ key: string; requestId: number } | null>(null)
+  /**
+   * The last block revealed, kept after its glow ends: its element is keyed by
+   * the request (so a new reveal replays the glow), and stays that element
+   * when the glow ends, so a focused block keeps focus.
+   */
+  const [lastRevealed, setLastRevealed] = useState<{ key: string; requestId: number } | null>(null)
+  /** The reveal request whose block takes focus once it is drawn glowing. */
+  const focusOnReveal = useRef<number | null>(null)
   const handledReveal = useRef<number | null>(null)
   const glowTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   useEffect(() => {
@@ -249,6 +264,7 @@ export function TimeGrid({
     const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
     if (!el || !seg) return
     handledReveal.current = reveal.requestId
+    focusOnReveal.current = reveal.takeFocus ? reveal.requestId : null
     const smooth = !prefersReducedMotion()
     const gridTop = gridScrollFor(seg, hourPx, { scrollTop: el.scrollTop, height: el.clientHeight })
     if (gridTop !== null) {
@@ -264,7 +280,10 @@ export function TimeGrid({
       const headers = headerRef.current?.getBoundingClientRect()
       showOnBoard(el, { top: block.top - shift, bottom: block.bottom - shift }, { keep: [from, headers], since: reveal.requestedAt, smooth })
     }
-    const glow = () => setRevealed({ key: seg.key, requestId: reveal.requestId })
+    const glow = () => {
+      setRevealed({ key: seg.key, requestId: reveal.requestId })
+      setLastRevealed({ key: seg.key, requestId: reveal.requestId })
+    }
     clearTimeout(glowTimer.current)
     if (reveal.landsInMs) glowTimer.current = setTimeout(glow, reveal.landsInMs)
     else glow()
@@ -274,6 +293,13 @@ export function TimeGrid({
     if (!revealed) return
     const t = setTimeout(() => setRevealed(null), REVEAL_MS)
     return () => clearTimeout(t)
+  }, [revealed])
+  // Focus the block once it is drawn glowing (its element is new then). The
+  // grid and board are already scrolling to it, so focusing doesn't scroll.
+  useEffect(() => {
+    if (!revealed || focusOnReveal.current !== revealed.requestId) return
+    focusOnReveal.current = null
+    scrollRef.current?.querySelector<HTMLElement>(`[data-segment-key="${CSS.escape(revealed.key)}"]`)?.focus({ preventScroll: true })
   }, [revealed])
   // An open popover takes the block's place: the callout would cover it.
   useEffect(() => {
@@ -661,7 +687,7 @@ export function TimeGrid({
                   ) : (
                     <Block
                       // Keyed by span, so a day piece moved to another day is a new element there, which createSpans focuses.
-                      key={revealed?.key === seg.key ? `${spanIdOf(seg)}:${revealed.requestId}` : spanIdOf(seg)}
+                      key={lastRevealed?.key === seg.key ? `${spanIdOf(seg)}:${lastRevealed.requestId}` : spanIdOf(seg)}
                       seg={seg}
                       hourPx={hourPx}
                       caption={captions[dayIndex].get(seg.key) ?? null}
@@ -676,6 +702,7 @@ export function TimeGrid({
                         onPointerDown: (e) => pressBlock(e, seg),
                         onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
                       }}
+                      tabStop={!coveredDays?.includes(dayIndex)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
                       onKeyDelete={onAskDelete && ((anchor) => onAskDelete(seg.item, anchor))}
                     />
@@ -774,12 +801,14 @@ interface BlockProps {
   /** A block too short for its title shows it as a caption on this side (see `captionSides`). */
   caption?: 'below' | 'above' | null
   span?: SpanBinding
+  /** False while something covers it (Help me plan): it is then out of the tab order. */
+  tabStop?: boolean
   onKeyOpen?: (anchor: Anchor) => void
   /** Delete or Backspace: ask before deleting it (never deleted straight away). */
   onKeyDelete?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, onKeyOpen, onKeyDelete }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, tabStop = true, onKeyOpen, onKeyDelete }: BlockProps) {
   const { item } = seg
   const tone = toneFor(item.course)
   const isCommitment = item.kind === 'commitment'
@@ -803,7 +832,7 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   return (
     <div
       role={preview ? undefined : 'button'}
-      tabIndex={preview ? undefined : 0}
+      tabIndex={preview ? undefined : tabStop ? 0 : -1}
       data-block={item.kind}
       data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
       data-plan-item-id={preview ? undefined : item.id}

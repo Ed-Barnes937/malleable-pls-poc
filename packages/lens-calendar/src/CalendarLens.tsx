@@ -18,7 +18,7 @@ import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft }
 import { createSaveQueue } from './save-queue'
 import { toneFor } from './colors'
 import { addDays, formatDayName, formatFullDay, formatRangeTitle, formatSpan, localTimeZone, startOfDay, startOfWeek } from './time'
-import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
+import { PLAN_PANEL_PX, coveredDays, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
 
@@ -204,6 +204,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
       requestedAt: focusedPlanItem.requestedAt,
       keepInView: focusedPlanItem.keepInView,
       landsInMs: focusedPlanItem.landsInMs,
+      takeFocus: focusedPlanItem.takeFocus,
     })
     onPlanItemShown?.(focusedPlanItem.requestId)
   }, [focusedPlanItem, onPlanItemShown, view])
@@ -696,6 +697,7 @@ export default function CalendarLens({ highlight, config, onConfigChange, onShow
           freeTime={freeTime}
           outsideStudyHours={offStudyHours}
           reveal={reveal}
+          coveredDays={planLayout && !planCollapsed && geometry ? coveredDays(geometry, placement) : undefined}
           incoming={incoming}
           onDropIncoming={(start) => {
             const todo = incoming

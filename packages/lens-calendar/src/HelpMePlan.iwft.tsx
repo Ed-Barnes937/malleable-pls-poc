@@ -624,6 +624,42 @@ test.describe('where the panel floats, by day of the week (frozen clock)', () =>
     })
   }
 
+  for (const [name, weekday, hour, side] of [['Wednesday', WED, 12, 'left'], ['Monday', MON, 9, 'right']] as const) {
+    test(`keyboard: on a ${name}, the blocks under the panel are not Tab stops; the rest are`, async ({ mount, page, simulator }) => {
+      await planAt(page, simulator, day(weekday, hour), 0)
+      await mount(<CalendarHarness width={900} />)
+      await page.getByTestId('help-me-plan').click()
+      const panel = page.getByTestId('help-me-plan-panel')
+      await expect(panel.locator('..')).toHaveAttribute('data-placement', side)
+      const box = (await panel.boundingBox())!
+
+      const blocks = page.getByTestId('calendar-block')
+      await expect(blocks).toHaveCount(7)
+      let under = 0
+      for (const b of await blocks.all()) {
+        const r = (await b.boundingBox())!
+        const covered = r.x < box.x + box.width && box.x < r.x + r.width
+        if (covered) under++
+        const label = await b.getAttribute('aria-label')
+        if (covered) await expect(b, `${label} is under the panel`).not.toHaveAttribute('tabindex', '0')
+        else await expect(b, `${label} is in view`).toHaveAttribute('tabindex', '0')
+      }
+      expect(under).toBeGreaterThan(0)
+
+      // Tab from one in view to the next skips the covered days (the weekend, or the days past).
+      const order = await blocks.evaluateAll((els) => els.filter((el) => el.getAttribute('tabindex') === '0').map((el) => el.getAttribute('aria-label')))
+      await blocks.and(page.locator('[tabindex="0"]')).first().focus()
+      for (const label of order.slice(1)) {
+        await page.keyboard.press('Tab')
+        await expect(page.locator(':focus')).toHaveAttribute('aria-label', label!)
+      }
+
+      // Closed, every block is a Tab stop again.
+      await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+      await expect(blocks.and(page.locator('[tabindex="0"]'))).toHaveCount(7)
+    })
+  }
+
   test("the demo on a Thursday: study time held back by the 2h a day isn't blamed on short gaps", async ({ mount, page, simulator }) => {
     const now = new Date('2026-10-29T10:00:00Z')
     for (const { id, ...row } of priyaWeek(now.getTime())) seed(simulator, [{ id, ...row } as Partial<StoredPlanItem> & { id: string }])

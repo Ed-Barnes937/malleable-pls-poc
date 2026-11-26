@@ -125,6 +125,31 @@ describe('useCanvasKeyboard', () => {
     expect(useCanvasStore.getState().panels).toHaveLength(1)
   })
 
+  it('Delete on a control inside a panel leaves the panel; on the panel element itself it removes it', () => {
+    useCanvasStore.setState({ panels: [makePanel('a', 1), makePanel('b', 2)], selectedPanelId: 'b' })
+    const onRemovePanel = vi.fn()
+    const canvas = document.createElement('div')
+    const panelEl = document.createElement('div')
+    panelEl.dataset.panelId = 'b'
+    panelEl.tabIndex = -1
+    const moment = document.createElement('button')
+    panelEl.appendChild(moment)
+    canvas.appendChild(panelEl)
+    document.body.appendChild(canvas)
+    mount({ onRemovePanel, canvasRef: { current: canvas } })
+
+    moment.focus()
+    pressKey('Delete')
+    pressKey('Backspace')
+    expect(onRemovePanel).not.toHaveBeenCalled()
+
+    panelEl.focus()
+    pressKey('Delete')
+    expect(onRemovePanel).toHaveBeenCalledWith('b')
+
+    document.body.removeChild(canvas)
+  })
+
   /* ── Escape ── */
 
   it('Escape clears the selection when nothing is fullscreen/focused', () => {

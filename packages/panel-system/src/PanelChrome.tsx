@@ -19,6 +19,12 @@ export interface PanelChromeProps {
   onToggleFullscreen?: () => void
   /** Extra header buttons rendered before the fullscreen/close actions. */
   headerActions?: ReactNode
+  /**
+   * Rendered right after the header, before the content: in tab order the
+   * panel's own controls (its resize handles) follow its header, not its
+   * widget's content. Position it absolutely; it takes no room in the column.
+   */
+  afterHeader?: ReactNode
 }
 
 /* ── Component ── */
@@ -33,6 +39,7 @@ export function PanelChrome({
   isFullscreen,
   onToggleFullscreen,
   headerActions,
+  afterHeader,
 }: PanelChromeProps) {
   return (
     <div
@@ -92,6 +99,8 @@ export function PanelChrome({
           <X size={16} />
         </button>
       </div>
+
+      {afterHeader}
 
       {/* ── Content area ── */}
       <div
