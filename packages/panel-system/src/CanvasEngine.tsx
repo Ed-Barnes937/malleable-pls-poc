@@ -6,9 +6,10 @@ import { useCanvasStore, clampDimensions, persistableLayout, LAYOUT_KEYS, type P
 import { useCanvasKeyboard } from './useCanvasKeyboard'
 import { PanelChrome } from './PanelChrome'
 import { PLACEMENT_GAP, STACK_BREAKPOINT } from './geometry'
-import { GRID_SIZE, panelBoard, type PanelBoardCommit } from './panel-board'
+import { panelBoard, type PanelBoardCommit } from './panel-board'
 import { scrollPanelIntoView } from './reveal'
-import { nudgeCovered, snapMove, type Box, type CanvasView } from './layout'
+import { nudgeCovered, snapMove, snapResize, type Box, type CanvasView } from './layout'
+import type { ResizeHandle as BoardHandleName } from '@ui-sdk/core'
 
 type BoardHandle = PrimitiveHandle<typeof panelBoard>
 type BoardState = BoardHandle['state']
@@ -77,14 +78,17 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
 
   /* ── Moving and resizing (UI SDK createMove / createResize) ── */
 
+  const panelById = (key: string) => useCanvasStore.getState().panels.find((p) => p.id === key)
+  /** The board's width as last measured (none yet: unbounded). */
+  const canvasWidth = useCallback(() => canvasSize.current.width || Infinity, [canvasSize])
+
   /** Why the panels last changed through the board, read by the save below. */
   const lastCommitRef = useRef<PanelBoardCommit['reason'] | null>(null)
-  const onCommit = useCallback(({ boxes, reason }: PanelBoardCommit) => {
+  const onCommit = useCallback(({ boxes, reason, snapped }: PanelBoardCommit) => {
     const store = useCanvasStore.getState()
     const { panels: current, movePanel, resizePanel } = store
     // A key press glides the panel to its new box, as an arranging change does.
     if (reason === 'move-key' || reason === 'resize-key') captureBefore(current, null)
-    const shift = reason === 'drag' && shiftRef.current
     let landed: { id: string; box: Box } | null = null
     for (const p of current) {
       const b = boxes[p.id]
@@ -96,10 +100,12 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
         landed = { id: p.id, box: b }
       } else if (b.x !== p.pos_x || b.y !== p.pos_y) {
         lastCommitRef.current = reason
-        // A drag that started mid-glide carries on from where the glide had it.
-        const carried = glider?.carry ? { ...b, x: onGrid(b.x + glider.carry.x), y: onGrid(b.y + glider.carry.y) } : b
-        const box = shift ? snapMove(carried, canvasRef.current?.clientWidth ?? Infinity) : carried
+        // A drag that started mid-glide carries on from where the glide had it
+        // (on the grid again, for a snapped drop).
+        let box: Box = b
         if (glider?.carry) {
+          const carried = { ...b, x: Math.round(b.x + glider.carry.x), y: Math.round(b.y + glider.carry.y) }
+          box = snapped ? snapMove(carried, canvasWidth()) : carried
           glider.carry = null
           glider.x.jump(0)
           glider.y.jump(0)
@@ -108,14 +114,13 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
         landed = { id: p.id, box }
       }
     }
-    if (shift && landed) landShift(landed.id, landed.box, canvasRef.current)
+    if (snapped && landed) landShift(landed.id, landed.box, canvasRef.current)
     else store.setShiftPreview(null)
-  }, [captureBefore, shiftRef])
+  }, [captureBefore, canvasWidth])
   const boxes = useMemo(
     () => Object.fromEntries(panels.map((p) => [p.id, { x: p.pos_x, y: p.pos_y, width: p.width, height: p.height }])),
     [panels],
   )
-  const panelById = (key: string) => useCanvasStore.getState().panels.find((p) => p.id === key)
   const board = usePrimitive(panelBoard, {
     boxes,
     onCommit,
@@ -136,6 +141,13 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       const panel = panelById(key)
       return panel ? panelLabel(panel, getLabel) : undefined
     },
+    // Placement is free; Shift snaps a drag to the grid, wholly on the board
+    // and `PLACEMENT_GAP` from its edges.
+    shift: () => shiftRef.current,
+    snapBox: (key, box, handle) =>
+      handle === 'move'
+        ? snapMove(box, canvasWidth())
+        : snapResize(box, handleAxes(handle), panelById(key)?.constraints, canvasWidth()),
   })
   const onMoveKey = useCallback((e: KeyboardEvent, panelId: string) => board.api.move.keydown(e, panelId), [board])
 
@@ -151,8 +163,8 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
       if (store.shiftPreview) store.setShiftPreview(null)
       return
     }
-    const canvas = canvasRef.current
-    previewShift(id, state.moving ? snapMove(box, canvas?.clientWidth ?? Infinity) : box, canvas)
+    // The board's preview is already snapped while Shift is held.
+    previewShift(id, box, canvasRef.current)
   }
 
   // The outline follows the widget as the board moves or resizes it (each
@@ -392,7 +404,13 @@ export function CanvasEngine({ onLayoutChange, onDragOver, onDrop, onRemovePanel
   }, 'div')
 }
 
-const onGrid = (value: number) => Math.round(value / GRID_SIZE) * GRID_SIZE
+/** Which edges a handle moves: -1 the left (top) one, 1 the right (bottom) one. */
+function handleAxes(handle: BoardHandleName): { dx: -1 | 0 | 1; dy: -1 | 0 | 1 } {
+  return {
+    dx: handle.includes('w') ? -1 : handle.includes('e') ? 1 : 0,
+    dy: handle.includes('n') ? -1 : handle.includes('s') ? 1 : 0,
+  }
+}
 
 /** `next` over `base`, by panel id (the later place of a panel wins). */
 function mergeById(base: ReadonlyArray<PanelItem>, next: ReadonlyArray<PanelItem>): PanelItem[] {

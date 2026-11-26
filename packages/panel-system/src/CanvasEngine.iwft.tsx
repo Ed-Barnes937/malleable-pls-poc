@@ -52,14 +52,14 @@ async function grabHandle(page: Page, name: string, dx: number, dy: number) {
 const announced = (page: Page) => page.locator('[data-ui-sdk-announcer="assertive"]')
 
 test.describe('moving a panel by its header', () => {
-  test('it shows where it will land while dragging, lands on the 20px grid and saves once', async ({ mount, page }) => {
+  test('it follows the pointer while dragging, lands where it is dropped (off the grid) and saves once', async ({ mount, page }) => {
     const { jsx, saves } = board()
     await mount(jsx)
     await grabHeader(page, 'plan', 103, 57)
 
-    // Already snapped mid-drag: 603 -> 600, 357 -> 360.
+    // Placement is free: no grid without Shift.
     await expect(panel(page, 'plan')).toHaveAttribute('data-dragging', '')
-    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 600, y: 360, width: 300, height: 200 })
+    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 603, y: 357, width: 300, height: 200 })
     expect(saves).toHaveLength(0)
 
     // Every frame after the drop shows it where it landed: no slide over from its old spot.
@@ -77,12 +77,12 @@ test.describe('moving a panel by its header', () => {
     })
     await page.mouse.up()
     const lefts = await page.evaluate(() => (window as unknown as { __lefts: Promise<number[]> }).__lefts)
-    expect(new Set(lefts)).toEqual(new Set([600]))
+    expect(new Set(lefts)).toEqual(new Set([603]))
     await expect(panel(page, 'plan')).not.toHaveAttribute('data-dragging')
-    expect(await boxOf(page, 'plan')).toEqual({ x: 600, y: 360, width: 300, height: 200 })
+    expect(await boxOf(page, 'plan')).toEqual({ x: 603, y: 357, width: 300, height: 200 })
     expect(saves).toHaveLength(1)
-    expect(saves[0]!.find((p) => p.id === 'plan')).toMatchObject({ pos_x: 600, pos_y: 360 })
-    await expect(announced(page)).toHaveText('Plan moved to 600, 360.')
+    expect(saves[0]!.find((p) => p.id === 'plan')).toMatchObject({ pos_x: 603, pos_y: 357 })
+    await expect(announced(page)).toHaveText('Plan moved to 603, 357.')
   })
 
   test('a drag past the edge keeps the panel on the board while dragging, not only on release', async ({ mount, page }) => {
@@ -101,7 +101,7 @@ test.describe('moving a panel by its header', () => {
     const { jsx, saves } = board()
     await mount(jsx)
     await grabHeader(page, 'plan', 103, 57)
-    await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 600, y: 360 })
+    await expect.poll(() => boxOf(page, 'plan')).toMatchObject({ x: 603, y: 357 })
 
     await page.keyboard.press('Escape')
     await expect(panel(page, 'plan')).not.toHaveAttribute('data-dragging')
@@ -123,28 +123,29 @@ test.describe('moving a panel by its header', () => {
 })
 
 test.describe('resizing a panel by a handle', () => {
-  test('a corner drag resizes on the 20px grid, shown while dragging, and saves once', async ({ mount, page }) => {
+  test('a corner drag resizes freely (off the grid), shown while dragging, and saves once', async ({ mount, page }) => {
     const { jsx, saves } = board()
     await mount(jsx)
     await grabHandle(page, 'Resize Plan bottom right', 97, 13)
 
-    // 397 -> 400, 213 -> 220; the top-left corner stays put.
-    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
+    // 397 x 213; the top-left corner stays put.
+    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 397, height: 213 })
     await page.mouse.up()
-    expect(await boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
+    expect(await boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 397, height: 213 })
     expect(saves).toHaveLength(1)
-    await expect(announced(page)).toHaveText('Plan resized to 400 by 220.')
+    await expect(announced(page)).toHaveText('Plan resized to 397 by 213.')
   })
 
-  test('Shift on a corner keeps the panel’s shape', async ({ mount, page }) => {
+  test('Shift on a corner snaps its edges to the grid, shown while dragging, and keeps no shape', async ({ mount, page }) => {
     await mount(board().jsx)
     await page.keyboard.down('Shift')
     await grabHandle(page, 'Resize Plan bottom right', 97, 13)
-    // 3:2 kept from the wider change: 397 x 264.7, on the grid 400 x 260.
-    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 260 })
+    // 397 x 213 on the grid: 400 x 220 (keeping the 3:2 shape would be 400 x 260).
+    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
+    await expect(page.getByTestId('snap-outline')).toHaveCSS('height', '220px')
     await page.mouse.up()
     await page.keyboard.up('Shift')
-    expect(await boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 260 })
+    expect(await boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
   })
 
   test('a top-left drag keeps the bottom-right corner and stops at the widget minimum while dragging', async ({ mount, page }) => {
@@ -201,7 +202,7 @@ test.describe('gliding, and not while dragging', () => {
   test('nor while a handle resizes it', async ({ mount, page }) => {
     await mount(board().jsx)
     await grabHandle(page, 'Resize Plan bottom right', 97, 13)
-    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
+    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 397, height: 213 })
     const resized = await offsetsFrom(page, 'plan', 'now')
     expect(new Set(await resized())).toEqual(new Set([0]))
     await page.mouse.up()
@@ -368,7 +369,7 @@ test.describe('Canvas gestures', () => {
     await startDrag(page, a, 393, 33)
     await page.mouse.up()
 
-    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 420, y: 60 })
+    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 413, y: 53 })
     expect(overlap(await layoutOf(a), await layoutOf(component.getByTestId('panel-b')))).toBe(true)
     await expect(component.getByTestId('panel-b')).toHaveCSS('left', '400px')
     await expect(component.getByTestId('snap-outline')).toHaveCount(0)
@@ -416,7 +417,7 @@ test.describe('Canvas gestures', () => {
     await page.mouse.move(from.x + 391, from.y + 31, { steps: 2 })
     await page.mouse.up()
 
-    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 420, y: 60 })
+    await expect.poll(() => layoutOf(a)).toMatchObject({ x: 411, y: 51 })
     await expect(component.getByTestId('panel-b')).toHaveCSS('left', '400px')
   })
 
@@ -424,10 +425,7 @@ test.describe('Canvas gestures', () => {
     const component = await mount(<CanvasHarness panels={[A, B]} />)
     const a = component.getByTestId('panel-a')
     await a.hover()
-    // Shift on a handle also keeps the widget's shape (K5). On the right edge
-    // that grows it about its middle, which the canvas's top stops at 360px
-    // wide here, short of b; the corner grows it down and right, over b.
-    const handle = (await a.getByTestId('resize-handle-se').boundingBox())!
+    const handle = (await a.getByTestId('resize-handle-e').boundingBox())!
     await page.keyboard.down('Shift')
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
     await page.mouse.down()
@@ -467,6 +465,22 @@ test.describe('Canvas gestures', () => {
     await page.mouse.up()
     await page.keyboard.up('Shift')
     await expect.poll(() => layoutOf(a)).toMatchObject({ x: 20, y: 20 })
+  })
+
+  test('a Shift resize keeps the gap from the canvas edge', async ({ mount, page }) => {
+    const component = await mount(<CanvasHarness panels={[A]} />)
+    const a = component.getByTestId('panel-a')
+    await a.hover()
+    const handle = (await a.getByTestId('resize-handle-w').boundingBox())!
+    await page.keyboard.down('Shift')
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle.x - 100, handle.y + handle.height / 2, { steps: 8 })
+    // Its left edge stays 20px in from the canvas's, the right edge put.
+    await expect(component.getByTestId('snap-outline')).toHaveCSS('left', '20px')
+    await page.mouse.up()
+    await page.keyboard.up('Shift')
+    await expect.poll(() => layoutOf(a)).toEqual({ x: 20, y: 20, width: 300, height: 200 })
   })
 
   test('with reduced motion, a nudged widget is put straight down where it lands', async ({ mount, page }) => {
