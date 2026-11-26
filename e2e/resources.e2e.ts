@@ -1,6 +1,7 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
 import { PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { motionSettled } from './settle'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
 
@@ -193,6 +194,8 @@ test.describe('Resources on a phone', () => {
     await panel.getByRole('button', { name: 'Mitochondrial DNA - key points', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Note' })
     await expect(dialog).toBeVisible()
+    // The dialog opens with a scale-in: measure once it has landed.
+    await motionSettled(dialog)
     const box = await dialog.boundingBox()
     expect(box?.width).toBe(400)
     expect(box?.height).toBe(860)
