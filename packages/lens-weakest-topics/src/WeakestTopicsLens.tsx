@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { WeakTopic } from '@pls/substrate'
 import { type LensProps, useSubstrate } from '@pls/lens-framework'
-import { cn, courseTone, EmptyState, HiddenElsewhere, formatTime } from '@pls/shared-ui'
+import { cn, EmptyState, HiddenElsewhere, NEUTRAL_TONE, formatTime, useCourse } from '@pls/shared-ui'
 import { ArrowUpRight, CircleHelp } from 'lucide-react'
 
 const LIMIT = 8
@@ -70,6 +70,21 @@ export default function WeakestTopicsLens({ scope, onShowMoment }: LensProps) {
   )
 }
 
+/**
+ * Scrolls `el` into view within the topic list only. Not `scrollIntoView`,
+ * which also scrolls the board: a row remounted while the shell glides the
+ * board to the Transcript (the list refetches when the moment changes the
+ * board's course) would stop that glide.
+ */
+function scrollIntoList(el: HTMLElement) {
+  const list = el.closest('ul')
+  if (!list) return
+  const l = list.getBoundingClientRect()
+  const r = el.getBoundingClientRect()
+  if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
+  else if (r.top < l.top) list.scrollTop -= l.top - r.top
+}
+
 interface TopicRowProps {
   topic: WeakTopic
   showCourse: boolean
@@ -79,14 +94,15 @@ interface TopicRowProps {
 }
 
 function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) {
-  const tone = courseTone(topic.course)
+  const course = useCourse(topic.course)
+  const tone = course?.tone ?? NEUTRAL_TONE
   const where = `${lectureName(topic.recordingTitle)} · ${formatTime(topic.offsetMs)}`
   const linkButton = 'inline-flex items-center gap-1 text-meta font-semibold text-accent hover:underline'
 
   // Keep where the click went in view, even for a row low in a short panel.
   const messageRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (state && state !== 'shown') messageRef.current?.scrollIntoView({ block: 'nearest' })
+    if (state && state !== 'shown' && messageRef.current) scrollIntoList(messageRef.current)
   }, [state])
 
   const body = (
@@ -104,11 +120,12 @@ function TopicRow({ topic, showCourse, state, canShow, onShow }: TopicRowProps) 
           {showCourse && (
             <>
               <span aria-hidden className={cn('mr-1.5 inline-block h-2 w-2 rounded-full', tone.stripe)} />
-              <span className={cn('font-semibold capitalize', tone.ink)}>{topic.course}</span>
+              <span className={cn('font-semibold', tone.ink)}>{course?.name}</span>
               {' · '}
             </>
           )}
-          {where}
+          {/* The lecture and its moment wrap as one: to the next line whole rather than split mid-name. */}
+          <span className="inline-block">{where}</span>
         </span>
       </span>
 

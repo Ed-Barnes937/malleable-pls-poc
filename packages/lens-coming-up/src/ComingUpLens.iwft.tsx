@@ -92,7 +92,9 @@ test('the look-ahead is a knob saved to the widget config', async ({ mount, page
   await expect(page.getByText('Essay')).toBeVisible()
 })
 
-test('says so calmly when nothing is due', async ({ mount, page }) => {
+// The simulator starts with no plan items: the list really is empty, rather
+// than failing to load.
+test('says so calmly when nothing is due', async ({ mount, page, simulator: _empty }) => {
   await mount(
     <TestProviders>
       <ComingUpLens {...defaultProps} config={{ lookAheadDays: 7 }} />
@@ -108,7 +110,7 @@ test('clicking a deadline focuses the board on its course', async ({ mount, page
 
   await mount(
     <TestProviders>
-      <ComingUpLens {...defaultProps} onScopeChange={(patch) => courses.push(patch.courseTag)} />
+      <ComingUpLens {...defaultProps} onScopeChange={(patch) => { courses.push(patch.courseTag) }} />
     </TestProviders>,
   )
 
@@ -116,13 +118,13 @@ test('clicking a deadline focuses the board on its course', async ({ mount, page
   await expect.poll(() => courses).toEqual(['chemistry'])
 })
 
-test('a focused lecture highlights deadlines linked to it', async ({ mount, page, simulator }) => {
+test('a selected lecture highlights deadlines linked to it', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   seedPlanItem(simulator, { id: 'linked', kind: 'deadline', title: 'Lecture quiz', course: 'biology', due_at: daysFromNow(2, 9), source_type: 'recording', source_id: 'rec-bio-4' })
 
   await mount(
     <TestProviders>
-      <ComingUpLens {...defaultProps} highlight={{ recordingId: 'rec-bio-4' }} />
+      <ComingUpLens {...defaultProps} highlight={{ lectureId: 'lec-rec-bio-4' }} />
     </TestProviders>,
   )
 

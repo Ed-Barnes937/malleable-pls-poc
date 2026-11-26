@@ -3,7 +3,15 @@ import { TRPCError } from '@trpc/server'
 import type { JSONValue } from 'postgres'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
-import { inCourse, requireOwnBoard } from './_shared'
+import type { BoardScope, WorkspacePanel, WorkspaceSummary } from '@pls/substrate'
+import { courseId, requireOwnBoard, requireOwnCourse } from './_shared'
+import { lockBoardScopeRows, replaceScopeRow, restoreBoardScope, writeBoardScope } from './_board-scope'
+
+/** A board scope as `setBoardScope` returns it (null = unset), validated as `setBoardScope` validates it. */
+const boardScope = z.object({
+  courseTag: courseId.nullable(),
+  lectureId: z.string().max(255).nullable(),
+})
 
 export const workspacesRouter = router({
   list: publicProcedure
@@ -13,11 +21,40 @@ export const workspacesRouter = router({
       })
     }),
 
+  /**
+   * Every board with the widget types on it (oldest panel first), in tab
+   * order, in one query: what "Also open in" and other cross-board choices
+   * read, by what a board contains rather than its name.
+   */
+  summary: publicProcedure
+    .query(async ({ ctx }): Promise<WorkspaceSummary[]> => {
+      return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`
+          SELECT w.id, w.name, w.sort_order,
+            COALESCE(
+              array_agg(p.lens_type ORDER BY p.created_at, p.id) FILTER (WHERE p.id IS NOT NULL),
+              '{}'
+            ) AS lens_types
+          FROM workspaces w
+          LEFT JOIN workspace_panels p ON p.workspace_id = w.id AND p.user_id = ${ctx.userId}
+          WHERE w.user_id = ${ctx.userId}
+          GROUP BY w.id
+          ORDER BY w.sort_order, w.created_at, w.id
+        `
+        return rows.map((r) => ({
+          id: r.id as string,
+          name: r.name as string,
+          sort_order: r.sort_order as number,
+          lens_types: r.lens_types as string[],
+        }))
+      })
+    }),
+
   panels: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        return tx`
+        return tx<WorkspacePanel[]>`
           SELECT * FROM workspace_panels
           WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
           ORDER BY created_at
@@ -29,21 +66,18 @@ export const workspacesRouter = router({
     .input(z.object({
       name: z.string().max(500).min(1),
       // Optional board course, stored as the board's 'tag' scope.
-      courseTag: z.string().max(1000).min(1).optional(),
+      courseTag: courseId.optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        if (input.courseTag) await requireOwnCourse(tx, ctx.userId, input.courseTag)
         const [ws] = await tx`
           INSERT INTO workspaces (user_id, name, sort_order)
           VALUES (${ctx.userId}, ${input.name}, (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM workspaces WHERE user_id = ${ctx.userId}))
           RETURNING *
         `
-        if (input.courseTag) {
-          await tx`
-            INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
-            VALUES (${ctx.userId}, ${ws.id}, 'tag', ${input.courseTag})
-          `
-        }
+        // A board no other transaction can see yet, so no scope lock.
+        if (input.courseTag) await replaceScopeRow(tx, ctx.userId, ws.id as string, 'tag', input.courseTag)
         return ws
       })
     }),
@@ -95,6 +129,18 @@ export const workspacesRouter = router({
     .input(z.string().max(255))
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // The board, then its scope rows in the protocol's order (lecture
+        // row, then course row), before the delete cascades to them in
+        // whatever order they lie on disk: a course change refiling the
+        // board holds its lecture row and then wants its course row, so
+        // deleting the course row first could deadlock with it (the
+        // protocol in _board-scope.ts). Deleting a board that is gone, or
+        // not the student's, does nothing.
+        const [board] = await tx`
+          SELECT id FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId} FOR NO KEY UPDATE
+        `
+        if (!board) return
+        await lockBoardScopeRows(tx, ctx.userId, input)
         await tx`DELETE FROM workspaces WHERE id = ${input} AND user_id = ${ctx.userId}`
       })
     }),
@@ -181,53 +227,58 @@ export const workspacesRouter = router({
       })
     }),
 
+  /**
+   * The board's scope rows: 'tag' (course) and 'lecture' (selected lecture),
+   * at most one of each. Read with `decodeScope`; written only through
+   * `setBoardScope`.
+   */
   scopes: publicProcedure
     .input(z.string().max(255))
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         return tx`
-          SELECT * FROM workspace_scopes
+          SELECT id, user_id, workspace_id, scope_type, scope_value FROM workspace_scopes
           WHERE workspace_id = ${input} AND user_id = ${ctx.userId}
+          ORDER BY scope_type
         `
       })
     }),
 
-  setScope: publicProcedure
+  /**
+   * Sets the board's course and/or lecture in one transaction (absent =
+   * unchanged, null = clear), enforcing the board scope invariants (see
+   * `writeBoardScope`): on a board with a course a selected lecture brings
+   * its course (an "All courses" board stays so), and a course change
+   * clears a lecture outside it. Returns the board's scope after.
+   */
+  setBoardScope: publicProcedure
     .input(z.object({
       workspaceId: z.string().max(255),
-      // Only live board dimensions ('tag' = course, 'recording' = focus);
-      // the removed 'timeframe' is rejected so stale clients can't write it.
-      scopeType: z.enum(['tag', 'recording']),
-      scopeValue: z.string().max(1000).nullable(),
+      courseTag: courseId.nullable().optional(),
+      lectureId: z.string().max(255).nullable().optional(),
     }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx, input: { workspaceId, ...patch } }): Promise<BoardScope> => {
       return withUser(ctx.userId, async (tx) => {
-        await requireOwnBoard(tx, ctx.userId, input.workspaceId)
-        if (input.scopeType === 'tag' && input.scopeValue !== null) {
-          // A focused lecture outside the new course would be an orphan: clear
-          // it in the same transaction. "All courses" (null) keeps any focus.
-          await tx`
-            DELETE FROM workspace_scopes ws
-            WHERE ws.workspace_id = ${input.workspaceId}
-              AND ws.scope_type = 'recording' AND ws.user_id = ${ctx.userId}
-              AND NOT ${inCourse(tx, ctx.userId, input.scopeValue, 'recording', tx`ws.scope_value`)}
-          `
-        }
-        if (input.scopeValue === null) {
-          await tx`
-            DELETE FROM workspace_scopes
-            WHERE workspace_id = ${input.workspaceId} AND scope_type = ${input.scopeType} AND user_id = ${ctx.userId}
-          `
-          return
-        }
-        await tx`
-          DELETE FROM workspace_scopes
-          WHERE workspace_id = ${input.workspaceId} AND scope_type = ${input.scopeType} AND user_id = ${ctx.userId}
-        `
-        await tx`
-          INSERT INTO workspace_scopes (user_id, workspace_id, scope_type, scope_value)
-          VALUES (${ctx.userId}, ${input.workspaceId}, ${input.scopeType}, ${input.scopeValue})
-        `
+        return writeBoardScope(tx, ctx.userId, workspaceId, patch)
+      })
+    }),
+
+  /**
+   * Undo for a board scope change: puts back `to` only if the board still
+   * shows `ifBoardShows` (what that change left), so a change made since,
+   * anywhere, is kept (`restored: false`, nothing written). A lecture in
+   * `to` comes back with the course it has now; one that is gone leaves
+   * just `to`'s course. Returns the board's scope after.
+   */
+  restoreBoardScope: publicProcedure
+    .input(z.object({
+      workspaceId: z.string().max(255),
+      to: boardScope,
+      ifBoardShows: boardScope,
+    }))
+    .mutation(async ({ ctx, input }): Promise<{ restored: boolean; scope: BoardScope }> => {
+      return withUser(ctx.userId, async (tx) => {
+        return restoreBoardScope(tx, ctx.userId, input.workspaceId, input.to, input.ifBoardShows)
       })
     }),
 })

@@ -1,10 +1,12 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { TestProviders } from '../../../playwright/mount-wrapper'
 import TranscriptLens from './TranscriptLens'
+import { REVIEW_WAIT_MS } from './pending-reviews'
+import { seedPlanItem } from '../../../playwright/plan-items'
 
 const defaultProps = {
   panelId: 'test-panel',
-  scope: { recordingId: 'rec-bio-4' },
+  scope: { lectureId: 'lec-rec-bio-4' },
   config: { mode: 'review' },
 }
 
@@ -54,7 +56,7 @@ test('shows the lecture summary at the top and the review a confused moment beca
     starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
     duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
     // seg-bio4-04 starts at 540000 ms.
-    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null,
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
     created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
   })
   await mount(
@@ -143,7 +145,7 @@ test('a long summary in a short widget leaves the transcript room to take clicks
   await page.getByText(/continuing our discussion of mitochondria/).click({ trial: true, timeout: 3000 })
 })
 
-function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed', recordingId: string) {
+function jobRun(id: string, jobType: string, status: 'pending' | 'running' | 'completed' | 'failed', recordingId: string) {
   return {
     id, workflow_id: 'wf-test', workflow_job_id: 'wfj-test', job_type: jobType, status,
     input: JSON.stringify({ recording_id: recordingId }), output: null, error: null, depth: 0,
@@ -157,11 +159,11 @@ const newLecture = {
 }
 
 test('says the lecture is being transcribed instead of showing an empty transcript', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push(newLecture)
+  simulator.db.addRecording(newLecture)
   simulator.db.jobRuns.push(jobRun('jr-t', 'ai:transcribe', 'running', 'rec-new'))
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-new' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
 
@@ -169,14 +171,18 @@ test('says the lecture is being transcribed instead of showing an empty transcri
   await expect(page.getByTestId('transcribing')).toHaveText('Transcribing your lecture...')
   await expect(page.getByText(/segments/)).toHaveCount(0)
 
-  // Once the job is done, the next refresh drops the note.
+  // Once the job is done (the lecture is 'ready', as the real job leaves it),
+  // the next refresh drops the note; it had nothing to say, which is not "never transcribed".
   simulator.db.jobRuns.find((j) => j.id === 'jr-t')!.status = 'completed'
+  simulator.db.recordings.find((r) => r.id === 'rec-new')!.status = 'ready'
   await expect(page.getByTestId('transcribing')).toHaveCount(0, { timeout: 10000 })
   await expect(page.getByText('0 segments')).toBeVisible()
+  await expect(page.getByTestId('untranscribed')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Transcribe it' })).toHaveCount(0)
 })
 
 test('says the summary is being written above the transcript', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push(newLecture)
+  simulator.db.addRecording(newLecture)
   simulator.db.transcriptSegments.push({
     id: 'seg-new-1', recording_id: 'rec-new', start_ms: 0, end_ms: 5000, text: 'Today: mitochondria.', speaker: null,
   })
@@ -184,7 +190,7 @@ test('says the summary is being written above the transcript', async ({ mount, p
   simulator.db.jobRuns.push(jobRun('jr-s', 'ai:summarize-lecture', 'pending', 'rec-new'))
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-new' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-new' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
 
@@ -195,7 +201,7 @@ test('says the summary is being written above the transcript', async ({ mount, p
   await expect(page.getByTestId('transcribing')).toHaveCount(0)
 })
 
-test('shows empty state when no recording selected', async ({ mount, page, simulator }) => {
+test('shows empty state when no lecture is selected', async ({ mount, page, simulator }) => {
   await mount(
     <TestProviders>
       <TranscriptLens panelId="test" scope={{}} config={{}} />
@@ -203,6 +209,77 @@ test('shows empty state when no recording selected', async ({ mount, page, simul
   )
 
   await expect(page.getByText('Pick a lecture to see its transcript')).toBeVisible()
+})
+
+test("with no lecture, offers the course's latest lectures as one-click choices", async ({ mount, page, simulator }) => {
+  const picked: (string | undefined)[] = []
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ courseTag: 'biology' }} config={{}} onScopeChange={(patch) => { picked.push(patch.lectureId) }} />
+    </TestProviders>,
+  )
+
+  const recent = page.getByRole('list', { name: 'Recent lectures' }).getByRole('button')
+  // Biology only, latest first.
+  await expect(recent).toHaveText([
+    'Biology Lecture: Mitochondrial DNA',
+    'Biology Lecture: Mitochondria & Energy',
+    'Biology Lecture: Cell Division',
+    'Biology Lecture: Cell Structure',
+  ])
+  await recent.first().click()
+  expect(picked).toEqual(['lec-rec-bio-4'])
+})
+
+test('a lecture with no recording yet says so', async ({ mount, page, simulator }) => {
+  simulator.db.lectures.push({
+    id: 'lec-empty', title: 'Biology lecture 30 Oct, 10:04', course: 'biology', starts_at: '2026-10-30T10:04:00Z',
+    class_item_id: null, class_date: null, created_at: '2026-10-30T10:04:00Z', updated_at: '2026-10-30T10:04:00Z',
+  })
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-empty', courseTag: 'biology' }} config={{}} />
+    </TestProviders>,
+  )
+
+  await expect(page.getByText('Biology lecture 30 Oct, 10:04')).toBeVisible()
+  await expect(page.getByText('No recording yet')).toBeVisible()
+  await expect(page.getByText('Pick a lecture to see its transcript')).toHaveCount(0)
+})
+
+test('a lecture recorded in two parts shows the latest, and a moment opens the part it is in', async ({ mount, page, simulator }) => {
+  simulator.db.addRecording(
+    { id: 'rec-bio-4b', title: 'Part two', created_at: '2026-04-16T11:00:00Z', duration: 60000, audio_url: null, status: 'ready' },
+    { lectureId: 'lec-rec-bio-4' },
+  )
+  simulator.db.transcriptSegments.push({
+    id: 'seg-bio4b-1', recording_id: 'rec-bio-4b', start_ms: 0, end_ms: 5000, text: 'After the break: chloroplasts.', speaker: null,
+  })
+  const component = await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} />
+    </TestProviders>,
+  )
+
+  const parts = page.getByRole('group', { name: 'Lecture parts' }).getByRole('button')
+  await expect(parts).toHaveText(['Part 1', 'Part 2'])
+  await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText('After the break: chloroplasts.')).toBeVisible()
+  await expect(page.getByText('Biology Lecture: Mitochondrial DNA')).toBeVisible()
+
+  await parts.first().click()
+  await expect(page.getByText(/Today we're continuing our discussion of mitochondria/)).toBeVisible()
+  await expect(page.getByText('After the break: chloroplasts.')).toHaveCount(0)
+
+  // A moment in part 2 switches to it.
+  await parts.first().click()
+  await component.update(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} focusedMoment={{ recordingId: 'rec-bio-4b', offsetMs: 1000, id: 9 }} />
+    </TestProviders>,
+  )
+  await expect(parts.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('[data-moment]')).toContainText('After the break: chloroplasts.')
 })
 
 test('scrolls to and highlights a moment another widget asked to show', async ({ mount, page, simulator }) => {
@@ -227,7 +304,7 @@ test('scrolls to and highlights a moment another widget asked to show', async ({
 })
 
 test('a moment taller than the transcript shows from its first line', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-long', title: 'Long moment', created_at: '2026-04-16T10:00:00Z',
     duration: 600000, audio_url: null, status: 'ready',
   })
@@ -243,7 +320,7 @@ test('a moment taller than the transcript shows from its first line', async ({ m
   await mount(
     <TestProviders>
       <div style={{ height: 300, width: 400, display: 'flex', flexDirection: 'column' }}>
-        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-long' }} config={{ mode: 'review' }} focusedMoment={{ recordingId: 'rec-long', offsetMs: 6 * 30000, id: 3 }} />
+        <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-long' }} config={{ mode: 'review' }} focusedMoment={{ recordingId: 'rec-long', offsetMs: 6 * 30000, id: 3 }} />
       </div>
     </TestProviders>,
   )
@@ -273,11 +350,11 @@ test('ignores a moment from another lecture', async ({ mount, page, simulator })
   await expect(page.locator('[data-moment]')).toHaveCount(0)
 })
 
-test('a lecture focused outside the board course keeps its tags, and new tags appear', async ({ mount, page, simulator }) => {
-  // Biology board, Chemistry lecture focused: the targeted lecture wins.
+test("a lecture's own tags and notes show under its course, and new tags appear", async ({ mount, page, simulator }) => {
+  // A Chemistry lecture selected brings its course (the board rule).
   await mount(
     <TestProviders>
-      <TranscriptLens {...defaultProps} scope={{ recordingId: 'rec-chem-1', courseTag: 'biology' }} />
+      <TranscriptLens {...defaultProps} scope={{ lectureId: 'lec-rec-chem-1', courseTag: 'chemistry' }} />
     </TestProviders>,
   )
 
@@ -286,13 +363,79 @@ test('a lecture focused outside the board course keeps its tags, and new tags ap
   await expect(page.getByText('SN1 vs SN2 still confusing')).toBeVisible()
 
   await page.getByText(/Good afternoon. Today we begin organic reactions/).click()
-  const confusedButton = page.getByRole('button', { name: 'confused', exact: true })
+  const confusedButton = page.getByRole('button', { name: 'Confused', exact: true })
   await expect(confusedButton).toBeVisible()
   const before = await page.locator('text=confused').count()
   await confusedButton.click()
   await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-chem1-01' && t.label === 'confused').length).toBe(1)
-  // The new pill appears even though the lecture is outside the course.
   await expect(page.locator('text=confused')).toHaveCount(before + 1)
+})
+
+test.describe('marking a moment confusing shows the review being planned', () => {
+  const chemistry = { ...defaultProps, scope: { lectureId: 'lec-rec-chem-1', courseTag: 'chemistry' } }
+  const markFirstMoment = async (page: import('@playwright/test').Page) => {
+    await page.getByText(/Good afternoon. Today we begin organic reactions/).click()
+    await page.getByRole('button', { name: 'Confused', exact: true }).click()
+  }
+
+  test('"Planning a review..." at once, and "No review yet" if none comes in time', async ({ mount, page, simulator }) => {
+    expect(simulator.db.workflows.find((w) => w.id === 'wf-confused-review')?.enabled).toBe(1)
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await expect(page.getByText(/Good afternoon. Today we begin organic reactions/)).toBeVisible()
+    // From here, time passes only when the test says so.
+    await page.clock.install()
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
+
+    // The automation hasn't answered (slow, or it failed): the moment stops saying it is planning.
+    await page.clock.runFor(REVIEW_WAIT_MS)
+    await expect(page.getByTestId('review-chip-pending')).toHaveCount(0)
+    const late = page.getByTestId('review-chip-late')
+    await expect(late).toHaveText('No review yet')
+    // Not "planned": one may still come, so no hint to turn the automation on.
+    await expect(late).not.toHaveAttribute('title')
+    await expect(page.getByTestId('review-chip-none')).toHaveCount(0)
+  })
+
+  test('a review that arrives after "No review yet" takes its place', async ({ mount, page, simulator }) => {
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await expect(page.getByText(/Good afternoon. Today we begin organic reactions/)).toBeVisible()
+    await page.clock.install()
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-pending')).toHaveText('Planning a review...')
+    await page.clock.runFor(REVIEW_WAIT_MS)
+    await expect(page.getByTestId('review-chip-late')).toHaveText('No review yet')
+
+    // The slow automation finishes: its review of the moment (seg-chem1-01, at 0:00) lands.
+    seedPlanItem(simulator, {
+      id: 'late-review', kind: 'task', title: 'Review: organic reactions', subtype: 'review', duration_min: 20,
+      starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z',
+      source_type: 'recording', source_id: 'rec-chem-1', source_offset_ms: 0,
+    })
+    await page.evaluate(() => window.dispatchEvent(new Event('visibilitychange')))
+    await expect(page.getByTestId('review-chip')).toHaveAttribute('title', 'Review: organic reactions')
+    await expect(page.getByTestId('review-chip-late')).toHaveCount(0)
+  })
+
+  test('says at once that no review is planned when the review automation is off', async ({ mount, page, simulator }) => {
+    simulator.db.workflows.find((w) => w.id === 'wf-confused-review')!.enabled = 0
+    await mount(
+      <TestProviders>
+        <TranscriptLens {...chemistry} />
+      </TestProviders>,
+    )
+    await markFirstMoment(page)
+    await expect(page.getByTestId('review-chip-none')).toHaveText('No review planned')
+    await expect(page.getByTestId('review-chip-pending')).toHaveCount(0)
+  })
 })
 
 test('landing on a moment folds the summary to one line and outlines the moment in the lecture course', async ({ mount, page, simulator }) => {
@@ -315,7 +458,7 @@ test('landing on a moment folds the summary to one line and outlines the moment 
   await expect(moment).toContainText('inherited exclusively from the maternal line')
   await expect(moment).toBeInViewport()
   // The moment's box (with its tags and chips) is outlined in course colour.
-  await expect(moment).toHaveClass(/border-course-biology/)
+  await expect(moment).toHaveClass(/border-course-green/)
   await expect(page.getByText('Biology', { exact: true })).toBeVisible()
 
   const summary = page.getByRole('region', { name: 'Lecture summary' })
@@ -421,7 +564,7 @@ test('gutter marks and a scroll rail show every tagged moment', async ({ mount, 
 
 test('a rail with many tagged moments keeps every 24px target apart and reachable by keyboard', async ({ mount, page, simulator }) => {
   const total = 20
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-many', title: 'Long lecture', created_at: '2026-04-16T10:00:00Z', duration: total * 60000, audio_url: null, status: 'ready',
   })
   for (let i = 0; i < total; i++) {
@@ -432,7 +575,7 @@ test('a rail with many tagged moments keeps every 24px target apart and reachabl
   await mount(
     <TestProviders>
       <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
-        <TranscriptLens panelId="test" scope={{ recordingId: 'rec-many' }} config={{ mode: 'review' }} />
+        <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-many' }} config={{ mode: 'review' }} />
       </div>
     </TestProviders>,
   )
@@ -457,15 +600,129 @@ test('a rail with many tagged moments keeps every 24px target apart and reachabl
 })
 
 test('a lecture with no course of its own falls back to the board course', async ({ mount, page, simulator }) => {
-  simulator.db.recordings.push({
+  simulator.db.addRecording({
     id: 'rec-plain', title: 'Untitled lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: null, status: 'ready',
   })
   simulator.db.transcriptSegments.push({ id: 'seg-plain-1', recording_id: 'rec-plain', start_ms: 0, end_ms: 5000, text: 'Hello.', speaker: null })
   await mount(
     <TestProviders>
-      <TranscriptLens panelId="test" scope={{ recordingId: 'rec-plain', courseTag: 'chemistry' }} config={{ mode: 'review' }} />
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-plain', courseTag: 'chemistry' }} config={{ mode: 'review' }} />
     </TestProviders>,
   )
   await expect(page.getByText('Untitled lecture')).toBeVisible()
   await expect(page.getByText('Chemistry', { exact: true })).toBeVisible()
+})
+
+test('a lecture nothing transcribed says so and offers to transcribe it', async ({ mount, page, simulator }) => {
+  // A run that failed leaves the lecture untranscribed too.
+  simulator.db.jobRuns.push(jobRun('jr-failed', 'ai:transcribe', 'failed', 'rec-raw'))
+  simulator.db.addRecording({
+    id: 'rec-raw', title: 'Raw lecture', created_at: '2026-04-16T10:00:00Z', duration: 60000, audio_url: '/uploads/raw.wav', status: 'uploaded',
+  })
+  await mount(
+    <TestProviders>
+      <TranscriptLens panelId="test" scope={{ lectureId: 'lec-rec-raw' }} config={{ mode: 'review' }} />
+    </TestProviders>,
+  )
+  await expect(page.getByText("This lecture isn't transcribed yet.")).toBeVisible()
+  await expect(page.getByText('0 segments')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Transcribe it' }).click()
+  // Queued, so the transcript now says it is on its way instead of offering again.
+  await expect(page.getByTestId('transcribing')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transcribe it' })).toHaveCount(0)
+})
+
+test('tags toggle: pressed shows aria-pressed, and a second click takes the tag off instead of adding it twice', async ({ mount, page, simulator }) => {
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} />
+    </TestProviders>,
+  )
+  // seg-bio4-02 has no tags in the seed.
+  await page.locator('[data-segment-id="seg-bio4-02"] > button').click()
+  const question = page.getByRole('button', { name: 'Question', exact: true })
+  await expect(question).toHaveAttribute('aria-pressed', 'false')
+  await question.click()
+  await expect(question).toHaveAttribute('aria-pressed', 'true')
+  const onSeg = () => simulator.db.tags.filter((t) => t.target_id === 'seg-bio4-02' && t.label === 'question').length
+  await expect.poll(onSeg).toBe(1)
+  await question.click()
+  await expect(question).toHaveAttribute('aria-pressed', 'false')
+  await expect.poll(onSeg).toBe(0)
+  // No Sorted until the moment is confusing.
+  await expect(page.getByTestId('tag-toggle-sorted')).toHaveCount(0)
+})
+
+test('a confusing moment can be marked sorted, keeps confused as history, and un-sorted again', async ({ mount, page, simulator }) => {
+  simulator.db.planItems.push({
+    id: 'pi-review', kind: 'task', title: 'Review: maternal inheritance',
+    starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
+    duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
+    created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
+  })
+  const notices: { message: string; action?: { label: string } }[] = []
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} onNotify={(n) => { notices.push(n) }} />
+    </TestProviders>,
+  )
+  const moment = page.locator('[data-segment-id="seg-bio4-04"]')
+  await expect(moment.getByTestId('review-chip')).toBeVisible()
+  // seg-bio4-04 is seeded as confused.
+  await moment.locator('> button').click()
+  const confused = page.getByRole('button', { name: 'Confused', exact: true })
+  await expect(confused).toHaveAttribute('aria-pressed', 'true')
+  const sort = page.getByRole('button', { name: 'Mark sorted' })
+  await expect(sort).toHaveAttribute('aria-pressed', 'false')
+  await sort.click()
+
+  const sorted = page.getByRole('button', { name: 'Sorted', exact: true })
+  await expect(sorted).toHaveAttribute('aria-pressed', 'true')
+  await expect(moment.getByTestId('sorted-pill')).toBeVisible()
+  await expect(moment.getByText('was confusing')).toBeVisible()
+  await expect(moment.getByTestId('transcript-gutter-mark')).toHaveAttribute('data-tag', 'sorted')
+  // The review is dismissed, so its chip goes.
+  await expect(moment.getByTestId('review-chip')).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'pi-review')?.status).toBe('dismissed')
+  await expect.poll(() => notices.map((n) => [n.message, n.action?.label])).toEqual([['Marked sorted. Its review is off your plan', 'Undo']])
+
+  // Confused can't be turned off on a sorted moment: it is history.
+  await expect(confused).toHaveAttribute('aria-disabled', 'true')
+  await confused.click({ force: true })
+  await expect(confused).toHaveAttribute('aria-pressed', 'true')
+  expect(simulator.db.tags.filter((t) => t.target_id === 'seg-bio4-04' && t.label === 'confused')).toHaveLength(1)
+
+  // Un-sorting takes the sorted tag off; the confusing mark stays.
+  await sorted.click()
+  await expect(page.getByRole('button', { name: 'Mark sorted' })).toHaveAttribute('aria-pressed', 'false')
+  await expect(moment.getByTestId('sorted-pill')).toHaveCount(0)
+  await expect.poll(() => simulator.db.tags.filter((t) => t.target_id === 'seg-bio4-04').map((t) => t.label).sort()).toEqual(['confused', 'key-point'])
+  // Quietly said, with no Undo: it is the student's own small change.
+  await expect.poll(() => notices.at(-1)).toEqual({ message: 'Back on your moments to review', key: 'marks-seg-bio4-04' })
+})
+
+test('turning confused off takes its open review off the plan, with Undo that brings both back', async ({ mount, page, simulator }) => {
+  simulator.db.planItems.push({
+    id: 'pi-review', kind: 'task', title: 'Review: maternal inheritance',
+    starts_at: '2026-04-22T18:40:00.000Z', ends_at: '2026-04-22T19:00:00.000Z', due_at: null,
+    duration_min: 20, status: 'open', recurrence: null, subtype: 'review',
+    source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, created_by_workflow_id: null, course: null,
+    created_at: '2026-04-16T10:12:00Z', updated_at: '2026-04-16T10:12:00Z',
+  })
+  const notices: { message: string; action?: { label: string; onClick: () => void } }[] = []
+  await mount(
+    <TestProviders>
+      <TranscriptLens {...defaultProps} onNotify={(n) => { notices.push(n) }} />
+    </TestProviders>,
+  )
+  const moment = page.locator('[data-segment-id="seg-bio4-04"]')
+  await moment.locator('> button').click()
+  const confused = page.getByRole('button', { name: 'Confused', exact: true })
+  await confused.click()
+  await expect(confused).toHaveAttribute('aria-pressed', 'false')
+  await expect(moment.getByTestId('review-chip')).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'pi-review')?.status).toBe('dismissed')
+  await expect.poll(() => notices.map((n) => [n.message, n.action?.label])).toEqual([['No longer marked confusing. Its review is off your plan', 'Undo']])
 })

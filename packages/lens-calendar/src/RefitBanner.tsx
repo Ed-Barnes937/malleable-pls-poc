@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefitProposal } from '@pls/substrate'
-import { isConflictError, missedQuestion, movedNote, noFitLabel, refitAsk, type MissedBlocks } from '@pls/lens-framework'
+import { isConflictError, missedQuestion, noFitLabel, noFitNote, refitAsk, refitUndoCopy, type DraftUndo, type MissedBlocks } from '@pls/lens-framework'
 import { RotateCcw } from 'lucide-react'
+import { Presence } from '@pls/shared-ui'
 import type { Proposal, ProposalLayer } from './proposals'
 
 /** The proposal layer source for re-fitted blocks. */
@@ -27,8 +28,6 @@ export interface RefitDraft {
   missed: MissedBlocks
   /** What accepting re-fit ghosts writes: one atomic `planItems.refit` for all of them. */
   save: (proposals: Proposal[]) => Promise<unknown>
-  /** The new start (ISO) of each block moved in this preview so far. */
-  moved: ReadonlyArray<string>
   /**
    * The server refused the last accept (the week changed): `fresh` is the
    * preview fetched straight after (null while it loads), until its times
@@ -44,7 +43,7 @@ export interface RefitDraft {
   answered: ReadonlySet<string>
   /** The layer's `onDismiss`: the student dismissed these ghosts. */
   onDismiss: (proposals: Proposal[], source: string) => void
-  /** A new preview starts: nothing answered or moved yet. */
+  /** A new preview starts: nothing answered yet. */
   reset: () => void
 }
 
@@ -52,10 +51,10 @@ export interface RefitDraft {
  * The calendar's side of re-fitting: called before the proposal layer is
  * created, so its `save` can be the layer's `saveTogether.refit`. Accepting
  * goes through `planItems.refit` (never per-item updates), so the server's
- * atomic, stale-preview check covers every block.
+ * atomic, stale-preview check covers every block. A move is confirmed with
+ * `undo`'s toast (decision 30: no "Moved N blocks" note of its own).
  */
-export function useRefitDraft(missed: MissedBlocks): RefitDraft {
-  const [moved, setMoved] = useState<ReadonlyArray<string>>([])
+export function useRefitDraft(missed: MissedBlocks, undo: DraftUndo): RefitDraft {
   const [stale, setStale] = useState<{ fresh: RefitProposal[] | null } | null>(null)
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set())
   const answer = useCallback((ids: string[]) => setAnswered((prev) => new Set([...prev, ...ids])), [])
@@ -63,10 +62,12 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
   latest.current = missed
   const save = useCallback(async (proposals: Proposal[]) => {
     const { accept, refresh } = latest.current
+    // As they were before the move, for Undo.
+    const before = await undo.readBefore(proposals.map((p) => p.taskId))
     try {
       await accept(proposals.map((p) => ({ id: p.taskId, starts_at: p.startsAt, ends_at: p.endsAt })))
-      setMoved((prev) => [...prev, ...proposals.map((p) => p.startsAt)])
       answer(proposals.map((p) => p.taskId))
+      if (before) void undo.confirm({ before, ...refitUndoCopy(proposals.map((p) => p.title)) })
     } catch (err) {
       if (isConflictError(err)) {
         setStale({ fresh: null })
@@ -75,11 +76,10 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
       }
       throw err
     }
-  }, [answer])
+  }, [answer, undo])
   return {
     missed,
     save,
-    moved,
     stale,
     clearStale: useCallback(() => setStale(null), []),
     answered,
@@ -87,7 +87,6 @@ export function useRefitDraft(missed: MissedBlocks): RefitDraft {
       if (source === REFIT_SOURCE) answer(proposals.map((p) => p.taskId))
     }, [answer]),
     reset: useCallback(() => {
-      setMoved([])
       setStale(null)
       setAnswered(new Set())
     }, []),
@@ -113,7 +112,7 @@ export function RefitBanner({
   /** Bring a new time into view (e.g. switch to the week it is in). */
   onReveal: (startsAt: string) => void
 }) {
-  const { missed, moved, stale, clearStale, answered, reset } = refit
+  const { missed, stale, clearStale, answered, reset } = refit
   /** The blocks this preview asked about, and the ones with no new time. */
   const [session, setSession] = useState<{ asked: RefitProposal[]; noFit: RefitProposal[] } | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -140,11 +139,12 @@ export function RefitBanner({
     if (!session || previewing || stale) return
     missed.markHandled([...session.asked.filter((p) => answered.has(p.item.id)), ...session.noFit])
     missed.endPreview()
-    if (moved.length > 0 || session.noFit.length > 0) setNote(movedNote(moved, session.noFit))
+    // Moved blocks are confirmed by their Undo toast; only the ones that stay put are noted here.
+    if (session.noFit.length > 0) setNote(noFitNote(session.noFit))
     setSession(null)
     setChanged(false)
     reset()
-  }, [session, previewing, stale, moved, answered, missed, reset])
+  }, [session, previewing, stale, answered, missed, reset])
 
   // The server refused an accept because the week changed: once the fresh
   // preview is in, every block of this preview the student hasn't answered
@@ -163,7 +163,8 @@ export function RefitBanner({
 
   const asking = missed.proposals
   if (!previewing && asking.length === 0) {
-    return note ? <p role="status" data-testid="refit-note" className="shrink-0 text-meta text-text-secondary">{note}</p> : null
+    // The banner leaves with the shared motion (the same Presence as below).
+    return <Presence>{note ? <p role="status" data-testid="refit-note" className="shrink-0 px-1 text-meta text-text-secondary motion-safe:animate-enter">{note}</p> : null}</Presence>
   }
 
   // The times shown come from a preview fetched now, never one that may lag
@@ -185,7 +186,7 @@ export function RefitBanner({
     if (fits.length === 0) {
       // Nothing to show on the grid: say so once and leave them on the list.
       missed.markHandled(current)
-      setNote(movedNote([], noFit))
+      setNote(noFitNote(noFit))
       return
     }
     reset()
@@ -205,10 +206,11 @@ export function RefitBanner({
   const open = layer.proposals.filter((p) => !layer.savedIds.has(p.id)).length
 
   return (
+    <Presence>
     <section
       data-testid="refit-banner"
       aria-label="Blocks that didn't happen"
-      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5"
+      className="flex shrink-0 flex-col gap-1.5 rounded-item border border-attn-line bg-attn-soft px-3.5 py-2.5 motion-safe:animate-enter"
     >
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
         <RotateCcw className="h-4 w-4 shrink-0 text-attn" aria-hidden />
@@ -260,6 +262,7 @@ export function RefitBanner({
         </ul>
       )}
     </section>
+    </Presence>
   )
 }
 

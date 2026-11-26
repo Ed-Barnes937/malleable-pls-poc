@@ -1,4 +1,5 @@
 import type {
+  Lecture,
   Recording,
   TranscriptSegment,
   Tag,
@@ -10,13 +11,24 @@ import type {
   WorkspaceScope,
   PlanItem,
   StoredPreferences,
+  ResourceWithBody,
+  Course,
 } from '@pls/substrate'
 
-/** A plan item as stored: course is derived from `tags`, as on the server. */
-export type StoredPlanItem = Omit<PlanItem, 'course'>
+/** A plan item as stored: its course is its own column, as on the server. */
+export type StoredPlanItem = PlanItem
 
-/** A lecture as stored: course is derived from `tags` ('recording' tags), as on the server. */
+/** A recording as stored: its course is its lecture's, as on the server. */
 export type StoredRecording = Omit<Recording, 'course' | 'processing'>
+
+/** A resource as stored: its lecture's title and course and the excerpt are read through. */
+export type StoredResource = Omit<ResourceWithBody, 'lecture_title' | 'lecture_course' | 'excerpt'> & {
+  /** An uploaded file's `FileStore` key, as on the server (none until 04 PR B adds uploads). */
+  file_key?: string | null
+}
+
+/** A lecture as stored (`lectures`); its recordings point at it. */
+export type StoredLecture = Omit<Lecture, 'recordings'>
 
 // Simulator-internal types: enabled/params stored as raw DB primitives
 export interface Workflow {
@@ -55,6 +67,7 @@ export interface JobRun {
 }
 
 export interface SeedData {
+  lectures: StoredLecture[]
   recordings: StoredRecording[]
   transcriptSegments: TranscriptSegment[]
   tags: Tag[]
@@ -70,9 +83,14 @@ export interface SeedData {
   planItems: StoredPlanItem[]
   /** The user's study rhythm row; null = never set (all defaults), as with no `user_preferences` row. */
   preferences: StoredPreferences | null
+  /** Links and notes; none unless given. */
+  resources?: StoredResource[]
+  /** The student's courses (archived ones included); none unless given, as for a new student. */
+  courses?: Course[]
 }
 
 const EMPTY_SEED: SeedData = {
+  lectures: [],
   recordings: [],
   transcriptSegments: [],
   tags: [],
@@ -90,6 +108,7 @@ const EMPTY_SEED: SeedData = {
 }
 
 export class InMemoryDb {
+  lectures: StoredLecture[] = []
   recordings: StoredRecording[] = []
   transcriptSegments: TranscriptSegment[] = []
   tags: Tag[] = []
@@ -104,11 +123,33 @@ export class InMemoryDb {
   jobRuns: JobRun[] = []
   planItems: StoredPlanItem[] = []
   preferences: StoredPreferences | null = null
+  resources: StoredResource[] = []
+  courses: Course[] = []
 
   constructor(seed?: SeedData) {
     if (seed) {
       this.reset(seed)
     }
+  }
+
+  /**
+   * Adds a recording under a lecture, for tests: into `lectureId` when given,
+   * else a lecture of its own ('lec-' + its id, like the seed) with its
+   * title, time and `course`. Returns the lecture id.
+   */
+  addRecording(
+    recording: Omit<StoredRecording, 'lecture_id'>,
+    options: { lectureId?: string; course?: string | null } = {},
+  ): string {
+    const lectureId = options.lectureId ?? `lec-${recording.id}`
+    if (!this.lectures.some((l) => l.id === lectureId)) {
+      this.lectures.push({
+        id: lectureId, title: recording.title, course: options.course ?? null, starts_at: recording.created_at,
+        class_item_id: null, class_date: null, created_at: recording.created_at, updated_at: recording.created_at,
+      })
+    }
+    this.recordings.push({ ...recording, lecture_id: lectureId })
+    return lectureId
   }
 
   findById<T extends { id: string }>(collection: T[], id: string): T | undefined {
@@ -128,6 +169,7 @@ export class InMemoryDb {
   }
 
   reset(seed: SeedData): void {
+    this.lectures = seed.lectures.map((l) => ({ ...l }))
     this.recordings = [...seed.recordings]
     this.transcriptSegments = [...seed.transcriptSegments]
     this.tags = [...seed.tags]
@@ -142,5 +184,7 @@ export class InMemoryDb {
     this.jobRuns = [...seed.jobRuns]
     this.planItems = seed.planItems.map((p) => ({ ...p }))
     this.preferences = seed.preferences ? { ...seed.preferences } : null
+    this.resources = (seed.resources ?? []).map((r) => ({ ...r }))
+    this.courses = (seed.courses ?? []).map((c) => ({ ...c }))
   }
 }

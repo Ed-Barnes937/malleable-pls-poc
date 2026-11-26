@@ -15,6 +15,7 @@
     "@pls/lens-connections": "workspace:*",
     "@pls/lens-framework": "workspace:*",
     "@pls/lens-gap-analysis": "workspace:*",
+    "@pls/lens-resources": "workspace:*",
     "@pls/lens-test-me": "workspace:*",
     "@pls/lens-todo": "workspace:*",
     "@pls/lens-transcript": "workspace:*",

@@ -4,6 +4,7 @@ export {
   useWorkspaces,
   useWorkspacePanels,
   useWorkspaceScopes,
+  useWorkspaceSummary,
   useCreateWorkspace,
   useDeleteWorkspace,
   useReorderWorkspaces,
@@ -12,9 +13,17 @@ export {
   useUpdatePanelLayouts,
   useUpdatePanelConfig,
   useUpdateWorkspaceBackground,
-  useSetWorkspaceScope,
-  useRecordings,
-  useFocusedRecording,
+  useSetBoardScope,
+  useClassOccurrenceLecture,
+  useRestoreBoardScope,
+  BOARD_SCOPE_WRITES,
+  useCourses,
+  useLectures,
+  useLecture,
+  useUpdateLecture,
+  useLectureDeletePreview,
+  useDeleteLecture,
+  usePlanItemLookup,
   usePlanItemList,
   usePreferences,
   useRecentJobs,
@@ -32,5 +41,5 @@ export {
   useServerEvents,
 } from './shell-hooks'
 export type { JobEvent, ServerEventHandlers } from './shell-hooks'
-export { decodeScope, SCOPE_TYPE_BY_DIM } from './shell-hooks'
+export { decodeScope, boardScopePatch, SCOPE_TYPE_BY_DIM } from './shell-hooks'
 export type { AppRouter } from './trpc'

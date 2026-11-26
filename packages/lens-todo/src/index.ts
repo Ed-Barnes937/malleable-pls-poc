@@ -11,11 +11,13 @@ export const manifest: PanelManifest = {
   group: 'plan',
   // Course filters (new to-dos inherit it); a focused lecture highlights the
   // to-dos made from it.
-  scope: { courseTag: 'filter', recordingId: 'highlight' },
+  scope: { courseTag: 'filter', lectureId: 'highlight' },
   reads: ['plan_items', 'recordings'],
   writes: ['plan_items'],
   // Unticking and dismissing are updates.
   emits: ['plan-item:created', 'plan-item:completed', 'plan-item:updated'],
+  // Asks about missed blocks when the board has no Calendar.
+  missedBlocksPriority: 2,
   load: () => import('./TodoLens'),
   minWidth: 280,
   minHeight: 220,

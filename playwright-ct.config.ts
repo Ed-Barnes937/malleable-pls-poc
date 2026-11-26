@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/experimental-ct-react'
 import path from 'path'
+import { CT_SPECS } from './playwright/spec-files'
 
 // Cost guardrail: test runs never reach a real AI provider. Forced here so
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
@@ -10,8 +11,7 @@ delete process.env.OPENROUTER_API_KEY
 process.env.TZ = 'Europe/London'
 
 export default defineConfig({
-  testDir: '.',
-  testMatch: '**/*.iwft.{ts,tsx}',
+  ...CT_SPECS,
   outputDir: 'test-results/ct',
   timeout: 15_000,
   retries: 0,
@@ -40,6 +40,7 @@ export default defineConfig({
           '@pls/lens-weakest-topics': path.resolve(__dirname, 'packages/lens-weakest-topics/src'),
           '@pls/lens-calendar': path.resolve(__dirname, 'packages/lens-calendar/src'),
           '@pls/lens-todo': path.resolve(__dirname, 'packages/lens-todo/src'),
+          '@pls/lens-resources': path.resolve(__dirname, 'packages/lens-resources/src'),
           '@pls/lens-coming-up': path.resolve(__dirname, 'packages/lens-coming-up/src'),
         },
       },

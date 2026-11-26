@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { doneToday, isFromRecording, orderTodos, slippedAt } from './todo-items'
+import { doneToday, orderTodos, slippedAt } from './todo-items'
 
 const now = new Date(2026, 9, 26, 12, 0).getTime()
 const iso = (day: number, hour = 9) => new Date(2026, 9, day, hour).toISOString()
@@ -69,10 +69,3 @@ describe('doneToday', () => {
   })
 })
 
-describe('isFromRecording', () => {
-  it('matches lecture provenance only', () => {
-    expect(isFromRecording(todo('a', { source_type: 'recording', source_id: 'rec-1' }), 'rec-1')).toBe(true)
-    expect(isFromRecording(todo('a', { source_type: 'tag', source_id: 'rec-1' }), 'rec-1')).toBe(false)
-    expect(isFromRecording(todo('a', { source_type: 'recording', source_id: 'rec-1' }), undefined)).toBe(false)
-  })
-})

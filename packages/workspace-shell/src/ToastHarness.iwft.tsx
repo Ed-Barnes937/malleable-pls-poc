@@ -24,6 +24,24 @@ test('toasts sharing a key replace each other', async ({ mount, page }) => {
   await expect(page.getByTestId('toast')).toHaveCount(1)
 })
 
+test('dismissing a key removes the toast with that key, leaving the others', async ({ mount, page }) => {
+  await mount(<ToastHarness />)
+  await page.getByRole('button', { name: 'Add marked and review' }).click()
+  await expect(page.getByTestId('toast')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Dismiss marked' }).click()
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await expect(page.getByTestId('toast')).toContainText('Review added to your plan')
+})
+
+test('dismissing a key drops a toast still waiting its turn', async ({ mount, page }) => {
+  await mount(<ToastHarness />)
+  await page.getByRole('button', { name: 'Add review, then marked, dismissed at once' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Review added to your plan')
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await expect(page.getByText('No longer marked confusing')).toHaveCount(0)
+})
+
 test('the countdown pauses while the pointer is on the toast, and resumes when it leaves', async ({ mount, page }) => {
   await mount(<ToastHarness durationMs={1200} />)
   await page.getByRole('button', { name: 'Add plain' }).click()

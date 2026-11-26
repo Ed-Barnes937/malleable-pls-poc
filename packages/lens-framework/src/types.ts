@@ -1,3 +1,5 @@
+import type { BoardScope } from '@pls/substrate'
+
 /**
  * Workspace-level ("board") scope shared by every widget on a board. Each
  * widget declares per dimension how it responds (see `ScopeDeclaration`); the
@@ -5,7 +7,12 @@
  */
 export interface Scope {
   courseTag?: string
-  recordingId?: string
+  /**
+   * The selected lecture (`lectures.id`). Invariant, enforced by the server:
+   * when set with a `courseTag`, that is the lecture's course. Without one
+   * ("All courses") the lecture may be of any course, or none.
+   */
+  lectureId?: string
 }
 
 export type ScopeDim = keyof Scope
@@ -22,15 +29,16 @@ export type ScopeDim = keyof Scope
 export type CourseScopeMode = 'filter' | 'highlight' | 'ignore'
 
 /**
- * How a widget responds to the board's focused recording ("lecture").
- * - `target`: works on that one recording (and prompts when none is focused).
- *   A targeted lecture wins over the course: its own data is never hidden by
- *   a course filter, even when the two disagree.
- * - `highlight`: shows everything and emphasises items linked to it. The
- *   focus never reaches the widget's readers.
- * - `ignore`: never sees the focus.
+ * How a widget responds to the board's selected lecture.
+ * - `target`: works on that one lecture (its recordings, transcript,
+ *   connections) and prompts when none is selected. The lecture is always in
+ *   the board course, so the two never disagree.
+ * - `highlight`: shows everything and emphasises items linked to it (e.g.
+ *   blocks made from its moments). The lecture never reaches the widget's
+ *   readers.
+ * - `ignore`: never sees the lecture.
  */
-export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
+export type LectureScopeMode = 'target' | 'highlight' | 'ignore'
 
 /**
  * Per-dimension scope behaviour declared on a widget's manifest. Omitted
@@ -40,7 +48,7 @@ export type RecordingScopeMode = 'target' | 'highlight' | 'ignore'
  */
 export interface ScopeDeclaration {
   courseTag?: CourseScopeMode
-  recordingId?: RecordingScopeMode
+  lectureId?: LectureScopeMode
 }
 
 /**
@@ -72,6 +80,37 @@ export interface FocusedMoment extends Moment {
   id: number
   /** Move keyboard focus to the moment as well (the shell switched boards to show it). */
   takeFocus?: boolean
+}
+
+/** A lecture moment to go through in a focused review (one of the "moments to review"). */
+export interface ReviewMoment {
+  segmentId: string
+  recordingId: string
+  recordingTitle: string
+  offsetMs: number
+  /** What it is about, in a few words (the review's topic, else a key phrase). */
+  label: string
+}
+
+/**
+ * A focused review the student asked for (the "N moments to review" chip),
+ * for the widget that runs reviews (manifest `runsReviews`, e.g. Test Me).
+ * `id` is new per request, so asking again restarts it.
+ */
+export interface ReviewRun {
+  id: number
+  moments: ReviewMoment[]
+}
+
+/** A short confirmation in the shell's notification bar, optionally with one action (e.g. Undo). */
+export interface LensNotice {
+  message: string
+  /** `error`: something the student asked for didn't happen. Default `success`. */
+  tone?: 'success' | 'error'
+  /** Notices sharing a key replace each other instead of stacking. */
+  key?: string
+  /** `kind: 'undo'`: it reverses the change the notice names (shown with the Undo icon; see `undoNotice`). */
+  action?: { label: string; onClick: () => void; kind?: 'undo' }
 }
 
 /**
@@ -122,6 +161,62 @@ export interface FocusedPlanItem extends PlanItemRef {
   requestedAt: number
 }
 
+/**
+ * One occurrence of a class block on the calendar: the plan item and the
+ * local date it is on (YYYY-MM-DD, as `occurrenceDate` from `@pls/substrate`
+ * reads it). Names exactly one lecture (`lectures.forClassOccurrence`).
+ */
+export interface ClassRef {
+  planItemId: string
+  date: string
+}
+
+/** The lecture a class occurrence focused, as `onFocusClass` reports it. */
+export interface FocusedClassLecture {
+  id: string
+  title: string
+}
+
+/**
+ * A board's course and lecture before and after a class focus wrote them.
+ * Undo (`onUndoFocusClass`) puts `before` back while the board still shows
+ * `after`.
+ */
+export interface ClassFocusBoard {
+  before: BoardScope
+  after: BoardScope
+}
+
+/**
+ * - `focused`: the occurrence's lecture (found or made) is now the board's
+ *   lecture (with its course, unless the board is "All courses"); `board` is what the board showed before and
+ *   shows now (the same when it already showed it). `recordingCount` and
+ *   `durationMs` are its audio as the answer found it, so its status is
+ *   right before the lecture itself has loaded.
+ * - `failed`: nothing changed on the board (e.g. offline); asking again is safe.
+ */
+export type FocusClassResult =
+  | {
+      status: 'focused'
+      lecture: FocusedClassLecture & { recordingCount: number; durationMs: number }
+      board: ClassFocusBoard
+    }
+  | { status: 'failed' }
+
+/**
+ * What Undo after a class focus did: `undone`; `changed` when the board
+ * shows something else now (changed elsewhere since), so nothing was
+ * written; `failed` when nothing was written for another reason (asking
+ * again is safe).
+ */
+export type UndoFocusClassResult = 'undone' | 'changed' | 'failed'
+
+/** Another of the student's boards, named as the student named it. */
+export interface LectureBoardRef {
+  id: string
+  name: string
+}
+
 export interface LensProps {
   panelId: string
   /**
@@ -144,15 +239,20 @@ export interface LensProps {
    */
   onConfigChange?: (patch: Record<string, unknown>) => void
   /**
-   * Patch the workspace-level scope shared by every panel, e.g. to focus a
-   * recording the lens just created. `undefined` clears a dimension. Optional
-   * for the same reason as `onConfigChange`.
+   * Patch the workspace-level scope shared by every panel, e.g. to select a
+   * lecture the lens just created. `undefined` clears a dimension. The shell
+   * writes it in one atomic `setBoardScope`, so the server's rules apply: on
+   * a board with a course a lecture brings its course (an "All courses"
+   * board stays so), a course change clears a lecture outside it.
+   * The shell's promise says whether the write went through (it never
+   * rejects), for a widget that must undo what it showed when it didn't.
+   * Optional for the same reason as `onConfigChange`.
    */
-  onScopeChange?: (patch: Partial<Scope>) => void
+  onScopeChange?: (patch: Partial<Scope>) => void | Promise<boolean>
   /**
    * Jump to a recording moment ("click a study block, land on the lecture
-   * moment"): the shell focuses the recording on the board (as
-   * `onScopeChange` would) and hands the moment to every widget whose manifest
+   * moment"): the shell selects the recording's lecture on the board (by
+   * the same course rule as `onScopeChange`) and hands the moment to every widget whose manifest
    * declares `showsMoments` via `focusedMoment`. When this board has none, the
    * shell opens the moment on a board that does (with a toast offering the way
    * back); `no-viewer` means no board has one. Optional
@@ -185,9 +285,67 @@ export interface LensProps {
   /** For `showsPlanItems` widgets: the request with this id has been shown. */
   onPlanItemShown?: (requestId: number) => void
   /**
+   * A class block was opened on the calendar: the shell finds or makes that
+   * occurrence's lecture and focuses it on this board (with its course,
+   * unless the board is "All courses"; one write; no navigation). Never
+   * rejects. Optional for the same reason as
+   * `onConfigChange`.
+   */
+  onFocusClass?: (cls: ClassRef) => Promise<FocusClassResult>
+  /**
+   * Undo for `onFocusClass`: puts `board.before` back on this board, only
+   * while it still shows `board.after`, so a change made since (the header,
+   * another tab) is kept. Never rejects.
+   */
+  onUndoFocusClass?: (board: ClassFocusBoard) => Promise<UndoFocusClassResult>
+  /**
+   * The student's other boards that can show a lecture (a widget declaring
+   * `lectureId: 'target'`), in tab order: found by what they contain, never
+   * by name. Empty when there are none; undefined until the boards are known.
+   */
+  lectureBoards?: LectureBoardRef[]
+  /** Whether this board has a widget that shows a lecture (`lectureId: 'target'`). */
+  boardShowsLectures?: boolean
+  /**
+   * Switch to `boardId` and focus `lecture` there (its course follows unless
+   * that board is "All courses"), with
+   * a toast offering the way back. Never rejects: `gone` when that board no
+   * longer exists, `failed` when nothing changed for another reason.
+   */
+  onOpenLectureOn?: (boardId: string, lecture: FocusedClassLecture) => Promise<'opened' | 'failed' | 'gone'>
+  /**
+   * Say something in the shell's notification bar, e.g. "Marked sorted" with
+   * Undo. Optional for the same reason as `onConfigChange`.
+   */
+  onNotify?: (notice: LensNotice) => void
+  /** Takes down the notice with this `key`, if it is still up (its Undo no longer applies). */
+  onDismissNotice?: (key: string) => void
+  /**
+   * Go through these moments in a focused review on this board: the shell
+   * hands them to the widget that runs reviews (manifest `runsReviews`) via
+   * `reviewRun`, first adding one (with Undo) when the board has none.
+   * Optional for the same reason as `onConfigChange`.
+   */
+  onStartReview?: (moments: ReviewMoment[]) => void
+  /**
+   * For `runsReviews` widgets: the review last asked for. Start it once per
+   * `id`, then call `onReviewStarted(id)` so the shell drops it.
+   */
+  reviewRun?: ReviewRun
+  /** For `runsReviews` widgets: the run with this `id` has started. */
+  onReviewStarted?: (id: number) => void
+  /** Open the board menu's widget palette, to add a widget to this board. */
+  onAddWidget?: () => void
+  /**
    * Open the automation with this id (a workflow id, e.g. a plan item's
    * `created_by_workflow_id`) so the student can see and edit it. Optional
    * for the same reason as `onConfigChange`.
    */
   onEditAutomation?: (workflowId: string) => void
+  /**
+   * Whether this widget asks about the blocks that didn't happen: false when
+   * another widget on the board asks instead (`missedBlocksPriority`), so a
+   * board asks once. Undefined (a widget outside a board) asks.
+   */
+  asksAboutMissedBlocks?: boolean
 }

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 import { TopBarPom, PanelGridPom } from './pom'
 
 test.describe('Journey: Cross-workspace data flow', () => {
@@ -25,7 +25,7 @@ test.describe('Journey: Cross-workspace data flow', () => {
 
     // Find an untagged segment — seg-bio4-02 is never tagged by other tests
     await transcriptPanel.getByText(/Mitochondria have their own DNA/).click()
-    const confusedButton = transcriptPanel.getByRole('button', { name: 'confused', exact: true })
+    const confusedButton = transcriptPanel.getByRole('button', { name: 'Confused', exact: true })
     await confusedButton.click()
 
     // One more moment to review

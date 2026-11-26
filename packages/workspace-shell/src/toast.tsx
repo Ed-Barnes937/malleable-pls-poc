@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
-import { CheckCircle2, XCircle, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, Info, Undo2, XCircle, type LucideIcon } from 'lucide-react'
 import { ToastBar, cn, createToaster, useNarrowScreen } from '@pls/shared-ui'
+import { undoNotice, type LensNotice, type UndoableChange } from '@pls/lens-framework'
 import { useActiveWorkspaceId } from './activeBoard'
 import { useWorkspaceStore } from './store'
 
-export type ToastTone = 'success' | 'error'
+/** 'info': a plain note, neither a success nor a failure (e.g. "That study block was deleted"). */
+export type ToastTone = 'success' | 'error' | 'info'
 
 export interface Toast {
   id: number
@@ -35,6 +37,8 @@ export interface ToastAction {
   /** Shown before the label, e.g. a back chevron for "Back to My week". */
   icon?: LucideIcon
 }
+
+const TONE_ICONS: Record<ToastTone, LucideIcon> = { success: CheckCircle2, error: XCircle, info: Info }
 
 /** How long a toast stays: longer when it offers an action, so there is time to take it. */
 export const TOAST_MS = 4000
@@ -79,6 +83,31 @@ function letGoOfFocus() {
 }
 
 /**
+ * A widget's notice (`LensProps.onNotify`) as a toast. `board`: it only
+ * means something on that board, so leaving it dismisses the toast.
+ */
+export function notifyToast(notice: LensNotice, opts: { board?: string } = {}) {
+  useToastStore.getState().push({
+    message: notice.message,
+    tone: notice.tone ?? 'success',
+    key: notice.key,
+    board: opts.board,
+    action: notice.action && { label: notice.action.label, onClick: notice.action.onClick, icon: notice.action.kind === 'undo' ? Undo2 : undefined },
+  })
+}
+
+/**
+ * Confirms one of the student's big changes with an Undo toast, from the
+ * shell itself (a widget removed, Tidy up); widgets do the same through
+ * `onNotify` (see `confirmWithUndo` in @pls/lens-framework). Undo dismisses
+ * the toast and runs the change's `undo`; if that fails, an error toast
+ * says so.
+ */
+export function pushUndoToast(change: UndoableChange, opts: { board?: string } = {}) {
+  notifyToast(undoNotice(change, (n) => notifyToast(n)), opts)
+}
+
+/**
  * UI SDK says the toasts that are on screen when it renders, so toasts pushed
  * in one burst would leave the oldest of them (waiting behind the newest few)
  * unsaid. Spacing them past its 100ms settle time lets each be said as it arrives, as before.
@@ -118,23 +147,37 @@ function show(toast: Omit<Toast, 'id'>) {
 }
 
 function push(toast: Omit<Toast, 'id'>) {
+  const pushedAt = ++pushes
   const wait = lastShownAt + SPACING_MS - Date.now()
   if (wait <= 0 && !pending) return show(toast)
   pending++
   queued = queued.then(() => new Promise<void>((resolve) => setTimeout(resolve, Math.max(0, lastShownAt + SPACING_MS - Date.now())))).then(() => {
     pending--
+    // Its key was dismissed while it waited its turn (an Undo that no longer applies).
+    if (toast.key !== undefined && (keyDismissedAt.get(toast.key) ?? 0) >= pushedAt) return
     show(toast)
   })
 }
 let pending = 0
+/** Counts pushes, so a key dismissed after a toast was pushed drops it from the queue too. */
+let pushes = 0
+const keyDismissedAt = new Map<string, number>()
 
 function dismiss(id: string) {
   toaster.dismiss(id)
 }
 
+/** A keyed toast's id is its key (see `show`), so this dismisses it, shown or still waiting. */
+function dismissKey(key: string) {
+  keyDismissedAt.set(key, pushes)
+  toaster.dismiss(key)
+}
+
 interface ToastState {
   push: (toast: Omit<Toast, 'id'>) => void
   dismiss: (id: string) => void
+  /** Dismisses the toast with this key, if one is up (e.g. an Undo that no longer applies). */
+  dismissKey: (key: string) => void
 }
 
 /**
@@ -146,7 +189,7 @@ export const useToastStore = Object.assign(
   <T,>(select: (s: ToastState) => T): T => select(state),
   { getState: (): ToastState => state },
 )
-const state: ToastState = { push, dismiss }
+const state: ToastState = { push, dismiss, dismissKey }
 
 /** How many toasts the bar shows at once: it has room for one row. */
 const SHOWN_WIDE = 2
@@ -185,7 +228,7 @@ export function ToastHost() {
         narrow={narrow}
         maxVisible={narrow ? SHOWN_NARROW : SHOWN_WIDE}
         icon={(t) => {
-          const Icon = (t.data as ToastData).icon ?? (t.type === 'success' ? CheckCircle2 : XCircle)
+          const Icon = (t.data as ToastData).icon ?? TONE_ICONS[t.type as ToastTone] ?? CheckCircle2
           return <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
         }}
         actionIcon={(t) => {

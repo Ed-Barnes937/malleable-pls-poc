@@ -215,6 +215,16 @@ export interface StorageAdapter {
    * enqueues. Optional to keep postgres clean.
    */
   commit?(): Awaitable<void>
+
+  /**
+   * Runs `fn` against an adapter whose every call is part of one
+   * transaction: all of them commit together when `fn` resolves, or none
+   * do when it throws. The runner settles a run through it, so a run's
+   * status and what follows from it (its follow-up jobs, or its retry) are
+   * never seen apart. Without it, the runner makes the same calls on the
+   * adapter itself and then calls `commit()`.
+   */
+  transaction?<T>(fn: (adapter: StorageAdapter) => Promise<T>): Promise<T>
 }
 
 // ---------------------------------------------------------------------------
@@ -237,6 +247,8 @@ export interface WorkflowEngineConfig {
 
 export interface WorkflowEngine {
   dispatch(event: WorkflowEvent, ctx: DispatchContext): Promise<DispatchResult>
+  /** The same engine, reading and enqueueing through `adapter` (e.g. one inside a transaction). */
+  withAdapter(adapter: StorageAdapter): WorkflowEngine
   matchesCondition(
     workflow: WorkflowWithJobs,
     payload: Record<string, unknown>,

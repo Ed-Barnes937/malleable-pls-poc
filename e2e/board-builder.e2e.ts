@@ -1,4 +1,5 @@
-import { test, expect, type Locator, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Locator, Page } from '@playwright/test'
 import { TopBarPom, SidebarPom, CreateWorkspaceDialogPom, PanelGridPom } from './pom'
 import { reseed } from './reseed'
 
@@ -69,7 +70,7 @@ test.describe('Building a board', () => {
     await grid.expectHasPanel('Weakest Topics')
     await grid.expectHasPanel('All Courses')
     // The board's course came from the create dialog.
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology')
+    await topBar.expectScope('Biology', null)
 
     // Click-added widgets land in free space, not on top of each other.
     const boxes = await panelBoxes(page)
@@ -189,6 +190,34 @@ test.describe('Building a board', () => {
     expect(Math.abs(second.y - first.y)).toBeLessThan(1)
   })
 
+  test("a widget added while a new board's widgets are still loading goes in that board's first spot, not around the last board's", async ({ page }) => {
+    const topBar = new TopBarPom(page)
+    const grid = new PanelGridPom(page)
+    await page.goto('/')
+    // The board that opens first (In Lecture) fills the top-left of the board.
+    await expect(grid.panels.first()).toBeVisible()
+    const emptyBoardSpot = await (async () => {
+      const canvas = (await grid.root.boundingBox())!
+      return { x: canvas.x + 24, y: canvas.y + 24 }
+    })()
+
+    // The new board's widget list is held back until the widget has been added.
+    let release!: () => void
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route('**/workspaces.panels**', async (route) => { await held; await route.continue() })
+    await topBar.openCreateWorkspaceDialog()
+    await new CreateWorkspaceDialogPom(page).createWorkspace('My week')
+    await topBar.expectActiveWorkspace('My week')
+    await topBar.openDrawer()
+    await new SidebarPom(page).addWidget('To-do')
+    release()
+
+    await grid.expectPanelCount(1)
+    const box = await settledBox(grid.panelByLabel('To-do'))
+    expect(Math.abs(box.x - emptyBoardSpot.x)).toBeLessThan(30)
+    expect(Math.abs(box.y - emptyBoardSpot.y)).toBeLessThan(30)
+  })
+
   test('fullscreen sits above other widgets and does not survive a reload', async ({ page }) => {
     const { grid } = await buildBiologyBoard(page)
     const transcript = grid.panelByLabel('Transcript')
@@ -219,16 +248,23 @@ test.describe('Building a board', () => {
     await page.keyboard.press('Tab')
     await expect(topBar.root.getByRole('button', { name: 'Exam Prep', exact: true })).toBeFocused()
 
-    // Board menu: Tab reaches its controls, the Showing pickers first, then widget tiles.
+    // After the board tabs (and New board), the scope pickers, Up next, then the right-hand buttons.
+    await topBar.newWorkspaceButton.focus()
+    await page.keyboard.press('Tab')
+    await expect(topBar.courseSelect).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.lectureSelect).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.upNext).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(topBar.root.getByRole('button', { name: 'Activity' })).toBeFocused()
+
+    // Board menu: Tab goes from Close straight to the widget tiles (no pickers in here).
     await topBar.drawerTrigger.click()
     const drawer = page.getByTestId('drawer-sidebar')
     await expect(drawer).toBeInViewport()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Close board menu' })).toBeFocused()
-    await page.keyboard.press('Tab')
-    await expect(drawer.getByRole('combobox', { name: 'Course' })).toBeFocused()
-    await page.keyboard.press('Tab')
-    await expect(drawer.getByRole('combobox', { name: 'Lecture' })).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(drawer.getByRole('button', { name: 'Add Audio Capture' })).toBeFocused()
 
@@ -257,10 +293,10 @@ test.describe('Building a board', () => {
       expect(box.x).toBeGreaterThanOrEqual(0)
       expect(box.x + box.width).toBeLessThanOrEqual(400)
     }
-    const chip = new TopBarPom(page).scopeChip
-    await expect(chip).toBeInViewport()
-    const chipBox = await chip.boundingBox()
-    expect(chipBox!.x + chipBox!.width).toBeLessThanOrEqual(400)
+    const scope = new TopBarPom(page).scopeGroup
+    await expect(scope).toBeInViewport()
+    const scopeBox = await scope.boundingBox()
+    expect(scopeBox!.x + scopeBox!.width).toBeLessThanOrEqual(400)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(400)
     // The stacked column scrolls with the wheel to reach the last widget.
     const allCourses = grid.panelByLabel('All Courses')

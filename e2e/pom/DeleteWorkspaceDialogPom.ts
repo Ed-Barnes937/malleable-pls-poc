@@ -6,9 +6,8 @@ export class DeleteWorkspaceDialogPom extends DialogPom {
   readonly cancelButton: Locator
 
   constructor(page: Page) {
-    super(page)
     // An alert dialog (role alertdialog), not a plain dialog: it asks before deleting.
-    this.root = page.getByRole('alertdialog')
+    super(page, page.getByRole('alertdialog'))
     this.deleteButton = this.root.getByRole('button', { name: 'Delete' })
     this.cancelButton = this.root.getByRole('button', { name: 'Cancel' })
   }

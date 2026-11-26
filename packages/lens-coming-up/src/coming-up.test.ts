@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import type { PlanItemOccurrence } from '@pls/substrate'
-import { comingUpQuery, groupByDay, isFromRecording, lookAheadDays } from './coming-up'
+import { comingUpQuery, groupByDay, lookAheadDays } from './coming-up'
 
 const now = new Date(2026, 9, 26, 12, 0).getTime()
 const iso = (day: number, hour = 9) => new Date(2026, 9, day, hour).toISOString()
@@ -74,11 +74,3 @@ describe('groupByDay', () => {
   })
 })
 
-describe('isFromRecording', () => {
-  it('matches lecture provenance only', () => {
-    const linked = { ...deadline('a', iso(29)), source_type: 'recording', source_id: 'rec-1' }
-    expect(isFromRecording(linked, 'rec-1')).toBe(true)
-    expect(isFromRecording({ ...linked, source_type: 'tag' }, 'rec-1')).toBe(false)
-    expect(isFromRecording(linked, undefined)).toBe(false)
-  })
-})

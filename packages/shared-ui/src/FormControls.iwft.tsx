@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import type { Page } from '@playwright/test'
 import { FormControlsHarness } from './FormControlsHarness'
 

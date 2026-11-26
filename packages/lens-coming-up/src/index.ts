@@ -11,7 +11,7 @@ export const manifest: PanelManifest = {
   group: 'plan',
   // Course filters (with "+N in other courses"); a focused lecture highlights
   // deadlines linked to it.
-  scope: { courseTag: 'filter', recordingId: 'highlight' },
+  scope: { courseTag: 'filter', lectureId: 'highlight' },
   reads: ['plan_items'],
   load: () => import('./ComingUpLens'),
   minWidth: 260,

@@ -5,7 +5,7 @@ import { TopBar } from './TopBar'
 test('board appearance: Enter on the gear opens the picker, Escape closes it back to the gear', async ({ mount, page, simulator: _boards }) => {
   await mount(
     <ShellProviders>
-      <TopBar onMenuClick={() => {}} />
+      <TopBar onMenuClick={() => {}} boardHasCalendar={false} onPlanWeek={() => {}} onAddCalendar={() => {}} />
     </ShellProviders>,
   )
   const gear = page.getByRole('button', { name: 'Board appearance' })
@@ -24,7 +24,7 @@ test('board appearance: Enter on the gear opens the picker, Escape closes it bac
 test('board appearance: a press elsewhere closes it, and choosing a background keeps it open', async ({ mount, page, simulator: _boards }) => {
   await mount(
     <ShellProviders>
-      <TopBar onMenuClick={() => {}} />
+      <TopBar onMenuClick={() => {}} boardHasCalendar={false} onPlanWeek={() => {}} onAddCalendar={() => {}} />
     </ShellProviders>,
   )
   await page.getByRole('button', { name: 'Board appearance' }).click()

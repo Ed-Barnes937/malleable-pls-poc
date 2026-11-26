@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { Switch } from './Switch'
 
 test('renders with aria-checked false when unchecked', async ({ mount, page }) => {

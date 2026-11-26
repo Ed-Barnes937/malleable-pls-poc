@@ -6,8 +6,9 @@ export class DialogPom {
   readonly closeButton: Locator
   readonly backdrop: Locator
 
-  constructor(page: Page) {
-    this.root = page.getByRole('dialog')
+  /** `root` is the dialog element: a plain dialog unless a subclass says otherwise. */
+  constructor(page: Page, root: Locator = page.getByRole('dialog')) {
+    this.root = root
     this.title = this.root.locator('h2')
     this.closeButton = this.root.getByLabel('Close')
     this.backdrop = page.locator('[data-testid="dialog-backdrop"]')

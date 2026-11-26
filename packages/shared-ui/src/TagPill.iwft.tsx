@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { TagPill } from './TagPill'
 
 test('renders confused tag with label', async ({ mount }) => {

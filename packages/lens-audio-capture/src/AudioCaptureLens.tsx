@@ -1,11 +1,11 @@
-import { useRef, useState, type ChangeEvent } from 'react'
-import { type LensProps, useSubstrate } from '@pls/lens-framework'
+import { useRef, useState, type ChangeEvent, type ReactNode } from 'react'
+import { type LensProps, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
 import { cn, formatTime } from '@pls/shared-ui'
-import { Mic, Square, Play, Pause, RotateCcw, Loader2, Upload } from 'lucide-react'
+import { Mic, Square, Play, Pause, FilePlus2, Loader2, Upload } from 'lucide-react'
 import { API_URL } from './env'
 import { useAudioRecorder } from './useAudioRecorder'
 import { useAudioPlayback } from './useAudioPlayback'
-import { ACCEPTED_AUDIO, audioContentType, readAudioDuration } from './uploadRecording'
+import { ACCEPTED_AUDIO, audioContentType } from './uploadRecording'
 import { UploadRecordingForm, type UploadRecordingDetails } from './UploadRecordingForm'
 
 function Waveform({ active, progress }: { active: boolean; progress: number }) {
@@ -44,16 +44,50 @@ function Waveform({ active, progress }: { active: boolean; progress: number }) {
 export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
   const substrate = useSubstrate()
 
-  const recordingId = scope.recordingId ?? ''
-  const { data: recording } = substrate.useRecording(recordingId)
+  // A lecture the student let go of here (New lecture) while the board's
+  // write is on its way: the widget acts as if it were cleared already, so
+  // the next capture can't land in it. Dropped once the board shows
+  // something else.
+  const [letGo, setLetGo] = useState<string | null>(null)
+  const [scopeError, setScopeError] = useState<string | null>(null)
+  if (letGo && scope.lectureId !== letGo) setLetGo(null)
 
-  // New recordings become the workspace focus so every lens (e.g. Transcript)
-  // follows the lecture that was just captured or uploaded.
-  const recorder = useAudioRecorder(recordingId, {
+  // The board's lecture: captures and uploads go into it, and its latest
+  // recording plays. Without one, a capture makes a new lecture in the board
+  // course as it starts, and the server selects it on the board.
+  const lectureId = scope.lectureId === letGo ? undefined : scope.lectureId
+  const { data: lecture } = substrate.useLecture(lectureId)
+  const shown = lectureId && lecture?.id === lectureId ? lecture : undefined
+  const latest = shown?.recordings.at(-1)
+  const { data: recording } = substrate.useRecording(latest?.id ?? '')
+  // Unknown while the lecture loads, so the widget doesn't flash "Ready".
+  const hasAudio = !lectureId ? false : shown ? shown.recordings.length > 0 : undefined
+  const recordingAdded = useSubstrateMutations().useRecordingAdded()
+
+  /** Clear the board's lecture, at once here; if the write fails, say so and show it again. */
+  const letGoOf = (id: string) => {
+    setLetGo(id)
+    setScopeError(null)
+    void Promise.resolve(onScopeChange?.({ lectureId: undefined })).then((written) => {
+      if (written !== false) return
+      setLetGo((current) => (current === id ? null : current))
+      setScopeError("Couldn't start a new lecture - try again")
+    })
+  }
+
+  // The server selects any lecture a capture or upload makes (at capture
+  // start, or with the upload), so the widget only refreshes what shows
+  // recordings, lectures and the board's scope.
+  const recorder = useAudioRecorder(hasAudio, {
     course: scope.courseTag,
-    onRecordingCreated: (id) => onScopeChange?.({ recordingId: id }),
+    lectureId: lectureId ?? null,
+    lectureTitle: shown?.title ?? null,
+    onRecordingCreated: () => recordingAdded(),
   })
   const { state, elapsed, error } = recorder
+  // The board's lecture is still loading: neither "Ready to record" nor its
+  // buttons yet, which would flip to "Record more" a moment later.
+  const settling = hasAudio === undefined && (state === 'idle' || state === 'complete')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
@@ -82,12 +116,11 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
       contentType: audioContentType(file) as string,
       title,
       course,
-      durationMs: await readAudioDuration(file),
     })
   }
 
   const duration = recording?.duration ?? elapsed
-  const activeRecordingId = recorder.recordingId ?? recordingId
+  const activeRecordingId = recorder.recordingId ?? latest?.id
 
   const playbackUrl =
     state === 'complete' && activeRecordingId && recording?.audio_url
@@ -105,6 +138,7 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         <UploadRecordingForm
           file={pendingFile}
           defaultCourse={scope.courseTag}
+          intoLecture={shown?.title}
           onSubmit={handleUpload}
           onCancel={() => setPendingFile(null)}
         />
@@ -124,14 +158,17 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
       />
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 @tall:gap-4">
         {state === 'recording' && (
-          <div className="flex items-center gap-1.5">
-            <span className="relative flex h-2 w-2">
+          <div className="flex max-w-full items-center gap-1.5">
+            <span className="relative flex h-2 w-2 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-confused opacity-75" />
               <span className="relative inline-flex h-2 w-2 rounded-full bg-confused" />
             </span>
             <span className="text-meta font-semibold text-confused">
               REC
             </span>
+            {recorder.captureTitle && (
+              <span data-testid="recording-into" className="min-w-0 truncate text-meta text-text-secondary">{recorder.captureTitle}</span>
+            )}
           </div>
         )}
 
@@ -142,24 +179,55 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
           </div>
         )}
 
-        {state === 'complete' && (
+        {state === 'complete' && !settling && (
           <div className="hidden text-center @tall:block">
-            <p className="truncate text-body font-semibold text-text-primary">{recording?.title ?? 'Recording complete'}</p>
-            <p className="mt-0.5 text-meta text-text-muted">{formatTime(duration)} total</p>
+            <p className="truncate text-body font-semibold text-text-primary">{shown?.title ?? recording?.title ?? 'Recording complete'}</p>
+            <p className="mt-0.5 text-meta text-text-muted">
+              {shown && shown.recordings.length > 1 ? `Part ${shown.recordings.length} · ` : ''}
+              {formatTime(duration)} total
+            </p>
           </div>
         )}
 
-        {state === 'idle' && (
-          <p className="text-meta text-text-muted @tall:text-body">Ready to record</p>
+        {state === 'idle' && !settling && (
+          <p data-testid="ready-to-record" className="max-w-full truncate text-meta text-text-muted @tall:text-body">
+            {shown ? <>Ready to record <span className="font-semibold text-text-primary">{shown.title}</span></> : 'Ready to record'}
+          </p>
         )}
 
-        {(fileError ?? error) && (
-          <p role="alert" className="text-center text-meta text-confused">{fileError ?? error}</p>
+        {(fileError ?? scopeError ?? error) && (
+          <p role="alert" className="text-center text-meta text-confused">{fileError ?? scopeError ?? error}</p>
+        )}
+
+        {recorder.notice && (
+          <p role="status" className="max-w-full truncate text-center text-meta text-text-muted">{recorder.notice}</p>
+        )}
+
+        {recorder.hasUnsaved && (
+          <div className="flex flex-col items-center gap-1.5">
+            <p data-testid="not-saved" className="text-center text-meta font-semibold text-text-primary">Not saved yet</p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void recorder.retryUnsaved()}
+                className="rounded-full bg-accent px-3 py-1 text-meta font-semibold text-accent-foreground transition-all hover:opacity-90 active:scale-95"
+              >
+                Try again
+              </button>
+              <button
+                type="button"
+                onClick={recorder.discardUnsaved}
+                className="rounded-full border border-border px-3 py-1 text-meta text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95"
+              >
+                Discard
+              </button>
+            </div>
+          </div>
         )}
 
         <Waveform active={state === 'recording'} progress={progress} />
 
-        <span className="text-body font-semibold tabular-nums text-text-primary @tall:text-heading">
+        <span data-testid="capture-timer" className="text-body font-semibold tabular-nums text-text-primary @tall:text-heading">
           {state === 'recording'
             ? formatTime(elapsed)
             : state === 'complete' && playback.playing
@@ -169,66 +237,57 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
                 : '0:00'}
         </span>
 
-        <div className="flex items-center gap-2 @tall:gap-3">
-          {state === 'idle' || state === 'complete' ? (
+        <div className="flex items-start gap-2 @tall:gap-3">
+          {settling || recorder.hasUnsaved ? null : state === 'idle' || state === 'complete' ? (
             <>
               {state === 'complete' && (
-                <button
-                  type="button"
+                <Control
+                  label={playback.playing ? 'Pause' : 'Play recording'}
+                  caption={playback.playing ? 'Pause' : 'Play'}
                   onClick={playback.toggle}
-                  aria-label={playback.playing ? 'Pause' : 'Play recording'}
-                  title={playback.playing ? 'Pause' : 'Play recording'}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-accent text-accent-foreground transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
+                  look="primary"
                 >
                   {playback.playing
                     ? <Pause className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
                     : <Play className="ml-0.5 h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />}
-                </button>
+                </Control>
               )}
-              <button
-                type="button"
+              <Control
+                label={state === 'complete' ? 'Record more' : 'Start recording'}
+                title={state === 'complete' ? 'Record more of this lecture' : 'Start recording'}
+                caption="Record"
                 onClick={recorder.start}
-                aria-label="Start recording"
-                title="Start recording"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
               >
                 <Mic className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                aria-label="Upload a recording"
-                title="Upload a recording"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
-              >
+              </Control>
+              <Control label="Upload a recording" caption="Upload" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-              </button>
+              </Control>
               {state === 'complete' && (
-                <button
-                  type="button"
-                  onClick={() => { recorder.reset(); playback.stop() }}
-                  aria-label="Record another lecture"
-                  title="Record another lecture"
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-surface-raised text-text-secondary transition-all hover:bg-surface-overlay hover:text-text-primary active:scale-95 @tall:h-11 @tall:w-11"
+                <Control
+                  label="New lecture"
+                  caption="New lecture"
+                  // Clears the board's lecture, so the next capture is a new one
+                  // and every widget on the board moves on with it.
+                  onClick={() => {
+                    recorder.reset()
+                    playback.stop()
+                    if (scope.lectureId) letGoOf(scope.lectureId)
+                  }}
                 >
-                  <RotateCcw className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-                </button>
+                  <FilePlus2 className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
+                </Control>
               )}
             </>
           ) : state === 'recording' ? (
-            <button
-              type="button"
-              onClick={recorder.stop}
-              aria-label="Stop recording"
-              title="Stop recording"
-              className="flex h-9 w-9 items-center justify-center rounded-full bg-confused text-surface-raised ring-4 ring-confused-soft transition-all hover:opacity-90 active:scale-95 @tall:h-11 @tall:w-11"
-            >
+            <Control label="Stop recording" caption="Stop" onClick={recorder.stop} look="stop">
               <Square className="h-4 w-4 @tall:h-[18px] @tall:w-[18px]" />
-            </button>
+            </Control>
           ) : null}
         </div>
       </div>
 
-      {state === 'complete' && (
+      {state === 'complete' && !settling && (
         <div className="pt-2 @tall:pt-3">
           <div className="relative h-1.5 rounded-full bg-surface-overlay">
             <div
@@ -247,5 +306,37 @@ export default function AudioCaptureLens({ scope, onScopeChange }: LensProps) {
         </div>
       )}
     </div>
+  )
+}
+
+/** A round capture control with its name under it, so none of them is a bare icon. */
+function Control({ label, title, caption, onClick, look = 'plain', children }: {
+  label: string
+  title?: string
+  caption: string
+  onClick: () => void
+  look?: 'plain' | 'primary' | 'stop'
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={title ?? label}
+      className="group flex min-w-12 flex-col items-center gap-1 whitespace-nowrap rounded-item text-meta text-text-secondary outline-none focus-visible:ring-2 focus-visible:ring-accent"
+    >
+      <span
+        className={cn(
+          'flex h-9 w-9 items-center justify-center rounded-full transition-all group-active:scale-95 @tall:h-11 @tall:w-11',
+          look === 'primary' && 'bg-accent text-accent-foreground group-hover:opacity-90',
+          look === 'stop' && 'bg-confused text-surface-raised ring-4 ring-confused-soft group-hover:opacity-90',
+          look === 'plain' && 'border border-border bg-surface-raised group-hover:bg-surface-overlay group-hover:text-text-primary',
+        )}
+      >
+        {children}
+      </span>
+      <span aria-hidden className="leading-tight">{caption}</span>
+    </button>
   )
 }

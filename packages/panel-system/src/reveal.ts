@@ -10,8 +10,8 @@ export function scrollPanelIntoView(root: ParentNode | null | undefined, panelId
   const el = [...(root?.querySelectorAll<HTMLElement>('[data-panel-id]') ?? [])].find((p) => p.dataset.panelId === panelId)
   const scroller = el?.closest<HTMLElement>('[data-canvas-scroll]')
   if (!el || !scroller) return false
-  // A free-layout panel animates `top` and `height` (e.g. leaving fullscreen),
-  // so read its layout target rather than the mid-transition box.
+  // Read the free-layout panel's layout box from the store's numbers, not a
+  // box measured while it glides (e.g. leaving fullscreen, see CanvasEngine).
   const top = Number(el.dataset.layoutTop ?? el.offsetTop)
   const bottom = top + Number(el.dataset.layoutHeight ?? el.offsetHeight)
   const viewTop = scroller.scrollTop

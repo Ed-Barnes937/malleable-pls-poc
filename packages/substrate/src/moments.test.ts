@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { momentStatus } from './moments'
+import { momentStatus, stillConfused } from './moments'
 
 const MARKED = '2026-04-16T10:00:00Z'
 const BEFORE = '2026-04-16T09:00:00Z'
@@ -25,5 +25,12 @@ describe('momentStatus', () => {
     expect(momentStatus({ latestScore: 90, latestAt: BEFORE, confusedAt: MARKED })).toBe('review')
     expect(momentStatus({ latestScore: 60, latestAt: AFTER, confusedAt: MARKED })).toBe('review')
     expect(momentStatus({ latestScore: 90, latestAt: AFTER, confusedAt: MARKED })).toBe('solid')
+  })
+
+  it('a sorted moment is solid whatever its rating, and no longer confused', () => {
+    expect(momentStatus({ latestScore: null, latestAt: null, confusedAt: MARKED, sorted: true })).toBe('solid')
+    expect(momentStatus({ latestScore: 10, latestAt: AFTER, confusedAt: MARKED, sorted: true })).toBe('solid')
+    expect(stillConfused({ latestScore: null, latestAt: null, confusedAt: MARKED, sorted: true })).toBe(false)
+    expect(stillConfused({ latestScore: null, latestAt: null, confusedAt: MARKED, sorted: false })).toBe(true)
   })
 })

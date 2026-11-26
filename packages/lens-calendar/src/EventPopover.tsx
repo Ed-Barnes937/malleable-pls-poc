@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, DatePicker, SegmentedControl, Select, TextField, TimeInput } from '@pls/shared-ui'
+import { CourseOptions, DatePicker, SegmentedControl, Select, TextField, TimeInput } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
@@ -105,6 +105,7 @@ export function EventPopover({
         <button
           type="button"
           aria-label="Close"
+          title="Close"
           onClick={onClose}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
@@ -152,7 +153,7 @@ export function EventPopover({
           <span className={fieldLabel}>Course</span>
           <Select aria-label="Course" value={draft.course ?? ''} disabled={!canEdit} {...lockProps} onChange={(e) => set({ course: e.target.value || null })}>
             <option value="">No course</option>
-            {COURSES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+            <CourseOptions current={draft.course} />
           </Select>
         </label>
         {draft.kind === 'commitment' && (
@@ -180,7 +181,8 @@ export function EventPopover({
       <PendingStatus pending={pending} done={done} />
 
       {canEdit && (
-        <div className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
+        // The anchor: late content above (the lecture row) grows around it, so the buttons stay put.
+        <div data-popover-anchor className="flex items-center gap-1.5 border-t border-border-subtle pt-3">
           {onDelete && (confirmDelete ? (
             <button
               type="button"

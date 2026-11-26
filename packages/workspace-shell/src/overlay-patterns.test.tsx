@@ -72,7 +72,7 @@ describe('the shell overlays meet their WAI-ARIA patterns', () => {
 
   it('Board appearance (a non-modal dialog)', async () => {
     // Tab leaves a non-modal popover, so the page has something after it to land on.
-    render(<><TopBar onMenuClick={() => {}} /><button type="button">After the top bar</button></>)
+    render(<><TopBar onMenuClick={() => {}} boardHasCalendar={false} onPlanWeek={() => {}} onAddCalendar={() => {}} /><button type="button">After the top bar</button></>)
     await userEvent.click(screen.getByRole('button', { name: 'Board appearance' }))
     await act(settle)
     await checkPattern(screen.getByRole('dialog', { name: 'Board appearance' }), 'dialog')

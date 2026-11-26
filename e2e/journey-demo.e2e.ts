@@ -1,12 +1,12 @@
 import path from 'path'
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from './test'
+import type { Page } from '@playwright/test'
 import { startOfLocalDay, wallClock, zonedTimeToUtc } from '../packages/scheduler/src'
 import type { PlanItem, PlanItemOccurrence, Recording } from '../packages/substrate/src'
 import { AudioCapturePom, CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'
 import { reseed } from './reseed'
 import { expectedReviewSlots } from './review-placement'
-import { movedNote, movedPastThisWeek } from '../packages/lens-framework/src/missed-blocks'
 import { SEED_MISSED_IDS, SEED_TIME_ZONE, weekMonday } from './seed-week'
 
 /**
@@ -28,8 +28,8 @@ const NOW = Date.parse(process.env.DEMO_NOW ?? '2026-10-27T10:30:00Z')
 const WEEK_MS = 7 * 24 * 60 * 60_000
 const DEMO_WAV = path.join(__dirname, '..', 'demo', 'lecture-mitochondrial-dna.wav')
 const LECTURE = 'Mitochondrial DNA - today'
-/** Step 2 at the default time, after Shrink: the two left over don't fit in what the days' 2h has left. */
-const DEFAULT_DRAFT_SUMMARY = "Drafted 5h of study time. 4h didn't fit. The other 2h is on days with too little study time left for them."
+/** Step 2 at the default time, after Shrink: the one left over doesn't fit in what the days' 2h has left. */
+const DEFAULT_DRAFT_SUMMARY = "Drafted 6h 30m of study time. 2h didn't fit. The other 30m is on days with too little study time left for it."
 const AUTOFILLED = ['seed-todo-past-paper', 'seed-todo-problem-sheet', 'seed-todo-flashcards', 'seed-todo-essay-plan']
 
 /** Monday 00:00 London of the week containing `now`. */
@@ -107,8 +107,9 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await plan.getByTestId('autofill').click()
     const draft = plan.getByTestId('autofill-draft')
     await expect(draft.getByTestId('autofill-trim')).toHaveCount(1, { timeout: 15000 })
-    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) is too long for one day.')
-    await draft.getByRole('button', { name: 'Shrink to 2h' }).click()
+    // 3h short: the longest to-do, the 3h lab report, could be shorter.
+    await expect(draft.getByTestId('autofill-trim')).toContainText('Lab report write-up (3h) could be shorter, so more fits.')
+    await draft.getByRole('button', { name: 'Shrink to 1h 30m' }).click()
     if (!process.env.DEMO_NOW) {
       // The default demo time is frozen, so the draft is too.
       await expect(draft.getByTestId('autofill-summary')).toHaveText(DEFAULT_DRAFT_SUMMARY)
@@ -140,10 +141,8 @@ test.describe('Journey: the demo script (mock AI)', () => {
     await expect(calendar.block(accepted.title)).toHaveAttribute('aria-label', / 15:00 - /)
 
     // 3. Scope: the board shows Biology; nothing is hidden silently.
-    await topBar.openDrawer()
-    await new SidebarPom(page).selectCourse('Biology')
-    await page.keyboard.press('Escape')
-    await expect(topBar.scopeChip).toContainText('Biology')
+    await topBar.selectCourse('Biology')
+    await expect(topBar.coursePill).toHaveText('Biology')
     await expect(calendar.root.getByText('Biology highlighted')).toBeVisible()
     await expect(comingUp.getByText('+1 in other courses')).toBeVisible()
     await expect(comingUp.getByText('Chemistry lab report')).toHaveCount(0)
@@ -181,7 +180,7 @@ test.describe('Journey: the demo script (mock AI)', () => {
     })
     await transcript.getByText(/let me try to explain maternal inheritance/).click()
     const markedFrom = Date.now()
-    await transcript.getByRole('button', { name: 'confused', exact: true }).click()
+    await transcript.getByRole('button', { name: 'Confused', exact: true }).click()
     const chip = transcript.getByTestId('review-chip')
     await expect(chip).toContainText('Review planned · ', { timeout: 20000 })
     const markedTo = Date.now()
@@ -268,36 +267,39 @@ test.describe('Journey: the demo script (mock AI)', () => {
 
     // Missed blocks: a calm question, then the blocks move. Yesterday's two
     // seeded ones always count; on the real clock, accepted blocks may too.
-    const banner = todo.getByTestId('refit-banner')
+    // The board asks once, in its Calendar (decision 4), not in the To-do.
+    const banner = calendar.root.getByTestId('refit-banner')
     await expect(banner).toContainText(/\d+ blocks didn't happen\. Re-fit them\?/, { timeout: 10000 })
+    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
     await banner.getByRole('button', { name: 'Re-fit' }).click()
-    const proposals = banner.getByTestId('refit-proposal')
-    for (const title of ['Read lecture notes: cell division', 'Practice questions: cell structure']) {
-      // The seeded two always get a new time.
-      await expect(proposals.filter({ hasText: title })).toHaveCount(1)
-      await expect(proposals.filter({ hasText: title })).not.toContainText('It stays on your list.')
-    }
+    await expect(banner).toContainText('Here is where they could go')
     const missedBefore = (await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] }))
       .filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     expect(missedBefore).toHaveLength(2)
-    // On the real clock, an accepted block that has passed too may have no
-    // room before it is due at 2h a day: the note then says so.
-    const noFit = await proposals.filter({ hasText: 'It stays on your list.' }).count()
-    const movedTitles = await proposals.filter({ hasNotText: 'It stays on your list.' })
-      .evaluateAll((rows) => rows.map((row) => row.querySelector('span')?.textContent ?? ''))
-    expect(movedTitles.length).toBeGreaterThanOrEqual(2)
+    // The preview the ghosts show: the seeded two always get a new time. On
+    // the real clock, an accepted block that has passed too may have no room
+    // before it is due at 2h a day: the note then says so.
+    const preview = await trpcQuery<{ item: PlanItem; starts_at: string | null }[]>(request, 'planItems.refitPreview', { timeZone: SEED_TIME_ZONE })
+    for (const item of missedBefore) expect(preview.find((p) => p.item.id === item.id)?.starts_at, item.title).toBeTruthy()
+    const movedIds = preview.filter((p) => p.starts_at).map((p) => p.item.id)
+    const noFit = preview.length - movedIds.length
     await banner.getByRole('button', { name: 'Move them' }).click()
-    await expect(todo.getByTestId('refit-banner')).toHaveCount(0)
-    // The note says where they went, as of the browser's "now": "in your
-    // calendar" this week; on the real clock later in the week, "to next
-    // week" with a way to show it (copy unit-tested in missed-blocks.test.tsx).
+    await expect(banner).toHaveCount(0)
+    // The move is confirmed by an Undo toast (decision 30); the Calendar
+    // opened the week they went to itself. A note is left only for blocks
+    // that didn't fit (copy unit-tested in missed-blocks.test.tsx).
+    await expect.poll(async () => (await trpcQuery<unknown[]>(request, 'planItems.refitPreview', { timeZone: SEED_TIME_ZONE })).length).toBe(noFit)
     const tasks = await trpcQuery<PlanItem[]>(request, 'planItems.list', { kinds: ['task'] })
-    const moved = movedTitles.map((title) => tasks.find((t) => t.title === title)!)
-    const show = movedPastThisWeek(moved.map((t) => ({ id: t.id, startsAt: t.starts_at! })), NOW)
-    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    await expect(todo.getByTestId('refit-note')).toHaveText(new RegExp(
-      `^${escape(movedNote(moved.map((t) => t.starts_at!), [], NOW))}${noFit === 0 ? '' : ` ${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.`}${show ? ` ${escape(show.label)}` : ''}$`,
-    ))
+    const toastHost = page.getByTestId('toast-host')
+    await expect(toastHost.getByTestId('toast').filter({ hasText: `Moved ${movedIds.length} blocks` })).toBeVisible()
+    await expect(toastHost.getByTestId('toast').filter({ hasText: `Moved ${movedIds.length} blocks` }).getByRole('button', { name: 'Undo' })).toBeVisible()
+    if (noFit === 0) {
+      await expect(calendar.root.getByTestId('refit-note')).toHaveCount(0)
+    } else {
+      await expect(calendar.root.getByTestId('refit-note')).toHaveText(new RegExp(
+        `^${noFit} didn't fit (this week|before (it is|they are) due), so (it stays|they stay) on your to-do list\\.$`,
+      ))
+    }
     const missedAfter = tasks.filter((i) => (SEED_MISSED_IDS as readonly string[]).includes(i.id))
     for (const item of missedAfter) {
       expect(Date.parse(item.starts_at!), item.title).toBeGreaterThan(Date.now() - 5 * 60_000)

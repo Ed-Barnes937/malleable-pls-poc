@@ -11,6 +11,7 @@ export function ToastHarness(props: { durationMs?: number; onAction?: () => void
 
 function Buttons({ durationMs, onAction }: { durationMs?: number; onAction?: () => void }) {
   const push = useToastStore((s) => s.push)
+  const dismissKey = useToastStore((s) => s.dismissKey)
   const board = useActiveWorkspaceId()
   const setBoard = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const base = durationMs === undefined ? {} : { durationMs }
@@ -34,6 +35,20 @@ function Buttons({ durationMs, onAction }: { durationMs?: number; onAction?: () 
             push({ message: 'Opened on the new board', tone: 'success', durationMs: null, board: 'ws-evening-review' })
           }}>Switch board and say so</button>
           <button type="button" onClick={() => push({ message: 'Could not save', tone: 'error', ...base })}>Add error</button>
+          <button type="button" onClick={() => {
+            push({ message: 'No longer marked confusing', tone: 'success', key: 'marks-seg-1', durationMs: null })
+            push({ message: 'Review added to your plan', tone: 'success', durationMs: null })
+          }}>Add marked and review</button>
+          {/* The keyed toast waits its turn behind the first, and is dismissed before it is shown. */}
+          <button type="button" onClick={() => {
+            push({ message: 'Review added to your plan', tone: 'success', durationMs: null })
+            push({ message: 'No longer marked confusing', tone: 'success', key: 'marks-seg-1', durationMs: null })
+            dismissKey('marks-seg-1')
+          }}>Add review, then marked, dismissed at once</button>
+          <button type="button" onClick={() => {
+            dismissKey('marks-seg-1')
+            dismissKey('marks-none')
+          }}>Dismiss marked</button>
         </div>
         <ToastHost />
       </div>

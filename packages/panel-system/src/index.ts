@@ -12,7 +12,9 @@ export {
   type SizeConstraints,
   type BackgroundConfig,
   type BackgroundType,
+  type PanelArrangement,
 } from './canvas-store'
+export { tidyLayout } from './layout'
 export { GRID_SIZE } from './panel-board'
-export { canvasBounds, findFreeSpot, placeNewPanel, PLACEMENT_GAP } from './geometry'
+export { canvasBounds, findFreeSpot, placeNewPanel, layoutGroup, PLACEMENT_GAP, type GroupMember } from './geometry'
 export { scrollPanelIntoView } from './reveal'

@@ -1,9 +1,10 @@
 import type { Page, Route } from '@playwright/test'
-import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
+import { ProcedureRouter, SimulatorError, handleTrpcRequest } from './trpc-protocol'
 import { InMemoryDb, type SeedData } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
 import { registerRecordingsHandlers } from './handlers/recordings'
+import { registerLecturesHandlers } from './handlers/lectures'
 import { registerTranscriptsHandlers } from './handlers/transcripts'
 import { registerTagsHandlers } from './handlers/tags'
 import { registerJobsHandlers } from './handlers/jobs'
@@ -14,6 +15,8 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
+import { registerResourcesHandlers, uploadResourceFile } from './handlers/resources'
+import { registerCoursesHandlers } from './handlers/courses'
 
 export const TRPC_URL = 'http://localhost:3999/trpc'
 
@@ -31,6 +34,7 @@ export class BackendSimulator {
   private registerAllHandlers(): void {
     registerWorkspacesHandlers(this.router, this.db)
     registerRecordingsHandlers(this.router, this.db)
+    registerLecturesHandlers(this.router, this.db, () => this.frozenNow ?? Date.now())
     registerTranscriptsHandlers(this.router, this.db)
     registerTagsHandlers(this.router, this.db)
     registerJobsHandlers(this.router, this.db)
@@ -41,6 +45,8 @@ export class BackendSimulator {
     registerWorkflowsHandlers(this.router, this.db)
     registerPlanItemsHandlers(this.router, this.db, () => this.frozenNow ?? Date.now())
     registerPreferencesHandlers(this.router, this.db)
+    registerResourcesHandlers(this.router, this.db)
+    registerCoursesHandlers(this.router, this.db)
   }
 
   /**
@@ -60,8 +66,46 @@ export class BackendSimulator {
     this.router.rewrite(path, change)
   }
 
+  /**
+   * Makes `path` answer with an INTERNAL_SERVER_ERROR from now on, inside
+   * whatever batch it is sent in; the other calls in the batch still answer.
+   * Unlike failing the request in a route, nothing batched with it fails.
+   *
+   * Differs from the server: the simulator always answers HTTP 200, so the
+   * browser logs nothing. The server answers a lone failing call (or a batch
+   * whose calls all fail) with the error's status, which the browser logs as
+   * "Failed to load resource"; a mixed batch gets 207, which it doesn't.
+   */
+  failProcedure(path: string): void {
+    this.router.register(path, () => { throw new SimulatorError('INTERNAL_SERVER_ERROR', `${path} failed (simulated)`) })
+  }
+
   async handleNetworking(page: Page): Promise<void> {
     await page.route(`${TRPC_URL}/**`, (route) => this.handleRoute(route))
+    // The server's plain HTTP routes for resource files, answered the same way.
+    await page.route('**/resource-upload', (route) => this.handleResourceUpload(route))
+    await page.route('**/resource-files/**', (route) => this.handleResourceFile(route))
+  }
+
+  private async handleResourceUpload(route: Route): Promise<void> {
+    const request = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }
+    if (request.method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: cors })
+      return
+    }
+    const { status, body } = uploadResourceFile(this.db, request.headers(), request.postDataBuffer() ?? new Uint8Array())
+    await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body), headers: cors })
+  }
+
+  private async handleResourceFile(route: Route): Promise<void> {
+    const id = new URL(route.request().url()).pathname.split('/').pop() ?? ''
+    const resource = this.db.resources.find((r) => r.id === id)
+    if (!resource) {
+      await route.fulfill({ status: 404, contentType: 'application/json', body: '{"error":"File not found"}' })
+      return
+    }
+    await route.fulfill({ status: 200, contentType: resource.mime_type ?? 'application/octet-stream', body: `simulated ${resource.file_name}` })
   }
 
   private async handleRoute(route: Route): Promise<void> {

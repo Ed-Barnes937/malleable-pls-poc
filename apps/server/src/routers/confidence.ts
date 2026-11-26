@@ -3,22 +3,19 @@ import { boardIdInput } from '@pls/substrate'
 import { router, publicProcedure } from '../trpc'
 import { withUser } from '@pls/db'
 import { dispatchWorkflows } from '../workflows/dispatch'
-import { boardScope, andInCourse } from './_shared'
+import { boardScope, andInScope, isScoped } from './_shared'
 
 export const confidenceRouter = router({
   list: publicProcedure
     .input(boardScope)
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        if (input.recordingId || input.courseTag) {
+        if (isScoped(input)) {
           return tx`
             SELECT cs.* FROM confidence_signals cs
             JOIN transcript_segments ts ON ts.id = cs.target_id AND cs.target_type = 'transcript_segment'
             WHERE cs.user_id = ${ctx.userId}
-              ${input.recordingId
-                // A targeted lecture wins over the course (see boardScope).
-                ? tx`AND ts.recording_id = ${input.recordingId}`
-                : andInCourse(tx, ctx.userId, input.courseTag, 'recording', tx`ts.recording_id`)}
+              ${andInScope(tx, ctx.userId, input, tx`ts.recording_id`)}
             ORDER BY cs.created_at DESC
           `
         }

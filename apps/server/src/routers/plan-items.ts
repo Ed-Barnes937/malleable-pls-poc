@@ -7,25 +7,91 @@ import {
   planItemListInput,
   newPlanItemOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
+  planItemsRevertInput,
+  planItemUndoStateInput,
+  type PlanItemUndoState,
   planItemIdInput as id,
   refitAcceptInput,
   refitPreviewInput,
+  CLOSED_WITH_TODO,
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
+  isPlainTodo,
+  isSession,
+  newSession,
+  sessionParentId,
 } from '@pls/substrate'
-import type { PlanItem, PlanItemQuery } from '@pls/substrate'
+import type { NewPlanItem, PlanItem, PlanItemQuery } from '@pls/substrate'
 import { dispatchWorkflows } from '../workflows/dispatch'
+import { studentTimeZone } from '../preferences/store'
 import { acceptRefit, previewRefit } from '../planning/refit'
+import { moveFutureClassLectures } from './_class-lectures'
+import { requireOwnCourse } from './_shared'
 import {
   assertValid,
   columns,
-  courseColumn,
   eventPayload,
   fetchOne,
   insertPlanItem,
   listPlanItems,
-  setCourse,
   toPlanItem,
-  type Stored,
 } from '../plan-items/store'
+
+/**
+ * Moves one item out of plan_items into plan_item_trash, its course in the
+ * row, and the lectures linked to it as a class (see migration 024).
+ * `parentId`: the item it goes with (a to-do, for its session). False when
+ * there is no such item.
+ */
+async function trash(tx: TransactionSql, userId: string, planItemId: string, parentId: string | null): Promise<boolean> {
+  const kept = await tx`
+    INSERT INTO plan_item_trash (id, user_id, parent_id, row, lecture_ids)
+    SELECT p.id, p.user_id, ${parentId}, to_jsonb(p),
+      COALESCE((SELECT array_agg(l.id) FROM lectures l WHERE l.user_id = p.user_id AND l.class_item_id = p.id), '{}')
+    FROM plan_items p
+    WHERE p.id = ${planItemId} AND p.user_id = ${userId}
+    ON CONFLICT (id) DO UPDATE SET parent_id = EXCLUDED.parent_id, row = EXCLUDED.row,
+      lecture_ids = EXCLUDED.lecture_ids, deleted_at = now()
+    RETURNING id
+  `
+  if (kept.length === 0) return false
+  await tx`DELETE FROM plan_items WHERE id = ${planItemId} AND user_id = ${userId}`
+  return true
+}
+
+/** Trash older than this can't be restored, and is purged (see migration 024). */
+const TRASH_KEPT = '1 day'
+
+async function purgeTrash(tx: TransactionSql, userId: string) {
+  await tx`DELETE FROM plan_item_trash WHERE user_id = ${userId} AND deleted_at <= now() - ${TRASH_KEPT}::interval`
+}
+
+/** One item as an accepted draft can change it, now (see planItemUndoState). */
+async function undoState(tx: TransactionSql, userId: string, planItemId: string): Promise<PlanItemUndoState> {
+  const item = await fetchOne(tx, userId, planItemId)
+  const sessions = await tx`
+    SELECT id, updated_at FROM plan_items
+    WHERE user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${planItemId}
+    ORDER BY id
+  `
+  return {
+    id: item.id,
+    title: item.title,
+    starts_at: item.starts_at,
+    ends_at: item.ends_at,
+    duration_min: item.duration_min,
+    updated_at: item.updated_at,
+    sessions: sessions.map((r) => ({ id: r.id as string, updated_at: (r.updated_at as Date).toISOString() })),
+  }
+}
+
+/** The same time, estimate, sessions and last change: nobody touched it in between. */
+function sameState(a: PlanItemUndoState, b: PlanItemUndoState): boolean {
+  if (a.updated_at !== b.updated_at || a.sessions.length !== b.sessions.length) return false
+  const sessions = new Map(a.sessions.map((s) => [s.id, s.updated_at]))
+  return b.sessions.every((s) => sessions.get(s.id) === s.updated_at)
+}
 
 /** Sets the status; returns the item before and after (unchanged if already at `next`). */
 async function setStatus(tx: TransactionSql, userId: string, planItemId: string, next: PlanItem['status']) {
@@ -36,6 +102,84 @@ async function setStatus(tx: TransactionSql, userId: string, planItemId: string,
     WHERE id = ${planItemId} AND user_id = ${userId}
   `
   return { before, item: await fetchOne(tx, userId, planItemId) }
+}
+
+/**
+ * A to-do booked in sessions is ticked off (or dismissed) once: its sessions
+ * follow (see @pls/substrate sessions).
+ * - Done or dismissed closes its open sessions, marked `CLOSED_WITH_TODO`.
+ * - Reopening it reopens just those, and only the ones still ahead (a past
+ *   one would come back as "didn't happen"); one the student ticked on its
+ *   own stays ticked.
+ * - A new title, course (`course`, as patched) or due time carries over.
+ * - A session whose own status changes loses the mark: that is the
+ *   student's choice now.
+ * Cascaded changes fire no workflow events.
+ */
+async function cascadeToSessions(tx: TransactionSql, userId: string, before: PlanItem, after: PlanItem, course?: string | null) {
+  if (after.kind !== 'task') return
+  if (isSession(after)) {
+    if (before.status !== after.status && after.subtype === CLOSED_WITH_TODO) {
+      await tx`UPDATE plan_items SET subtype = NULL WHERE id = ${after.id} AND user_id = ${userId}`
+    }
+    return
+  }
+  const owned = tx`user_id = ${userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${after.id}`
+  if (before.title !== after.title) await tx`UPDATE plan_items SET title = ${after.title}, updated_at = now() WHERE ${owned}`
+  if (before.due_at !== after.due_at) await tx`UPDATE plan_items SET due_at = ${after.due_at}, updated_at = now() WHERE ${owned}`
+  if (course !== undefined) await tx`UPDATE plan_items SET course = ${course} WHERE ${owned}`
+  if (before.status === after.status) return
+  if (after.status === 'open') {
+    await tx`
+      UPDATE plan_items SET status = CASE WHEN ends_at > now() THEN 'open' ELSE status END, subtype = NULL, updated_at = now()
+      WHERE ${owned} AND subtype = ${CLOSED_WITH_TODO}
+    `
+  } else {
+    await tx`
+      UPDATE plan_items SET status = ${after.status}, subtype = ${CLOSED_WITH_TODO}, updated_at = now()
+      WHERE ${owned} AND status = 'open'
+    `
+  }
+}
+
+/**
+ * A to-do booked in one block becomes sessions when a second booking is
+ * needed (see @pls/substrate sessions): before `session` is added, the
+ * to-do's own block moves into a session of its own, at the same time and
+ * status, and the to-do keeps only its total. Fires no workflow events (the
+ * student's time hasn't changed).
+ */
+async function ownBlockToSession(tx: TransactionSql, userId: string, session: { kind: PlanItem['kind']; source_type?: string | null; source_id?: string | null }) {
+  const parentId = sessionParentId({ kind: session.kind, source_type: session.source_type ?? null, source_id: session.source_id ?? null })
+  if (!parentId) return
+  const todo = await fetchOne(tx, userId, parentId)
+  // Only a plain to-do: a review's block stays its own, linked to its moment.
+  if (!isPlainTodo(todo) || todo.recurrence || !todo.starts_at || !todo.ends_at) return
+  const moved = await insertPlanItem(tx, userId, newSession(todo, todo.starts_at, todo.ends_at), todo.time_zone)
+  if (todo.status !== 'open') {
+    await tx`UPDATE plan_items SET status = ${todo.status} WHERE id = ${moved.id} AND user_id = ${userId}`
+  }
+  await tx`
+    UPDATE plan_items SET starts_at = NULL, ends_at = NULL, updated_at = now()
+    WHERE id = ${todo.id} AND user_id = ${userId}
+  `
+}
+
+/**
+ * A booking lengthened past its to-do's estimate raises the estimate to the
+ * booked total (flow-audit decision 16): its own block, or the sum of its
+ * sessions. Nothing here lowers it, and a block with no estimate (study time
+ * made on the calendar) keeps none. Fires no workflow events.
+ */
+async function raiseEstimateToBooked(tx: TransactionSql, userId: string, item: PlanItem) {
+  if (item.kind !== 'task') return
+  const parentId = sessionParentId(item)
+  const todo = parentId ? await fetchOne(tx, userId, parentId) : item
+  if (todo.duration_min == null || todo.recurrence) return
+  const sessions = parentId ? await listPlanItems(tx, userId, { kinds: ['task'], statuses: ['open', 'done'], sourceType: SESSION_SOURCE_TYPE, sourceId: todo.id }) : []
+  const booked = Math.round(bookedMinutes([todo, ...sessions]).get(todo.id) ?? 0)
+  if (booked <= todo.duration_min) return
+  await tx`UPDATE plan_items SET duration_min = ${booked}, updated_at = now() WHERE id = ${todo.id} AND user_id = ${userId}`
 }
 
 /**
@@ -54,6 +198,24 @@ async function dispatchChange(
   if (before.status !== 'done' && after.status === 'done') {
     await dispatchWorkflows(tx, userId, 'plan-item:completed', eventPayload(after), workspaceId)
   }
+}
+
+/**
+ * Moves a plan item to `next` (e.g. dismisses it, or reopens a dismissed
+ * one), with its sessions following and the change's events. Returns the
+ * item after; nothing happens if it is already at `next`.
+ */
+export async function changeStatus(
+  tx: TransactionSql,
+  userId: string,
+  planItemId: string,
+  next: PlanItem['status'],
+  workspaceId: string | null,
+): Promise<PlanItem> {
+  const { before, item } = await setStatus(tx, userId, planItemId, next)
+  await cascadeToSessions(tx, userId, before, item)
+  if (before.status !== item.status) await dispatchChange(tx, userId, before, item, workspaceId)
+  return item
 }
 
 // ---------------------------------------------------------------------------
@@ -79,7 +241,7 @@ export const planItemsRouter = router({
     .query(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const [row] = await tx`
-          SELECT p.*, ${courseColumn(tx)} FROM plan_items p
+          SELECT p.* FROM plan_items p
           WHERE p.id = ${input} AND p.user_id = ${ctx.userId}
         `
         return row ? toPlanItem(row) : null
@@ -88,9 +250,12 @@ export const planItemsRouter = router({
 
   create: publicProcedure
     .input(newPlanItemOnBoardInput)
-    .mutation(async ({ ctx, input: { workspaceId, ...input } }) => {
+    .mutation(async ({ ctx, input: { workspaceId, timeZone, ...input } }) => {
       return withUser(ctx.userId, async (tx) => {
-        const item = await insertPlanItem(tx, ctx.userId, input)
+        if (input.course != null) await requireOwnCourse(tx, ctx.userId, input.course)
+        await ownBlockToSession(tx, ctx.userId, input)
+        const item = await insertPlanItem(tx, ctx.userId, input, timeZone)
+        await raiseEstimateToBooked(tx, ctx.userId, item)
         await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), workspaceId ?? null)
         return item
       })
@@ -101,19 +266,67 @@ export const planItemsRouter = router({
    * the fields that change; `null` clears one. See PlanItemOccurrence for
    * editing from a list row.
    */
+  /**
+   * Book the rest: sessions of one to-do, saved in one transaction (all or
+   * none). A to-do still booked in its own block has that block moved into a
+   * session first, as `create` does; the estimate rises if the sessions
+   * outgrow it. NOT_FOUND for a missing to-do; BAD_REQUEST for anything but
+   * an open plain to-do (not a session, not a review of a moment, not done),
+   * and for a block that is empty, longer than a day or overlaps another.
+   */
+  bookSessions: publicProcedure
+    .input(bookSessionsInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const todo = await fetchOne(tx, ctx.userId, input.todoId)
+        if (!isPlainTodo(todo) || todo.status !== 'open') {
+          throw new TRPCError({ code: 'BAD_REQUEST', message: 'Only an open to-do of your own can be booked in sessions' })
+        }
+        const made: PlanItem[] = []
+        for (const block of input.blocks) {
+          const session = newSession(todo, block.starts_at, block.ends_at)
+          await ownBlockToSession(tx, ctx.userId, session)
+          const item = await insertPlanItem(tx, ctx.userId, session, input.timeZone)
+          await dispatchWorkflows(tx, ctx.userId, 'plan-item:created', eventPayload(item), input.workspaceId ?? null)
+          made.push(item)
+        }
+        await raiseEstimateToBooked(tx, ctx.userId, made[0])
+        return made
+      })
+    }),
+
+  /**
+   * Patches the stored item (see above). A class given another course takes
+   * its future, unrecorded lectures still filed under the old course with
+   * it, boards showing them refiled, in the same transaction; past, recorded
+   * and hand-filed ones stay (`moveFutureClassLectures`).
+   */
   update: publicProcedure
     .input(planItemUpdateOnBoardInput)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
+        // Locked first, so the course compared below is the committed one
+        // (a concurrent class change finishes first), and before any lecture:
+        // the class, then lectures by id, then boards.
+        await tx`SELECT id FROM plan_items WHERE id = ${input.id} AND user_id = ${ctx.userId} FOR NO KEY UPDATE`
         const current = await fetchOne(tx, ctx.userId, input.id)
         const { course, ...patch } = input.patch
-        const merged: Stored = { ...current, ...patch }
+        // Archived courses are fine; an item keeping its course isn't rechecked.
+        if (course != null && course !== current.course) await requireOwnCourse(tx, ctx.userId, course)
+        const merged: NewPlanItem = { ...current, ...patch, ...(course !== undefined ? { course } : {}) }
         assertValid(merged)
+        // An item from before items kept their zone takes the student's now;
+        // one that has a zone keeps it (see PlanItem.time_zone).
+        const timeZone = current.time_zone ?? await studentTimeZone(tx, ctx.userId, input.timeZone)
         await tx`
-          UPDATE plan_items SET ${tx({ ...columns(tx, merged), updated_at: new Date() })}
+          UPDATE plan_items SET ${tx({ ...columns(tx, merged), time_zone: timeZone, updated_at: new Date() })}
           WHERE id = ${input.id} AND user_id = ${ctx.userId}
         `
-        if (course !== undefined) await setCourse(tx, ctx.userId, input.id, course)
+        // A class changing course takes its future lectures with it, in this transaction.
+        if (course !== undefined && course !== current.course) await moveFutureClassLectures(tx, ctx.userId, input.id, current.course ?? null, course)
+        const updated = await fetchOne(tx, ctx.userId, input.id)
+        await cascadeToSessions(tx, ctx.userId, current, updated, course)
+        if (updated.starts_at !== current.starts_at || updated.ends_at !== current.ends_at) await raiseEstimateToBooked(tx, ctx.userId, updated)
         const item = await fetchOne(tx, ctx.userId, input.id)
         await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
         return item
@@ -125,6 +338,7 @@ export const planItemsRouter = router({
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
         const { before, item } = await setStatus(tx, ctx.userId, input.id, 'done')
+        await cascadeToSessions(tx, ctx.userId, before, item)
         if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
         return item
       })
@@ -133,11 +347,7 @@ export const planItemsRouter = router({
   dismiss: publicProcedure
     .input(planItemOnBoardInput)
     .mutation(async ({ ctx, input }) => {
-      return withUser(ctx.userId, async (tx) => {
-        const { before, item } = await setStatus(tx, ctx.userId, input.id, 'dismissed')
-        if (before.status !== item.status) await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
-        return item
-      })
+      return withUser(ctx.userId, (tx) => changeStatus(tx, ctx.userId, input.id, 'dismissed', input.workspaceId))
     }),
 
   /**
@@ -166,14 +376,148 @@ export const planItemsRouter = router({
       }))
     }),
 
-  /** Hard delete (no workflow event). NOT_FOUND for a missing or another user's id. */
+  /**
+   * Deletes the item (no workflow event), with the to-do's sessions if it
+   * has any. A recurring item goes as a whole series. A copy is kept for a
+   * day (plan_item_trash), so `restore` can put it back. NOT_FOUND for a
+   * missing or another user's id.
+   */
   delete: publicProcedure
     .input(id)
     .mutation(async ({ ctx, input }) => {
       return withUser(ctx.userId, async (tx) => {
-        const rows = await tx`DELETE FROM plan_items WHERE id = ${input} AND user_id = ${ctx.userId} RETURNING id`
-        if (rows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
-        await setCourse(tx, ctx.userId, input, null)
+        await purgeTrash(tx, ctx.userId)
+        const sessions = await tx`
+          SELECT id FROM plan_items
+          WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${input}
+        `
+        if (!(await trash(tx, ctx.userId, input, null))) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan item not found' })
+        for (const s of sessions) await trash(tx, ctx.userId, s.id as string, input)
+      })
+    }),
+
+  /**
+   * Undo of `delete`: puts the item back exactly as it was (same id, its
+   * course, its sessions, the lectures linked to it as a class), unfiled if
+   * its course has been deleted since. Fires no
+   * workflow event, as delete fires none. NOT_FOUND when there is nothing
+   * to put back (never deleted, already restored, or deleted over a day ago).
+   */
+  restore: publicProcedure
+    .input(id)
+    .mutation(async ({ ctx, input }) => {
+      // Purged on its own, so it holds even when there is nothing to restore.
+      await withUser(ctx.userId, (tx) => purgeTrash(tx, ctx.userId))
+      return withUser(ctx.userId, async (tx) => {
+        const rows = await tx`
+          SELECT id, lecture_ids, row->>'course' AS course FROM plan_item_trash
+          WHERE user_id = ${ctx.userId} AND (id = ${input} OR parent_id = ${input})
+            AND deleted_at > now() - ${TRASH_KEPT}::interval
+          ORDER BY (id = ${input}) DESC
+        `
+        if (!rows.some((r) => r.id === input)) throw new TRPCError({ code: 'NOT_FOUND', message: 'Nothing to restore' })
+        for (const r of rows) {
+          const trashedId = r.id as string
+          // Back under its course while the student still has it (held until
+          // this commits, so it can't go meanwhile); unfiled if it was deleted.
+          const course = r.course as string | null
+          const [kept] = course
+            ? await tx`SELECT id FROM courses WHERE user_id = ${ctx.userId} AND id = ${course} FOR KEY SHARE`
+            : []
+          await tx`
+            INSERT INTO plan_items
+            SELECT (jsonb_populate_record(NULL::plan_items, t.row || jsonb_build_object('course', ${kept ? course : null}::text))).*
+            FROM plan_item_trash t
+            WHERE t.id = ${trashedId} AND t.user_id = ${ctx.userId}
+          `
+          const lectures = (r.lecture_ids as string[] | null) ?? []
+          if (lectures.length > 0) {
+            await tx`
+              UPDATE lectures SET class_item_id = ${trashedId}
+              WHERE user_id = ${ctx.userId} AND id IN ${tx(lectures)} AND class_item_id IS NULL
+            `
+          }
+          await tx`DELETE FROM plan_item_trash WHERE id = ${trashedId} AND user_id = ${ctx.userId}`
+        }
+        return fetchOne(tx, ctx.userId, input)
+      })
+    }),
+
+  /**
+   * Undo of `dismiss`: the to-do is open again, and so is every session the
+   * dismiss closed with it (`CLOSED_WITH_TODO`), past ones included, as they
+   * were. A no-op for an item that isn't dismissed.
+   */
+  undismiss: publicProcedure
+    .input(planItemOnBoardInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const before = await fetchOne(tx, ctx.userId, input.id)
+        if (before.status !== 'dismissed') return before
+        await tx`UPDATE plan_items SET status = 'open', updated_at = now() WHERE id = ${input.id} AND user_id = ${ctx.userId}`
+        if (before.kind === 'task' && !isSession(before)) {
+          await tx`
+            UPDATE plan_items SET status = 'open', subtype = NULL, updated_at = now()
+            WHERE user_id = ${ctx.userId} AND kind = 'task' AND source_type = ${SESSION_SOURCE_TYPE} AND source_id = ${input.id}
+              AND subtype = ${CLOSED_WITH_TODO}
+          `
+        }
+        const item = await fetchOne(tx, ctx.userId, input.id)
+        await dispatchChange(tx, ctx.userId, before, item, input.workspaceId)
+        return item
+      })
+    }),
+
+  /**
+   * Each item as an accepted draft can change it, now: read before an
+   * Accept and again after it, for `revert`. NOT_FOUND for a missing or
+   * another user's id.
+   */
+  undoState: publicProcedure
+    .input(planItemUndoStateInput)
+    .query(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const out: PlanItemUndoState[] = []
+        for (const planItemId of input) out.push(await undoState(tx, ctx.userId, planItemId))
+        return out
+      })
+    }),
+
+  /**
+   * Undo of an accepted draft, in one transaction: each item still as the
+   * Accept left it goes back as it was before (time, estimate, and the
+   * sessions the Accept booked gone, including one its own block moved
+   * into). An item changed since is left alone and named in `kept`, so a
+   * stale Undo never overwrites the student's newer work.
+   */
+  revert: publicProcedure
+    .input(planItemsRevertInput)
+    .mutation(async ({ ctx, input }) => {
+      return withUser(ctx.userId, async (tx) => {
+        const reverted: PlanItem[] = []
+        const kept: { id: string; title: string }[] = []
+        for (const { before, after } of input.items) {
+          const now = await undoState(tx, ctx.userId, after.id)
+          if (before.id !== after.id || !sameState(now, after)) {
+            kept.push({ id: now.id, title: now.title })
+            continue
+          }
+          const current = await fetchOne(tx, ctx.userId, after.id)
+          const hadBefore = new Set(before.sessions.map((s) => s.id))
+          for (const s of after.sessions) {
+            if (hadBefore.has(s.id)) continue
+            await tx`DELETE FROM plan_items WHERE id = ${s.id} AND user_id = ${ctx.userId}`
+          }
+          assertValid({ ...current, starts_at: before.starts_at, ends_at: before.ends_at, duration_min: before.duration_min })
+          await tx`
+            UPDATE plan_items SET starts_at = ${before.starts_at}, ends_at = ${before.ends_at}, duration_min = ${before.duration_min}, updated_at = now()
+            WHERE id = ${after.id} AND user_id = ${ctx.userId}
+          `
+          const item = await fetchOne(tx, ctx.userId, after.id)
+          await dispatchChange(tx, ctx.userId, current, item, input.workspaceId ?? null)
+          reverted.push(item)
+        }
+        return { reverted, kept }
       })
     }),
 })

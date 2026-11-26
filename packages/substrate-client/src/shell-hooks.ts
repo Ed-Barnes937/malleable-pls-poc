@@ -1,15 +1,17 @@
+import { useCallback } from 'react'
 import { trpc } from './trpc'
 import type { Scope, ScopeDim } from '@pls/lens-framework'
-import { useQueryClient, type UseQueryResult } from '@tanstack/react-query'
+import { keepPreviousData, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query'
 import type { WorkflowWithJobs, JobRun } from '@pls/workflows'
-import type { PlanItemQuery } from '@pls/substrate'
+import type { BoardScope, Lecture, PlanItemQuery } from '@pls/substrate'
+import { applyBoardScopePatches, withBoardScope, type BoardScopePatch } from './board-scope'
 
 type ScopeRow = { scope_type: string; scope_value: string }
 
 /** `workspace_scopes.scope_type` for each Scope dimension. */
-export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'recording'> = {
+export const SCOPE_TYPE_BY_DIM: Record<ScopeDim, 'tag' | 'lecture'> = {
   courseTag: 'tag',
-  recordingId: 'recording',
+  lectureId: 'lecture',
 }
 
 /** Convert raw DB scope rows into the Scope domain object used by lens components. */
@@ -17,13 +19,33 @@ export function decodeScope(rows: ScopeRow[]): Scope {
   const scope: Scope = {}
   for (const s of rows) {
     if (s.scope_type === SCOPE_TYPE_BY_DIM.courseTag) scope.courseTag = s.scope_value
-    if (s.scope_type === SCOPE_TYPE_BY_DIM.recordingId) scope.recordingId = s.scope_value
+    if (s.scope_type === SCOPE_TYPE_BY_DIM.lectureId) scope.lectureId = s.scope_value
   }
   return scope
 }
 
+/**
+ * A widget's scope patch (`LensProps.onScopeChange`) as `setBoardScope`
+ * input: a dimension named with `undefined` is cleared (null), one left out
+ * is unchanged.
+ */
+export function boardScopePatch(patch: Partial<Scope>): { courseTag?: string | null; lectureId?: string | null } {
+  const out: { courseTag?: string | null; lectureId?: string | null } = {}
+  if ('courseTag' in patch) out.courseTag = patch.courseTag ?? null
+  if ('lectureId' in patch) out.lectureId = patch.lectureId ?? null
+  return out
+}
+
 export function useWorkspaces() {
   return trpc.workspaces.list.useQuery()
+}
+
+/**
+ * Every board with the widget types on it, in tab order (`workspaces.summary`):
+ * for choosing a board by what it contains. Board and panel changes refresh it.
+ */
+export function useWorkspaceSummary() {
+  return trpc.workspaces.summary.useQuery()
 }
 
 /** A board's widgets; no request without a board (`null`). */
@@ -31,9 +53,17 @@ export function useWorkspacePanels(workspaceId: string | null) {
   return trpc.workspaces.panels.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
 }
 
-/** A board's scope rows; no request without a board (`null`). */
+/**
+ * A board's scope rows; no request without a board (`null`). Not re-read on
+ * window focus while a scope write is unanswered: that would show the board
+ * without it (the last write re-reads it).
+ */
 export function useWorkspaceScopes(workspaceId: string | null) {
-  return trpc.workspaces.scopes.useQuery(workspaceId ?? '', { enabled: workspaceId !== null })
+  const queryClient = useQueryClient()
+  return trpc.workspaces.scopes.useQuery(workspaceId ?? '', {
+    enabled: workspaceId !== null,
+    refetchOnWindowFocus: () => workspaceId === null || pendingBoardScopeWrites(queryClient, workspaceId).length === 0,
+  })
 }
 
 // Both write the change into the cached board list as well as refetching
@@ -44,6 +74,7 @@ export function useCreateWorkspace() {
   return trpc.workspaces.create.useMutation({
     onSuccess: (ws) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && ([...prev, ws] as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -54,6 +85,7 @@ export function useDeleteWorkspace() {
   return trpc.workspaces.delete.useMutation({
     onSuccess: (_data, id) => {
       utils.workspaces.list.setData(undefined, (prev) => prev && (prev.filter((w) => w.id !== id) as typeof prev))
+      void utils.workspaces.summary.invalidate()
       return utils.workspaces.list.invalidate()
     },
   })
@@ -77,7 +109,10 @@ export function useReorderWorkspaces() {
     onError: (_err, _ids, ctx) => {
       if (ctx?.prev) utils.workspaces.list.setData(undefined, ctx.prev)
     },
-    onSettled: () => utils.workspaces.list.invalidate(),
+    onSettled: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.list.invalidate()
+    },
   })
 }
 
@@ -87,13 +122,18 @@ export function useReorderWorkspaces() {
  * one that still exists.
  */
 function refetchBoardsIfGone(utils: ReturnType<typeof trpc.useUtils>, error: { data?: { code?: string } | null }) {
-  if (error.data?.code === 'NOT_FOUND') void utils.workspaces.list.invalidate()
+  if (error.data?.code !== 'NOT_FOUND') return
+  void utils.workspaces.list.invalidate()
+  void utils.workspaces.summary.invalidate()
 }
 
 export function useAddWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.addPanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
     onError: (error) => refetchBoardsIfGone(utils, error),
   })
 }
@@ -101,7 +141,10 @@ export function useAddWorkspacePanel() {
 export function useRemoveWorkspacePanel() {
   const utils = trpc.useUtils()
   return trpc.workspaces.removePanel.useMutation({
-    onSuccess: () => utils.workspaces.panels.invalidate(),
+    onSuccess: () => {
+      void utils.workspaces.summary.invalidate()
+      return utils.workspaces.panels.invalidate()
+    },
   })
 }
 
@@ -143,38 +186,335 @@ export function useUpdateWorkspaceBackground() {
   })
 }
 
-export function useSetWorkspaceScope() {
+/**
+ * The one write for a board's course and lecture (`workspaces.setBoardScope`):
+ * absent = unchanged, null = clear. The server applies the board rules in
+ * the same transaction (on a board with a course a lecture brings its
+ * course, an "All courses" board stays so; a course change clears a lecture
+ * outside it), so one user action is one call.
+ *
+ * Optimistic: the board shows the scope the server will leave (both
+ * dimensions, by its rules) at once, so a picker never snaps back. Writes go
+ * to the server one at a time, in the order made (`BOARD_SCOPE_WRITES`), so
+ * two quick changes land the way round the student made them. While any are
+ * unanswered the board shows every one of them applied, in order, over the
+ * last scope the server confirmed: an answer or a failure changes that base
+ * and never wipes a later change, and the board is re-read once the last
+ * write is done.
+ */
+export function useSetBoardScope() {
   const utils = trpc.useUtils()
-  return trpc.workspaces.setScope.useMutation({
-    onError: (error) => refetchBoardsIfGone(utils, error),
-    onSuccess: (_data, input) => {
-      utils.workspaces.scopes.invalidate()
-      // A freshly captured/uploaded recording becomes the focus before any
-      // job event has refreshed the recordings list the focus picker reads.
-      if (input.scopeType === SCOPE_TYPE_BY_DIM.recordingId) utils.recordings.invalidate()
+  const queryClient = useQueryClient()
+  const pendingPatches = (workspaceId: string, except?: unknown) => boardScopePatches(queryClient, workspaceId, except)
+  const show = (workspaceId: string, base: BoardScope, except?: unknown) => showBoardScope(utils, queryClient, workspaceId, base, except)
+
+  return trpc.workspaces.setBoardScope.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onMutate: async ({ workspaceId }) => {
+      await utils.workspaces.scopes.cancel(workspaceId)
+      const rows = utils.workspaces.scopes.getData(workspaceId)
+      if (!rows) return
+      const bases = confirmedScopes(queryClient)
+      // The first of a run of writes: the board as it is now is what the server has.
+      if (pendingBoardScopeWrites(queryClient, workspaceId).length === 1 || !bases.has(workspaceId)) {
+        bases.set(workspaceId, toBoardScope(decodeScope(rows as unknown as ScopeRow[])))
+      }
+      show(workspaceId, bases.get(workspaceId)!)
+    },
+    onSuccess: (scope, input) => {
+      // The server's answer is the new base, until the refetch confirms it.
+      confirmedScopes(queryClient).set(input.workspaceId, scope)
+      show(input.workspaceId, scope, input)
+      // A lecture made a moment ago (an upload) may not be in the picker's list yet.
+      if (input.lectureId) utils.lectures.invalidate()
+    },
+    onError: (error, input) => {
+      // The base is unchanged: show it with only the writes still to come.
+      const base = confirmedScopes(queryClient).get(input.workspaceId)
+      if (base) show(input.workspaceId, base, input)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSettled: (_data, _error, input) => {
+      // A re-read while later writes wait would show the board without them.
+      if (pendingPatches(input.workspaceId, input).length > 0) return
+      confirmedScopes(queryClient).delete(input.workspaceId)
+      return utils.workspaces.scopes.invalidate(input.workspaceId)
     },
   })
 }
 
-export function useRecordings(courseTag?: string) {
-  return trpc.recordings.list.useQuery(courseTag ? { courseTag } : undefined)
+/** Mutation scope for board scope writes: they reach the server one at a time, in order. */
+export const BOARD_SCOPE_WRITES = 'board-scope'
+
+type BoardScopeWrite = BoardScopePatch & { workspaceId: string }
+
+/** A board's unanswered (pending or queued) scope writes, oldest first. */
+function pendingBoardScopeWrites(queryClient: QueryClient, workspaceId: string) {
+  return queryClient
+    .getMutationCache()
+    .findAll({
+      status: 'pending',
+      predicate: (m) =>
+        m.options.scope?.id === BOARD_SCOPE_WRITES && (m.state.variables as BoardScopeWrite | undefined)?.workspaceId === workspaceId,
+    })
+    .sort((a, b) => a.mutationId - b.mutationId)
 }
 
 /**
- * The board's focused recording, looked up by id rather than through the
- * course-narrowed list: focus and course may disagree, and the picker and
- * chip must still name the focused lecture.
+ * The board's unanswered scope writes, oldest first, less `except` (the one
+ * finishing), as patches. A class open or an Undo is in the queue too, as a
+ * patch of nothing: the board shows its answer once it lands
+ * (`settleBoardScopeWrite`).
  */
-export function useFocusedRecording(recordingId: string | undefined) {
-  return trpc.recordings.byId.useQuery(recordingId ?? '', { enabled: !!recordingId })
+function boardScopePatches(queryClient: QueryClient, workspaceId: string, except?: unknown): BoardScopePatch[] {
+  return pendingBoardScopeWrites(queryClient, workspaceId)
+    .filter((m) => m.state.variables !== except)
+    .map((m) => {
+      const { courseTag, lectureId } = m.state.variables as BoardScopeWrite
+      return { ...(courseTag !== undefined && { courseTag }), ...(lectureId !== undefined && { lectureId }) }
+    })
+}
+
+/** Shows `base` on the board with its unanswered writes (less `except`) on top. */
+function showBoardScope(
+  utils: ReturnType<typeof trpc.useUtils>,
+  queryClient: QueryClient,
+  workspaceId: string,
+  base: BoardScope,
+  except?: unknown,
+) {
+  const next = applyBoardScopePatches(base, boardScopePatches(queryClient, workspaceId, except), (id) => cachedLectureCourse(queryClient, id))
+  utils.workspaces.scopes.setData(workspaceId, (rows) => rows && replaceBoardScope(rows, workspaceId, next))
 }
 
 /**
- * Plan items for shell chrome (the top bar's today line), outside any widget.
+ * A board scope write other than `setBoardScope` (a class open, Undo) is
+ * done, leaving the board at `scope` (unknown when it failed). With later
+ * writes still to come, that is the new base they show over, as for
+ * `setBoardScope`; once it is the last, the board is re-read.
+ */
+function settleBoardScopeWrite(
+  utils: ReturnType<typeof trpc.useUtils>,
+  queryClient: QueryClient,
+  workspaceId: string,
+  self: unknown,
+  scope: BoardScope | undefined,
+) {
+  if (pendingBoardScopeWrites(queryClient, workspaceId).some((m) => m.state.variables !== self)) {
+    const bases = confirmedScopes(queryClient)
+    if (scope) bases.set(workspaceId, scope)
+    const base = bases.get(workspaceId)
+    if (base) showBoardScope(utils, queryClient, workspaceId, base, self)
+    return
+  }
+  confirmedScopes(queryClient).delete(workspaceId)
+  void utils.workspaces.scopes.invalidate(workspaceId)
+}
+
+/** Per query client, each board's scope as the server last confirmed it, while writes to it are unanswered. */
+const confirmedByClient = new WeakMap<QueryClient, Map<string, BoardScope>>()
+function confirmedScopes(queryClient: QueryClient): Map<string, BoardScope> {
+  let bases = confirmedByClient.get(queryClient)
+  if (!bases) confirmedByClient.set(queryClient, (bases = new Map()))
+  return bases
+}
+
+/** `withBoardScope` on the cached `workspaces.scopes` rows, keeping their type. */
+function replaceBoardScope<Rows>(rows: Rows, workspaceId: string, scope: BoardScope): Rows {
+  return withBoardScope(rows as unknown as ScopeRow[], workspaceId, scope) as unknown as Rows
+}
+
+function toBoardScope(scope: Scope): BoardScope {
+  return { courseTag: scope.courseTag ?? null, lectureId: scope.lectureId ?? null }
+}
+
+/**
+ * A lecture's course as the client has it cached, null when filed under no
+ * course; undefined when no cached query has it. From any `lectures.byId` or
+ * `lectures.list`, else from a cached recording of it (`recordings.byId`
+ * carries its lecture's course): opening a moment fetches that recording
+ * just before it selects the lecture, often one of another course.
+ */
+export function cachedLectureCourse(queryClient: QueryClient, lectureId: string): string | null | undefined {
+  for (const [, data] of queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })) {
+    const lecture = (Array.isArray(data) ? data : [data]).find((l) => l?.id === lectureId)
+    if (lecture) return lecture.course
+  }
+  for (const [, row] of queryClient.getQueriesData<unknown>({ queryKey: RECORDING_QUERIES })) {
+    if (isRecordingOf(row, lectureId)) return row.course
+  }
+  return undefined
+}
+
+function isRecordingOf(row: unknown, lectureId: string): row is { course: string | null } {
+  return typeof row === 'object' && row !== null
+    && (row as { lecture_id?: unknown }).lecture_id === lectureId
+    && 'course' in row
+}
+
+/** `recordings.byId` queries only: its `course` is its lecture's (`recordingCourse` on the server). */
+const RECORDING_QUERIES = [['recordings', 'byId']]
+
+/** Every `lectures.*` query (tRPC keys start with the procedure path). */
+const LECTURE_QUERIES = [['lectures']]
+
+/**
+ * Renames a lecture (`title`) and/or refiles it under another course
+ * (`course`, null = none). The new title and course show at once wherever
+ * the lecture is cached (the header's lecture pill, Transcript), and the old
+ * ones come back if the write fails. A course-narrowed list is put right by
+ * the refetch once it settles.
+ */
+export function useUpdateLecture() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.lectures.update.useMutation({
+    onMutate: async ({ id, title, course }) => {
+      if (title === undefined && course === undefined) return { prev: [] }
+      await queryClient.cancelQueries({ queryKey: LECTURE_QUERIES })
+      const prev = queryClient.getQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES })
+      const change = { ...(title !== undefined ? { title } : {}), ...(course !== undefined ? { course } : {}) }
+      const rename = (l: Lecture | null | undefined) => (l?.id === id ? { ...l, ...change } : l)
+      queryClient.setQueriesData<Lecture | Lecture[] | null>({ queryKey: LECTURE_QUERIES }, (data) =>
+        Array.isArray(data) ? data.map((l) => rename(l)!) : rename(data),
+      )
+      return { prev }
+    },
+    onError: (_error, _input, ctx) => {
+      for (const [key, data] of ctx?.prev ?? []) queryClient.setQueryData(key, data)
+    },
+    onSettled: (_data, _error, input) => {
+      void utils.lectures.invalidate()
+      // A course change re-scopes the boards that have the lecture selected.
+      if (input.course !== undefined) void utils.workspaces.scopes.invalidate()
+    },
+  })
+}
+
+/**
+ * What deleting a lecture would remove (`lectures.deletePreview`), asked
+ * fresh each time: for the confirm step, and again after a CONFLICT.
+ */
+export function useLectureDeletePreview() {
+  const utils = trpc.useUtils()
+  return useCallback((lectureId: string) => utils.lectures.deletePreview.fetch(lectureId, { staleTime: 0 }), [utils])
+}
+
+/**
+ * Looks a plan item up afresh (`planItems.byId`): null once it is gone, e.g.
+ * before acting on a toast about it that may have outlived it.
+ */
+export function usePlanItemLookup() {
+  const utils = trpc.useUtils()
+  return useCallback((id: string) => utils.planItems.byId.fetch(id, { staleTime: 0 }), [utils])
+}
+
+/** `workspaces.scopes` queries (tRPC keys start with the procedure path). */
+const SCOPE_QUERIES = [['workspaces', 'scopes']]
+
+/**
+ * Deletes a lecture (`lectures.delete`, with the preview's `fingerprint`).
+ * Every board that showed it shows no lecture at once; then everything that
+ * may have shown its data (recordings, transcripts, marks, plan items,
+ * resources, the lecture lists) is re-read. A board with scope writes still
+ * on their way is re-read once they are done instead (`useSetBoardScope`).
+ * In order with the board scope writes (`BOARD_SCOPE_WRITES`): a lecture
+ * picked just before is picked, then deleted.
+ */
+export function useDeleteLecture() {
+  const queryClient = useQueryClient()
+  return trpc.lectures.delete.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onSuccess: (_deleted, { id }) => {
+      queryClient.setQueriesData<ScopeRow[]>({ queryKey: SCOPE_QUERIES }, (rows) =>
+        rows?.filter((r) => !(r.scope_type === SCOPE_TYPE_BY_DIM.lectureId && r.scope_value === id)),
+      )
+      void queryClient.invalidateQueries({
+        predicate: ({ queryKey }) => {
+          const [path, options] = queryKey as [string[] | undefined, { input?: unknown } | undefined]
+          if (path?.[0] !== 'workspaces') return true
+          if (path[1] !== 'scopes' || typeof options?.input !== 'string') return false
+          return pendingBoardScopeWrites(queryClient, options.input).length === 0
+        },
+      })
+    },
+  })
+}
+
+/**
+ * A calendar class occurrence's lecture (`lectures.forClassOccurrence`):
+ * found or made (exactly one per occurrence), and with `workspaceId` selected
+ * on that board in the same transaction. The answer's `board` (before and
+ * after) is what Undo works from (`useRestoreBoardScope`). The lecture goes
+ * straight into the cache (its recordings say whether it is recorded), the
+ * lectures are refreshed (one may be new) and so is the board's scope; a
+ * board that is gone refreshes the board list. One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`).
+ */
+export function useClassOccurrenceLecture() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.lectures.forClassOccurrence.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onError: (error, input) => {
+      if (input.workspaceId) settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, undefined)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSuccess: ({ lecture, board }, input) => {
+      utils.lectures.byId.setData(lecture.id, lecture)
+      void utils.lectures.invalidate()
+      if (input.workspaceId) settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, board?.after)
+    },
+  })
+}
+
+/**
+ * Undo for a board scope change (`workspaces.restoreBoardScope`): puts back
+ * `to` only while the board still shows `ifBoardShows`, so a change made
+ * since, anywhere, is kept (`restored: false`). One of the board scope
+ * writes (`BOARD_SCOPE_WRITES`), in order with the rest.
+ */
+export function useRestoreBoardScope() {
+  const utils = trpc.useUtils()
+  const queryClient = useQueryClient()
+  return trpc.workspaces.restoreBoardScope.useMutation({
+    scope: { id: BOARD_SCOPE_WRITES },
+    onError: (error, input) => {
+      settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, undefined)
+      refetchBoardsIfGone(utils, error)
+    },
+    onSuccess: ({ scope }, input) => settleBoardScopeWrite(utils, queryClient, input.workspaceId, input, scope),
+  })
+}
+
+/**
+ * The student's courses, archived ones included, by name: what the app's
+ * `CoursesProvider` (@pls/shared-ui) holds for every widget to look up.
+ */
+export function useCourses() {
+  return trpc.courses.list.useQuery()
+}
+
+/** The student's lectures, latest first, optionally one course's (the lecture picker). */
+export function useLectures(courseTag?: string) {
+  return trpc.lectures.list.useQuery(courseTag ? { courseTag } : undefined)
+}
+
+/** One lecture with its recordings, looked up by id (e.g. the board's selected lecture). */
+export function useLecture(lectureId: string | undefined) {
+  return trpc.lectures.byId.useQuery(lectureId ?? '', { enabled: !!lectureId })
+}
+
+/**
+ * Plan items for shell chrome (the top bar's Up next), outside any widget.
  * Shares the `planItems` cache, so every plan item change refreshes it.
+ * `enabled: false` waits (e.g. for the student's zone, which sets the range);
+ * `keepPrevious` shows the last answer while a changed query loads (the day
+ * rolling over), so the chrome doesn't blink.
  */
-export function usePlanItemList(query: PlanItemQuery) {
-  return trpc.planItems.list.useQuery(query)
+export function usePlanItemList(query: PlanItemQuery, options: { enabled?: boolean; keepPrevious?: boolean } = {}) {
+  const { keepPrevious, ...rest } = options
+  return trpc.planItems.list.useQuery(query, keepPrevious ? { ...rest, placeholderData: keepPreviousData } : rest)
 }
 
 /** Mutation scope for preference saves: they run one at a time, in order. */
@@ -313,6 +653,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
    */
   const refreshJobData = () => {
     utils.recordings.invalidate()
+    utils.lectures.invalidate()
     utils.transcripts.invalidate()
     utils.tags.invalidate()
     utils.links.invalidate()
@@ -329,6 +670,7 @@ export function useServerEvents(handlers?: ServerEventHandlers) {
       if (event.type === 'job:started') {
         // A lecture's `processing` follows its jobs (e.g. its summary starting).
         utils.recordings.byId.invalidate()
+        utils.lectures.byId.invalidate()
         handlers?.onJobStarted?.(event)
       } else if (event.type === 'job:completed') {
         refreshJobData()

@@ -1,8 +1,8 @@
 import { REVIEW_SUBTYPE, keyPhrase, momentStatus, stillConfused, topicLabel, type CourseProgress, type MomentStatus, type WeakTopic } from '@pls/substrate'
 import type { ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
+import { recordingCourse } from './course-scope'
 
-const COURSE_LABELS = ['biology', 'chemistry', 'physics']
 
 // Mirrors apps/server/src/routers/aggregates.ts: one moment status rule
 // (`momentStatus`) behind Your progress, All courses and Weak topics.
@@ -26,10 +26,10 @@ interface CourseMoment {
 export function registerAggregatesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('aggregates.weeklyOverview', (input) => {
     const courseTag = (input as { courseTag?: string } | undefined)?.courseTag
-    return courseProgress(courseMoments(db, courseTag))
+    return courseProgress(db, courseMoments(db, courseTag))
   })
 
-  router.register('aggregates.gapAnalysis', () => courseProgress(courseMoments(db, undefined)))
+  router.register('aggregates.gapAnalysis', () => courseProgress(db, courseMoments(db, undefined)))
 
   router.register('aggregates.weakestTopics', (input): WeakTopic[] => {
     const opts = input as { limit?: number; courseTag?: string } | undefined
@@ -67,11 +67,11 @@ function desc(a: string | null, b: string | null): number {
 
 function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMoment[] {
   const moments: CourseMoment[] = []
-  for (const tag of db.tags) {
-    if (tag.target_type !== 'recording' || !COURSE_LABELS.includes(tag.label)) continue
-    const rec = db.recordings.find((r) => r.id === tag.target_id)
-    if (!rec) continue
-    if (courseTag && !db.tags.some((t) => t.target_type === 'recording' && t.target_id === rec.id && t.label === courseTag)) continue
+  // Moments of lectures filed under a course: the course is the lecture's.
+  for (const rec of db.recordings) {
+    const course = recordingCourse(db, rec.id)
+    if (!course) continue
+    if (courseTag && course !== courseTag) continue
     const segs = db.transcriptSegments
       .filter((s) => s.recording_id === rec.id)
       .sort((a, b) => a.start_ms - b.start_ms)
@@ -84,7 +84,8 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
         .map((t) => t.created_at)
         .sort()
       const confusedAt = marks.length ? marks[marks.length - 1] : null
-      const signals = { latestScore: latest?.score ?? null, latestAt: latest?.created_at ?? null, confusedAt }
+      const sorted = db.tags.some((t) => t.target_type === 'transcript_segment' && t.target_id === seg.id && t.label === 'sorted')
+      const signals = { latestScore: latest?.score ?? null, latestAt: latest?.created_at ?? null, confusedAt, sorted }
       const status = momentStatus(signals)
       const confused = stillConfused(signals)
       moments.push({
@@ -96,7 +97,7 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
         text: seg.text,
         before: segs[i - 1]?.text ?? '',
         after: segs[i + 1]?.text ?? '',
-        course: tag.label,
+        course,
         latestScore: signals.latestScore,
         confusedAt,
         confused,
@@ -107,7 +108,7 @@ function courseMoments(db: InMemoryDb, courseTag: string | undefined): CourseMom
   return moments
 }
 
-function courseProgress(moments: CourseMoment[]): CourseProgress[] {
+function courseProgress(db: InMemoryDb, moments: CourseMoment[]): CourseProgress[] {
   const byCourse = new Map<string, CourseMoment[]>()
   for (const m of moments) byCourse.set(m.course, [...(byCourse.get(m.course) ?? []), m])
   return [...byCourse.entries()]
@@ -121,7 +122,12 @@ function courseProgress(moments: CourseMoment[]): CourseProgress[] {
         percentage: Math.round((solid / ms.length) * 100),
       }
     })
-    .sort((a, b) => a.course.localeCompare(b.course))
+    // By the course's name, as on the server (its id is opaque).
+    .sort((a, b) => nameKey(db, a.course).localeCompare(nameKey(db, b.course)) || a.course.localeCompare(b.course))
+}
+
+function nameKey(db: InMemoryDb, course: string): string {
+  return db.courses.find((c) => c.id === course)?.name.toLowerCase() ?? ''
 }
 
 function label(db: InMemoryDb, m: CourseMoment): string {

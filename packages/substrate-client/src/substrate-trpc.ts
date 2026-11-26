@@ -1,9 +1,11 @@
 import { useCallback } from 'react'
-import { useBoardId, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
-import { useQueryClient } from '@tanstack/react-query'
-import { applyPreferencesUpdate, type PlanItemQuery, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
+import { useBoardId, type UploadResourceFile, type SubstrateWriter, type QueryResult, type MutationHandle, type QueryFilter } from '@pls/lens-framework'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { applyPreferencesUpdate, type PlanItemQuery, type ResourceListQuery, type ResourceWithBody, type RefitPreview, type WorkflowWithJobs } from '@pls/substrate'
 import { trpc } from './trpc'
+import { API_URL, uploadResourceFile } from './resource-upload'
 import { PREFERENCES_SCOPE, usePreferencesQueryOptions } from './shell-hooks'
+import { setLiveCapture, useLiveCaptureOf } from './live-capture'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function adapt<T>(query: { data: any; isLoading: boolean; error: any }): QueryResult<T> {
@@ -33,14 +35,44 @@ function useOnBoard<TInput, TOutput>(
   }
 }
 
-/** The board-scope part of a filter, as the list endpoints accept it. */
+/**
+ * A plan item write from a board, with the browser's zone: a new item keeps
+ * the student's zone (their preference, else this one) so its class
+ * occurrence is dated the same whoever asks later (`PlanItem.time_zone`).
+ */
+function withBrowserZone(input: unknown, workspaceId: string | null) {
+  return { ...(input as object), workspaceId, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+}
+
+/** The scope part of a filter, as the list endpoints accept it. */
 function boardScope(filter: QueryFilter) {
-  return { recordingId: filter.recordingId, courseTag: filter.courseTag }
+  return { courseTag: filter.courseTag, lectureId: filter.lectureId, recordingId: filter.recordingId }
+}
+
+/** While a lecture's AI work runs, poll as a backstop to the job events that refresh it. */
+function pollWhileProcessing(data: unknown): number | false {
+  const lecture = data as { recordings?: { processing?: unknown }[] } | null | undefined
+  return lecture?.recordings?.some((r) => r.processing) ? 3000 : false
 }
 
 export const substrateTrpc: SubstrateWriter = {
   useRecordings(filter?: QueryFilter) {
-    return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, recordingId: filter.recordingId } : undefined))
+    return adapt(trpc.recordings.list.useQuery(filter ? { courseTag: filter.courseTag, lectureId: filter.lectureId } : undefined))
+  },
+
+  useLecture(id: string | undefined) {
+    return adapt(trpc.lectures.byId.useQuery(id ?? '', {
+      enabled: !!id,
+      refetchInterval: (query) => pollWhileProcessing(query.state.data),
+    }))
+  },
+
+  useLectures(filter?: { courseTag?: string }) {
+    return adapt(trpc.lectures.list.useQuery(filter?.courseTag ? { courseTag: filter.courseTag } : undefined))
+  },
+
+  useLiveCapture(lectureId: string | undefined) {
+    return useLiveCaptureOf(lectureId)
   },
 
   useRecording(id: string) {
@@ -79,8 +111,8 @@ export const substrateTrpc: SubstrateWriter = {
     ))
   },
 
-  useRecordingConnections(recordingId: string | undefined) {
-    return adapt(trpc.links.byRecording.useQuery({ recordingId: recordingId ?? '' }, { enabled: !!recordingId }))
+  useLectureConnections(lectureId: string | undefined) {
+    return adapt(trpc.links.byLecture.useQuery({ lectureId: lectureId ?? '' }, { enabled: !!lectureId }))
   },
 
   useWeeklyOverview(filter: QueryFilter) {
@@ -122,11 +154,82 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useDeleteTag() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.tags.delete.useMutation({
+      onSuccess: () => Promise.all([utils.tags.invalidate(), utils.aggregates.invalidate()]),
+    }))
+  },
+
+  useSortMoment() {
+    return useOnBoard(useMomentMutation(trpc.tags.sort))
+  },
+
+  useUnsortMoment() {
+    return useOnBoard(useMomentMutation(trpc.tags.unsort))
+  },
+
+  useUnmarkConfused() {
+    return useOnBoard(useMomentMutation(trpc.tags.unmarkConfused))
+  },
+
+  useRemarkConfused() {
+    return useOnBoard(useMomentMutation(trpc.tags.remarkConfused))
+  },
+
   useCreateAnnotation() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.annotations.create.useMutation({
       onSuccess: () => utils.annotations.invalidate(),
     }))
+  },
+
+  useTranscribeRecording() {
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.recordings.transcribe.useMutation({
+      onSuccess: () => {
+        utils.recordings.invalidate()
+        utils.lectures.invalidate()
+        utils.jobs.invalidate()
+      },
+    }))
+  },
+
+  useRecordingAdded() {
+    const utils = trpc.useUtils()
+    return useCallback(() => {
+      utils.recordings.invalidate()
+      utils.lectures.invalidate()
+      // An upload that made a lecture may have selected it on the board.
+      utils.workspaces.scopes.invalidate()
+    }, [utils])
+  },
+
+  useStartLecture() {
+    const utils = trpc.useUtils()
+    const boardId = useBoardId()
+    const mutation = trpc.lectures.create.useMutation({
+      onSuccess: () => {
+        utils.lectures.invalidate()
+        if (boardId) utils.workspaces.scopes.invalidate(boardId)
+      },
+    })
+    const toInput = ({ course, boardLecture }: { course: string | null; boardLecture: string | null }) => ({
+      course,
+      selectIfBoardShows: boardLecture,
+      matchClass: true,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      ...(boardId ? { workspaceId: boardId } : {}),
+    })
+    return {
+      mutate: (input: { course: string | null; boardLecture: string | null }) => mutation.mutate(toInput(input)),
+      mutateAsync: (input: { course: string | null; boardLecture: string | null }) => mutation.mutateAsync(toInput(input)),
+      isPending: mutation.isPending,
+    }
+  },
+
+  useSetLiveCapture() {
+    return setLiveCapture
   },
 
   useRecordConfidence() {
@@ -140,11 +243,24 @@ export const substrateTrpc: SubstrateWriter = {
   },
 
   useCreatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.create))
+    return useOnBoard(usePlanItemMutation(trpc.planItems.create), withBrowserZone)
+  },
+
+  useBookSessions() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.bookSessions), withBrowserZone)
   },
 
   useUpdatePlanItem() {
-    return useOnBoard(usePlanItemMutation(trpc.planItems.update))
+    const utils = trpc.useUtils()
+    return useOnBoard(trpc.planItems.update.useMutation({
+      onSuccess: (_item, input) => Promise.all([
+        utils.planItems.invalidate(),
+        utils.tags.invalidate(),
+        // A class changing course takes its future lectures with it, and
+        // the boards showing them follow (planItems.update).
+        ...(input.patch.course !== undefined ? [utils.lectures.invalidate(), utils.workspaces.scopes.invalidate()] : []),
+      ]),
+    }), withBrowserZone)
   },
 
   useCompletePlanItem() {
@@ -157,6 +273,27 @@ export const substrateTrpc: SubstrateWriter = {
 
   useDeletePlanItem() {
     return adaptMutation(usePlanItemMutation(trpc.planItems.delete))
+  },
+
+  useRestorePlanItem() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.planItems.restore.useMutation({
+      // A class comes back with its lectures linked again.
+      onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate(), utils.lectures.invalidate()]),
+    }))
+  },
+
+  useUndismissPlanItem() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.undismiss), (id: string, workspaceId) => ({ id, workspaceId }))
+  },
+
+  useReadUndoState() {
+    const utils = trpc.useUtils()
+    return useCallback((ids: string[]) => utils.client.planItems.undoState.query(ids), [utils])
+  },
+
+  useRevertPlanItems() {
+    return useOnBoard(usePlanItemMutation(trpc.planItems.revert))
   },
 
   useAutofillPlan() {
@@ -193,6 +330,75 @@ export const substrateTrpc: SubstrateWriter = {
     }))
   },
 
+  useResources(filter?: ResourceListQuery) {
+    return adapt(trpc.resources.list.useQuery(
+      filter?.courseTag || filter?.lectureId ? { courseTag: filter.courseTag, lectureId: filter.lectureId } : undefined,
+    ))
+  },
+
+  useResource(id: string | undefined) {
+    const query = trpc.resources.get.useQuery(id ?? '', { enabled: !!id })
+    return {
+      ...adapt<ResourceWithBody>(query),
+      refetch: async () => ((await query.refetch()).data as ResourceWithBody | null | undefined) ?? null,
+    }
+  },
+
+  useCreateResourceLink() {
+    return useOnBoard(useResourceMutation(trpc.resources.createLink))
+  },
+
+  useCreateResourceNote() {
+    return useOnBoard(useResourceMutation(trpc.resources.createNote))
+  },
+
+  useUpdateResource() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.update.useMutation({
+      onSuccess: (saved, { patch }) => {
+        utils.resources.get.setData(saved.id, saved)
+        // A move changes which lists hold it: they read again.
+        if ('lectureId' in patch || 'courseTag' in patch) return utils.resources.list.invalidate()
+        // A rename or an edit (autosave) changes the row in place, without
+        // reading the lists again or waiting for anything.
+        const { body_md: _body, ...row } = saved
+        utils.resources.list.setQueriesData(undefined, {}, (rows) => rows?.map((r) => (r.id === saved.id ? { ...r, ...row } : r)))
+      },
+    }))
+  },
+
+  useDeleteResource() {
+    const utils = trpc.useUtils()
+    return adaptMutation(trpc.resources.delete.useMutation({
+      onSuccess: ({ id }) => {
+        utils.resources.get.setData(id, null)
+        return utils.resources.list.invalidate()
+      },
+    }))
+  },
+
+  useUploadResourceFile() {
+    const utils = trpc.useUtils()
+    const boardId = useBoardId()
+    return adaptMutation(useMutation({
+      mutationFn: (args: UploadResourceFile) => uploadResourceFile({ ...args, boardId }),
+      onSuccess: (saved) => {
+        utils.resources.get.setData(saved.id, saved)
+        return utils.resources.list.invalidate()
+      },
+    }))
+  },
+
+  useResourceFileUrl() {
+    const mutation = trpc.resources.fileUrl.useMutation()
+    const open = async (id: string) => ({ url: `${API_URL}${(await mutation.mutateAsync(id)).url}` })
+    return {
+      mutate: (id: string) => void open(id).catch(() => {}),
+      mutateAsync: open,
+      isPending: mutation.isPending,
+    }
+  },
+
   useAcceptRefit() {
     const utils = trpc.useUtils()
     return useOnBoard(trpc.planItems.refit.useMutation({
@@ -202,6 +408,23 @@ export const substrateTrpc: SubstrateWriter = {
       },
     }))
   },
+}
+
+/**
+ * A new resource goes straight into its `get` cache (so a new note opens
+ * without a fetch) and the lists refresh, resolving once they have.
+ */
+function useResourceMutation(procedure: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useMutation: (opts: { onSuccess: (saved: ResourceWithBody) => Promise<unknown> }) => any
+}) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: (saved) => {
+      utils.resources.get.setData(saved.id, saved)
+      return utils.resources.list.invalidate()
+    },
+  })
 }
 
 /**
@@ -215,5 +438,14 @@ function usePlanItemMutation(procedure: { useMutation: (opts: { onSuccess: () =>
   const utils = trpc.useUtils()
   return procedure.useMutation({
     onSuccess: () => Promise.all([utils.planItems.invalidate(), utils.tags.invalidate()]),
+  })
+}
+
+/** Sorting changes a moment's tags, its progress and its reviews. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function useMomentMutation(procedure: { useMutation: (opts: { onSuccess: () => Promise<unknown> }) => any }) {
+  const utils = trpc.useUtils()
+  return procedure.useMutation({
+    onSuccess: () => Promise.all([utils.tags.invalidate(), utils.aggregates.invalidate(), utils.planItems.invalidate()]),
   })
 }

@@ -22,7 +22,7 @@
 |---|---|
 | lens | widget |
 | workspace | board |
-| scope | "Showing: ..." chip |
+| scope | "Showing" course and lecture pills in the top bar |
 | workflow | automation, phrased as "When ... then ..." |
 | segment | moment |
 | recording | lecture (where it is one) |

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { UiSdkSmoke } from './UiSdkSmoke'
 
 test('a UI SDK Popover opens and closes in a real browser (Playwright CT)', async ({ mount, page }) => {

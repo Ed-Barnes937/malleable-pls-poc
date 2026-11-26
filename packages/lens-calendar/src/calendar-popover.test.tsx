@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useRef, useState } from 'react'
 import { checkPattern, settle } from '@pls/shared-ui/src/testing'
-import { CalendarPopover, pressPlacement } from './calendar-popover'
+import { CalendarPopover, anchorShift, pressPlacement } from './calendar-popover'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { SubstrateProvider, type SubstrateReader, type SubstrateWriter } from '@pls/lens-framework'
 import { EventPopover } from './EventPopover'
@@ -18,6 +18,42 @@ describe('pressPlacement', () => {
 
   it('goes above or below what was pressed when beside would cover the press (a phone)', () => {
     expect(pressPlacement({ clientX: 200, width: 340, viewportWidth: 400 })).toBe('vertical')
+  })
+
+  it("given the block's sides (placed again with no press), sits beside the whole block, never over it", () => {
+    // Room right of the point, but not right of the whole block: beside it on its left.
+    expect(pressPlacement({ clientX: 495, width: 300, viewportWidth: 858, from: { left: 440, right: 550 } })).toBe('beside')
+    // Room on neither side of the whole block, though there is beside the point.
+    expect(pressPlacement({ clientX: 200, width: 300, viewportWidth: 858, from: { left: 150, right: 600 } })).toBe('vertical')
+    expect(pressPlacement({ clientX: 200, width: 300, viewportWidth: 858 })).toBe('beside')
+  })
+
+  it("given the block's sides with no room beside it, goes above or below the block", () => {
+    expect(pressPlacement({ clientX: 185, width: 340, viewportWidth: 370, from: { left: 20, right: 350 } })).toBe('vertical')
+  })
+})
+
+describe('anchorShift', () => {
+  const base = { anchorBefore: 200, heightBefore: 360, pinned: 'top' as const }
+
+  it('keeps the anchor where it is when content above it grows (the popover grows upward)', () => {
+    // The anchor was 200px down and is now 280px down: the top moves up by 80.
+    expect(anchorShift({ ...base, anchorAfter: 280, heightAfter: 440 })).toBe(-80)
+  })
+
+  it('keeps the anchor where it is when content above it goes (the popover shrinks upward)', () => {
+    expect(anchorShift({ ...base, anchorAfter: 120, heightAfter: 280 })).toBe(80)
+  })
+
+  it('leaves the top alone when only what is below the anchor changes', () => {
+    expect(anchorShift({ ...base, anchorAfter: 200, heightAfter: 420 })).toBe(0)
+  })
+
+  it('above what was pressed (its bottom held still), counts the move the popover makes on its own', () => {
+    // Content above the anchor grows: the top already moves up with it.
+    expect(anchorShift({ ...base, pinned: 'bottom', anchorAfter: 280, heightAfter: 440 })).toBe(0)
+    // Content below it grows: the top would move up and take the anchor with it.
+    expect(anchorShift({ ...base, pinned: 'bottom', anchorAfter: 200, heightAfter: 420 })).toBe(60)
   })
 })
 
