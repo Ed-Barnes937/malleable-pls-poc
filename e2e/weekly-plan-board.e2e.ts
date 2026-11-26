@@ -1,6 +1,7 @@
 import { test, expect } from './test'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
+import { trpcQuery } from './api'
 
 /**
  * The seeded student has a fourth board, Weekly plan: the "Plan my time"
@@ -17,7 +18,7 @@ test.describe('The Weekly plan board in the seed', () => {
   })
   test.afterAll(async () => { await reseed() })
 
-  test('is the last tab and shows Calendar, To-do and Coming up with the seeded week', async ({ page }) => {
+  test('is the last tab and shows Calendar, To-do and Coming up with the seeded week', async ({ page, request }) => {
     await page.clock.setFixedTime(NOW)
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
@@ -28,6 +29,10 @@ test.describe('The Weekly plan board in the seed', () => {
     await topBar.expectActiveWorkspace('Weekly plan')
     await grid.expectPanelCount(3)
     for (const label of ['Calendar', 'To-do', 'Coming up']) await grid.expectHasPanel(label)
+
+    // No course scope: the pill reads All courses and the board has no scope rows.
+    await topBar.expectScope('All courses', null, { timeout: 10000 })
+    expect(await trpcQuery<unknown[]>(request, 'workspaces.scopes', 'ws-weekly-plan')).toEqual([])
 
     // All courses: Priya's week, the same one a new Plan my time board shows.
     const calendar = new CalendarPom(page)

@@ -3,7 +3,7 @@
 -- Review: the "Plan my time" starter's widgets (Calendar, To-do, Coming up),
 -- placed as that starter places them on a 1440x900 window, for all courses
 -- (no scope rows, like a Plan my time board made with no course picked).
--- sort_order 3 puts it last: the older seeded boards all keep 0.
+-- sort_order 3 is after the three older boards.
 --
 -- Run by e2e/reseed.ts after the older seed files. Only the seeded student
 -- has these rows: ON CONFLICT leaves a board someone has since rearranged alone.
