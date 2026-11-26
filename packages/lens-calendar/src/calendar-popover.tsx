@@ -177,8 +177,9 @@ function focusCard(card: HTMLElement | null) {
 
 /**
  * A calendar popover on UI SDK Popover, anchored to the press: beside the
- * point pressed when it fits in the window, else above (or below) the block
- * pressed. UI SDK handles Escape and focus return; presses and focus leaving
+ * point pressed when it fits in the window, else above the block pressed when
+ * it fits there, or below it (`popoverTop`), kept inside the calendar and the
+ * window. UI SDK handles Escape and focus return; presses and focus leaving
  * never close it here: CalendarLens's capture `pointerdown` does that, so a
  * press can close it and still reach what is under it (see closing-press.ts).
  */
