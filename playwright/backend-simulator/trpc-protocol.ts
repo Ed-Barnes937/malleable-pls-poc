@@ -29,6 +29,13 @@ export class ProcedureRouter {
     this.handlers.set(path, handler)
   }
 
+  /** Passes what `path` answers through `change` first. */
+  rewrite(path: string, change: (data: unknown) => unknown): void {
+    const handler = this.handlers.get(path)
+    if (!handler) throw new Error(`No handler for procedure: ${path}`)
+    this.handlers.set(path, async (input) => change(await handler(input)))
+  }
+
   async resolve(path: string, input: unknown): Promise<TrpcResult> {
     const handler = this.handlers.get(path)
     if (!handler) {

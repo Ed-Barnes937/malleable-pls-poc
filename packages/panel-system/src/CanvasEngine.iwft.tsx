@@ -156,6 +156,29 @@ test.describe('resizing a panel by a handle', () => {
   })
 })
 
+test.describe('transitions while dragging', () => {
+  /** The box properties the panel's computed `transition-property` lists. */
+  const boxTransitions = (page: Page, id: string) => panel(page, id).evaluate((el) =>
+    getComputedStyle(el).transitionProperty.split(',').map((p) => p.trim()).filter((p) => ['left', 'top', 'width', 'height'].includes(p)))
+
+  test('a panel glides its box when laid out, but not while its header is dragged', async ({ mount, page }) => {
+    await mount(board().jsx)
+    expect(await boxTransitions(page, 'plan')).toEqual(['left', 'top', 'width', 'height'])
+    await grabHeader(page, 'plan', 103, 57)
+    await expect(panel(page, 'plan')).toHaveAttribute('data-dragging', '')
+    expect(await boxTransitions(page, 'plan')).toEqual([])
+    await page.mouse.up()
+  })
+
+  test('nor while a handle resizes it', async ({ mount, page }) => {
+    await mount(board().jsx)
+    await grabHandle(page, 'Resize Plan bottom right', 97, 13)
+    await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 400, height: 220 })
+    expect(await boxTransitions(page, 'plan')).toEqual([])
+    await page.mouse.up()
+  })
+})
+
 test.describe('by keyboard', () => {
   test('Alt+arrow moves the selected panel 20px; a held key saves once it stops', async ({ mount, page }) => {
     const { jsx, saves } = board()

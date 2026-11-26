@@ -856,6 +856,36 @@ test('a later move that does not save says where the block is: at the earlier mo
   expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
 })
 
+test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // As above, but no fresh rows arrive after a save: the page still holds
+  // the rows from before the first move (16:00 - 17:00).
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => {
+    saves++
+    if (saves === 1) {
+      await held
+      return route.fallback()
+    }
+    return route.fulfill({ status: 500, body: '{}' })
+  })
+  await page.route('**/planItems.list**', (route) => (saves > 0 ? route.abort() : route.fallback()))
+
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /16:30 - 17:30/)
+  release()
+
+  await expect(page.getByTestId('calendar-notice')).toHaveText(`Couldn't move "Revise respiration" there - it's at Wednesday 16:15 - 17:15, where it last saved. Try again?`)
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+})
+
 test.describe('a block across midnight', () => {
   const focusedPiece = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.segmentKey)
   const pieces = (page: Page) => block(page, 'Late revision')

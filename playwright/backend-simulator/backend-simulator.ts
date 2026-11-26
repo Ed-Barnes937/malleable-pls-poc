@@ -52,6 +52,14 @@ export class BackendSimulator {
     this.frozenNow = at.getTime()
   }
 
+  /**
+   * Changes what a procedure answers, for a test that needs an answer the
+   * server's rules never give (e.g. a suggestion across midnight).
+   */
+  rewrite(path: string, change: (data: unknown) => unknown): void {
+    this.router.rewrite(path, change)
+  }
+
   async handleNetworking(page: Page): Promise<void> {
     await page.route(`${TRPC_URL}/**`, (route) => this.handleRoute(route))
   }
