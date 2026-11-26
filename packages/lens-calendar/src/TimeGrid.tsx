@@ -159,8 +159,8 @@ function blockTimes(item: PlanItemOccurrence, before: GridSpan, next: GridSpan, 
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const day = days[Number(next.track)]
-  const moved = next.track !== before.track || next.end - next.start === before.end - before.start
-  if (moved && next.start !== before.start || next.track !== before.track) {
+  const moved = next.track !== before.track || (next.start !== before.start && next.end - next.start === before.end - before.start)
+  if (moved) {
     const length = end.getTime() - start.getTime()
     const whole = !before.seg?.continuesBefore && !before.seg?.continuesAfter
     const shifted = whole
