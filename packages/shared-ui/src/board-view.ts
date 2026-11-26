@@ -22,8 +22,23 @@ const BOARD = '[data-canvas-scroll]'
 let userScrolls_ = 0
 let watching = false
 let touchY: number | null = null
-/** The board's own smooth scroll in flight (`showOnBoard`), and when it is done by. */
-let glide: { scroller: HTMLElement; target: number; until: number } | null = null
+/**
+ * The board's own smooth scroll in flight (`showOnBoard`), when it is done
+ * by, and where it has been (`performance.now()` times, oldest first).
+ */
+let glide: { scroller: HTMLElement; target: number; until: number; path: { at: number; top: number }[]; stop: () => void } | null = null
+
+/** Where the glide had the board at `at`, as far as the page saw. */
+function glideTopAt(path: ReadonlyArray<{ at: number; top: number }>, at: number): number {
+  let top = path[0]!.top
+  for (const p of path) if (p.at <= at) top = p.top
+  return top
+}
+
+function endGlide() {
+  glide?.stop()
+  glide = null
+}
 
 /**
  * The board, when input at `target` moving `dy` (down positive) scrolls it:
@@ -47,16 +62,23 @@ function scrollsBoard(target: EventTarget | null, dy: number): HTMLElement | nul
 /**
  * The student is scrolling the board: note it, and stop any glide of ours
  * still under way. Chromium drops a wheel that comes mid-glide, so its
- * movement (`wheelBy`, in pixels) is applied from where the glide stopped;
- * only mid-glide, as the browser applies any other wheel itself. (A browser
- * that kept a mid-glide wheel would move that one twice.)
+ * movement (`wheelBy`, in pixels) is applied ourselves; only mid-glide, as
+ * the browser applies any other wheel itself. (A browser that kept a
+ * mid-glide wheel would move that one twice.) It is applied from where the
+ * board was when the wheel turned (`wheelAt`, the event's timeStamp): the
+ * event can reach the page tens of ms later, the glide still moving
+ * meanwhile, and from where it is by then the student's scroll would come
+ * out longer than theirs.
  */
-function userScrolls(board: HTMLElement | null, wheelBy = 0) {
+function userScrolls(board: HTMLElement | null, wheelBy = 0, wheelAt?: number) {
   if (!board) return
   userScrolls_++
   const gliding = glide?.scroller === board && performance.now() < glide.until && Math.abs(board.scrollTop - glide.target) > 1
-  if (gliding) board.scrollTo({ top: board.scrollTop + wheelBy, behavior: 'instant' })
-  glide = null
+  if (gliding) {
+    const from = wheelAt === undefined ? board.scrollTop : glideTopAt(glide!.path, wheelAt)
+    board.scrollTo({ top: from + wheelBy, behavior: 'instant' })
+  }
+  endGlide()
 }
 
 /** A wheel's movement in pixels. */
@@ -68,7 +90,7 @@ function wheelPixels(e: WheelEvent, el: HTMLElement): number {
 
 function onWheel(e: WheelEvent) {
   const board = scrollsBoard(e.target, e.deltaY)
-  userScrolls(board, board ? wheelPixels(e, board) : 0)
+  userScrolls(board, board ? wheelPixels(e, board) : 0, e.timeStamp)
 }
 
 function onTouchStart(e: TouchEvent) {
@@ -177,9 +199,23 @@ export function showOnBoard(
   // A scroll of the student's own while this glides stops it, so theirs
   // takes. The glide is over when the board says so (`scrollend`), when it
   // reaches its target, or at the latest after `GLIDE_MS`.
-  const current = smooth ? { scroller, target: clamped, until: performance.now() + GLIDE_MS } : null
-  glide = current
-  if (current) scroller.addEventListener('scrollend', () => { if (glide === current) glide = null }, { once: true })
+  endGlide()
+  if (smooth) {
+    const listening = new AbortController()
+    const current = {
+      scroller, target: clamped, until: performance.now() + GLIDE_MS,
+      path: [{ at: performance.now(), top: scroller.scrollTop }],
+      stop: () => listening.abort(),
+    }
+    glide = current
+    const { signal } = listening
+    // Noted until it is over (a browser with no `scrollend` stops at `until`).
+    scroller.addEventListener('scroll', () => {
+      if (performance.now() > current.until) listening.abort()
+      else current.path.push({ at: performance.now(), top: scroller.scrollTop })
+    }, { signal })
+    scroller.addEventListener('scrollend', () => { if (glide === current) endGlide() }, { once: true, signal })
+  }
   return true
 }
 
