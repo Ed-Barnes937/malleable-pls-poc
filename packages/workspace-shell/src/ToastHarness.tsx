@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import { ShellProviders } from '../../../playwright/mount-wrapper'
 import { ToastHost, useToastStore } from './toast'
@@ -15,10 +16,14 @@ function Buttons({ durationMs, onAction }: { durationMs?: number; onAction?: () 
   const board = useActiveWorkspaceId()
   const setBoard = useWorkspaceStore((s) => s.setActiveWorkspaceId)
   const base = durationMs === undefined ? {} : { durationMs }
+  const [pressedOver, setPressedOver] = useState(false)
   return (
     <>
       <div className="flex h-screen flex-col">
         <div className="flex-1 p-4">
+          {/* The page's own popup reaching down over the bar's strip, as Up next's does on a short phone. */}
+          <button type="button" className="fixed right-3 bottom-3 z-50" onClick={() => setPressedOver(true)}>Over the bar</button>
+          {pressedOver && <p>Pressed over the bar</p>}
           <button type="button" onClick={() => push({ message: 'Transcript added', tone: 'success', ...base })}>Add plain</button>
           <button type="button" onClick={() => push({ message: 'Opened in In Lecture', tone: 'success', ...base, action: { label: 'Back to My week', icon: ArrowLeft, onClick: () => onAction?.() } })}>Add with action</button>
           <button type="button" onClick={() => push({ message: 'Widget added', tone: 'success', key: 'widget', ...base })}>Add keyed</button>

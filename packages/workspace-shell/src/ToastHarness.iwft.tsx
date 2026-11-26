@@ -83,6 +83,15 @@ test('Escape on a focused toast dismisses it', async ({ mount, page }) => {
   await expect(page.getByTestId('toast')).toHaveCount(0)
 })
 
+for (const size of [{ width: 1280, height: 720 }, { width: 375, height: 667 }]) {
+  test(`at ${size.width}px the bar's strip takes no tap from the page laid over it while it has no toast`, async ({ mount, page }) => {
+    await page.setViewportSize(size)
+    await mount(<ToastHarness />)
+    await page.getByRole('button', { name: 'Over the bar' }).click({ timeout: 3000 })
+    await expect(page.getByText('Pressed over the bar')).toBeVisible()
+  })
+}
+
 test('the region is a landmark named Notifications that advertises F6', async ({ mount, page }) => {
   await mount(<ToastHarness />)
   await page.getByRole('button', { name: 'Add plain' }).click()
