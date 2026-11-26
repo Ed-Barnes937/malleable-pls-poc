@@ -545,5 +545,14 @@ test.describe('Calendar', () => {
     await expect(madeBy).toContainText('add a 30-min review within 3 days')
     const moved = await trpcQuery<PlanItemOccurrence>(request, 'planItems.byId', review!.id)
     await expect(popover).toContainText(`${hhmm(moved.starts_at!)}-${hhmm(moved.ends_at!)}`)
+
+    // By keyboard: Edit automation opens the dialog with focus in it, and Escape closes it without dropping focus to the page.
+    await madeBy.getByRole('button', { name: 'Edit automation' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(dialog).toBeVisible()
+    expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false)
   })
 })

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, within } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
@@ -7,11 +7,12 @@ import { useCanvasStore } from './canvas-store'
 /**
  * Testing notes:
  *
- * - Framer Motion's drag behavior relies on pointer events and layout
- *   measurements that jsdom cannot simulate. Actual drag-end position updates
- *   are therefore tested indirectly via store action tests (canvas-store.test.ts).
+ * - Pointer drags (UI SDK createMove / createResize) need real layout and
+ *   pointer capture, which jsdom lacks: they are covered by the Playwright
+ *   component test (CanvasEngine.iwft.tsx) and panels.e2e.ts.
  * - Component tests here verify: rendering at correct positions, z-index ordering
- *   on pointer down, and that the onLayoutChange callback fires.
+ *   on pointer down, the keyboard paths (Alt+arrow, arrows on a resize handle),
+ *   and that the onLayoutChange callback fires.
  *
  * Divergence from the POC version:
  * - The package CanvasEngine no longer derives panel content or icons from a
@@ -61,10 +62,12 @@ describe('CanvasEngine', () => {
     seedPanels()
     render(<CanvasEngine />)
     const redPanel = screen.getByTestId('panel-red')
-    expect(redPanel.style.left).toBe('10px')
-    expect(redPanel.style.top).toBe('20px')
-    expect(redPanel.style.width).toBe('100px')
-    expect(redPanel.style.height).toBe('80px')
+    // Each side reads the drag preview's custom property first (UI SDK's
+    // createResize boxStyle), falling back to the saved layout.
+    expect(redPanel.style.left).toBe('var(--resize-x, 10px)')
+    expect(redPanel.style.top).toBe('var(--resize-y, 20px)')
+    expect(redPanel.style.width).toBe('var(--resize-width, 100px)')
+    expect(redPanel.style.height).toBe('var(--resize-height, 80px)')
   })
 
   it('sets z-index from panel data', () => {
@@ -453,10 +456,10 @@ describe('CanvasEngine', () => {
       })
 
       const panel = screen.getByTestId('panel-fs-test')
-      // Even if hovered, handles should be disabled in fullscreen
+      // Even if hovered, a fullscreen panel has no handles to press or tab to
       fireEvent.mouseEnter(panel)
-      const handlesContainer = screen.getByTestId('resize-handles-fs-test')
-      expect(handlesContainer.style.pointerEvents).toBe('none')
+      expect(screen.queryByTestId('resize-handles-fs-test')).toBeNull()
+      expect(screen.queryAllByRole('button', { name: /^Resize / })).toHaveLength(0)
     })
 
     it('renders the fullscreen panel above every other, even one sharing its z_index', () => {
@@ -583,6 +586,185 @@ describe('CanvasEngine', () => {
       fireEvent.pointerDown(greenPanel)
 
       expect(useCanvasStore.getState().focusModePanelId).toBe('green')
+    })
+  })
+
+  describe('moving and resizing by keyboard', () => {
+    function seedTwo() {
+      const { addPanel } = useCanvasStore.getState()
+      addPanel({ id: 'notes', pos_x: 40, pos_y: 60, width: 300, height: 200, z_index: 1, title: 'Notes' })
+      addPanel({ id: 'plan', pos_x: 400, pos_y: 60, width: 300, height: 200, z_index: 2, title: 'Plan' })
+    }
+    const box = (id: string) => {
+      const p = useCanvasStore.getState().panels.find((panel) => panel.id === id)!
+      return { x: p.pos_x, y: p.pos_y, width: p.width, height: p.height }
+    }
+    const altArrow = (key: string, opts: KeyboardEventInit = {}) =>
+      fireEvent.keyDown(document.activeElement ?? document.body, { key, altKey: true, ...opts })
+
+    it('names each resize handle button by its panel and edge', () => {
+      seedTwo()
+      render(<CanvasEngine />)
+      const notes = screen.getByTestId('panel-notes')
+      const names = within(notes).getAllByRole('button', { name: /^Resize / }).map((b) => b.getAttribute('aria-label'))
+      expect(names).toEqual([
+        'Resize Notes top left', 'Resize Notes top', 'Resize Notes top right', 'Resize Notes right',
+        'Resize Notes bottom right', 'Resize Notes bottom', 'Resize Notes bottom left', 'Resize Notes left',
+      ])
+    })
+
+    it("makes only the selected panel's handles tab stops", () => {
+      seedTwo()
+      render(<CanvasEngine />)
+      const tabStops = () => screen.getAllByRole('button', { name: /^Resize / })
+        .filter((b) => b.tabIndex === 0)
+        .map((b) => b.getAttribute('aria-label'))
+      expect(tabStops()).toEqual([])
+
+      act(() => useCanvasStore.getState().selectPanel('plan'))
+      expect(tabStops()).toHaveLength(8)
+      expect(tabStops().every((name) => name!.startsWith('Resize Plan '))).toBe(true)
+    })
+
+    it('Alt+arrow moves the selected panel one 20px grid step', () => {
+      seedTwo()
+      render(<CanvasEngine />)
+      act(() => useCanvasStore.getState().selectPanel('notes'))
+
+      altArrow('ArrowRight')
+      expect(box('notes')).toMatchObject({ x: 60, y: 60 })
+      altArrow('ArrowDown')
+      expect(box('notes')).toMatchObject({ x: 60, y: 80 })
+      altArrow('ArrowLeft')
+      altArrow('ArrowUp')
+      expect(box('notes')).toMatchObject({ x: 40, y: 60 })
+      expect(box('plan')).toMatchObject({ x: 400, y: 60 })
+    })
+
+    it('Alt+arrow lands an off-grid panel on the 20px grid', () => {
+      useCanvasStore.getState().addPanel({ id: 'odd', pos_x: 13, pos_y: 47, width: 300, height: 200, z_index: 1 })
+      render(<CanvasEngine />)
+      act(() => useCanvasStore.getState().selectPanel('odd'))
+      altArrow('ArrowRight')
+      expect(box('odd')).toMatchObject({ x: 40, y: 40 })
+    })
+
+    it('Alt+arrow does nothing without a selection, or while typing in a field', () => {
+      seedTwo()
+      render(<CanvasEngine renderPanel={(id) => (id === 'notes' ? <input aria-label="Note title" /> : null)} />)
+      altArrow('ArrowRight')
+      expect(box('notes')).toMatchObject({ x: 40, y: 60 })
+
+      act(() => useCanvasStore.getState().selectPanel('notes'))
+      const field = screen.getByRole('textbox', { name: 'Note title' })
+      field.focus()
+      const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', altKey: true, bubbles: true, cancelable: true })
+      field.dispatchEvent(event)
+      expect(box('notes')).toMatchObject({ x: 40, y: 60 })
+      // The field keeps its own Alt+arrow (word jump on macOS).
+      expect(event.defaultPrevented).toBe(false)
+    })
+
+    it('arrows on a focused handle resize along its edge in 20px steps', () => {
+      seedTwo()
+      render(<CanvasEngine />)
+      act(() => useCanvasStore.getState().selectPanel('notes'))
+
+      const right = screen.getByRole('button', { name: 'Resize Notes right' })
+      right.focus()
+      fireEvent.keyDown(right, { key: 'ArrowRight' })
+      expect(box('notes')).toEqual({ x: 40, y: 60, width: 320, height: 200 })
+      // An edge handle only follows its own axis.
+      fireEvent.keyDown(right, { key: 'ArrowDown' })
+      expect(box('notes')).toEqual({ x: 40, y: 60, width: 320, height: 200 })
+
+      const topLeft = screen.getByRole('button', { name: 'Resize Notes top left' })
+      topLeft.focus()
+      fireEvent.keyDown(topLeft, { key: 'ArrowUp' })
+      // The bottom edge stays put while the top edge moves up.
+      expect(box('notes')).toEqual({ x: 40, y: 40, width: 320, height: 220 })
+    })
+
+    it('keeps a panel at its size constraints when resized by keyboard', () => {
+      useCanvasStore.getState().addPanel({
+        id: 'small', pos_x: 0, pos_y: 0, width: 300, height: 250, z_index: 1, title: 'Small',
+        constraints: { minWidth: 300, minHeight: 250 },
+      })
+      render(<CanvasEngine />)
+      act(() => useCanvasStore.getState().selectPanel('small'))
+      const corner = screen.getByRole('button', { name: 'Resize Small bottom right' })
+      corner.focus()
+      fireEvent.keyDown(corner, { key: 'ArrowLeft' })
+      fireEvent.keyDown(corner, { key: 'ArrowUp' })
+      expect(box('small')).toEqual({ x: 0, y: 0, width: 300, height: 250 })
+    })
+
+    it('moves and resizes nothing while a panel is fullscreen', () => {
+      seedTwo()
+      render(<CanvasEngine />)
+      act(() => {
+        useCanvasStore.getState().selectPanel('notes')
+        useCanvasStore.getState().enterFullscreen('notes', 800, 600)
+      })
+      const before = box('notes')
+      altArrow('ArrowRight')
+      expect(box('notes')).toEqual(before)
+    })
+
+    describe('saving', () => {
+      beforeEach(() => vi.useFakeTimers())
+      afterEach(() => vi.useRealTimers())
+
+      it('saves a run of Alt+arrow presses once, after the keys stop', () => {
+        seedTwo()
+        const onLayoutChange = vi.fn()
+        render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+        act(() => useCanvasStore.getState().selectPanel('plan'))
+        onLayoutChange.mockClear()
+
+        // A held key repeats.
+        for (let i = 0; i < 5; i++) altArrow('ArrowDown', { repeat: i > 0 })
+        expect(box('plan')).toMatchObject({ y: 160 })
+        expect(onLayoutChange).not.toHaveBeenCalled()
+
+        act(() => { vi.advanceTimersByTime(1000) })
+        expect(onLayoutChange).toHaveBeenCalledTimes(1)
+        expect(onLayoutChange.mock.calls[0][0].find((p: { id: string }) => p.id === 'plan')).toMatchObject({ pos_y: 160 })
+      })
+
+      it('saves a pending keyboard move before the board switches to other panels', () => {
+        seedTwo()
+        const onLayoutChange = vi.fn()
+        render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+        act(() => useCanvasStore.getState().selectPanel('plan'))
+        onLayoutChange.mockClear()
+
+        altArrow('ArrowRight')
+        act(() => {
+          useCanvasStore.getState().setPanels([
+            { id: 'other', pos_x: 0, pos_y: 0, width: 300, height: 200, z_index: 1 },
+          ])
+        })
+        const saved = onLayoutChange.mock.calls.map(([panels]) => panels.map((p: { id: string }) => p.id))
+        expect(saved).toEqual([['notes', 'plan'], ['other']])
+        expect(onLayoutChange.mock.calls[0][0][1]).toMatchObject({ id: 'plan', pos_x: 420 })
+
+        act(() => { vi.advanceTimersByTime(1000) })
+        expect(onLayoutChange).toHaveBeenCalledTimes(2)
+      })
+
+      it('saves a pending keyboard move when the board unmounts', () => {
+        seedTwo()
+        const onLayoutChange = vi.fn()
+        const { unmount } = render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+        act(() => useCanvasStore.getState().selectPanel('plan'))
+        onLayoutChange.mockClear()
+
+        altArrow('ArrowRight')
+        unmount()
+        expect(onLayoutChange).toHaveBeenCalledTimes(1)
+        expect(onLayoutChange.mock.calls[0][0][1]).toMatchObject({ id: 'plan', pos_x: 420 })
+      })
     })
   })
 })

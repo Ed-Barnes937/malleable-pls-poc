@@ -34,7 +34,11 @@ export interface CanvasKeyboardOptions {
   onRemovePanel?: (panelId: string) => void
   /** Canvas element — needed to size a panel when toggling fullscreen. */
   canvasRef?: React.RefObject<HTMLDivElement | null>
+  /** Alt+arrow on the selected panel (UI SDK's `move.keydown`). Returns whether it moved it. */
+  onMoveKey?: (event: KeyboardEvent, panelId: string) => boolean
 }
+
+const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 /**
  * Keyboard shortcuts that act on the currently selected lens.
@@ -45,12 +49,14 @@ export interface CanvasKeyboardOptions {
  *   top-most panel when nothing is selected).
  * - **Backspace / Delete** — remove the selected panel.
  * - **Escape** — exit fullscreen, then focus mode, then clear the selection.
+ * - **Alt+arrow** - move the selected panel one grid step (`onMoveKey`).
+ *   Left to a text field (word jump on macOS) and to a widget that handled it.
  *
  * All shortcuts are suppressed while typing in an input/textarea/
  * contenteditable, and while focus is outside the canvas (top bar, board
  * menu, dialogs), so they don't interfere with other controls.
  */
-export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOptions = {}): void {
+export function useCanvasKeyboard({ onRemovePanel, canvasRef, onMoveKey }: CanvasKeyboardOptions = {}): void {
   useEffect(() => {
     function topPanelId(): string | null {
       const { panels } = useCanvasStore.getState()
@@ -61,6 +67,13 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
     function handleKeyDown(e: KeyboardEvent) {
       const state = useCanvasStore.getState()
       if (focusOutsideCanvas(canvasRef?.current)) return
+
+      // Alt+arrow - move the selected panel
+      if (e.altKey && ARROWS.has(e.key)) {
+        if (isTyping() || e.defaultPrevented || e.metaKey || e.ctrlKey) return
+        if (state.selectedPanelId) onMoveKey?.(e, state.selectedPanelId)
+        return
+      }
 
       // ] / [ - cycle selection
       if (e.key === ']' || e.key === '[') {
@@ -121,5 +134,5 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onRemovePanel, canvasRef])
+  }, [onRemovePanel, canvasRef, onMoveKey])
 }

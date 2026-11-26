@@ -8,8 +8,17 @@ import {
   AlertDialogTitle,
   createConfirm,
 } from '@ui-sdk/react/alert-dialog'
-import { BACKDROP_CLASS, DIALOG_CLASS } from './Dialog'
+import { BACKDROP_CLASS as DIALOG_BACKDROP, DIALOG_CLASS as DIALOG_BOX } from './Dialog'
 import { cn } from './utils'
+
+/**
+ * Unlike Dialog, an alert dialog is always modal (UI SDK offers no `modal` to
+ * lift), so the page stays inert until its exit animation ends and a quick press
+ * on the page would be lost. It goes at once on close (`data-closed`) instead of
+ * fading out; it still eases in.
+ */
+const BACKDROP_CLASS = cn(DIALOG_BACKDROP, 'data-closed:hidden')
+const DIALOG_CLASS = cn(DIALOG_BOX, 'data-closed:hidden')
 
 const BUTTON = 'h-9 rounded-control px-3.5 text-body font-medium transition-colors disabled:opacity-40 aria-disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent'
 const CANCEL = cn(BUTTON, 'text-text-secondary hover:bg-surface-overlay hover:text-text-primary')

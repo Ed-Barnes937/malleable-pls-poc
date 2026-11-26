@@ -39,21 +39,19 @@ export function LensAutomationsButton({ panelId, lensType, workspaceId }: LensAu
         <Zap size={16} />
       </button>
 
-      {open && (
-        <Dialog
-          open
-          onClose={() => setOpen(false)}
-          title={`Automations · ${manifest.label}`}
-          className="w-full max-w-md"
-        >
-          <AutomationsList
-            lensType={lensType}
-            workspaceId={workspaceId}
-            onEdit={(workflow) => setEditor({ mode: 'edit', workflow })}
-            onCreate={() => setEditor({ mode: 'create' })}
-          />
-        </Dialog>
-      )}
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Automations · ${manifest.label}`}
+        className="w-full max-w-md"
+      >
+        <AutomationsList
+          lensType={lensType}
+          workspaceId={workspaceId}
+          onEdit={(workflow) => setEditor({ mode: 'edit', workflow })}
+          onCreate={() => setEditor({ mode: 'create' })}
+        />
+      </Dialog>
 
       {editor.mode !== 'closed' && (
         <WorkflowEditor

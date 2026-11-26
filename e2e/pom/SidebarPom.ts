@@ -14,7 +14,7 @@ export class SidebarPom {
   readonly lensItems: Locator
 
   constructor(private page: Page) {
-    this.root = page.locator('aside')
+    this.root = page.getByTestId('drawer-sidebar')
     this.scopeSection = this.root.getByTestId('scope-section')
     this.courseSelect = this.scopeSection.getByRole('combobox', { name: 'Course' })
     this.recordingSelect = this.scopeSection.getByRole('combobox', { name: 'Lecture' })
