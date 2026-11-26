@@ -212,8 +212,13 @@ test.describe('by keyboard', () => {
     await mount(board().jsx)
     await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
 
-    // From Notes (not selected: no handle stops) straight into Plan's handles.
+    // From Notes (not selected: no handle stops) straight into Plan, whose
+    // handles follow its header.
     await page.getByRole('button', { name: 'Remove Notes from board' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('button', { name: 'Fullscreen Plan' })).toBeFocused()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('button', { name: 'Remove Plan from board' })).toBeFocused()
     await page.keyboard.press('Tab')
     await expect(page.getByRole('button', { name: 'Resize Plan top left' })).toBeFocused()
     for (let i = 0; i < 3; i++) await page.keyboard.press('Tab')
@@ -226,6 +231,29 @@ test.describe('by keyboard', () => {
     // Shift: ten steps; the widget minimum (200 wide by default) stops it.
     await page.keyboard.press('Shift+ArrowLeft')
     await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 200, height: 200 })
+  })
+
+  test("Tab from the selected panel's header reaches its handles before the widget's own controls", async ({ mount, page }) => {
+    await mount(<BoardHarness panels={[NOTES, PLAN]} withControls />)
+    await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
+
+    // The header's last control, then the handles, then what the widget holds.
+    await page.getByRole('button', { name: 'Remove Plan from board' }).focus()
+    await page.keyboard.press('Tab')
+    await expect(page.getByRole('button', { name: 'Resize Plan top left' })).toBeFocused()
+    for (let i = 0; i < 8; i++) await page.keyboard.press('Tab')
+    await expect(page.getByRole('button', { name: 'Moment in plan' })).toBeFocused()
+    // And back: Shift+Tab from the widget's controls reaches the last handle.
+    await page.keyboard.press('Shift+Tab')
+    await expect(page.getByRole('button', { name: 'Resize Plan left', exact: true })).toBeFocused()
+
+    // Still on the panel's edge, not clipped by the content: the corner just outside the panel takes the press.
+    await panel(page, 'plan').hover({ position: { x: 150, y: 100 } })
+    const hit = await panel(page, 'plan').evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      return document.elementFromPoint(r.left - 4, r.top - 4)?.getAttribute('aria-label')
+    })
+    expect(hit).toBe('Resize Plan top left')
   })
 
   test('Delete on a control inside the selected panel leaves the panel there', async ({ mount, page }) => {
@@ -253,7 +281,7 @@ test.describe('by keyboard', () => {
       await setTheme(page, theme)
       await mount(board().jsx)
       await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
-      await page.getByRole('button', { name: 'Remove Notes from board' }).focus()
+      await page.getByRole('button', { name: 'Remove Plan from board' }).focus()
       await page.keyboard.press('Tab')
       await expect(page.getByRole('button', { name: 'Resize Plan top left' }))
         .toHaveCSS('background-color', await tokenColor(page, '--color-accent'))

@@ -430,16 +430,6 @@ function DraggablePanel({ board, panel, stackOrder, zIndex, isFocused, isSelecte
     }),
     children: (
       <>
-        {movable && (
-          <div
-            style={{ pointerEvents: isHovered ? 'auto' : 'none' }}
-            data-testid={`resize-handles-${panel.id}`}
-          >
-            {ALL_DIRECTIONS.map((dir) => (
-              <ResizeHandle key={dir} board={board} direction={dir} panelId={panel.id} title={label} tabStop={!!isSelected} />
-            ))}
-          </div>
-        )}
         <PanelChrome
           panelId={panel.id}
           title={label}
@@ -449,6 +439,18 @@ function DraggablePanel({ board, panel, stackOrder, zIndex, isFocused, isSelecte
           isFullscreen={isFullscreen}
           onToggleFullscreen={stacked ? undefined : handleToggleFullscreen}
           headerActions={renderHeaderActions?.(panel.id)}
+          // After the header in tab order (the handles sit on the panel's edge,
+          // positioned against the panel, so where they are in the DOM doesn't move them).
+          afterHeader={movable && (
+            <div
+              style={{ pointerEvents: isHovered ? 'auto' : 'none' }}
+              data-testid={`resize-handles-${panel.id}`}
+            >
+              {ALL_DIRECTIONS.map((dir) => (
+                <ResizeHandle key={dir} board={board} direction={dir} panelId={panel.id} title={label} tabStop={!!isSelected} />
+              ))}
+            </div>
+          )}
         >
           {renderPanel?.(panel.id)}
         </PanelChrome>
