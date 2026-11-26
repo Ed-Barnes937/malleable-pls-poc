@@ -228,6 +228,26 @@ test.describe('by keyboard', () => {
     await expect.poll(() => boxOf(page, 'plan')).toEqual({ x: 500, y: 300, width: 200, height: 200 })
   })
 
+  test('Delete on a control inside the selected panel leaves the panel there', async ({ mount, page }) => {
+    await mount(<BoardHarness panels={[NOTES, PLAN]} withControls />)
+    await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
+    await page.getByRole('button', { name: 'Moment in plan' }).focus()
+
+    await page.keyboard.press('Delete')
+    await page.keyboard.press('Backspace')
+    await expect(panel(page, 'plan')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Moment in plan' })).toBeFocused()
+  })
+
+  test('Delete after selecting the panel by its header removes it, as before', async ({ mount, page }) => {
+    await mount(<BoardHarness panels={[NOTES, PLAN]} withControls />)
+    await panel(page, 'plan').getByTestId('panel-header').click({ position: { x: 80, y: 20 } })
+
+    await page.keyboard.press('Delete')
+    await expect(panel(page, 'plan')).toHaveCount(0)
+    await expect(panel(page, 'notes')).toBeVisible()
+  })
+
   for (const theme of THEMES) {
     test(`a focused handle shows in the accent colour (${theme})`, async ({ mount, page }) => {
       await setTheme(page, theme)

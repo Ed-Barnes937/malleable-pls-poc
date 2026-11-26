@@ -27,17 +27,22 @@ export function PanelChromeWithIcon(
  * A CanvasEngine on a fixed-size board, loaded with `panels`, for the
  * Playwright CT. `onLayoutChange` reaches the test (CT passes callbacks back).
  */
-export function BoardHarness({ panels, width = 1000, height = 700, onLayoutChange }: {
+export function BoardHarness({ panels, width = 1000, height = 700, onLayoutChange, withControls }: {
   panels: PanelItem[]
   width?: number
   height?: number
   onLayoutChange?: (panels: PanelItem[]) => void
+  /** Puts a button inside each panel, as a widget's own controls (a transcript moment). */
+  withControls?: boolean
 }) {
   // Load the panels before the first render, as the shell's panel sync does.
   useState(() => useCanvasStore.getState().setPanels(panels))
   return (
     <div style={{ width, height }}>
-      <CanvasEngine onLayoutChange={onLayoutChange} />
+      <CanvasEngine
+        onLayoutChange={onLayoutChange}
+        renderPanel={withControls ? (id) => <button type="button">{`Moment in ${id}`}</button> : undefined}
+      />
     </div>
   )
 }

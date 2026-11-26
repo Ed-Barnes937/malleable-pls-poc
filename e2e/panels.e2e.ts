@@ -80,6 +80,33 @@ test.describe('Panel management', () => {
   })
 })
 
+test.describe('Delete on the selected widget', () => {
+  test.beforeEach(async () => { await reseed() })
+  test.afterAll(async () => { await reseed() })
+
+  test('on a transcript moment in the selected Transcript it leaves the widget; with the widget itself selected it removes it', async ({ page }) => {
+    const grid = await openEveningReview(page)
+    const transcript = grid.panelByLabel('Transcript')
+    const header = new PanelContainerPom(transcript).header
+    await expect(transcript.getByText('14 segments')).toBeVisible({ timeout: 10000 })
+
+    // Selected, then focus on one of its moments: Delete is the moment's, not the widget's.
+    await header.click({ position: { x: 80, y: 20 } })
+    const moment = transcript.locator('[data-segment-id] > button').first()
+    await moment.focus()
+    await page.keyboard.press('Delete')
+    await page.keyboard.press('Backspace')
+    await grid.expectPanelCount(4)
+    await expect(moment).toBeFocused()
+
+    // Selected by its header, nothing inside it focused: Delete removes it, as today.
+    await header.click({ position: { x: 80, y: 20 } })
+    await page.keyboard.press('Delete')
+    await grid.expectPanelCount(3)
+    await expect(grid.panelByLabel('Transcript')).toBeHidden()
+  })
+})
+
 test.describe('Moving and resizing widgets', () => {
   test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
