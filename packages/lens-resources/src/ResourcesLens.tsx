@@ -301,7 +301,7 @@ export default function ResourcesLens({ scope, onScopeChange }: LensProps) {
           open
           onClose={() => closeNote()}
           title="Note"
-          className="fixed inset-0 flex h-dvh w-screen max-w-none flex-col rounded-none border-0 p-4"
+          className="fixed inset-0 flex h-dvh max-h-none w-screen max-w-none flex-col rounded-none border-0 p-4"
         >
           <div className="min-h-0 flex-1">
             <NoteView noteId={openNote} leaving={leavingPrompt} />
