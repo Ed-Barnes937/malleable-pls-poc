@@ -1,6 +1,6 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
-import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, CreateWorkspaceDialogPom, DeleteWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
 import { departures, fontsLoaded, motionSettled, recordDepartures } from './settle'
@@ -200,7 +200,7 @@ test.describe('Motion', () => {
     expect((await animated(page)).filter((a) => a.testid === 'workspace-tab')).toEqual([])
 
     await topBar.deleteWorkspace(second)
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
+    await new DeleteWorkspaceDialogPom(page).confirm()
     await expect(tabs).toHaveCount(before.length - 1)
     // The tabs after it glide left into its room.
     await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'workspace-tab').map((a) => a.keyframes))
