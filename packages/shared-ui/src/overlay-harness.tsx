@@ -3,7 +3,7 @@
  * components from a file, and its props must be serialisable). Nothing in the
  * app imports this file.
  */
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { AlertDialog, useConfirm } from './AlertDialog'
 import { Dialog } from './Dialog'
 import { Drawer, DrawerClose, DrawerContent, DrawerTitle, DrawerTrigger } from './Drawer'
@@ -161,6 +161,21 @@ export function LayersInDialog() {
             </MenuContent>
           </Menu>
         </div>
+      </Dialog>
+    </>
+  )
+}
+
+/** A dialog whose `initialFocus` names the second field, not the first thing Tab would reach. */
+export function DialogInitialFocus() {
+  const [open, setOpen] = useState(false)
+  const second = useRef<HTMLInputElement>(null)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>Open dialog</button>
+      <Dialog open={open} onClose={() => setOpen(false)} title="Fields" initialFocus={() => second.current}>
+        <input aria-label="First" />
+        <input ref={second} aria-label="Second" />
       </Dialog>
     </>
   )
