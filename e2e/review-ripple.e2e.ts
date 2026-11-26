@@ -280,7 +280,9 @@ test.describe('The confused-to-calendar ripple', () => {
       w.glide = []
       w.wheelAt = null
       board.addEventListener('scroll', () => w.glide.push({ at: performance.now(), top: board.scrollTop }))
-      document.addEventListener('wheel', () => { w.wheelAt ??= performance.now() }, { capture: true })
+      // When the wheel turned, not when the page got round to it: the event
+      // can arrive tens of ms later, the glide still moving meanwhile.
+      document.addEventListener('wheel', (e) => { w.wheelAt ??= e.timeStamp }, { capture: true })
     })
     const markedAt = Date.now()
     await transcript.getByRole('button', { name: 'confused', exact: true }).click()
