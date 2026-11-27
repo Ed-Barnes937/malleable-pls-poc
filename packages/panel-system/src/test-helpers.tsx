@@ -7,7 +7,7 @@
  * supply primitive/serialisable props.
  */
 
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { PanelChrome, type PanelChromeProps } from './PanelChrome'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore, type PanelItem } from './canvas-store'
@@ -43,6 +43,31 @@ export function BoardHarness({ panels, width = 1000, height = 700, onLayoutChang
         onLayoutChange={onLayoutChange}
         renderPanel={withControls ? (id) => <button type="button">{`Moment in ${id}`}</button> : undefined}
       />
+    </div>
+  )
+}
+
+/**
+ * A canvas of `width` x `height` showing `panels`, for the gesture tests.
+ * `onSave` hears each save (`onLayoutChange`): the panels that moved.
+ */
+export function CanvasHarness({
+  panels,
+  width = 1200,
+  height = 800,
+  onSave,
+}: {
+  panels: PanelItem[]
+  width?: number
+  height?: number
+  onSave?: (saved: PanelItem[]) => void
+}) {
+  useLayoutEffect(() => {
+    useCanvasStore.getState().setPanels(panels)
+  }, [panels])
+  return (
+    <div style={{ width, height, position: 'relative' }}>
+      <CanvasEngine onLayoutChange={onSave} renderPanel={(id) => <p>{id}</p>} />
     </div>
   )
 }

@@ -1,5 +1,6 @@
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
-import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { test, expect } from './test'
+import type { APIRequestContext, Page } from '@playwright/test'
+import { CalendarPom, PanelGridPom, SidebarPom, TimeInputPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 import { trpcMutation, trpcQuery } from './api'
@@ -248,13 +249,23 @@ test.describe('Phone calendar taps', () => {
     await new TopBarPom(page).switchToWorkspace('My week')
     await watchPressesInPopover(page)
     const calendar = new CalendarPom(page)
+    // The missed-blocks banner arrives once the preview loads, shrinking the
+    // grid; until the student scrolls, the grid then goes back to 08:00. Wait
+    // for it, then scroll up with a real wheel, as a student would, so later
+    // resizes keep the grid where it is.
+    await expect(calendar.root.getByTestId('refit-banner')).toBeVisible()
     // 03:30, free time near the top of the grid: the new block's popover opens over it.
     const scroll = calendar.root.getByTestId('calendar-scroll')
     await scroll.scrollIntoViewIfNeeded()
-    await scroll.evaluate((el) => { el.scrollTop = 0 })
+    const box = (await scroll.boundingBox())!
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+    await page.mouse.wheel(0, -5000)
+    await expect.poll(() => scroll.evaluate((el) => el.scrollTop)).toBe(0)
     const point = await calendar.point(0, 3.5)
     await page.touchscreen.tap(point.x, point.y)
     await expect(calendar.popover).toBeVisible()
+    // The block opened at the time tapped, not wherever the grid had moved to.
+    await new TimeInputPom(calendar.popover.getByLabel('Start time')).expectValue('03:30')
     expect(await pressesInPopover(page)).toEqual([])
   })
 })
@@ -269,20 +280,19 @@ test.describe('Phone top bar', () => {
   })
   test.afterAll(async () => { await reseed() })
 
-  test('holds the menu, the tabs and the widgets button; Activity, the theme and board appearance are in the board menu', async ({ page }) => {
+  test('holds the menu and the tabs; Activity, the theme and board appearance are in the board menu, and there is no Tidy up', async ({ page }) => {
     const topBar = new TopBarPom(page)
-    const widgets = topBar.root.getByRole('button', { name: 'Tidy up widgets' })
     await expect(topBar.root).toHaveAttribute('data-layout', 'phone')
     await expect(topBar.drawerTrigger).toBeVisible()
-    await expect(widgets).toBeVisible()
+    // The widgets are stacked on a phone: nothing to tidy.
+    await expect(page.getByRole('button', { name: 'Tidy up widgets' })).toHaveCount(0)
     await expect(topBar.root.getByTestId('activity-button')).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: 'Theme' })).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toHaveCount(0)
-    // One row: the widgets button sits level with the menu button, on screen.
+    // One row: the tabs sit level with the menu button, on screen.
     const menuBox = (await topBar.drawerTrigger.boundingBox())!
-    const widgetsBox = (await widgets.boundingBox())!
-    expect(Math.abs(widgetsBox.y - menuBox.y)).toBeLessThan(2)
-    expect(widgetsBox.x + widgetsBox.width).toBeLessThanOrEqual(400)
+    const tabsBox = (await topBar.workspaceTabs.first().boundingBox())!
+    expect(Math.abs(tabsBox.y + tabsBox.height / 2 - (menuBox.y + menuBox.height / 2))).toBeLessThan(2)
 
     // Keyboard: open the menu, and the controls are in it.
     await topBar.drawerTrigger.focus()
@@ -395,44 +405,53 @@ test.describe('Phone top bar', () => {
   })
 })
 
-/** Tuesday 27 Oct 2026, 09:00 in London (GMT): Chemistry 14:00, a shift 17:00-22:00, no study planned yet. */
-const TUESDAY = new Date('2026-10-27T09:00:00Z')
-
-test.describe('Phone today line', () => {
-  test.use({ viewport: { width: 400, height: 860 } })
+test.describe('Phone scope pickers', () => {
+  test.use({ viewport: { width: 400, height: 860 }, hasTouch: true })
+  test.beforeEach(async () => { await reseed() })
   test.afterAll(async () => { await reseed() })
 
-  test('shows the short form under the tabs, beside the Showing chip, never cut off', async ({ page, request }) => {
-    await reseed({ now: TUESDAY })
-    await myWeekBoard(request)
-    await page.clock.setFixedTime(TUESDAY)
-    await page.goto('/')
-    const topBar = new TopBarPom(page)
-    await topBar.switchToWorkspace('My week')
-    await expect(topBar.todayLine).toBeVisible()
-    await expect(topBar.todayLine).toHaveAttribute('title', 'Tue · Chemistry 14:00 · shift 17:00 · 2h to study')
-
-    const notClipped = () => topBar.todayLine.evaluate((el) => el.offsetWidth <= el.parentElement!.clientWidth)
-    for (const width of [400, 360]) {
+  for (const width of [400, 360]) {
+    test(`at ${width}px the pills sit on row two, whole and on screen, with no sideways scroll`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 })
-      // Drops parts (the weekday, then later blocks) rather than cutting one off.
-      await expect(topBar.todayLine).toBeVisible()
-      await expect(topBar.todayLine).toContainText('2h to study')
-      await expect(topBar.todayLine).toContainText('Chemistry 14:00')
-      await expect.poll(notClipped).toBe(true)
-      // Under the tabs, on the Showing chip's row, after the chip (read once
-      // the bar has settled: the chip's text and the web font arrive late).
-      await expect.poll(async () => {
-        const line = (await topBar.todayLine.boundingBox())!
-        const chip = (await topBar.scopeChip.boundingBox())!
-        const menu = (await topBar.drawerTrigger.boundingBox())!
-        return {
-          underTabs: line.y >= menu.y + menu.height,
-          chipRow: Math.abs((line.y + line.height / 2) - (chip.y + chip.height / 2)) < 2,
-          afterChip: line.x >= chip.x + chip.width,
-          onScreen: line.x + line.width <= width,
-        }
-      }).toEqual({ underTabs: true, chipRow: true, afterChip: true, onScreen: true })
-    }
-  })
+      await page.goto('/')
+      const topBar = new TopBarPom(page)
+      await topBar.switchToWorkspace('In Lecture')
+      await topBar.expectScope('Biology', 'Biology Lecture: Mitochondrial DNA', { timeout: 10000 })
+
+      const menu = (await topBar.drawerTrigger.boundingBox())!
+      for (const pill of [page.getByTestId('scope-course'), page.getByTestId('scope-lecture')]) {
+        const box = (await pill.boundingBox())!
+        expect(box.y).toBeGreaterThanOrEqual(menu.y + menu.height)
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(width)
+        // A finger-sized target.
+        expect(box.height).toBeGreaterThanOrEqual(40)
+      }
+      // A long lecture title ends in an ellipsis first, in full in its
+      // tooltip; the course reads whole until the lecture is at its floor
+      // (at 360px, beside Up next, it is cut short too, down to 5rem).
+      if (width >= 400) expect(await topBar.coursePill.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+      else expect((await page.getByTestId('scope-course').boundingBox())!.width).toBeGreaterThanOrEqual(80)
+      await expect(page.getByTestId('scope-course')).toHaveAttribute('title', 'Biology')
+      await expect(page.getByTestId('scope-lecture')).toHaveAttribute('title', 'Biology Lecture: Mitochondrial DNA')
+      await topBar.expectControlsFit()
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+    })
+
+    test(`at ${width}px tapping the course pill and choosing Chemistry changes the board`, async ({ page, request }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await myWeekBoard(request)
+      await page.goto('/')
+      const topBar = new TopBarPom(page)
+      await topBar.switchToWorkspace('My week')
+      await topBar.expectScope('All courses', null, { timeout: 10000 })
+      const calendar = new CalendarPom(page)
+      await expect(calendar.root.getByText('Chemistry highlighted')).toHaveCount(0)
+
+      await topBar.courseSelect.tap()
+      await topBar.selectCourse('Chemistry')
+      await topBar.expectScope('Chemistry', null)
+      await expect(calendar.root.getByText('Chemistry highlighted')).toBeVisible({ timeout: 10000 })
+    })
+  }
 })

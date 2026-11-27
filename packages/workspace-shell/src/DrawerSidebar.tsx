@@ -1,103 +1,14 @@
 import { useCallback, useRef } from 'react'
 import { X } from 'lucide-react'
-import {
-  useWorkspaces,
-  useWorkspaceScopes,
-  useSetWorkspaceScope,
-  useRecordings,
-  useFocusedRecording,
-  decodeScope,
-} from '@pls/substrate-client'
-import { COURSES, Drawer, DrawerClose, DrawerContent, DrawerTitle, SectionLabel, Select, useNarrowScreen } from '@pls/shared-ui'
+import { useWorkspaces } from '@pls/substrate-client'
+import { Drawer, DrawerClose, DrawerContent, DrawerTitle, SectionLabel, useNarrowScreen } from '@pls/shared-ui'
 import { useActiveWorkspaceId } from './activeBoard'
-import { useManifests, type ScopeDim } from '@pls/lens-framework'
-import { useBoardScopeDims } from './useBoardScopeDims'
+import { useManifests } from '@pls/lens-framework'
 import { WorkflowSettingsPanel } from './WorkflowSettingsPanel'
 import { groupWidgets } from './widget-groups'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { ThemeToggle } from './ThemeToggle'
 import { BoardAppearance } from './BoardAppearance'
-
-/* ── Constants ── */
-
-const COURSE_FILTERS = [{ value: '', label: 'All courses' }, ...COURSES]
-
-/* ── Scope Editor ── */
-
-/**
- * Renders only the scope pickers whose dimensions are used by at least one
- * widget on the board (see `ScopeDeclaration`). The section is hidden
- * entirely when every widget ignores scope.
- */
-function ScopeEditor({ workspaceId, activeDims }: { workspaceId: string; activeDims: Set<ScopeDim> }) {
-  const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const setScope = useSetWorkspaceScope()
-
-  const decodedScope = decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[])
-  const currentCourse = decodedScope.courseTag ?? ''
-  const currentRecordingId = decodedScope.recordingId ?? ''
-  const { data: courseRecordings } = useRecordings(decodedScope.courseTag)
-  // A focused lecture outside the course still appears, so the picker never
-  // pretends nothing is focused.
-  const { data: focused } = useFocusedRecording(decodedScope.recordingId)
-  const recordings = focused && !courseRecordings?.some((r) => r.id === focused.id)
-    ? [focused, ...(courseRecordings ?? [])]
-    : courseRecordings
-
-  const handleChange = useCallback(
-    (scopeType: 'tag' | 'recording', value: string) => {
-      setScope.mutate({ workspaceId, scopeType, scopeValue: value || null })
-    },
-    [workspaceId, setScope],
-  )
-
-  return (
-    <div className="flex flex-col gap-2">
-      {activeDims.has('courseTag') && (
-        <div className={pickerRow}>
-          <label htmlFor="scope-course" className={pickerLabel}>
-            Course
-          </label>
-          <Select
-            id="scope-course"
-            value={currentCourse}
-            onChange={(e) => handleChange('tag', e.target.value)}
-          >
-            {COURSE_FILTERS.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-
-      {activeDims.has('recordingId') && (
-        <div className={pickerRow}>
-          <label htmlFor="scope-lecture" className={pickerLabel}>
-            Lecture
-          </label>
-          <Select
-            id="scope-lecture"
-            value={currentRecordingId}
-            onChange={(e) => handleChange('recording', e.target.value)}
-          >
-            <option value="">No lecture selected</option>
-            {recordings?.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.title}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** One picker per row, its label beside it, so the section stays short. */
-const pickerRow = 'flex items-center gap-2 [&>:last-child]:min-w-0 [&>:last-child]:flex-1'
-const pickerLabel = 'w-14 shrink-0 px-1 text-meta font-semibold text-text-secondary'
 
 /* ── Widget Palette ── */
 
@@ -176,12 +87,11 @@ export interface DrawerSidebarProps {
 export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
   const { data: boards } = useWorkspaces()
-  const activeScopeDims = useBoardScopeDims(activeWorkspaceId)
   // On a phone the top bar keeps only the menu, the tabs and the widgets
   // button: Activity, the theme and the board's appearance move in here.
   const narrow = useNarrowScreen()
 
-  // Where focus was when the menu opened (the menu button, the Showing chip,
+  // Where focus was when the menu opened (the menu button, an Add widget button,
   // the empty board's button). The menu is opened from outside, so it has no
   // trigger of its own to return to. Read while rendering, before the sheet
   // takes focus.
@@ -231,22 +141,13 @@ export function DrawerSidebar({ open, onClose, onAddWidget }: DrawerSidebarProps
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-6 px-4 pt-2 pb-5">
-            {/* Widgets, scope, automations and appearance all belong to a board. */}
+            {/* Widgets, automations and appearance all belong to a board; what it
+                shows is chosen in the top bar. */}
             {boards?.length === 0 && (
               <p data-testid="drawer-no-board" className="px-1 text-body text-text-secondary">
                 Make a board first, then you can add widgets to it.
               </p>
             )}
-            {/* Scope first: a few compact rows, always in view without scrolling
-                past the palette. Hidden when every widget on the board ignores scope. */}
-            {activeWorkspaceId && activeScopeDims.size > 0 && (
-              <section data-testid="scope-section">
-                <SectionLabel className="mb-1 px-1">Showing</SectionLabel>
-                <p className="mb-2.5 px-1 text-meta text-text-muted">What the widgets on this board focus on.</p>
-                <ScopeEditor workspaceId={activeWorkspaceId} activeDims={activeScopeDims} />
-              </section>
-            )}
-
             {/* Widgets */}
             {activeWorkspaceId && (
               <section data-testid="widget-palette">

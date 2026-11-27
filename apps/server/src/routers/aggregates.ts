@@ -1,14 +1,14 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { withUser, type TxSql } from '@pls/db'
-import { REVIEW_SUBTYPE, SOLID_FROM, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
-import { COURSE_LABELS, andInCourse, courseTag } from './_shared'
+import { CONFUSED_TAG, REVIEW_SUBTYPE, SOLID_FROM, SORTED_TAG, WEAK_BELOW, keyPhrase, topicLabel, type CourseProgress, type WeakTopic } from '@pls/substrate'
+import { andInCourse, courseTag } from './_shared'
 
 /**
  * Every lecture moment in a course, with its status: the SQL twin of
  * `momentStatus` (packages/substrate/src/moments.ts), so Your progress, All
- * courses and Weak topics count the same moments. One row per moment and
- * course its lecture is filed under.
+ * courses and Weak topics count the same moments. One row per moment of a
+ * lecture filed under a course.
  */
 function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
   return tx`
@@ -21,38 +21,43 @@ function courseMoments(tx: TxSql, userId: string, course: string | undefined) {
       LEAD(ts.text) OVER w AS after_text,
       r.title AS recording_title,
       r.created_at AS recording_at,
-      t.label AS course,
+      l.course AS course,
       latest.score AS latest_score,
       marked.confused_at,
       still.confused,
       CASE
+        WHEN marked.sorted THEN 'solid'
         WHEN latest.score < ${WEAK_BELOW} OR still.confused THEN 'review'
         WHEN latest.score >= ${SOLID_FROM} THEN 'solid'
         ELSE 'learning'
       END AS status
     FROM transcript_segments ts
     JOIN recordings r ON r.id = ts.recording_id
-    JOIN tags t ON t.user_id = ${userId} AND t.target_type = 'recording' AND t.target_id = r.id
-      AND t.label IN ${tx(COURSE_LABELS)}
+    JOIN lectures l ON l.id = r.lecture_id AND l.user_id = ${userId} AND l.course IS NOT NULL
     LEFT JOIN LATERAL (
       SELECT cs.score, cs.created_at FROM confidence_signals cs
       WHERE cs.user_id = ${userId} AND cs.target_type = 'transcript_segment' AND cs.target_id = ts.id
       ORDER BY cs.created_at DESC, cs.id DESC
       LIMIT 1
     ) latest ON true
+    -- When it was last marked confusing, and whether it is marked sorted
+    -- (which keeps the confusing mark as history).
     LEFT JOIN LATERAL (
-      SELECT MAX(c.created_at) AS confused_at FROM tags c
+      SELECT
+        MAX(c.created_at) FILTER (WHERE c.label = ${CONFUSED_TAG}) AS confused_at,
+        COALESCE(BOOL_OR(c.label = ${SORTED_TAG}), false) AS sorted
+      FROM tags c
       WHERE c.user_id = ${userId} AND c.target_type = 'transcript_segment' AND c.target_id = ts.id
-        AND c.label = 'confused'
+        AND c.label IN (${CONFUSED_TAG}, ${SORTED_TAG})
     ) marked ON true
-    -- Marked confusing and not felt sure about since.
+    -- Marked confusing, not sorted, and not felt sure about since.
     CROSS JOIN LATERAL (
-      SELECT marked.confused_at IS NOT NULL
+      SELECT marked.confused_at IS NOT NULL AND NOT marked.sorted
         AND NOT COALESCE(latest.score >= ${SOLID_FROM} AND latest.created_at > marked.confused_at, false) AS confused
     ) still
     WHERE ts.user_id = ${userId}
       ${andInCourse(tx, userId, course, 'recording', tx`r.id`)}
-    WINDOW w AS (PARTITION BY ts.recording_id, t.label ORDER BY ts.start_ms)
+    WINDOW w AS (PARTITION BY ts.recording_id ORDER BY ts.start_ms)
   `
 }
 
@@ -66,7 +71,8 @@ function courseProgress(tx: TxSql, userId: string, course: string | undefined): 
       ROUND(COUNT(*) FILTER (WHERE m.status = 'solid')::numeric / COUNT(*)::numeric * 100)::int AS percentage
     FROM (${courseMoments(tx, userId, course)}) m
     GROUP BY m.course
-    ORDER BY m.course
+    -- By the course's name (its id is opaque).
+    ORDER BY (SELECT lower(c.name) FROM courses c WHERE c.user_id = ${userId} AND c.id = m.course), m.course
   `
 }
 

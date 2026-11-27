@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: BarChart3,
   description: 'How sure you feel, course by course',
   group: 'review',
-  scope: { courseTag: 'filter', recordingId: 'ignore' },
+  scope: { courseTag: 'filter', lectureId: 'ignore' },
   reads: ['weekly_overview'],
   load: () => import('./WeeklyOverviewLens'),
   minWidth: 350,

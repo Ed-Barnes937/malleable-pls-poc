@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertRecording } from '../test-support/recordings'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -43,14 +44,12 @@ describe.skipIf(!TEST_DATABASE_URL)('failInterruptedJobs (Postgres)', () => {
     const ai = createAiDeps()
     executors = createServerExecutors(ai)
     caller = appRouter.createCaller({ userId: user, ai, executors })
-    await db.withUser(user, (tx) => tx`
-      INSERT INTO recordings (id, user_id, title, status) VALUES (${rec}, ${user}, 'Genetics', 'uploaded')
-    `)
+    await db.withUser(user, (tx) => insertRecording(tx, { id: rec, userId: user, title: 'Genetics', status: 'uploaded' }))
   })
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['job_runs', 'recordings']) {
+    for (const table of ['job_runs', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = ANY($1)`, [[user, otherUser]])
     }
     await db.sql.end()

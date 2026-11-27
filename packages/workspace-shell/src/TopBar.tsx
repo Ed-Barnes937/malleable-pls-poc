@@ -1,19 +1,19 @@
 import { Menu, LayoutGrid, Settings } from 'lucide-react'
-import { useMemo } from 'react'
-import { useWorkspaceScopes, useFocusedRecording, useRunningJobCount, decodeScope } from '@pls/substrate-client'
+import { useRunningJobCount } from '@pls/substrate-client'
 import { useActiveWorkspaceId } from './activeBoard'
 import { ThemeToggle } from './ThemeToggle'
 import { JobStatusIndicator } from './JobStatusIndicator'
 import { WorkspaceSwitcher } from './WorkspaceSwitcher'
-import { useBoardScopeDims } from './useBoardScopeDims'
-import { TodayLine } from './TodayLine'
+import { BoardScope } from './BoardScope'
+import { UpNext, type UpNextProps } from './UpNext'
 import { BoardAppearance } from './BoardAppearance'
-import { COURSES, Popover, PopoverContent, PopoverTrigger, cn, useNarrowScreen } from '@pls/shared-ui'
+import { Popover, PopoverContent, PopoverTrigger, cn, useNarrowScreen } from '@pls/shared-ui'
 
-export interface TopBarProps {
+export interface TopBarProps extends UpNextProps {
   onMenuClick: () => void
   /** Whether the board menu (drawer) is open, for the menu button's state. */
   menuOpen?: boolean
+  /** Tidy up. Offered on the desktop layout only: a phone stacks the widgets anyway. */
   onOrganize?: () => void
 }
 
@@ -21,46 +21,16 @@ const ICON_BUTTON =
   'flex h-9 w-9 shrink-0 items-center justify-center rounded-control text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary'
 
 /**
- * Summarises the board scope as "Showing: ..." chip text, limited to the
- * dimensions some widget on the board actually uses, so the chip never
- * claims a filter nothing applies. A board whose widgets use the course but
- * has none set (and no focused lecture) says "All courses" rather than hiding the chip, so the
- * student can always see (and change) what the board shows. Returns null
- * when no widget uses any scope.
+ * The board tabs between a menu button and the Tidy up button. On a phone
+ * (below 640px) the first row holds the menu button and the tabs (no Tidy
+ * up: the widgets are stacked there): Activity, theme and board
+ * appearance move into the board menu, and a second row has the scope
+ * pills and Up next, on one line of a fixed height whatever the board shows
+ * (the lecture pill and Up next shorten instead), so switching boards or
+ * adding a widget never moves the board under it.
  */
-export function useScopeSummary(workspaceId: string | null): string | null {
-  const dims = useBoardScopeDims(workspaceId)
-  const { data: scopes } = useWorkspaceScopes(workspaceId)
-  const s = useMemo(
-    () => decodeScope((scopes ?? []) as { scope_type: string; scope_value: string }[]),
-    [scopes],
-  )
-  const { data: focused } = useFocusedRecording(s.recordingId)
-
-  return useMemo(() => {
-    const lecture = s.recordingId && dims.has('recordingId') && focused?.id === s.recordingId
-      ? (focused?.title as string | undefined)
-      : undefined
-    const parts: string[] = []
-    if (dims.has('courseTag')) {
-      if (s.courseTag) parts.push(COURSES.find((c) => c.value === s.courseTag)?.label ?? s.courseTag)
-      // "All courses" next to one lecture reads as a contradiction; the lecture says enough.
-      else if (!lecture) parts.push('All courses')
-    }
-    if (lecture) parts.push(lecture)
-    return parts.length > 0 ? parts.join(' · ') : null
-  }, [s, dims, focused])
-}
-
-/**
- * The board tabs between a menu button and the widgets button. On a phone
- * (below 640px) that is all the first row holds: Activity, theme and board
- * appearance move into the board menu, and a second row has the "Showing"
- * chip and the short today line.
- */
-export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProps) {
+export function TopBar({ onMenuClick, menuOpen = false, onOrganize, boardHasCalendar, onPlanWeek, onAddCalendar }: TopBarProps) {
   const activeWorkspaceId = useActiveWorkspaceId()
-  const scopeSummary = useScopeSummary(activeWorkspaceId)
   const narrow = useNarrowScreen()
 
   const menuButton = <MenuButton onClick={onMenuClick} open={menuOpen} showRunning={narrow} />
@@ -77,21 +47,10 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
       <LayoutGrid size={18} />
     </button>
   )
-  const scopeChip = (className: string) => scopeSummary && (
-    <button
-      type="button"
-      data-testid="scope-chip"
-      onClick={onMenuClick}
-      title={`Showing: ${scopeSummary}. Click to change.`}
-      className={cn(
-        'min-w-0 truncate rounded-full bg-surface-overlay text-left font-semibold text-text-primary transition-colors hover:bg-border-subtle',
-        className,
-      )}
-    >
-      <span className="font-normal text-text-secondary">Showing: </span>
-      {scopeSummary}
-    </button>
+  const upNext = (className: string) => (
+    <UpNext boardHasCalendar={boardHasCalendar} onPlanWeek={onPlanWeek} onAddCalendar={onAddCalendar} className={className} />
   )
+  const scope = activeWorkspaceId && <BoardScope workspaceId={activeWorkspaceId} compact={narrow} />
 
   if (narrow) {
     return (
@@ -103,12 +62,12 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
         <div className="flex items-center gap-1.5">
           {menuButton}
           <div className="min-w-0 flex-1">{tabs}</div>
-          {organizeButton}
         </div>
-        {/* Nothing in it (no scope, nothing today) and it takes no room. */}
-        <div className="flex items-center gap-2 empty:hidden">
-          {scopeChip('max-w-full shrink px-3 py-1 text-meta')}
-          <TodayLine short />
+        {/* One line, never wrapping: its height is the same on every board. */}
+        <div data-testid="top-bar-row-2" className="flex h-10 items-center gap-2">
+          {scope}
+          {/* The room the pills leave: as they come or go, it glides to its new width. */}
+          {upNext('min-w-24 flex-1 basis-0 justify-end')}
         </div>
       </header>
     )
@@ -117,7 +76,7 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
   return (
     <header
       data-testid="top-bar"
-      className="flex shrink-0 items-center gap-3.5 border-b border-border-subtle px-5 py-2.5 sm:min-h-16"
+      className="flex shrink-0 items-center gap-1 border-b border-border-subtle px-3 py-2.5 sm:min-h-16 md:gap-2 md:px-5 lg:gap-3.5"
       style={{
         background: 'var(--color-surface-raised)',
         transition: 'var(--transition-panel)',
@@ -127,17 +86,16 @@ export function TopBar({ onMenuClick, menuOpen = false, onOrganize }: TopBarProp
     >
       {menuButton}
 
-      {/* Board tabs */}
-      <div className="min-w-0">{tabs}</div>
+      {/* Board tabs: short of room, the lecture title gives way first (see
+          BoardScope), so a title loading or changing never moves the tabs or
+          New board. They scroll, down to their floor, only after that. */}
+      <div data-testid="board-tabs" className="min-w-28">{tabs}</div>
 
-      {/* Scope chip - opens the board menu, where the scope is changed */}
-      {scopeChip('max-w-[40ch] px-3 py-1.5 text-body')}
+      {/* What the board shows: the course and lecture pickers */}
+      {scope}
 
-      {/* Today at a glance (wide screens only) */}
-      <TodayLine />
-
-      {/* Spacer */}
-      <div className="flex-1" />
+      {/* What is next in the student's calendar, and a way to plan the week */}
+      {upNext('min-w-9 flex-1 basis-0 justify-start')}
 
       <div className="flex shrink-0 items-center gap-1">
         {/* Background activity */}
@@ -169,7 +127,7 @@ function MenuButton({ onClick, open, showRunning }: { onClick: () => void; open:
       aria-label={running ? `Board menu, ${count} running` : 'Board menu'}
       aria-haspopup="dialog"
       aria-expanded={open}
-      title={running ? `Board menu: ${count} running` : "Board menu: add widgets, choose what's shown"}
+      title={running ? `Board menu: ${count} running` : "Board menu: add widgets and automations"}
       className={cn(ICON_BUTTON, 'relative')}
     >
       <Menu size={20} />

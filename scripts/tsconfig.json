@@ -9,5 +9,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["with-db-url.mts", "../e2e/db-url.mts"]
+  "include": ["with-db-url.mts", "browse.mts", "../e2e/db-url.mts"]
 }

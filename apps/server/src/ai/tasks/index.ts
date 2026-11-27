@@ -53,11 +53,11 @@ export const llmTaskSamples: LlmTaskSample[] = [
       ({ id, title, course, dueAt, durationMin, assumed: false, weakTopic, latest: dueAt ? Date.parse(dueAt) : end })
     return {
       tasks: [
-        task('lab-report', 'Lab report write-up', 'chemistry', 240, day(4, 17)),
-        task('quiz-prep', 'Biology quiz prep', 'biology', 120, day(3, 9)),
-        task('reading', 'Chemistry reading: chapter 6', 'chemistry', 180, null),
-        task('review', `Review: ${lecture.title}`, 'biology', 30, day(2, 22), true),
-        task('problems', 'Problem sheet 3', 'chemistry', 150, day(5, 12)),
+        task('lab-report', 'Lab report write-up', 'Chemistry', 240, day(4, 17)),
+        task('quiz-prep', 'Biology quiz prep', 'Biology', 120, day(3, 9)),
+        task('reading', 'Chemistry reading: chapter 6', 'Chemistry', 180, null),
+        task('review', `Review: ${lecture.title}`, 'Biology', 30, day(2, 22), true),
+        task('problems', 'Problem sheet 3', 'Chemistry', 150, day(5, 12)),
       ],
       freeMin: 9 * 60,
       neededMin: 12 * 60,

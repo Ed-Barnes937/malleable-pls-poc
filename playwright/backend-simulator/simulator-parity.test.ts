@@ -14,11 +14,13 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest'
+import { CLASS_CAPTURE_LEAD_MIN } from '@pls/substrate'
 import { ProcedureRouter, handleTrpcRequest } from './trpc-protocol'
 import { InMemoryDb } from './in-memory-db'
 import { createDefaultSeedData } from './seed-data'
 import { registerWorkspacesHandlers } from './handlers/workspaces'
 import { registerRecordingsHandlers } from './handlers/recordings'
+import { registerLecturesHandlers } from './handlers/lectures'
 import { registerTranscriptsHandlers } from './handlers/transcripts'
 import { registerTagsHandlers } from './handlers/tags'
 import { registerJobsHandlers } from './handlers/jobs'
@@ -29,6 +31,8 @@ import { registerAggregatesHandlers } from './handlers/aggregates'
 import { registerWorkflowsHandlers } from './handlers/workflows'
 import { registerPlanItemsHandlers } from './handlers/plan-items'
 import { registerPreferencesHandlers } from './handlers/preferences'
+import { registerResourcesHandlers, uploadResourceFile } from './handlers/resources'
+import { registerCoursesHandlers } from './handlers/courses'
 
 const BASE_URL = 'http://localhost:3999/trpc'
 
@@ -37,6 +41,7 @@ function makeRouter(): ProcedureRouter {
   const router = new ProcedureRouter()
   registerWorkspacesHandlers(router, db)
   registerRecordingsHandlers(router, db)
+  registerLecturesHandlers(router, db)
   registerTranscriptsHandlers(router, db)
   registerTagsHandlers(router, db)
   registerJobsHandlers(router, db)
@@ -47,6 +52,8 @@ function makeRouter(): ProcedureRouter {
   registerWorkflowsHandlers(router, db)
   registerPlanItemsHandlers(router, db)
   registerPreferencesHandlers(router, db)
+  registerResourcesHandlers(router, db)
+  registerCoursesHandlers(router, db)
   return router
 }
 
@@ -63,12 +70,13 @@ async function query(router: ProcedureRouter, path: string, input?: unknown): Pr
   return data && typeof data === 'object' && 'json' in data ? data.json : data
 }
 
-async function mutate(router: ProcedureRouter, path: string, input: unknown): Promise<void> {
+async function mutate(router: ProcedureRouter, path: string, input: unknown): Promise<unknown> {
   const body = JSON.stringify({ '0': { json: input } })
   const result = await handleTrpcRequest(`${BASE_URL}/${path}?batch=1`, 'POST', body, router)
   const parsed = JSON.parse(result.body)
   const item = Array.isArray(parsed) ? parsed[0] : parsed
   if (item?.error) throw new Error(`${path}: ${item.error.message ?? JSON.stringify(item.error)}`)
+  return item?.result?.data?.json
 }
 
 describe('simulator parity — read procedures return data on default seed', () => {
@@ -120,9 +128,41 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
-  it('links.byRecording', async () => {
-    const data = await query(router, 'links.byRecording', { recordingId: 'rec-bio-1' })
+  it('links.byLecture', async () => {
+    const data = await query(router, 'links.byLecture', { lectureId: 'lec-rec-bio-1' })
     expect(Array.isArray(data)).toBe(true)
+  })
+
+  it('workspaces.summary lists each board with its widget types, in tab order', async () => {
+    expect(await query(router, 'workspaces.summary')).toEqual([
+      { id: 'ws-in-lecture', name: 'In Lecture', sort_order: 0, lens_types: ['audio-capture', 'transcript'] },
+      { id: 'ws-evening-review', name: 'Evening Review', sort_order: 1, lens_types: ['transcript', 'test-me', 'weekly-overview', 'connections'] },
+      { id: 'ws-exam-prep', name: 'Exam Prep', sort_order: 2, lens_types: ['gap-analysis', 'weakest-topics', 'test-me'] },
+    ])
+    const ws = await mutate(router, 'workspaces.create', { name: 'Plan' }) as { id: string }
+    await mutate(router, 'workspaces.addPanel', { workspaceId: ws.id, lensType: 'calendar', slotName: 'a' })
+    const summary = await query(router, 'workspaces.summary') as { id: string; lens_types: string[] }[]
+    expect(summary.at(-1)).toEqual({ id: ws.id, name: 'Plan', sort_order: 3, lens_types: ['calendar'] })
+  })
+
+  it('lectures.list and lectures.byId', async () => {
+    const all = await query(router, 'lectures.list', {}) as { id: string }[]
+    expect(all.map((l) => l.id)).toEqual(['lec-rec-bio-4', 'lec-rec-bio-3', 'lec-rec-chem-1', 'lec-rec-bio-2', 'lec-rec-bio-1'])
+    const chem = await query(router, 'lectures.list', { courseTag: 'chemistry' }) as { id: string }[]
+    expect(chem.map((l) => l.id)).toEqual(['lec-rec-chem-1'])
+    expect(await query(router, 'lectures.byId', 'lec-rec-bio-4')).toMatchObject({
+      id: 'lec-rec-bio-4', course: 'biology',
+      recordings: [{ id: 'rec-bio-4', title: 'Biology Lecture: Mitochondrial DNA', status: 'ready', processing: null }],
+    })
+    expect(await query(router, 'lectures.byId', 'lec-missing')).toBeNull()
+  })
+
+  it("a recording's course is its lecture's", async () => {
+    expect(await query(router, 'recordings.byId', 'rec-chem-1')).toMatchObject({ lecture_id: 'lec-rec-chem-1', course: 'chemistry' })
+    const bio = await query(router, 'recordings.list', { courseTag: 'biology' }) as { id: string }[]
+    expect(bio.map((r) => r.id)).toEqual(['rec-bio-4', 'rec-bio-3', 'rec-bio-2', 'rec-bio-1'])
+    await mutate(router, 'lectures.update', { id: 'lec-rec-chem-1', course: 'physics' })
+    expect(await query(router, 'recordings.byId', 'rec-chem-1')).toMatchObject({ course: 'physics' })
   })
 
   it('aggregates.weeklyOverview', async () => {
@@ -151,9 +191,13 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(Array.isArray(data)).toBe(true)
   })
 
-  it('workspaces.scopes', async () => {
-    const data = await query(router, 'workspaces.scopes', 'ws-in-lecture')
-    expect(Array.isArray(data)).toBe(true)
+  it('workspaces.scopes, ordered by type as on the server', async () => {
+    // The course is written before the lecture, so stored order is tag first.
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'biology' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: 'lec-rec-bio-4' })
+    const data = await query(router, 'workspaces.scopes', 'ws-in-lecture') as { scope_type: string }[]
+    expect(data.map((s) => s.scope_type)).toEqual(['lecture', 'tag'])
   })
 
   it('workflows.forLens', async () => {
@@ -208,7 +252,7 @@ describe('simulator parity — read procedures return data on default seed', () 
 
   it('tags, confidence and annotations filter by their lecture course', async () => {
     const tags = await query(router, 'tags.list', { courseTag: 'chemistry' }) as { target_id: string }[]
-    expect(tags.map((t) => t.target_id).sort()).toEqual(['rec-chem-1', 'seg-chem1-04', 'seg-chem1-09'])
+    expect(tags.map((t) => t.target_id).sort()).toEqual(['seg-chem1-04', 'seg-chem1-09'])
     const confidence = await query(router, 'confidence.list', { courseTag: 'chemistry' }) as { target_id: string }[]
     expect(confidence.every((c) => c.target_id.startsWith('seg-chem1-'))).toBe(true)
     const annotations = await query(router, 'annotations.list', { courseTag: 'chemistry' }) as { anchor_id: string }[]
@@ -221,26 +265,30 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(bio.length).toBeGreaterThan(0)
   })
 
-  it('a targeted lecture wins over the course', async () => {
-    // Chemistry lecture focused on a Biology board: its own data still shows.
-    const tags = await query(router, 'tags.list', { recordingId: 'rec-chem-1', courseTag: 'biology' }) as { target_id: string }[]
+  it('readers narrow to a lecture, and apply the course with it', async () => {
+    const tags = await query(router, 'tags.list', { lectureId: 'lec-rec-chem-1', courseTag: 'chemistry' }) as { target_id: string }[]
     expect(tags.map((t) => t.target_id).sort()).toEqual(['seg-chem1-04', 'seg-chem1-09'])
-    const annotations = await query(router, 'annotations.list', { recordingId: 'rec-chem-1', courseTag: 'biology' }) as unknown[]
+    const annotations = await query(router, 'annotations.list', { lectureId: 'lec-rec-chem-1' }) as unknown[]
     expect(annotations).toHaveLength(1)
-    const confidence = await query(router, 'confidence.list', { recordingId: 'rec-chem-1', courseTag: 'biology' }) as unknown[]
+    const confidence = await query(router, 'confidence.list', { lectureId: 'lec-rec-chem-1' }) as unknown[]
     expect(confidence).toHaveLength(4)
+    // Both filters apply: a lecture outside the course gives nothing.
+    expect(await query(router, 'tags.list', { lectureId: 'lec-rec-chem-1', courseTag: 'biology' })).toEqual([])
+    // One recording of it (e.g. a study block's).
+    const one = await query(router, 'tags.list', { recordingId: 'rec-chem-1' }) as unknown[]
+    expect(one).toHaveLength(2)
   })
 
-  it('setScope rejects unknown scope types', async () => {
-    await expect(mutate(router, 'workspaces.setScope', { workspaceId: 'ws-exam-prep', scopeType: 'timeframe', scopeValue: 'week' }))
-      .rejects.toThrow()
+  it('the per-dimension setScope is gone', async () => {
+    await expect(mutate(router, 'workspaces.setScope', { workspaceId: 'ws-exam-prep', scopeType: 'tag', scopeValue: 'biology' }))
+      .rejects.toThrow('No handler')
   })
 
   it('writes naming a board that is gone are rejected, as on the server', async () => {
     const before = (await query(router, 'workspaces.panels', 'ws-gone') as unknown[]).length
     await expect(mutate(router, 'workspaces.addPanel', { workspaceId: 'ws-gone', lensType: 'calendar', slotName: 'slot-1' }))
       .rejects.toThrow('Board not found')
-    await expect(mutate(router, 'workspaces.setScope', { workspaceId: 'ws-gone', scopeType: 'tag', scopeValue: 'biology' }))
+    await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-gone', courseTag: 'biology' }))
       .rejects.toThrow('Board not found')
     await expect(mutate(router, 'workspaces.updateBackground', { workspaceId: 'ws-gone', backgroundType: 'solid', backgroundValue: '#000' }))
       .rejects.toThrow('Board not found')
@@ -256,13 +304,65 @@ describe('simulator parity — read procedures return data on default seed', () 
     expect(await query(router, 'workspaces.scopes', 'ws-gone')).toEqual([])
   })
 
-  it('setScope keeps an in-course focus and clears an orphaned one', async () => {
-    const scopes = async () =>
-      (await query(router, 'workspaces.scopes', 'ws-evening-review') as { scope_type: string }[]).map((s) => s.scope_type).sort()
-    await mutate(router, 'workspaces.setScope', { workspaceId: 'ws-evening-review', scopeType: 'tag', scopeValue: 'biology' })
-    expect(await scopes()).toEqual(['recording', 'tag'])
-    await mutate(router, 'workspaces.setScope', { workspaceId: 'ws-evening-review', scopeType: 'tag', scopeValue: 'chemistry' })
-    expect(await scopes()).toEqual(['tag'])
+  it('setBoardScope keeps the board rules, as on the server', async () => {
+    const scope = async (ws: string) =>
+      (await query(router, 'workspaces.scopes', ws) as { scope_type: string; scope_value: string }[])
+        .map((s) => [s.scope_type, s.scope_value]).sort()
+    // An in-course lecture stays; another course clears it.
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'biology' }))
+      .toEqual({ courseTag: 'biology', lectureId: 'lec-rec-bio-4' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'chemistry' })
+    expect(await scope('ws-evening-review')).toEqual([['tag', 'chemistry']])
+    // A lecture brings its course; naming another course with it is refused.
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-bio-4' })
+    expect(await scope('ws-evening-review')).toEqual([['lecture', 'lec-rec-bio-4'], ['tag', 'biology']])
+    await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-chem-1', courseTag: 'biology' }))
+      .rejects.toThrow("A selected lecture's course is the board course")
+    // Changing to "All courses" keeps the lecture; clearing it is the student's.
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null })
+    expect(await scope('ws-evening-review')).toEqual([['lecture', 'lec-rec-bio-4']])
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: null })
+    expect(await scope('ws-evening-review')).toEqual([])
+    // An "All courses" board stays so whatever lecture it shows; a course keeps one in it.
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-rec-chem-1' }))
+      .toEqual({ courseTag: null, lectureId: 'lec-rec-chem-1' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'chemistry' }))
+      .toEqual({ courseTag: 'chemistry', lectureId: 'lec-rec-chem-1' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: null, lectureId: 'lec-rec-bio-4' }))
+      .toEqual({ courseTag: null, lectureId: 'lec-rec-bio-4' })
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'chemistry' })
+    expect(await scope('ws-evening-review')).toEqual([['tag', 'chemistry']])
+    await expect(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', lectureId: 'lec-missing' }))
+      .rejects.toThrow('Lecture not found')
+  })
+
+  it('restoreBoardScope refuses an unknown course and writes nothing, as on the server', async () => {
+    const none = { courseTag: null, lectureId: null }
+    const stored = await query(router, 'workspaces.scopes', 'ws-evening-review')
+    await expect(mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: { courseTag: '<script>nonsense', lectureId: null }, ifBoardShows: none }))
+      .rejects.toThrow('Unknown course')
+    // A board never shows a course the student doesn't have: nothing to put back.
+    expect(await mutate(router, 'workspaces.restoreBoardScope', { workspaceId: 'ws-evening-review', to: none, ifBoardShows: { courseTag: '<script>nonsense', lectureId: null } }))
+      .toMatchObject({ restored: false })
+    expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual(stored)
+  })
+
+  it('courses.list: the seeded student has Biology, Chemistry and Physics, as on the server', async () => {
+    expect(await query(router, 'courses.list')).toEqual([
+      { id: 'biology', name: 'Biology', color: 'green', archived_at: null },
+      { id: 'chemistry', name: 'Chemistry', color: 'blue', archived_at: null },
+      { id: 'physics', name: 'Physics', color: 'purple', archived_at: null },
+    ])
+  })
+
+  it('lectures.create with a board selects it there; lectures.update re-scopes boards', async () => {
+    const lecture = await mutate(router, 'lectures.create', { course: 'physics', title: 'Optics', workspaceId: 'ws-in-lecture' }) as { id: string }
+    const scope = async () =>
+      (await query(router, 'workspaces.scopes', 'ws-in-lecture') as { scope_type: string; scope_value: string }[])
+        .map((s) => [s.scope_type, s.scope_value]).sort()
+    expect(await scope()).toEqual([['lecture', lecture.id], ['tag', 'physics']])
+    await mutate(router, 'lectures.update', { id: lecture.id, course: 'chemistry' })
+    expect(await scope()).toEqual([['lecture', lecture.id], ['tag', 'chemistry']])
   })
 
   it('planItems.list', async () => {
@@ -335,7 +435,7 @@ describe('simulator parity - plan items behave like the server router', () => {
     await expect(call('planItems.refit', { timeZone: 'Europe/London', blocks: [block] })).rejects.toThrow(/already moved/)
   })
 
-  it('updates, completes, dismisses and deletes, keeping course in tags', async () => {
+  it('updates, completes, dismisses and deletes, keeping course on the item', async () => {
     const todo = await call('planItems.create', { kind: 'task', title: 'Review', duration_min: 20, course: 'biology' })
     const id = todo.id as string
 
@@ -347,8 +447,19 @@ describe('simulator parity - plan items behave like the server router', () => {
     await call('planItems.delete', id)
     expect(await query(router, 'planItems.byId', id)).toBeNull()
     await expect(call('planItems.delete', id)).rejects.toThrow(/not found/)
-    const tags = await query(router, 'tags.forTarget', { targetType: 'plan_item', targetId: id })
-    expect(tags).toEqual([])
+    // Undo puts it back with its course.
+    expect(await call('planItems.restore', id)).toMatchObject({ id, course: 'chemistry' })
+    expect(await query(router, 'planItems.list', { courseTag: 'chemistry' })).toMatchObject([{ id }])
+    expect(await query(router, 'tags.forTarget', { targetType: 'plan_item', targetId: id })).toEqual([])
+  })
+
+  it('accepts only a known course on a plan item, never as a tag, as the server', async () => {
+    await expect(call('planItems.create', { kind: 'task', title: 'History essay', course: 'history' })).rejects.toThrow(/Unknown course/)
+    const todo = await call('planItems.create', { kind: 'task', title: 'Read', course: 'biology' })
+    const id = todo.id as string
+    await expect(call('planItems.update', { id, patch: { course: 'history' } })).rejects.toThrow(/Unknown course/)
+    expect(await query(router, 'planItems.byId', id)).toMatchObject({ course: 'biology' })
+    await expect(call('tags.create', { target_type: 'plan_item', target_id: id, label: 'biology' })).rejects.toThrow(/set on the item/)
   })
 
   it('rejects the same invalid shapes as the server', async () => {
@@ -443,5 +554,371 @@ describe('simulator parity - which automation made a plan item', () => {
     await call('workflows.delete', { workflowId: 'wf-confused-review' })
     expect(await call('workflows.byId', 'wf-confused-review')).toBeNull()
     expect(await call('planItems.byId', created.id)).toMatchObject({ title: 'Review', created_by_workflow_id: null })
+  })
+})
+
+describe('simulator parity - courses behave like the server router', () => {
+  let router: ProcedureRouter
+  beforeEach(() => {
+    router = makeRouter()
+  })
+  /** The error's own message, out of the tRPC error JSON `mutate` throws with. */
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => /"message":"([^"]*)"/.exec(e.message)?.[1] ?? e.message)
+  type Listed ={ id: string; name: string; color: string; archived_at: string | null }
+
+  it('creates trimmed, in the colour the active ones use least, and refuses a name it has (archived included)', async () => {
+    const history = await mutate(router, 'courses.create', { name: '  History ' }) as Listed
+    expect(history).toMatchObject({ name: 'History', color: 'amber', archived_at: null })
+    expect(history.id).toMatch(/^[0-9a-f-]{36}$/)
+    expect(await mutate(router, 'courses.create', { name: 'Art', color: 'teal' })).toMatchObject({ color: 'teal' })
+    expect(await errorOf(mutate(router, 'courses.create', { name: 'BIOLOGY' }))).toBe('You already have a course called Biology')
+    await mutate(router, 'courses.update', { id: 'physics', archived: true })
+    expect(await errorOf(mutate(router, 'courses.create', { name: 'physics' }))).toBe('You have an archived course called Physics')
+    expect(await errorOf(mutate(router, 'courses.update', { id: 'chemistry', name: 'history' }))).toBe('You already have a course called History')
+    expect(await errorOf(mutate(router, 'courses.update', { id: 'nope', name: 'X' }))).toBe('Course not found')
+    expect(await errorOf(mutate(router, 'courses.create', { name: ' ' }))).toMatch(/needs a name/)
+    // Listed by name, archived ones included.
+    expect(((await query(router, 'courses.list')) as Listed[]).map((c) => [c.name, !!c.archived_at])).toEqual([
+      ['Art', false], ['Biology', false], ['Chemistry', false], ['History', false], ['Physics', true],
+    ])
+  })
+
+  it('a rename changes the course alone; an archived course is still accepted everywhere', async () => {
+    expect(await mutate(router, 'courses.update', { id: 'biology', name: 'Cell Biology', color: 'rose' }))
+      .toEqual({ id: 'biology', name: 'Cell Biology', color: 'rose', archived_at: null })
+    expect(await query(router, 'lectures.byId', 'lec-rec-bio-1')).toMatchObject({ course: 'biology' })
+    expect(await mutate(router, 'lectures.create', { course: 'biology' })).toMatchObject({ course: 'biology', title: expect.stringMatching(/^Cell Biology lecture /) })
+    await mutate(router, 'courses.update', { id: 'physics', archived: true })
+    expect(await mutate(router, 'lectures.update', { id: 'lec-rec-bio-1', course: 'physics' })).toMatchObject({ course: 'physics' })
+    expect(await mutate(router, 'planItems.create', { kind: 'task', title: 'Waves', course: 'physics' })).toMatchObject({ course: 'physics' })
+    expect(await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'physics' })).toMatchObject({ courseTag: 'physics' })
+  })
+
+  it('refuses an unknown course on every writer', async () => {
+    expect(await errorOf(mutate(router, 'lectures.create', { course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'lectures.update', { id: 'lec-rec-bio-1', course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'planItems.create', { kind: 'task', title: 'T', course: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'resources.createLink', { url: 'https://a.test', courseTag: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'workspaces.create', { name: 'B', courseTag: 'history' }))).toBe('Unknown course')
+    expect(await errorOf(mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: 'history' }))).toBe('Unknown course')
+  })
+
+  it('deletes only a course nothing uses; boards on it become All courses; Undo then unfiles', async () => {
+    expect(await errorOf(mutate(router, 'courses.delete', 'biology'))).toMatch(/^Biology is still used by \d+ lectures: archive it instead$/)
+    const typo = await mutate(router, 'courses.create', { name: 'Typo' }) as Listed
+    const todo = await mutate(router, 'planItems.create', { kind: 'task', title: 'T', course: typo.id }) as { id: string }
+    expect(await errorOf(mutate(router, 'courses.delete', typo.id))).toBe('Typo is still used by 1 plan item: archive it instead')
+    await mutate(router, 'planItems.delete', todo.id)
+    await mutate(router, 'workspaces.setBoardScope', { workspaceId: 'ws-evening-review', courseTag: typo.id, lectureId: null })
+    expect(await mutate(router, 'courses.delete', typo.id)).toEqual({ id: typo.id })
+    expect(await query(router, 'workspaces.scopes', 'ws-evening-review')).toEqual([])
+    expect(await mutate(router, 'planItems.restore', todo.id)).toMatchObject({ id: todo.id, course: null })
+    expect(await errorOf(mutate(router, 'courses.delete', typo.id))).toBe('Course not found')
+  })
+})
+
+describe('simulator parity - resources behave like the server router', () => {
+  let router: ProcedureRouter
+  beforeEach(() => {
+    router = makeRouter()
+  })
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message)
+
+  it('creates links and notes, filed under a lecture or a course, and filters like the server', async () => {
+    const link = await mutate(router, 'resources.createLink', { url: 'https://docs.google.com/document/d/1x/edit', courseTag: 'biology' })
+    expect(link).toMatchObject({ kind: 'link', provider: 'google_doc', title: 'Google Doc', course: 'biology', lecture_id: null })
+    const note = await mutate(router, 'resources.createNote', { lectureId: 'lec-rec-chem-1' }) as { id: string }
+    expect(note).toMatchObject({ kind: 'note', title: 'Untitled note', body_md: '', lecture_course: 'chemistry' })
+    await mutate(router, 'resources.createNote', { title: 'Loose' })
+
+    const titles = async (input?: unknown) => ((await query(router, 'resources.list', input)) as { title: string }[]).map((r) => r.title).sort()
+    expect(await titles({ courseTag: 'biology' })).toEqual(['Google Doc'])
+    expect(await titles({ courseTag: 'chemistry' })).toEqual(['Untitled note'])
+    expect(await titles({ lectureId: 'lec-rec-chem-1' })).toEqual(['Untitled note'])
+    expect(await titles()).toEqual(['Google Doc', 'Loose', 'Untitled note'])
+    expect((await query(router, 'resources.list')) as object[]).not.toContainEqual(expect.objectContaining({ body_md: expect.anything() }))
+  })
+
+  it('refuses what the server refuses', async () => {
+    expect(await errorOf(mutate(router, 'resources.createLink', { url: 'javascript:alert(1)' }))).toMatch(/http/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-rec-bio-1', courseTag: 'biology' }))).toMatch(/not both/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { courseTag: 'history' }))).toMatch(/Unknown course/)
+    expect(await errorOf(mutate(router, 'resources.createNote', { lectureId: 'lec-missing' }))).toMatch(/not found/)
+    expect(await errorOf(mutate(router, 'resources.delete', 'res-missing'))).toMatch(/not found/)
+  })
+
+  it('moves, edits, and refuses a stale save', async () => {
+    const note = await mutate(router, 'resources.createNote', { courseTag: 'biology' }) as { id: string; updated_at: string }
+    const saved = await mutate(router, 'resources.update', { id: note.id, patch: { body_md: '**hi**' }, expectedUpdatedAt: note.updated_at }) as { updated_at: string; excerpt: string }
+    expect(saved.excerpt).toBe('hi')
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { body_md: 'old' }, expectedUpdatedAt: note.updated_at }))).toMatch(/another device/)
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { lectureId: 'lec-rec-bio-1' } })).toMatchObject({ lecture_id: 'lec-rec-bio-1', course: null })
+    expect(await mutate(router, 'resources.update', { id: note.id, patch: { courseTag: 'physics' } })).toMatchObject({ lecture_id: null, course: 'physics' })
+    expect(await errorOf(mutate(router, 'resources.update', { id: note.id, patch: { url: 'https://x.test' } }))).toMatch(/Only a link/)
+    expect(await mutate(router, 'resources.delete', note.id)).toEqual({ id: note.id })
+    expect(await query(router, 'resources.get', note.id)).toBeNull()
+  })
+})
+
+describe('simulator parity - resource files behave like /resource-upload and resources.fileUrl', () => {
+  const PDF = new TextEncoder().encode('%PDF-1.7\n')
+  const EXE = new TextEncoder().encode('MZ\x90\x00 This program cannot be run in DOS mode')
+  const errorOf = (p: Promise<unknown>) => p.then(() => null, (e: Error) => e.message)
+  let db: InMemoryDb
+  let router: ProcedureRouter
+  beforeEach(() => {
+    db = new InMemoryDb(createDefaultSeedData())
+    router = new ProcedureRouter()
+    registerWorkspacesHandlers(router, db)
+    registerLecturesHandlers(router, db)
+    registerResourcesHandlers(router, db)
+  })
+  const upload = (body: Uint8Array, headers: Record<string, string> = {}) =>
+    uploadResourceFile(db, { 'content-type': 'application/pdf', 'x-file-name': encodeURIComponent('Cells notes.pdf'), ...headers }, body)
+
+  it('files a PDF under a course or lecture with its name, type and size', async () => {
+    expect(upload(PDF, { 'x-resource-course': 'biology' })).toMatchObject({
+      status: 200,
+      body: { kind: 'file', title: 'Cells notes', file_name: 'Cells notes.pdf', mime_type: 'application/pdf', size_bytes: PDF.length, course: 'biology' },
+    })
+    expect(upload(PDF, { 'x-lecture-id': 'lec-rec-bio-1' })).toMatchObject({ status: 200, body: { lecture_id: 'lec-rec-bio-1', course: null } })
+  })
+
+  it('refuses what the server refuses', () => {
+    expect(upload(PDF, { 'content-type': 'text/html' }).status).toBe(415)
+    expect(upload(EXE)).toMatchObject({ status: 415, body: { error: "That file isn't a valid PDF file" } })
+    expect(upload(new Uint8Array()).status).toBe(400)
+    expect(upload(PDF, { 'x-lecture-id': 'lec-missing' }).status).toBe(404)
+    expect(upload(PDF, { 'x-lecture-id': 'lec-rec-bio-1', 'x-resource-course': 'biology' }).status).toBe(400)
+    expect(upload(PDF, { 'x-resource-course': 'history' }).status).toBe(400)
+    expect(db.resources).toHaveLength(0)
+  })
+
+  it('gives a link for a file only', async () => {
+    const { body } = upload(PDF) as { body: { id: string } }
+    expect(await mutate(router, 'resources.fileUrl', body.id)).toMatchObject({ url: expect.stringMatching(new RegExp(`^/resource-files/${body.id}\\?`)) })
+    const link = await mutate(router, 'resources.createLink', { url: 'https://example.com' }) as { id: string }
+    expect(await errorOf(mutate(router, 'resources.fileUrl', link.id))).toMatch(/not a file/)
+    expect(await errorOf(mutate(router, 'resources.fileUrl', 'res-missing'))).toMatch(/not found/)
+  })
+})
+
+describe('simulator parity - class lectures (Record during a class, calendar class clicks)', () => {
+  let router: ProcedureRouter
+
+  beforeEach(() => {
+    router = makeRouter()
+  })
+
+  async function call(path: string, input: unknown) {
+    const result = await router.resolve(path, input)
+    if (result.error) throw Object.assign(new Error(result.error.message), { code: result.error.code })
+    return result.data as Record<string, any>
+  }
+
+  const scope = async (workspaceId: string) =>
+    ((await router.resolve('workspaces.scopes', workspaceId)).data as { scope_type: string; scope_value: string }[])
+      .map((s) => [s.scope_type, s.scope_value]).sort()
+
+  /** Mondays 10:00-12:00 London from Mon 19 Oct 2026, as the server's db test. */
+  const bioClass = () => call('planItems.create', {
+    kind: 'commitment', title: 'Biology lecture', subtype: 'class', course: 'biology',
+    starts_at: '2026-10-19T09:00:00.000Z', ends_at: '2026-10-19T11:00:00.000Z',
+    recurrence: { freq: 'weekly', timeZone: 'Europe/London' },
+  })
+
+  it('forClassOccurrence finds or makes one lecture per occurrence and selects it on the board', async () => {
+    const { id } = await bioClass()
+    const first = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(first.created).toBe(true)
+    expect(first.lecture).toMatchObject({
+      title: 'Biology lecture · Mon 26 Oct', course: 'biology', class_item_id: id, class_date: '2026-10-26',
+      starts_at: '2026-10-26T10:00:00.000Z',
+    })
+    expect(first.board.after).toEqual({ courseTag: 'biology', lectureId: first.lecture.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.lecture.id], ['tag', 'biology']])
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    expect(again).toMatchObject({ created: false, lecture: { id: first.lecture.id }, board: null })
+  })
+
+  it('a class changing course takes its future lectures with it, boards and all; past ones stay', async () => {
+    const { id } = await bioClass()
+    const past = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })).lecture
+    const future = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-21', workspaceId: 'ws-in-lecture' })).lecture
+    await call('planItems.update', { id, patch: { course: 'chemistry' } })
+    expect(await call('lectures.byId', future.id)).toMatchObject({ course: 'chemistry' })
+    expect(await call('lectures.byId', past.id)).toMatchObject({ course: 'biology' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', future.id], ['tag', 'chemistry']])
+  })
+
+  it('a class changing course leaves a lecture filed elsewhere by hand, and one starting inside the Record lead-in', async () => {
+    const { id } = await bioClass()
+    const hand = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-21' })).lecture
+    const plain = (await call('lectures.forClassOccurrence', { planItemId: id, date: '2030-10-28' })).lecture
+    await call('lectures.update', { id: hand.id, course: 'chemistry' })
+    await call('planItems.update', { id, patch: { course: 'physics' } })
+    expect(await call('lectures.byId', hand.id)).toMatchObject({ course: 'chemistry' })
+    expect(await call('lectures.byId', plain.id)).toMatchObject({ course: 'physics' })
+
+    const classAt = async (minutesFromNow: number) => {
+      const start = new Date(Date.now() + minutesFromNow * 60_000)
+      const made = await call('planItems.create', {
+        kind: 'commitment', title: 'Soon', subtype: 'class', course: 'biology',
+        starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 3_600_000).toISOString(),
+        recurrence: { freq: 'weekly', timeZone: 'UTC' }, timeZone: 'UTC',
+      })
+      const { lecture } = await call('lectures.forClassOccurrence', { planItemId: made.id, date: start.toISOString().slice(0, 10), timeZone: 'UTC' })
+      return { id: made.id as string, lecture: lecture.id as string }
+    }
+    const inside = await classAt(CLASS_CAPTURE_LEAD_MIN - 3)
+    const outside = await classAt(CLASS_CAPTURE_LEAD_MIN + 3)
+    await call('planItems.update', { id: inside.id, patch: { course: 'chemistry' } })
+    await call('planItems.update', { id: outside.id, patch: { course: 'chemistry' } })
+    expect(await call('lectures.byId', inside.lecture)).toMatchObject({ course: 'biology' })
+    expect(await call('lectures.byId', outside.lecture)).toMatchObject({ course: 'chemistry' })
+  })
+
+  it('forClassOccurrence refuses a missing class, a date it is not on, and a shift', async () => {
+    const { id } = await bioClass()
+    const shift = await call('planItems.create', {
+      kind: 'commitment', title: 'Cafe shift', subtype: 'shift',
+      starts_at: '2026-10-19T17:00:00.000Z', ends_at: '2026-10-19T21:00:00.000Z',
+    })
+    await expect(call('lectures.forClassOccurrence', { planItemId: 'missing', date: '2026-10-26' })).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-27' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    await expect(call('lectures.forClassOccurrence', { planItemId: shift.id, date: '2026-10-19' })).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('restoreBoardScope puts back what a class focus replaced, only while the board shows what it left', async () => {
+    const { id } = await bioClass()
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: 'chemistry' })
+    const { board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    // Changed since: kept, and nothing written.
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', courseTag: null, lectureId: null })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
+      .toEqual({ restored: false, scope: { courseTag: null, lectureId: null } })
+    // Unchanged since: put back.
+    const again = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: again.board.after }))
+      .toEqual({ restored: true, scope: { courseTag: 'chemistry', lectureId: null } })
+    // A lecture that is gone: just its course comes back.
+    expect(await call('workspaces.restoreBoardScope', {
+      workspaceId: 'ws-in-lecture', to: { courseTag: 'physics', lectureId: 'lec-gone' }, ifBoardShows: { courseTag: 'chemistry', lectureId: null },
+    })).toEqual({ restored: true, scope: { courseTag: 'physics', lectureId: null } })
+  })
+
+  it('lectures.create with matchClass joins the class on now, and the calendar click finds the same lecture', async () => {
+    const { id } = await bioClass()
+    const during = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T09:46:00.000Z', workspaceId: 'ws-in-lecture' })
+    expect(during).toMatchObject({ class_item_id: id, class_date: '2026-11-16', title: 'Biology lecture · Mon 16 Nov' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', during.id], ['tag', 'biology']])
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-11-16' })
+    expect(clicked.lecture.id).toBe(during.id)
+    const after = await call('lectures.create', { course: 'biology', matchClass: true, startsAt: '2026-11-16T12:01:00.000Z' })
+    expect(after.class_item_id).toBeNull()
+    const otherCourse = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-16T10:30:00.000Z' })
+    expect(otherCourse.class_item_id).toBeNull()
+  })
+
+  it('on an "All courses" board, Record joins the class on (the latest at a changeover) and a calendar click keeps "All courses", Undo included', async () => {
+    const { id } = await bioClass()
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: null })
+    const during = await call('lectures.create', { course: null, matchClass: true, startsAt: '2026-11-16T10:30:00.000Z', workspaceId: 'ws-in-lecture' })
+    expect(during).toMatchObject({ class_item_id: id, class_date: '2026-11-16', course: 'biology' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', during.id]])
+    // Another class on at once (a changeover): the one that started last.
+    await call('planItems.create', {
+      kind: 'commitment', title: 'Chemistry lab', subtype: 'lab', course: 'chemistry',
+      starts_at: '2026-11-23T11:00:00.000Z', ends_at: '2026-11-23T13:00:00.000Z',
+    })
+    const both = await call('lectures.create', { course: null, matchClass: true, startsAt: '2026-11-23T11:30:00.000Z' })
+    expect(both).toMatchObject({ course: 'chemistry', title: 'Chemistry lab · Mon 23 Nov' })
+    // A calendar click selects the class lecture; Undo puts back exactly.
+    const { lecture, board } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26', workspaceId: 'ws-in-lecture' })
+    expect(board).toEqual({ before: { courseTag: null, lectureId: during.id }, after: { courseTag: null, lectureId: lecture.id } })
+    expect(await call('workspaces.restoreBoardScope', { workspaceId: 'ws-in-lecture', to: board.before, ifBoardShows: board.after }))
+      .toEqual({ restored: true, scope: { courseTag: null, lectureId: during.id } })
+  })
+
+  it('lectures.create selectIfBoardShows: selects when the board is unchanged, leaves a board that moved on, replaces a gone lecture', async () => {
+    await call('workspaces.setBoardScope', { workspaceId: 'ws-in-lecture', lectureId: null, courseTag: 'physics' })
+    const first = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', first.id], ['tag', 'physics']])
+    const next = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: first.id })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // A create that started when the board showed nothing lands late: the board keeps what it shows.
+    const late = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture', selectIfBoardShows: null })
+    expect(late.id).not.toBe(next.id)
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', next.id], ['tag', 'physics']])
+    // Left out: always selects.
+    const forced = await call('lectures.create', { course: 'physics', workspaceId: 'ws-in-lecture' })
+    expect(await scope('ws-in-lecture')).toEqual([['lecture', forced.id], ['tag', 'physics']])
+  })
+
+  it('a one-off class keeps the zone it was made in, and is dated in it whatever zone asks later', async () => {
+    // Tue 3 Nov, 22:00 in New York: Wed 4 Nov in London.
+    const made = await call('planItems.create', {
+      kind: 'commitment', title: 'Night seminar', subtype: 'class', course: 'physics',
+      starts_at: '2026-11-04T03:00:00.000Z', ends_at: '2026-11-04T04:00:00.000Z', timeZone: 'America/New_York',
+    })
+    expect(made.time_zone).toBe('America/New_York')
+    const clicked = await call('lectures.forClassOccurrence', { planItemId: made.id, date: '2026-11-03', timeZone: 'Europe/London' })
+    expect(clicked.lecture).toMatchObject({ class_date: '2026-11-03', title: 'Night seminar · Tue 3 Nov' })
+    const during = await call('lectures.create', { course: 'physics', matchClass: true, startsAt: '2026-11-04T03:30:00.000Z', timeZone: 'Asia/Tokyo' })
+    expect(during.id).toBe(clicked.lecture.id)
+    const edited = await call('planItems.update', { id: made.id, patch: { title: 'Night seminar (new room)' }, timeZone: 'Europe/London' })
+    expect(edited.time_zone).toBe('America/New_York')
+  })
+
+  it('deleting a class keeps its lectures, on their day', async () => {
+    const { id } = await bioClass()
+    const { lecture } = await call('lectures.forClassOccurrence', { planItemId: id, date: '2026-10-26' })
+    await call('planItems.delete', id)
+    expect(await call('lectures.byId', lecture.id)).toMatchObject({ class_item_id: null, class_date: '2026-10-26' })
+  })
+})
+
+describe('simulator parity: sessions', () => {
+  const router = () => makeRouter()
+  const mutateRaw = async (r: ProcedureRouter, path: string, input: unknown) => {
+    const result = await handleTrpcRequest(`${BASE_URL}/${path}?batch=1`, 'POST', JSON.stringify({ '0': { json: input } }), r)
+    const parsed = JSON.parse(result.body)
+    return Array.isArray(parsed) ? parsed[0] : parsed
+  }
+  const block = (h: number) => ({ starts_at: `2027-11-04T${String(h).padStart(2, '0')}:00:00.000Z`, ends_at: `2027-11-04T${String(h + 1).padStart(2, '0')}:00:00.000Z` })
+
+  it('a session for a missing to-do is NOT_FOUND, as on the server, by create and by bookSessions', async () => {
+    const r = router()
+    const created = await mutateRaw(r, 'planItems.create', { kind: 'task', title: 'Lab', ...block(9), source_type: 'plan_item', source_id: 'missing-to-do' })
+    expect(created.error?.data?.code ?? created.error?.json?.data?.code).toBe('NOT_FOUND')
+    const booked = await mutateRaw(r, 'planItems.bookSessions', { todoId: 'missing-to-do', blocks: [block(9)] })
+    expect(booked.error?.data?.code ?? booked.error?.json?.data?.code).toBe('NOT_FOUND')
+  })
+
+  it('bookSessions refuses what the server refuses: too long, overlapping, not a plain open to-do', async () => {
+    const r = router()
+    const code = (res: { error?: { data?: { code?: string }; json?: { data?: { code?: string } } } }) => res.error?.data?.code ?? res.error?.json?.data?.code
+    const lab = await mutate(r, 'planItems.create', { kind: 'task', title: 'Lab', duration_min: 180 }) as { id: string }
+    const year = { starts_at: '2027-11-04T09:00:00.000Z', ends_at: '2028-11-04T09:00:00.000Z' }
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [year] }))).toBe('BAD_REQUEST')
+    const overlapping = [{ starts_at: '2027-11-04T09:00:00.000Z', ends_at: '2027-11-04T11:00:00.000Z' }, { starts_at: '2027-11-04T10:00:00.000Z', ends_at: '2027-11-04T12:00:00.000Z' }]
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: overlapping }))).toBe('BAD_REQUEST')
+    const review = await mutate(r, 'planItems.create', { kind: 'task', title: 'Review', subtype: 'review', duration_min: 30, ...block(15), source_type: 'recording', source_id: 'rec-1' }) as { id: string }
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: review.id, blocks: [block(9)] }))).toBe('BAD_REQUEST')
+    await mutate(r, 'planItems.complete', lab.id)
+    expect(code(await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(9)] }))).toBe('BAD_REQUEST')
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item' })).toEqual([])
+  })
+
+  it('bookSessions saves all the sessions or none', async () => {
+    const r = router()
+    const lab = await mutate(r, 'planItems.create', { kind: 'task', title: 'Lab', duration_min: 180, ...block(9) }) as { id: string }
+    const bad = await mutateRaw(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(11), { starts_at: block(13).ends_at, ends_at: block(13).starts_at }] })
+    expect(bad.error).toBeTruthy()
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item', sourceId: lab.id })).toEqual([])
+    const made = await mutate(r, 'planItems.bookSessions', { todoId: lab.id, blocks: [block(11), block(13)] }) as unknown[]
+    expect(made).toHaveLength(2)
+    // The own block became a session too.
+    expect(await query(r, 'planItems.list', { sourceType: 'plan_item', sourceId: lab.id })).toHaveLength(3)
   })
 })

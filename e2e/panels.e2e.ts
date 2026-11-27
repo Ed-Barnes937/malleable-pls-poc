@@ -1,4 +1,5 @@
-import { test, expect, type Locator, type Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
+import { test, expect } from './test'
 import { TopBarPom, PanelGridPom, PanelContainerPom, SidebarPom } from './pom'
 import { reseed } from './reseed'
 
@@ -122,21 +123,21 @@ test.describe('Moving and resizing widgets', () => {
     expect(z.filter((p) => p.z === top).map((p) => p.title)).toEqual(['Your Progress'])
   })
 
-  test('dragging a widget by its header lands it on the 20px grid, and it stays there after a reload', async ({ page }) => {
+  test('dragging a widget by its header lands it where it is dropped, and it stays there after a reload', async ({ page }) => {
     const grid = await openEveningReview(page)
     const testMe = grid.panelByLabel('Test Me')
     expect(await layoutOf(testMe)).toMatchObject({ x: 540, y: 40 })
 
     await grabHeader(page, testMe, 103, 57)
-    // Shown where it will land while still dragging: 643 -> 640, 97 -> 100.
-    await expect.poll(() => layoutOf(testMe)).toMatchObject({ x: 640, y: 100 })
-    const saved = layoutSaved(page, testMe, { x: 640, y: 100, width: 420, height: 460 })
+    // Placement is free (Shift snaps to the grid): shown where it will land while still dragging.
+    await expect.poll(() => layoutOf(testMe)).toMatchObject({ x: 643, y: 97 })
+    const saved = layoutSaved(page, testMe, { x: 643, y: 97, width: 420, height: 460 })
     await page.mouse.up()
     await saved
 
     await page.reload()
     await grid.expectPanelCount(4)
-    expect(await layoutOf(testMe)).toEqual({ x: 640, y: 100, width: 420, height: 460 })
+    expect(await layoutOf(testMe)).toEqual({ x: 643, y: 97, width: 420, height: 460 })
   })
 
   test('Escape during a drag puts the widget back and saves nothing', async ({ page }) => {
@@ -230,7 +231,7 @@ test.describe('Moving and resizing widgets', () => {
     expect(await layoutOf(grid.panelByLabel('Transcript'))).toEqual({ x: 40, y: 40, width: 460, height: 440 })
   })
 
-  test('dragging a handle resizes the widget on the grid and keeps it at its minimum', async ({ page }) => {
+  test('dragging a handle resizes the widget and keeps it at its minimum', async ({ page }) => {
     const grid = await openEveningReview(page)
     const weekly = grid.panelByLabel('Your Progress')
     expect(await layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 300, height: 300 })
@@ -240,13 +241,13 @@ test.describe('Moving and resizing widgets', () => {
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
     await page.mouse.move(box.x - 300, box.y - 300, { steps: 8 })
-    // Your Progress is at least 350 x 250; on the grid that is 360 x 260.
-    await expect.poll(() => layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 360, height: 260 })
-    const saved = layoutSaved(page, weekly, { x: 40, y: 500, width: 360, height: 260 })
+    // Your Progress is at least 350 x 250 (free placement: no grid without Shift).
+    await expect.poll(() => layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 350, height: 250 })
+    const saved = layoutSaved(page, weekly, { x: 40, y: 500, width: 350, height: 250 })
     await page.mouse.up()
     await saved
     await page.reload()
-    expect(await layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 360, height: 260 })
+    expect(await layoutOf(weekly)).toEqual({ x: 40, y: 500, width: 350, height: 250 })
   })
 
   test('a widget dropped from the board menu is still added (native drag and drop)', async ({ page }) => {

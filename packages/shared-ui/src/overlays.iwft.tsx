@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { LayersInDialog, Overlays } from './overlay-harness'
 import { THEMES, setTheme, tokenColor } from './ct-themes'
 

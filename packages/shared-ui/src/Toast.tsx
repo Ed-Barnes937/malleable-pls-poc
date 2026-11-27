@@ -46,7 +46,9 @@ export function ToastBar({ toaster, maxVisible, narrow = false, icon, actionIcon
       aria-label="Notifications"
       data-layout={narrow ? 'narrow' : 'wide'}
       className={cn(
-        'fixed bottom-0 overflow-hidden bg-transparent',
+        // On the top layer, over anything of the page's that reaches the strip
+        // (a popup on a short phone): only the toasts themselves take a tap.
+        'pointer-events-none fixed bottom-0 overflow-hidden bg-transparent',
         // The list is the row: newest at the right (it is first in the list).
         '[&>ol]:flex [&>ol]:h-full [&>ol]:flex-row-reverse [&>ol]:items-center [&>ol]:gap-2',
         narrow ? 'inset-x-0 h-[4.25rem] px-3 py-1.5' : 'right-0 h-16 px-5 py-2.5',
@@ -56,7 +58,8 @@ export function ToastBar({ toaster, maxVisible, narrow = false, icon, actionIcon
         <SdkToast
           data-testid="toast"
           className={cn(
-            'flex min-w-0 items-center gap-3 rounded-toast bg-inverse text-inverse-foreground',
+            // Each toast (and each one replacing another of its kind) arrives with the shared motion.
+            'pointer-events-auto flex min-w-0 items-center gap-3 rounded-toast bg-inverse text-inverse-foreground motion-safe:animate-enter',
             // One row whatever the width: on a phone it fills the bar and the message takes two lines at most.
             narrow ? 'h-14 flex-1 pr-2 pl-3.5' : 'h-11 pr-3 pl-4 shadow-pop',
           )}

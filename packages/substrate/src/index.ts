@@ -40,9 +40,13 @@ export {
   leftoverStudyTime,
   noSlotCause,
   type Leftover,
-  longestBlockMin,
+  autofillOrder,
+  dueTimes,
   noteWithoutAmounts,
   draftPlan,
+  draftRest,
+  withPendingBookings,
+  trustedPendingBookings,
   formatMinutes,
   matchesWeakTopic,
   openTime,
@@ -65,6 +69,19 @@ export {
   type Placement,
   type Unplaced,
 } from './planning'
+
+export {
+  CLOSED_WITH_TODO,
+  MIN_SESSION_MIN,
+  SESSION_SOURCE_TYPE,
+  bookedMinutes,
+  isPlainTodo,
+  isSession,
+  newSession,
+  partBooking,
+  sessionParentId,
+  todosToPlan,
+} from './sessions'
 
 export {
   applyPreferencesUpdate,
@@ -97,6 +114,22 @@ export { LECTURE_SUMMARY_ANCHOR } from './lecture-summary'
 export { QUESTIONS } from './questions'
 export { extractiveSummary, keyPhrase, sentences, topicLabel } from './text'
 export {
+  defaultLectureTitle,
+  isEmptyLectureDeletion,
+  lectureDeletionFingerprintSource,
+  type LectureDeletePreview,
+} from './lectures'
+export {
+  CLASS_CAPTURE_LEAD_MIN,
+  captureClassRange,
+  classForCapture,
+  classLectureTitle,
+  isClassBlock,
+  localDate,
+  occurrenceDate,
+  occurrenceOn,
+} from './class-occurrences'
+export {
   busyTime,
   isMissedBlock,
   REFIT_LOOKAHEAD_DAYS,
@@ -107,7 +140,7 @@ export {
 } from './planning'
 export { refitPreviewInput, refitAcceptInput, type RefitPreview, type RefitAccept, type RefitResult } from './refit-schemas'
 export { segmentAtOffset } from './segments'
-export { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
+export { momentStatus, stillConfused, SORTED_TAG, CONFUSED_TAG, WEAK_BELOW, SOLID_FROM, type MomentSignals, type MomentStatus } from './moments'
 
 export { validatePlanItem, matchesPlanItemFilters, expandPlanItems, shiftByWallClock, MAX_OCCURRENCES_PER_ITEM } from './plan-items'
 export {
@@ -120,10 +153,20 @@ export {
   newPlanItemOnBoardInput,
   planItemUpdateOnBoardInput,
   planItemOnBoardInput,
+  bookSessionsInput,
+  type BookSessions,
+  planItemsRevertInput,
+  planItemUndoState,
+  planItemUndoStateInput,
+  type PlanItemUndoState,
+  type PlanItemsRevert,
 } from './plan-item-schemas'
 
 export type {
   Recording,
+  Lecture,
+  LectureRecording,
+  BoardScope,
   LectureProcessing,
   TranscriptSegment,
   Annotation,
@@ -134,6 +177,7 @@ export type {
   Workspace,
   WorkspacePanel,
   WorkspaceScope,
+  WorkspaceSummary,
   Scope,
   CourseProgress,
   WeakTopic,
@@ -154,3 +198,61 @@ export type {
 } from './types'
 
 export type { WorkflowJob, WorkflowWithJobs } from '@pls/workflows'
+
+export {
+  MAX_NOTE_LENGTH,
+  MAX_RESOURCE_FILE_BYTES,
+  MAX_RESOURCE_TITLE_LENGTH,
+  RESOURCE_FILE_ACCEPT,
+  RESOURCE_FILE_TYPES,
+  formatFileSize,
+  matchesFileContent,
+  resourceFileMeta,
+  resourceFileProblem,
+  resourceFileTypeByMime,
+  resourceFileTypeByName,
+  titleFromFileName,
+  MAX_RESOURCE_URL_LENGTH,
+  UNTITLED_NOTE,
+  newResourceLinkInput,
+  newResourceNoteInput,
+  noteExcerpt,
+  parseResourceUrl,
+  resourceCourse,
+  resourceIdInput,
+  resourceLinkLabel,
+  resourceListInput,
+  resourceUpdateInput,
+  type NewResourceLink,
+  type NewResourceNote,
+  type ParsedResourceUrl,
+  type Resource,
+  type ResourceFileType,
+  type ResourceFileUrl,
+  type ResourceKind,
+  type ResourceListQuery,
+  type ResourceProvider,
+  type ResourceUpdate,
+  type ResourceWithBody,
+} from './resources'
+
+export {
+  COURSE_COLORS,
+  MAX_COURSE_NAME_LENGTH,
+  STARTER_COURSES,
+  courseColorInput,
+  courseIdInput,
+  courseInUseMessage,
+  courseNameInput,
+  courseNameKey,
+  courseUpdateInput,
+  duplicateCourseMessage,
+  newCourseInput,
+  nextCourseColor,
+  sortCourses,
+  type Course,
+  type CourseColor,
+  type CourseUpdate,
+  type CourseUsage,
+  type NewCourse,
+} from './courses'

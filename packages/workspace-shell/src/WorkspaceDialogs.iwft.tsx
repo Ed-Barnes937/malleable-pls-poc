@@ -4,7 +4,8 @@ import { CreateWorkspaceDialog, DeleteWorkspaceDialog } from './WorkspaceDialogs
 
 const board = { id: 'ws-evening-review', name: 'Evening Review' }
 
-test('an aborted delete keeps the dialog open with focus inside it, and can be retried by keyboard', async ({ mount, page, simulator }) => {
+test('an aborted delete keeps the dialog open with focus inside it, and can be retried by keyboard', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('workspaces.delete')
   let closed = false
   let attempts = 0
   await page.route((url) => url.pathname.split(/[/,]/).includes('workspaces.delete'), async (route) => {
@@ -54,7 +55,7 @@ test('the dialog names the board, Cancel keeps it', async ({ mount, page, simula
   expect(simulator.db.workspaces.some((w) => w.id === board.id)).toBe(true)
 })
 
-test('the New board dialog opens with the Name field focused', async ({ mount, page }) => {
+test('the New board dialog opens with the Name field focused', async ({ mount, page, simulator: _backend }) => {
   await mount(
     <ShellProviders>
       <CreateWorkspaceDialog open onClose={() => {}} />

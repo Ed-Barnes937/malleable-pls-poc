@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode, type RefObject } from 'react'
+import { useCallback, useMemo, useRef, type ReactNode, type RefObject } from 'react'
 import { Popover, PopoverContent, PopoverTitle } from '@pls/shared-ui'
 
 /** Gap between the press (or the block pressed) and the popover. */
@@ -6,10 +6,16 @@ const GAP = 12
 /** Kept this far inside the window. */
 const MARGIN = 8
 
-/** The top and bottom of what was pressed (a block, or the new block a press on empty time makes). */
+/**
+ * The top and bottom of what was pressed (a block, or the new block a press
+ * on empty time makes). With its sides too when it is placed again from the
+ * block alone (no press to sit beside, e.g. after the phone turns).
+ */
 export interface Span {
   top: number
   bottom: number
+  left?: number
+  right?: number
 }
 
 /** Where the student pressed, relative to the calendar root, and the block pressed. */
@@ -23,11 +29,17 @@ export interface Press {
  * Whether a popover `width` wide fits beside a press at `clientX` (on its
  * right, or flipped to its left) inside the window. When it doesn't (a
  * phone), it goes above or below what was pressed instead, so that stays in
- * view.
+ * view. Given the block's sides (`from`, in client coordinates), it must fit
+ * beside the whole block rather than beside the point.
  */
-export function pressPlacement({ clientX, width, viewportWidth }: { clientX: number; width: number; viewportWidth: number }): 'beside' | 'vertical' {
-  const right = clientX + GAP + width <= viewportWidth - MARGIN
-  const left = clientX - GAP - width >= MARGIN
+export function pressPlacement({ clientX, width, viewportWidth, from }: {
+  clientX: number
+  width: number
+  viewportWidth: number
+  from?: { left: number; right: number }
+}): 'beside' | 'vertical' {
+  const right = (from?.right ?? clientX) + GAP + width <= viewportWidth - MARGIN
+  const left = (from?.left ?? clientX) - GAP - width >= MARGIN
   return right || left ? 'beside' : 'vertical'
 }
 
@@ -52,6 +64,144 @@ export interface CalendarPopoverProps {
   children: ReactNode
 }
 
+/**
+ * The calendar and the window a popover is kept inside: the calendar's top
+ * (client px, negative once scrolled partly off), its height, and the window's.
+ */
+export interface Frame {
+  calendarTop: number
+  calendarHeight: number
+  viewportHeight: number
+}
+
+type Placement = 'beside' | 'vertical'
+
+/**
+ * The top and bottom (px below the calendar's top) a popover is kept inside.
+ * On a phone (vertical), the calendar panel inside the window (main's rule):
+ * grown past the calendar, a popover opened above its block would move its
+ * buttons to stay in the window. Beside (desktop), the window only: it may
+ * spill past the calendar (K3 decision 7).
+ */
+function boundsOf(placement: Placement, { calendarTop, calendarHeight, viewportHeight }: Frame) {
+  const top = -calendarTop
+  const bottom = viewportHeight - calendarTop
+  return placement === 'vertical'
+    ? { top: Math.max(0, top), bottom: Math.min(calendarHeight, bottom) }
+    : { top, bottom }
+}
+
+function keptInside(top: number, height: number, bounds: { top: number; bottom: number }) {
+  return Math.max(bounds.top + MARGIN, Math.min(top, bounds.bottom - height - MARGIN))
+}
+
+/**
+ * Where a popover `height` tall opens (its top, px below the calendar's top):
+ * beside the point pressed (`y`), a little above it; or, where it can't sit
+ * beside it (a phone), above what was pressed (`span`, the point when absent)
+ * when it fits there, else below it when it fits there, so that stays in
+ * view; only when neither fits does it cover it. Kept inside its bounds
+ * (`boundsOf`): on a phone the calendar in the window, beside it the window.
+ */
+export function popoverTop(
+  { placement, y, span = { top: y, bottom: y }, height, ...frame }:
+  { placement: Placement; y: number; span?: Span; height: number } & Frame,
+): number {
+  const bounds = boundsOf(placement, frame)
+  const above = span.top - GAP - height
+  const below = span.bottom + GAP
+  const top = placement === 'beside'
+    ? y - 24
+    : above >= bounds.top + MARGIN
+      ? above
+      : below + height <= bounds.bottom - MARGIN
+        ? below
+        : y - 24
+  return keptInside(top, height, bounds)
+}
+
+/**
+ * Where a popover's top goes when its content changes size after it opened:
+ * the one that keeps its anchor (the buttons the student is reaching for)
+ * where it was on screen, even over what was pressed. `anchorBefore` and
+ * `anchorAfter` are the anchor's distance below the popover's top. Only when
+ * keeping it still would take the popover out of its bounds (`boundsOf`) does
+ * the anchor move.
+ */
+export function anchoredTop(
+  { placement, top, anchorBefore, anchorAfter, height, ...frame }:
+  { placement: Placement; top: number; anchorBefore: number; anchorAfter: number; height: number } & Frame,
+): number {
+  return keptInside(top + anchorBefore - anchorAfter, height, boundsOf(placement, frame))
+}
+
+/**
+ * The popover's full height and its anchor's (the element marked
+ * `data-popover-anchor`) distance below its top, in layout px: unchanged by
+ * its scale-in, and by UI SDK capping its box at `--available-height` (which
+ * changes as it moves, so a box read would move it again, and again).
+ */
+function measure(content: HTMLElement): { anchor: number | null; height: number } {
+  let anchor: number | null = null
+  let el = content.querySelector<HTMLElement>('[data-popover-anchor]')
+  if (el) {
+    let offset = 0
+    while (el && el !== content) {
+      offset += el.offsetTop
+      el = el.offsetParent as HTMLElement | null
+    }
+    // Measured from the popover's border edge, as its top is.
+    if (el === content) anchor = offset + content.clientTop
+  }
+  return { anchor, height: content.scrollHeight + content.offsetHeight - content.clientHeight }
+}
+
+/**
+ * Where a popover's top is, px below the calendar's top (main's rule): placed
+ * once by its height when first measured (`popoverTop`), and from then on
+ * only grown or shrunk around its anchor, which stays where it is on screen
+ * as content loads or goes (`anchoredTop`): a lecture line that loads, "Also
+ * open in" arriving. Without an anchor it is placed afresh at each size. Kept
+ * inside the calendar in the window on a phone, the window beside the press
+ * (`boundsOf`). Read by the anchor UI SDK checks every frame, so the first placement at the content's new size already has
+ * it: worked out after UI SDK had placed it (a resize callback, a render),
+ * the buttons would be drawn out of place for a frame or more.
+ *
+ * Where it was placed lasts as long as the press it answers (`pressKey`): a
+ * frame's change to the calendar's box (a scrollbar) is no press, and never
+ * places it afresh.
+ */
+function usePlacedTop(pressKey: string) {
+  const contentRef = useRef<HTMLElement | null>(null)
+  const placedRef = useRef<{ pressKey: string; top: number; anchor: number | null; above: boolean } | null>(null)
+  const ref = useCallback((content: HTMLElement | null) => {
+    contentRef.current = content
+  }, [])
+  const placedTop = useCallback((root: DOMRect, at: Omit<Parameters<typeof popoverTop>[0], 'height' | keyof Frame>) => {
+    const content = contentRef.current
+    let placed = placedRef.current?.pressKey === pressKey ? placedRef.current : null
+    // Not laid out yet: placed once it has a height to place.
+    if (!content?.offsetHeight) return placed?.top ?? at.y - 24
+    const { anchor, height } = measure(content)
+    const frame = { calendarTop: root.top, calendarHeight: root.height, viewportHeight: window.visualViewport?.height ?? window.innerHeight }
+    let top: number
+    let above: boolean
+    if (placed && placed.anchor !== null && anchor !== null) {
+      top = anchoredTop({ placement: at.placement, top: placed.top, anchorBefore: placed.anchor, anchorAfter: anchor, height, ...frame })
+      above = placed.above
+    } else {
+      top = popoverTop({ ...at, height, ...frame })
+      above = at.placement === 'vertical' && top + height <= (at.span?.top ?? at.y)
+    }
+    // Opened above what was pressed, it scales in from its bottom edge, next
+    // to it (`data-above`); set here, as it is placed, before it scales in.
+    content.toggleAttribute('data-above', above)
+    placed = placedRef.current = { pressKey, top, anchor, above }
+    return placed.top
+  }, [pressKey])
+  return { ref, placedTop }
+}
+
 /** Focuses the card itself (a callback ref: it runs as the card mounts). */
 function focusCard(card: HTMLElement | null) {
   card?.focus({ preventScroll: true })
@@ -59,8 +209,10 @@ function focusCard(card: HTMLElement | null) {
 
 /**
  * A calendar popover on UI SDK Popover, anchored to the press: beside the
- * point pressed when it fits in the window, else above (or below) the block
- * pressed. UI SDK handles Escape and focus return; presses and focus leaving
+ * point pressed when it fits in the window, else above the block pressed when
+ * it fits there, or below it (`popoverTop`), kept inside the calendar in the
+ * window on a phone, inside the window beside the press (it may spill past the
+ * calendar). UI SDK handles Escape and focus return; presses and focus leaving
  * never close it here: CalendarLens's capture `pointerdown` does that, so a
  * press can close it and still reach what is under it (see closing-press.ts).
  */
@@ -68,18 +220,42 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
   const { x, y } = press
   const top = press.span?.top ?? y
   const bottom = press.span?.bottom ?? y
+  // Given the block's sides, beside (or above / below) the whole block, never over it.
+  const left = press.span?.left ?? x
+  const right = press.span?.right ?? x
   const rootLeft = root.current?.getBoundingClientRect().left ?? 0
-  const placement = pressPlacement({ clientX: rootLeft + x, width, viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth })
+  const placement = pressPlacement({
+    clientX: rootLeft + x,
+    width,
+    viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
+    from: press.span?.left !== undefined && press.span.right !== undefined ? { left: rootLeft + left, right: rootLeft + right } : undefined,
+  })
   const vertical = placement === 'vertical'
+  // As wide as it is drawn: no wider than the window less its margins.
+  const shownWidth = Math.min(width, (typeof window === 'undefined' ? 1024 : window.innerWidth) - 2 * MARGIN)
+  // Where it opens, and its buttons staying where they are as content loads or goes.
+  const { ref: placedRef, placedTop } = usePlacedTop(`${x}:${y}:${top}:${bottom}:${left}:${right}`)
   // Read on every check, so it follows the calendar when the board moves.
+  // The anchor is a line along the popover's top edge: beside what was
+  // pressed, or (vertical) at its left edge, centred on what was pressed.
+  // Offsets are in it, not in UI SDK's `sideOffset` / `alignOffset`: those
+  // are scaled with the popover as it scales in, and a popover placed a
+  // fraction off lands a pixel off and steps back a frame later. On whole
+  // pixels, as UI SDK rounds a place to a pixel either way on a hair of
+  // difference.
   const anchor = useMemo(() => ({
     getBoundingClientRect: () => {
-      const r = root.current?.getBoundingClientRect() ?? { left: 0, top: 0 }
+      const r = root.current?.getBoundingClientRect() ?? DOMRect.fromRect()
+      const at = Math.round(r.top + placedTop(r, { placement, y, span: { top, bottom } }))
       return vertical
-        ? DOMRect.fromRect({ x: r.left + x, y: r.top + top, width: 0, height: bottom - top })
-        : DOMRect.fromRect({ x: r.left + x, y: r.top + y, width: 0, height: 0 })
+        ? DOMRect.fromRect({ x: Math.round(r.left + left + (right - left - shownWidth) / 2), y: at, width: shownWidth, height: 0 })
+        : DOMRect.fromRect({ x: Math.round(r.left + left), y: at, width: right - left, height: 0 })
     },
-  }), [root, vertical, x, y, top, bottom])
+  }), [root, placement, vertical, y, top, bottom, left, right, shownWidth, placedTop])
+  const contentRef = useCallback((el: HTMLElement | null) => {
+    placedRef(el)
+    if (touch) focusCard(el)
+  }, [placedRef, touch])
 
   return (
     <Popover
@@ -98,16 +274,17 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
     >
       <PopoverContent
         anchor={anchor}
-        side={vertical ? 'top' : 'right'}
-        align={vertical ? 'center' : 'start'}
-        sideOffset={GAP}
-        // A little above the press, as before.
-        alignOffset={vertical ? 0 : -24}
+        // Below the line along its top (see anchor); beside a press, on its
+        // right, flipped to its left where there is no room.
+        side={vertical ? 'bottom' : 'right'}
+        align="start"
+        sideOffset={vertical ? 0 : GAP}
+        alignOffset={0}
         collisionPadding={MARGIN}
         // Mounted open, UI SDK moves no focus. The body focuses its own first
         // control (autoFocus); opened by touch, the card takes it (below).
         initialFocus="none"
-        ref={touch ? focusCard : undefined}
+        ref={contentRef}
         finalFocus={finalFocus}
         data-testid="calendar-popover"
         data-variant={variant}
@@ -115,7 +292,9 @@ export function CalendarPopover({ open, root, press, width, label, variant, touc
         data-calendar-popover=""
         // Nor does it reach the board or the grid behind.
         onPointerDown={(e) => e.stopPropagation()}
-        className="block max-w-[calc(100vw-16px)] gap-0 p-0"
+        // Scales in from the edge next to what was pressed: UI SDK's origin
+        // is the anchor line along its top; opened above it, its bottom edge.
+        className="block max-w-[calc(100vw-16px)] gap-0 p-0 data-above:origin-bottom-left"
         style={{ width }}
       >
         {/* Names the dialog (it has no trigger to be named by). */}

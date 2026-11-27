@@ -1,6 +1,9 @@
 import { test, expect } from '../../../playwright/fixtures'
 import { ToastHarness } from './ToastHarness'
 
+// The harness's ShellProviders load the boards and courses: the simulated backend answers them.
+test.beforeEach(async ({ simulator }) => { void simulator })
+
 test('shows a toast and removes it after its time', async ({ mount, page }) => {
   await mount(<ToastHarness durationMs={700} />)
   await page.getByRole('button', { name: 'Add plain' }).click()
@@ -22,6 +25,24 @@ test('toasts sharing a key replace each other', async ({ mount, page }) => {
   await page.getByRole('button', { name: 'Add keyed' }).click()
   await page.getByRole('button', { name: 'Add keyed' }).click()
   await expect(page.getByTestId('toast')).toHaveCount(1)
+})
+
+test('dismissing a key removes the toast with that key, leaving the others', async ({ mount, page }) => {
+  await mount(<ToastHarness />)
+  await page.getByRole('button', { name: 'Add marked and review' }).click()
+  await expect(page.getByTestId('toast')).toHaveCount(2)
+  await page.getByRole('button', { name: 'Dismiss marked' }).click()
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await expect(page.getByTestId('toast')).toContainText('Review added to your plan')
+})
+
+test('dismissing a key drops a toast still waiting its turn', async ({ mount, page }) => {
+  await mount(<ToastHarness />)
+  await page.getByRole('button', { name: 'Add review, then marked, dismissed at once' }).click()
+  await expect(page.getByTestId('toast')).toContainText('Review added to your plan')
+  await page.waitForTimeout(500)
+  await expect(page.getByTestId('toast')).toHaveCount(1)
+  await expect(page.getByText('No longer marked confusing')).toHaveCount(0)
 })
 
 test('the countdown pauses while the pointer is on the toast, and resumes when it leaves', async ({ mount, page }) => {
@@ -61,6 +82,15 @@ test('Escape on a focused toast dismisses it', async ({ mount, page }) => {
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('toast')).toHaveCount(0)
 })
+
+for (const size of [{ width: 1280, height: 720 }, { width: 375, height: 667 }]) {
+  test(`at ${size.width}px the bar's strip takes no tap from the page laid over it while it has no toast`, async ({ mount, page }) => {
+    await page.setViewportSize(size)
+    await mount(<ToastHarness />)
+    await page.getByRole('button', { name: 'Over the bar' }).click({ timeout: 3000 })
+    await expect(page.getByText('Pressed over the bar')).toBeVisible()
+  })
+}
 
 test('the region is a landmark named Notifications that advertises F6', async ({ mount, page }) => {
   await mount(<ToastHarness />)
@@ -105,7 +135,7 @@ test.describe('how long a toast stays', () => {
     await page.getByRole('button', { name: 'Add forever' }).click()
     await page.clock.runFor(120_000)
     await expect(page.getByTestId('toast')).toHaveCount(1)
-    await page.getByRole('button', { name: 'Dismiss' }).click()
+    await page.getByTestId('toast').getByRole('button', { name: 'Dismiss' }).click()
     await expect(page.getByTestId('toast')).toHaveCount(0)
   })
 })

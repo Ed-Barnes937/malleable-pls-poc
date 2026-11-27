@@ -9,6 +9,7 @@ export {
   type PlaceResult,
   type Placement,
   type SchedulerTask,
+  type SplitOptions,
   type Unplaced,
   type UnplacedReason,
 } from './place'

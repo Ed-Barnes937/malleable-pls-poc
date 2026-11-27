@@ -5,13 +5,55 @@ export interface Recording {
   duration: number
   audio_url: string | null
   status: string
+  /** The lecture it was recorded in (every recording has one). */
+  lecture_id: string
   /**
-   * Course tag label (e.g. 'biology'), stored as a 'recording' tag. Null for a
-   * lecture filed under no course.
+   * Course key (e.g. 'biology'), derived from the recording's lecture
+   * (`lectures.course`). Null for a lecture filed under no course.
    */
   course: string | null
   /** By-id reads only: what the lecture's AI jobs are still doing, if anything. */
   processing?: LectureProcessing | null
+}
+
+/** A recording as listed under its lecture. */
+export interface LectureRecording {
+  id: string
+  title: string
+  status: string
+  duration: number
+  created_at: string
+  /** What the recording's AI jobs are still doing, if anything (as `Recording.processing`). */
+  processing: LectureProcessing | null
+}
+
+/**
+ * A session of a course at a time (`lectures`). It can exist before or
+ * without audio; recordings (0..n, oldest first) belong to it, and their
+ * course is its course.
+ */
+export interface Lecture {
+  id: string
+  title: string
+  /** Course key, or null when filed under no course. */
+  course: string | null
+  starts_at: string
+  /** The class occurrence it is (a 'class' commitment and its local date), if any. */
+  class_item_id: string | null
+  class_date: string | null
+  created_at: string
+  updated_at: string
+  recordings: LectureRecording[]
+}
+
+/**
+ * A board's scope as `workspaces.setBoardScope` returns it: null is unset
+ * ("All courses", no lecture). Invariant: when both are set, `courseTag` is
+ * the lecture's course; an "All courses" board may show any lecture.
+ */
+export interface BoardScope {
+  courseTag: string | null
+  lectureId: string | null
 }
 
 /** A lecture's AI work in progress: its transcript, then its summary. */
@@ -82,6 +124,18 @@ export interface Workspace {
   sort_order: number
 }
 
+/**
+ * A board as `workspaces.summary` lists it: what is on it (each panel's
+ * widget type, oldest first), in tab order. For choosing a board by its
+ * contents, e.g. "Also open in".
+ */
+export interface WorkspaceSummary {
+  id: string
+  name: string
+  sort_order: number
+  lens_types: string[]
+}
+
 export interface WorkspacePanel {
   id: string
   workspace_id: string
@@ -146,8 +200,15 @@ export interface PlanItem {
   source_offset_ms: number | null
   /** The automation (workflow id) that made this item; null when a person did, or it is gone. */
   created_by_workflow_id: string | null
-  /** Course tag label (e.g. 'biology'), stored as a 'plan_item' tag. */
+  /** Course key (e.g. 'biology'), as `lectures.course`; null when not filed under a course. */
   course: string | null
+  /**
+   * The student's IANA zone when the item was made, kept by edits. Dates a
+   * one-off class's occurrence (see `occurrenceDate`), so a later change of
+   * zone can't date it a day apart. Null (or absent) on rows from before it
+   * was stored: the student's zone is used then.
+   */
+  time_zone?: string | null
   created_at: string
   updated_at: string
 }

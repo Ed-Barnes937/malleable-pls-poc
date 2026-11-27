@@ -1,4 +1,5 @@
-import { test, expect, type Locator } from '@playwright/test'
+import { test, expect } from './test'
+import type { Locator } from '@playwright/test'
 import { TopBarPom, PanelGridPom } from './pom'
 
 /** True when `el` is drawn whole inside its widget's content area, with no scrolling. */

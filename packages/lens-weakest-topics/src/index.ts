@@ -9,7 +9,7 @@ export const manifest: PanelManifest = {
   icon: AlertTriangle,
   description: 'Moments you feel least sure about',
   group: 'review',
-  scope: { courseTag: 'filter', recordingId: 'ignore' },
+  scope: { courseTag: 'filter', lectureId: 'ignore' },
   reads: ['weakest_topics'],
   load: () => import('./WeakestTopicsLens'),
   minWidth: 200,

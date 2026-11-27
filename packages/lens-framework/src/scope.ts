@@ -1,7 +1,7 @@
 import type { DateRange, Scope, ScopeDeclaration, ScopeDim } from './types'
 import type { PanelManifest } from './substrate-contract'
 
-const SCOPE_DIMS: ScopeDim[] = ['courseTag', 'recordingId']
+const SCOPE_DIMS: ScopeDim[] = ['courseTag', 'lectureId']
 
 /** True when the widget responds to `dim` at all (any mode but `ignore`). */
 export function usesScopeDim(declaration: ScopeDeclaration | undefined, dim: ScopeDim): boolean {

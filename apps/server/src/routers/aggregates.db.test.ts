@@ -7,6 +7,8 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import { randomUUID } from 'node:crypto'
+import { insertRecording } from '../test-support/recordings'
+import { insertStarterCourses } from '../test-support/courses'
 
 const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL
 
@@ -20,6 +22,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DATABASE_URL
     db = await import('@pls/db')
+    await insertStarterCourses(db.sql, user)
     const { appRouter } = await import('../router')
     const { createAiDeps } = await import('../ai/deps')
     const { createServerExecutors } = await import('../workflows/executors')
@@ -28,8 +31,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
     caller = (userId) => appRouter.createCaller({ userId, ai, executors })
 
     await db.withUser(user, async (tx) => {
-      await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${rec}, ${user}, 'Genetics', 'ready')`
-      await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${user}, 'recording', ${rec}, 'biology')`
+      await insertRecording(tx, { id: rec, userId: user, title: 'Genetics', course: 'biology' })
       const texts = [
         'Welcome to genetics.',
         'Here is the critical point: mitochondrial DNA comes from the maternal line.',
@@ -75,7 +77,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
 
   afterAll(async () => {
     if (!db) return
-    for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'plan_items', 'recordings']) {
+    for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'plan_items', 'recordings', 'lectures']) {
       await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [user])
     }
     await db.sql.end()
@@ -108,14 +110,15 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
 
   it('the SQL and momentStatus agree on every case of one fixture table', async () => {
     const { momentStatus, stillConfused, WEAK_BELOW, SOLID_FROM } = await import('@pls/substrate')
-    // Each case: what the student did, in order (r = rating, c = confusing mark).
-    type Event = ['r', number] | ['c']
+    // Each case: what the student did, in order (r = rating, c = confusing mark, s = marked sorted).
+    type Event = ['r', number] | ['c'] | ['s']
     const scores = [0, WEAK_BELOW - 1, WEAK_BELOW, SOLID_FROM - 1, SOLID_FROM, 100]
     const cases: Event[][] = [[]]
     for (const s of scores) {
       cases.push([['r', s]], [['c'], ['r', s]], [['r', s], ['c']], [['r', 90], ['r', s]], [['c'], ['r', 90], ['r', s]])
     }
     cases.push([['c']], [['c'], ['c']])
+    cases.push([['c'], ['s']], [['c'], ['s'], ['r', 10]], [['c'], ['r', 10], ['s']], [['c'], ['s'], ['c']])
 
     const other = `test-agg-table-${randomUUID().slice(0, 8)}`
     const tableRec = `rec-${other}`
@@ -124,8 +127,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
     const expected = new Map<string, { status: string; confused: boolean }>()
     try {
       await db.withUser(other, async (tx) => {
-        await tx`INSERT INTO recordings (id, user_id, title, status) VALUES (${tableRec}, ${other}, 'Table', 'ready')`
-        await tx`INSERT INTO tags (user_id, target_type, target_id, label) VALUES (${other}, 'recording', ${tableRec}, 'chemistry')`
+        await insertRecording(tx, { id: tableRec, userId: other, title: 'Table', course: 'chemistry' })
         for (const [i, events] of cases.entries()) {
           await tx`
             INSERT INTO transcript_segments (id, user_id, recording_id, start_ms, end_ms, text)
@@ -134,6 +136,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
           let latestScore: number | null = null
           let latestAt: string | null = null
           let confusedAt: string | null = null
+          let sorted = false
           for (const [step, ev] of events.entries()) {
             if (ev[0] === 'r') {
               await tx`
@@ -142,6 +145,12 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
               `
               latestScore = ev[1]
               latestAt = at(step)
+            } else if (ev[0] === 's') {
+              await tx`
+                INSERT INTO tags (user_id, target_type, target_id, label, created_at)
+                VALUES (${other}, 'transcript_segment', ${segOf(i)}, 'sorted', ${at(step)})
+              `
+              sorted = true
             } else {
               await tx`
                 INSERT INTO tags (user_id, target_type, target_id, label, created_at)
@@ -150,7 +159,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
               confusedAt = at(step)
             }
           }
-          const signals = { latestScore, latestAt, confusedAt }
+          const signals = { latestScore, latestAt, confusedAt, sorted }
           expected.set(segOf(i), { status: momentStatus(signals), confused: stillConfused(signals) })
         }
       })
@@ -166,7 +175,7 @@ describe.skipIf(!TEST_DATABASE_URL)('aggregates router (Postgres)', () => {
       const topics = await api.aggregates.weakestTopics({ limit: 100 })
       expect(new Map(topics.map((t) => [t.segmentId, t.confused]))).toEqual(new Map(review.map(([id, e]) => [id, e.confused])))
     } finally {
-      for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'recordings']) {
+      for (const table of ['confidence_signals', 'tags', 'transcript_segments', 'recordings', 'lectures']) {
         await db.sql.unsafe(`DELETE FROM ${table} WHERE user_id = $1`, [other])
       }
     }

@@ -16,7 +16,7 @@ test('groups widgets by what a student wants to do', async ({ mount, page, simul
   await expect(groups).toHaveText([/^Capture/, /^Study/, /^Plan/, /^Review/])
   await expect(page.getByRole('group', { name: 'Plan' }).getByRole('button', { name: 'Add To-do' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Plan' }).getByRole('button', { name: 'Add Coming up' })).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Capture' }).getByRole('button')).toHaveText(['Audio CaptureRecord or upload a lecture'])
+  await expect(page.getByRole('group', { name: 'Capture' }).getByRole('button')).toHaveText(['Audio CaptureRecord or upload a lecture', 'ResourcesLinks and notes for a course or lecture'])
   await expect(page.getByRole('group', { name: 'Study' }).getByRole('button', { name: 'Add Transcript' })).toBeVisible()
   await expect(page.getByRole('group', { name: 'Review' }).getByRole('button', { name: 'Add Weakest Topics' })).toBeVisible()
 })
@@ -39,7 +39,7 @@ test('clicking a widget adds it and keeps the drawer open', async ({ mount, page
   await expect(page.getByTestId('drawer-sidebar')).toBeVisible()
 })
 
-test('a closed drawer is hidden from assistive tech and keyboard', async ({ mount, page }) => {
+test('a closed drawer is hidden from assistive tech and keyboard', async ({ mount, page, simulator: _boards }) => {
   await mount(
     <ShellProviders>
       <DrawerSidebar open={false} onClose={() => {}} onAddWidget={() => {}} />
@@ -57,7 +57,6 @@ test('with no board, offers no widgets and says a board comes first', async ({ m
   )
   await expect(page.getByTestId('drawer-no-board')).toHaveText('Make a board first, then you can add widgets to it.')
   await expect(page.getByTestId('widget-palette')).toHaveCount(0)
-  await expect(page.getByTestId('scope-section')).toHaveCount(0)
   await expect(page.getByText('Automations')).toHaveCount(0)
 })
 
@@ -244,4 +243,17 @@ test('on a phone the theme menu opens inside the board menu without closing it, 
 
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()
+})
+
+test('has no scope pickers: what the board shows is chosen in the top bar', async ({ mount, page, simulator: _boards }) => {
+  await mount(
+    <ShellProviders>
+      <DrawerSidebar open onClose={() => {}} onAddWidget={() => {}} />
+    </ShellProviders>,
+  )
+  // The first board (In Lecture) uses both course and lecture.
+  await expect(page.getByRole('button', { name: 'Add Transcript' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Course' })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Lecture' })).toHaveCount(0)
+  await expect(page.getByText('Showing', { exact: true })).toHaveCount(0)
 })

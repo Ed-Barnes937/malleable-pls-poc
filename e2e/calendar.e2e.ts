@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import type { PlanItemOccurrence } from '../packages/substrate/src'
 import { CalendarPom, PanelGridPom, TopBarPom } from './pom'
 import { trpcQuery } from './api'
@@ -171,7 +172,8 @@ test.describe('Calendar', () => {
     await expect(calendar.popover.getByRole('status')).toHaveText('')
   })
 
-  test('a save that fails after its popover was closed says so above the calendar', async ({ page, request }) => {
+  test('a save that fails after its popover was closed says so above the calendar', async ({ page, request, consoleErrors }) => {
+    consoleErrors.allowFailedRequest('planItems.complete')
     await board(request, 'Week plan', ['calendar'])
     await call(request, 'planItems.create', { kind: 'task', title: 'Read chapter 3', starts_at: at(5, 10), ends_at: at(5, 11), duration_min: 60 })
     let fail!: () => void
@@ -487,7 +489,7 @@ test.describe('Calendar', () => {
     const moment = transcript.locator('[data-moment]')
     await expect(moment).toContainText('chloroplast DNA', { timeout: 10000 })
     await expect(moment).toBeInViewport()
-    await expect(topBar.scopeChip).toContainText('Biology Lecture: Mitochondrial DNA')
+    await expect(topBar.lecturePill).toHaveText('Biology Lecture: Mitochondrial DNA')
     await expect(calendar.root.getByTestId('calendar-moment')).toContainText('Showing this moment in the Transcript.')
     // The calendar now highlights the block linked to the focused lecture.
     await expect(calendar.block('Review: chloroplast DNA')).toHaveAttribute('data-linked', 'true')

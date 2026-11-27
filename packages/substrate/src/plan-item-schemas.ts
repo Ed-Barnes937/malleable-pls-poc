@@ -6,6 +6,7 @@
  * row) are stripped.
  */
 import { z } from 'zod'
+import { timeZoneInput } from './workflows/review-automation'
 
 const isoDateTime = z.iso.datetime({ offset: true }).transform((v) => new Date(v).toISOString())
 const kind = z.enum(['commitment', 'deadline', 'task'])
@@ -47,8 +48,71 @@ export const planItemUpdateInput = z.object({
  */
 export const boardIdInput = z.string().max(255).nullable().optional()
 
-export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput })
-export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput })
+/**
+ * The browser's zone, kept on a new item (or one from before items kept a
+ * zone) when the student has set none. See `PlanItem.time_zone`.
+ */
+const browserZoneInput = timeZoneInput.optional()
+
+export const newPlanItemOnBoardInput = newPlanItemInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
+export const planItemUpdateOnBoardInput = planItemUpdateInput.extend({ workspaceId: boardIdInput, timeZone: browserZoneInput })
+
+/**
+ * Book the rest: sessions of one to-do (`todoId`) at these times, saved
+ * together in one go: all of them or, on any failure, none.
+ */
+/** The longest single session: one study day (as Auto-fill's pending bookings). */
+const MAX_SESSION_MS = 24 * 60 * 60_000
+
+const sessionBlock = z.object({ starts_at: isoDateTime, ends_at: isoDateTime })
+  .refine((b) => Date.parse(b.ends_at) > Date.parse(b.starts_at), { message: 'a session must end after it starts' })
+  .refine((b) => Date.parse(b.ends_at) - Date.parse(b.starts_at) <= MAX_SESSION_MS, { message: 'a session is at most a day long' })
+
+export const bookSessionsInput = z.object({
+  todoId: planItemIdInput,
+  blocks: z.array(sessionBlock).min(1).max(10)
+    .refine((blocks) => {
+      const sorted = [...blocks].sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at))
+      return sorted.every((b, i) => i === 0 || Date.parse(sorted[i - 1].ends_at) <= Date.parse(b.starts_at))
+    }, { message: 'sessions must not overlap each other' }),
+  workspaceId: boardIdInput,
+  timeZone: browserZoneInput,
+})
+export type BookSessions = Omit<z.input<typeof bookSessionsInput>, 'workspaceId' | 'timeZone'>
+
+/**
+ * What an accepted draft can change of one plan item, as it is at one
+ * moment (`planItems.undoState`): its time and estimate, its sessions, and
+ * when it last changed. Read before an Accept and again after it, so Undo
+ * can put back the first and tell whether the student changed it since.
+ */
+export const planItemUndoState = z.object({
+  id: planItemIdInput,
+  title: z.string().max(500),
+  starts_at: isoDateTime.nullable(),
+  ends_at: isoDateTime.nullable(),
+  duration_min: z.number().int().positive().max(24 * 60 * 7).nullable(),
+  updated_at: z.string().max(64),
+  /** Every session of it (a to-do booked in parts), whatever its status. */
+  sessions: z.array(z.object({ id: planItemIdInput, updated_at: z.string().max(64) })).max(200),
+})
+export type PlanItemUndoState = z.output<typeof planItemUndoState>
+
+/** planItems.undoState: the items an Accept is about to change, or just changed. */
+export const planItemUndoStateInput = z.array(planItemIdInput).min(1).max(50)
+
+/**
+ * Undo of an accepted draft (Auto-fill, re-fit, Book the rest): each item
+ * as it was `before` the Accept (time, estimate, and only the sessions it
+ * had), but only where it is still as the Accept left it (`after`). An item
+ * the student changed since (moved, resized, a new estimate, a session
+ * ticked or moved) is left as it is, and named in the result's `kept`.
+ */
+export const planItemsRevertInput = z.object({
+  items: z.array(z.object({ before: planItemUndoState, after: planItemUndoState })).min(1).max(50),
+  workspaceId: boardIdInput,
+})
+export type PlanItemsRevert = Omit<z.input<typeof planItemsRevertInput>, 'workspaceId'>
 
 /** complete / dismiss: the id, or `{ id, workspaceId }` from a board. */
 export const planItemOnBoardInput = z

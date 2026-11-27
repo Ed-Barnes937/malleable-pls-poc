@@ -1,5 +1,6 @@
 import { router } from './trpc'
 import { recordingsRouter } from './routers/recordings'
+import { lecturesRouter } from './routers/lectures'
 import { transcriptsRouter } from './routers/transcripts'
 import { tagsRouter } from './routers/tags'
 import { annotationsRouter } from './routers/annotations'
@@ -13,8 +14,11 @@ import { eventsRouter } from './routers/events'
 import { planItemsRouter } from './routers/plan-items'
 import { planningRouter } from './routers/planning'
 import { preferencesRouter } from './routers/preferences'
+import { resourcesRouter } from './routers/resources'
+import { coursesRouter } from './routers/courses'
 
 export const appRouter = router({
+  lectures: lecturesRouter,
   recordings: recordingsRouter,
   transcripts: transcriptsRouter,
   tags: tagsRouter,
@@ -29,6 +33,8 @@ export const appRouter = router({
   planItems: planItemsRouter,
   planning: planningRouter,
   preferences: preferencesRouter,
+  resources: resourcesRouter,
+  courses: coursesRouter,
 })
 
 export type AppRouter = typeof appRouter

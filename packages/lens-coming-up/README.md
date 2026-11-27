@@ -10,7 +10,7 @@ Coming up widget: open `deadline` plan items in a look-ahead window, grouped by 
 
 ## Scope
 
-`courseTag: 'filter'` - only the board course, with "+N in other courses". `recordingId: 'highlight'` - deadlines linked to the focused lecture are emphasised.
+`courseTag: 'filter'` - only the board course, with "+N in other courses". `lectureId: 'highlight'` - deadlines made from a moment of any of the board lecture's recordings are emphasised; none without a lecture.
 
 ## Internal Dependencies
 

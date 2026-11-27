@@ -1,5 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 import { apiPort, apiUrl, webPort } from './e2e/ports'
+import { E2E_SPECS } from './playwright/spec-files'
 
 // Cost guardrail: test runs never reach a real AI provider. Forced here so
 // every process Playwright spawns inherits it (see apps/server/src/ai/deps.ts).
@@ -12,8 +13,7 @@ process.env.TZ = 'Europe/London'
 const baseURL = `http://localhost:${webPort}`
 
 export default defineConfig({
-  testDir: 'e2e',
-  testMatch: '**/*.e2e.ts',
+  ...E2E_SPECS,
   outputDir: 'test-results/e2e',
   globalSetup: './e2e/global-setup.ts',
   timeout: 30_000,
@@ -29,11 +29,21 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], timezoneId: 'Europe/London' },
     },
+    // The header's scope pills are transparent native selects over a styled
+    // label: check Safari hits and drives them too; popovers that must not
+    // move as their content loads, and the canvas's Shift gestures, too. Only these specs, to keep
+    // the run short (`pnpm exec playwright install webkit` once).
+    {
+      name: 'webkit',
+      use: { ...devices['Desktop Safari'], timezoneId: 'Europe/London' },
+      testMatch: ['scope.e2e.ts', 'up-next.e2e.ts', 'popover-stillness.e2e.ts', 'canvas.e2e.ts', 'resource-files.e2e.ts', 'class-course-follow.e2e.ts'],
+    },
   ],
   webServer: [
     {
-      // Postgres (docker) + migrations + API server — e2e runs from a cold
-      // start with only docker available.
+      // Creates PG_DB if missing, migrates and starts the API. Postgres must
+      // already be up (`pnpm dev:db`): e2e never runs docker compose, so it
+      // can't recreate the container other checkouts share.
       command: `PORT=${apiPort} ALLOWED_ORIGINS=${baseURL} DISABLE_RATE_LIMIT=1 pnpm run e2e:server`,
       url: `${apiUrl}/health`,
       reuseExistingServer: true,

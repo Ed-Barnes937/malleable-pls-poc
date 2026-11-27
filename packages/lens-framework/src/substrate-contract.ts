@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import type {
+  Lecture,
   Recording,
   TranscriptSegment,
   Tag,
@@ -14,6 +15,7 @@ import type {
   PlanItem,
   PlanItemOccurrence,
   PlanItemQuery,
+  BookSessions,
   NewPlanItem,
   PlanItemUpdate,
   PlanAdvice,
@@ -24,8 +26,20 @@ import type {
   RefitPreview,
   RefitResult,
   WorkflowWithJobs,
+  Resource,
+  ResourceWithBody,
+  ResourceListQuery,
+  NewResourceLink,
+  NewResourceNote,
+  ResourceUpdate,
+  ResourceFileUrl,
+  PlanItemsRevert,
+  PlanItemUndoState,
 } from '@pls/substrate'
 import type { DateRange, Scope, ScopeDeclaration } from './types'
+
+/** Where a capture into a lecture is: recording, or its audio on its way to the server. */
+export type LiveCapturePhase = 'recording' | 'saving'
 
 /**
  * Query input for substrate hooks. Lenses pass `LensProps.scope` straight
@@ -35,10 +49,12 @@ import type { DateRange, Scope, ScopeDeclaration } from './types'
  * hard filter, so a highlight-only widget (e.g. a calendar) would hide the
  * other courses' commitments.
  *
- * When `recordingId` is set, readers return that lecture's data regardless of
- * `courseTag`: a targeted lecture wins over the course.
+ * Readers apply every dimension given (course, lecture, recording); the
+ * server keeps a board's lecture inside its course, so they never disagree.
+ * `recordingId` is not a board dimension: it narrows to one recording of a
+ * lecture, e.g. the one a study block came from.
  */
-export type QueryFilter = Scope & { dateRange?: DateRange }
+export type QueryFilter = Scope & { recordingId?: string; dateRange?: DateRange }
 
 // ---------------------------------------------------------------------------
 // Generic wrappers matching React Query's shape
@@ -61,6 +77,7 @@ export interface MutationHandle<TInput, TOutput = TInput> {
 // ---------------------------------------------------------------------------
 
 export type TableName =
+  | 'lectures'
   | 'recordings'
   | 'transcript_segments'
   | 'tags'
@@ -72,6 +89,7 @@ export type TableName =
   | 'weakest_topics'
   | 'plan_items'
   | 'user_preferences'
+  | 'resources'
 
 // ---------------------------------------------------------------------------
 // SubstrateReader — read-only hooks for view lenses
@@ -80,13 +98,26 @@ export type TableName =
 export interface SubstrateReader {
   useRecordings: (filter?: QueryFilter) => QueryResult<Recording[]>
   useRecording: (id: string) => QueryResult<Recording>
+  /**
+   * One lecture with its recordings (oldest first, each with `processing`),
+   * or null if it isn't the student's. No request for an empty id.
+   */
+  useLecture: (id: string | undefined) => QueryResult<Lecture>
+  /** The student's lectures, latest first, optionally only one course's. */
+  useLectures: (filter?: { courseTag?: string }) => QueryResult<Lecture[]>
+  /**
+   * A capture into this lecture in progress (`'recording'`, then `'saving'`
+   * while its upload lands), or null. On this device only for now: a
+   * widget that captures reports it with `useSetLiveCapture`.
+   */
+  useLiveCapture: (lectureId: string | undefined) => LiveCapturePhase | null
   useTranscript: (recordingId: string) => QueryResult<TranscriptSegment[]>
   useTags: (filter: QueryFilter) => QueryResult<Tag[]>
   useAnnotations: (filter: QueryFilter) => QueryResult<Annotation[]>
   useConfidence: (filter: QueryFilter) => QueryResult<ConfidenceSignal[]>
   useConnections: (conceptSegmentId: string, filter?: QueryFilter) => QueryResult<ConnectionResult[]>
-  /** Links out of a targeted lecture; never course-filtered (the target wins). */
-  useRecordingConnections: (recordingId: string | undefined) => QueryResult<ConnectionResult[]>
+  /** Links out of the moments of a lecture's recordings. No request without a lecture. */
+  useLectureConnections: (lectureId: string | undefined) => QueryResult<ConnectionResult[]>
   useWeeklyOverview: (filter: QueryFilter) => QueryResult<CourseProgress[]>
   useGapAnalysis: () => QueryResult<CourseProgress[]>
   useWeakestTopics: (filter: QueryFilter, limit?: number) => QueryResult<WeakTopic[]>
@@ -116,6 +147,18 @@ export interface SubstrateReader {
    * automatic placement (Auto-fill, reviews, re-fit) obeys.
    */
   usePreferences: () => QueryResult<UserPreferences>
+  /**
+   * The student's links and notes, newest first, without note bodies
+   * (`excerpt` instead). `courseTag` keeps those in the course (filed under
+   * it or one of its lectures), `lectureId` those of the lecture.
+   */
+  useResources: (filter?: ResourceListQuery) => QueryResult<Resource[]>
+  /**
+   * One resource with its note body, or null. No request for an empty id.
+   * `refetch` reads it from the server now (e.g. after a CONFLICT), resolving
+   * with what it has.
+   */
+  useResource: (id: string | undefined) => QueryResult<ResourceWithBody> & { refetch: () => Promise<ResourceWithBody | null> }
 }
 
 /**
@@ -128,15 +171,70 @@ export function isConflictError(err: unknown): boolean {
   return data?.code === 'CONFLICT'
 }
 
+/** Whether `err` is the server saying the thing does not exist (or is not the student's). */
+export function isNotFoundError(err: unknown): boolean {
+  const data = (err as { data?: { code?: unknown } } | null)?.data
+  return data?.code === 'NOT_FOUND'
+}
+
 // ---------------------------------------------------------------------------
 // SubstrateWriter — extends reader with mutation capabilities for tools
 // ---------------------------------------------------------------------------
 
 export interface SubstrateWriter extends SubstrateReader {
-  useCreateTag: () => MutationHandle<NewTag>
+  /**
+   * Adds a tag; once per (target, label), so a second call returns the tag
+   * already there. `automations_started`: how many automations it started
+   * (0 when none is on for it, or the tag was already there).
+   */
+  useCreateTag: () => MutationHandle<NewTag, Tag & { automations_started: number }>
+  /** Removes a tag by id (a tag toggle turned off). */
+  useDeleteTag: () => MutationHandle<string, void>
+  /**
+   * Marks a confusing moment sorted (a `sorted` tag; `confused` stays as
+   * history) and dismisses its open review to-dos. `dismissed` is what
+   * `useUnsortMoment`'s `restore` brings back, for an Undo.
+   */
+  useSortMoment: () => MutationHandle<{ segmentId: string }, { dismissed: string[] }>
+  /** Un-sorts a moment; `restore` (from `useSortMoment`) reopens those reviews. */
+  useUnsortMoment: () => MutationHandle<{ segmentId: string; restore?: string[] }, { restored: string[] }>
+  /**
+   * Turns a moment's confusing mark off and dismisses its open review
+   * to-dos. `confusedAt` and `dismissed` are what `useRemarkConfused` puts
+   * back, for an Undo. A sorted moment keeps its mark (the server refuses).
+   */
+  useUnmarkConfused: () => MutationHandle<{ segmentId: string }, { confusedAt: string | null; dismissed: string[] }>
+  /** Undo for `useUnmarkConfused`: the mark as it was, and `restore` reopens those reviews. */
+  useRemarkConfused: () => MutationHandle<{ segmentId: string; confusedAt: string; restore?: string[] }, { restored: string[] }>
   useCreateAnnotation: () => MutationHandle<NewAnnotation>
   useRecordConfidence: () => MutationHandle<NewConfidenceSignal>
+  /**
+   * Transcribes a lecture the automations never picked up. `queued` is false
+   * when it already has a transcript or one is on its way.
+   */
+  useTranscribeRecording: () => MutationHandle<{ recordingId: string }, { queued: boolean }>
+  /**
+   * After a recording is added outside the substrate (the `/upload` route):
+   * refreshes what lists recordings and lectures, e.g. the lecture it went
+   * into now has another part.
+   */
+  useRecordingAdded: () => () => void
+  /**
+   * A new lecture for a capture starting now, in `course` (null = none),
+   * selected on the calling panel's board by the server in the same write
+   * (its course comes with it). When a class of that course is on, it is
+   * that class occurrence's lecture instead (found or made, the same one a
+   * calendar click on that class finds). `boardLecture` is the lecture the
+   * board showed when the capture started: the server selects the new one
+   * only if the board still shows it (or one that is gone), so a slow call
+   * can't undo a selection made meanwhile.
+   */
+  useStartLecture: () => MutationHandle<{ course: string | null; boardLecture: string | null }, Lecture>
+  /** Reports a capture into a lecture (see `useLiveCapture`); null when it is over. */
+  useSetLiveCapture: () => (lectureId: string, phase: LiveCapturePhase | null) => void
   useCreatePlanItem: () => MutationHandle<NewPlanItem, PlanItem>
+  /** Book the rest: sessions of one to-do, saved together (all or none). See @pls/substrate sessions. */
+  useBookSessions: () => MutationHandle<BookSessions, PlanItem[]>
   /**
    * Patches the stored item - the whole series for a recurring one. Send only
    * changed fields, never a list row's occurrence times; to move an occurrence,
@@ -147,7 +245,25 @@ export interface SubstrateWriter extends SubstrateReader {
   useCompletePlanItem: () => MutationHandle<string, PlanItem>
   /** Marks dismissed ("not doing this"). Takes the plan item id. */
   useDismissPlanItem: () => MutationHandle<string, PlanItem>
+  /** Deletes it (a recurring one as a whole series), with a to-do's sessions. Undo with `useRestorePlanItem`. */
   useDeletePlanItem: () => MutationHandle<string, void>
+  /** Undo of a delete: puts the item back exactly (same id, sessions, course, class lectures). Takes the plan item id. */
+  useRestorePlanItem: () => MutationHandle<string, PlanItem>
+  /** Undo of a dismiss: open again, with the sessions it closed. Takes the plan item id. */
+  useUndismissPlanItem: () => MutationHandle<string, PlanItem>
+  /**
+   * Reads each item as an accepted draft can change it, now (time,
+   * estimate, sessions, last change): before an Accept and after it, for
+   * `useRevertPlanItems`. Always from the server, never a cached copy.
+   */
+  useReadUndoState: () => (ids: string[]) => Promise<PlanItemUndoState[]>
+  /**
+   * Undo of an accepted draft (Auto-fill, re-fit, Book the rest), in one
+   * go: each item still as the Accept left it goes back as it was before,
+   * with the sessions the Accept booked gone. One changed since is left as
+   * it is and named in `kept`.
+   */
+  useRevertPlanItems: () => MutationHandle<PlanItemsRevert, { reverted: PlanItem[]; kept: { id: string; title: string }[] }>
   /**
    * Help me plan's Auto-fill advice for a week (priority order, trims when
    * over capacity, a short note). Writes and places nothing: place with
@@ -167,6 +283,37 @@ export interface SubstrateWriter extends SubstrateReader {
    * one to its default. Resolves with the result, defaults filled in.
    */
   useUpdatePreferences: () => MutationHandle<PreferencesUpdate, UserPreferences>
+
+  /** A link; refused (BAD_REQUEST) unless http(s). Sent with the panel's board. */
+  useCreateResourceLink: () => MutationHandle<Omit<NewResourceLink, 'workspaceId'>, ResourceWithBody>
+  /** A markdown note, empty unless a body is given. Sent with the panel's board. */
+  useCreateResourceNote: () => MutationHandle<Omit<NewResourceNote, 'workspaceId'>, ResourceWithBody>
+  /**
+   * Renames, edits or moves a resource. With `expectedUpdatedAt` it fails
+   * with a CONFLICT (see `isConflictError`) if the resource changed since.
+   */
+  useUpdateResource: () => MutationHandle<ResourceUpdate, ResourceWithBody>
+  useDeleteResource: () => MutationHandle<string, { id: string }>
+  /**
+   * Uploads one file as a resource (PDF, Word, PowerPoint, Excel, PNG, JPEG,
+   * text or Markdown, up to 20 MB). Rejects with an Error whose message is
+   * safe to show the student. Sent with the panel's board.
+   */
+  useUploadResourceFile: () => MutationHandle<UploadResourceFile, ResourceWithBody>
+  /**
+   * A link to open a file resource, good for a few minutes: ask when the
+   * student presses it, not before.
+   */
+  useResourceFileUrl: () => MutationHandle<string, ResourceFileUrl>
+}
+
+/** A file to upload as a resource, and where it goes (a lecture, or a course, or neither). */
+export interface UploadResourceFile {
+  file: File
+  lectureId?: string | null
+  courseTag?: string | null
+  /** Called as the upload goes, with the fraction sent (0 to 1). */
+  onProgress?: (fraction: number) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -214,6 +361,18 @@ export interface PanelManifest {
    * e.g. the Calendar. Decides whether `LensProps.onShowPlanItem` can land.
    */
   showsPlanItems?: boolean
+  /**
+   * The widget runs a focused review of moments (`LensProps.reviewRun`),
+   * e.g. Test Me. Decides where `LensProps.onStartReview` lands.
+   */
+  runsReviews?: boolean
+  /**
+   * The widget can ask about blocks that didn't happen ("2 blocks didn't
+   * happen. Re-fit them?"). A board asks once (flow-audit decision 4): in
+   * its widget with the lowest number (the Calendar 1, the To-do 2), the
+   * first one if it has several. See `LensProps.asksAboutMissedBlocks`.
+   */
+  missedBlocksPriority?: number
   load: () => Promise<{ default: ComponentType<import('./types').LensProps> }>
 
   /** Size constraints — used to clamp resize and provide defaults for new panels */

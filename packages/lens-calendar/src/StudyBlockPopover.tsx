@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useSubstrate } from '@pls/lens-framework'
 import { reviewAutomationSentence, segmentAtOffset, type PlanItemOccurrence } from '@pls/substrate'
-import { COURSES, TAG_STYLES, clockTime, cn, courseTone, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag } from '@pls/shared-ui'
+import { NEUTRAL_TONE, TAG_STYLES, clockTime, cn, dayLabel, formatDuration, formatTime, fromMomentLabel, leadingTag, useCourse } from '@pls/shared-ui'
 import { AudioLines, CalendarClock, Check, Clock, Loader2, Play, RotateCcw, X, Zap } from 'lucide-react'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
@@ -85,7 +85,7 @@ export function StudyBlockPopover({
   const recordingId = row.source_id ?? ''
   const offsetMs = row.source_offset_ms ?? 0
   const { data: recording } = substrate.useRecording(recordingId)
-  const { data: segments } = substrate.useTranscript(recordingId)
+  const { data: segments, isLoading: quoteLoading } = substrate.useTranscript(recordingId)
   const { data: tags } = substrate.useTags({ recordingId })
   const { data: automation } = substrate.useAutomation(row.created_by_workflow_id ?? '')
 
@@ -98,8 +98,9 @@ export function StudyBlockPopover({
     return leadingTag((tags ?? []).filter((t) => t.target_type === 'transcript_segment' && t.target_id === segment.id).map((t) => t.label))
   }, [tags, segment])
 
-  const tone = courseTone(row.course)
-  const courseLabel = row.course ? (COURSES.find((c) => c.value === row.course)?.label ?? row.course) : null
+  const course = useCourse(row.course)
+  const tone = course?.tone ?? NEUTRAL_TONE
+  const courseLabel = course?.name ?? null
   const done = row.status === 'done'
   const minutes = row.starts_at && row.ends_at
     ? Math.round((Date.parse(row.ends_at) - Date.parse(row.starts_at)) / 60_000)
@@ -119,6 +120,7 @@ export function StudyBlockPopover({
         <button
           type="button"
           aria-label="Close"
+          title="Close"
           onClick={onClose}
           className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:bg-surface-overlay hover:text-text-primary"
         >
@@ -147,7 +149,7 @@ export function StudyBlockPopover({
         {done && <span className="inline-flex items-center gap-1 font-semibold text-good"><Check className="h-3.5 w-3.5" />Done</span>}
       </div>
 
-      {segment && (
+      {(segment || quoteLoading) && (
         <figure
           data-testid="calendar-moment-quote"
           className={cn('flex flex-col gap-1 rounded-item border-l-4 px-3 py-2.5', tone.soft, markStyle?.line ?? tone.stripeBorder)}
@@ -158,11 +160,11 @@ export function StudyBlockPopover({
               {MARK_WORDS[mark]}
             </figcaption>
           )}
-          <blockquote className="line-clamp-3 text-body text-text-primary">"{segment.text}"</blockquote>
+          <blockquote className={cn('line-clamp-3 text-body text-text-primary', !segment && 'min-h-[3lh]')}>{segment ? `"${segment.text}"` : null}</blockquote>
         </figure>
       )}
 
-      <div data-testid="calendar-moment" className="flex flex-col gap-1.5">
+      <div data-testid="calendar-moment" data-popover-anchor={canEdit ? undefined : ''} className="flex flex-col gap-1.5">
         {canShowMoment && moment !== 'nowhere' && (
           <button
             type="button"
@@ -186,7 +188,7 @@ export function StudyBlockPopover({
       </div>
 
       {canEdit && (
-        <div className="grid grid-cols-2 gap-2">
+        <div data-popover-anchor className="grid grid-cols-2 gap-2">
           {onToggleDone && (
             <button
               type="button"

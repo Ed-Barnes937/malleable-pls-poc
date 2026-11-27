@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/experimental-ct-react'
+import { test, expect } from '../../../playwright/fixtures'
 import { ThemeToggle } from './ThemeToggle'
 import { tokenColor } from '../../shared-ui/src/ct-themes'
 

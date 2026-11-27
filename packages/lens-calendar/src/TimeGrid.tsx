@@ -1,7 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref } from 'react'
 import { spansMessage, type SpanAction } from '@ui-sdk/core'
 import { formatMinutes, type PlanItemOccurrence } from '@pls/substrate'
-import { cn, courseTone, prefersReducedMotion, showOnBoard } from '@pls/shared-ui'
+import { MOTION_MS, NEUTRAL_TONE, cn, prefersReducedMotion, showOnBoard, useArrivals, useCourse, useCourseLookup, useEnterOnce, useReducedMotion } from '@pls/shared-ui'
 import { AudioLines, Check, Coffee, GripVertical, Repeat, X } from 'lucide-react'
 import { dueMarkers, isMovable, layoutDays, type DaySegment } from './layout'
 import { blockLook, toneFor } from './colors'
@@ -21,6 +21,8 @@ export interface Anchor {
   clientY: number
   /** The top and bottom of the block pressed (or the new block a press on empty time makes), in client coordinates. */
   span?: { top: number; bottom: number }
+  /** The press that opens it closed another block's popover: the student went straight from one to the next. */
+  fromPopover?: boolean
 }
 
 export interface TimeGridProps {
@@ -73,6 +75,17 @@ export interface TimeGridProps {
    * plan): their blocks can't be seen, so they are not Tab stops.
    */
   coveredDays?: ReadonlyArray<number>
+  /** The week's rows are still loading: nothing on the grid counts as arriving yet. */
+  loading?: boolean
+  /**
+   * Under the hours, inside the grid (e.g. the calendar's prompts). The hours
+   * are fitted to the room with or without it, so as it comes, goes or grows
+   * it only covers or uncovers the last hours shown: nothing on the grid
+   * moves or re-sizes.
+   */
+  footer?: ReactNode
+  /** The grid's own element (its day headers carry `data-day-column`), e.g. to place a panel over it. */
+  rootRef?: Ref<HTMLDivElement>
 }
 
 /** A block to show: scrolled to in the grid and on the board, then glowing once. */
@@ -114,11 +127,22 @@ export function gridScrollFor(
 /** Fit 08:00-22:00 in the visible height; never cramp below this. */
 const MIN_HOUR_PX = 32
 const LABEL_ROOM_PX = 8
+
+/** The hour height that fits the working day in the grid's room now. */
+function fittedHourPx(scroll: HTMLElement, footer: HTMLElement | null): number {
+  // A little headroom so the 08:00 and 22:00 labels are not clipped. The
+  // footer's room counts as the grid's, so the hours never re-fit as it changes.
+  const room = scroll.clientHeight + (footer?.offsetHeight ?? 0)
+  return Math.max(MIN_HOUR_PX, (room - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
+}
+
 /** The glow around a revealed compact block: at least this tall, centred on it. */
 const REVEAL_HALO_PX = 24
 
 /** Tall enough for a two-line title and the time under it. */
 const TWO_LINE_TITLE_PX = 56
+/** Too short for the time line, but tall enough for a two-line title alone (an hour at the smallest hour height). */
+const TWO_LINE_TITLE_ONLY_PX = 30
 /** Tall enough for a free gap's "1h 30m free" label. */
 const FREE_LABEL_PX = 28
 /** A drafted block's accept and dismiss row, under its title and time. */
@@ -144,6 +168,8 @@ type Press =
       dragged: boolean
       /** The press closed this block's own popover: a click (no move) leaves it closed. */
       closedOwnPopover: boolean
+      /** The press closed another popover: a click opens this block's straight from it. */
+      closedOtherPopover: boolean
       /** The block's top and bottom on screen as pressed, for its popover to keep clear of. */
       span: { top: number; bottom: number }
     }
@@ -164,15 +190,21 @@ function pointerRules(next: GridSpan, action: SpanAction, at: { dayIndex: number
 export function TimeGrid({
   days, items, now, isDimmed, isLinked, activeKey, onCreate, onOpen, onMove,
   onAskDelete, proposals, savedProposalIds, onProposalMove, onProposalNudge, onProposalAccept, onProposalDismiss, freeTime, outsideStudyHours, incoming, onDropIncoming,
-  reveal, popoverOpen, coveredDays,
+  reveal, popoverOpen, coveredDays, loading, footer, rootRef,
 }: TimeGridProps) {
+  const courseOf = useCourseLookup()
   const scrollRef = useRef<HTMLDivElement>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
+  /** Room under the hours kept while scrolled into it (see the footer's effect). */
+  const slackRef = useRef<HTMLDivElement>(null)
   const areaRef = useRef<HTMLDivElement>(null)
   const headerRef = useRef<HTMLDivElement>(null)
   const [hourPx, setHourPx] = useState(40)
   // Keep 08:00 at the top until the student scrolls (the grid resizes as the
   // due row appears and the panel is resized).
   const userScrolled = useRef(false)
+  /** Where the grid last put its own scroll: any other scroll is someone else's (touch, wheel, keys, the scrollbar, scrollIntoView). */
+  const ownScrollTop = useRef<number | null>(null)
   /** An hour to scroll to the top once the grid has re-rendered at a new hour height. */
   const keepTopHour = useRef<number | null>(null)
   const press = useRef<Press | null>(null)
@@ -182,6 +214,20 @@ export function TimeGrid({
    * and a resize across days are kept on top of it (see `pointerRules`).
    */
   const [pointer, setPointer] = useState<{ dayIndex: number; minute: number; drawFrom: number | null } | null>(null)
+  /**
+   * The hour a block shown ("See it") is taking the grid's top to, until the
+   * scroll gets there or the student scrolls. The hours re-fitting on the
+   * way (a row above the grid going as the block's week lands, the panel
+   * resized) keep this hour at the top, not wherever the scroll had got to.
+   */
+  const scrollGoalHour = useRef<number | null>(null)
+  const hourPxNow = useRef(hourPx)
+  hourPxNow.current = hourPx
+  /** Carries on to the goal hour at the hours' size now, from wherever the scroll is. */
+  const scrollToGoal = (el: HTMLElement) => {
+    if (scrollGoalHour.current === null) return
+    el.scrollTo({ top: scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  }
   /**
    * A touch tap just opened a popover. The tap's mouse events and click come
    * after pointerup, at the point tapped, where the popover now is (on a
@@ -201,46 +247,119 @@ export function TimeGrid({
     if (!el) return
     let fitted = 0
     const fit = () => {
-      // A little headroom so the 08:00 and 22:00 labels are not clipped.
-      const px = Math.max(MIN_HOUR_PX, (el.clientHeight - 2 * LABEL_ROOM_PX) / (DAY_END_HOUR - DAY_START_HOUR))
+      const px = fittedHourPx(el, footerRef.current)
       // The hour to keep at the top: the day's start until the student (or a
       // block shown) scrolls, then whatever is there, as the hours resize.
-      const topHour = !userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null
+      const topHour = scrollGoalHour.current ?? (!userScrolled.current ? DAY_START_HOUR : fitted ? (el.scrollTop + LABEL_ROOM_PX) / fitted : null)
       if (px !== fitted) {
         // Scrolled once the grid has re-rendered at the new size, so the scroll isn't clamped to the old height.
         keepTopHour.current = topHour
         setHourPx(px)
       } else if (!userScrolled.current) {
         el.scrollTop = DAY_START_HOUR * px - LABEL_ROOM_PX
+        ownScrollTop.current = el.scrollTop
       }
       fitted = px
     }
-    const markScrolled = () => { userScrolled.current = true }
+    // The student taking over (wheel, touch, keys) stops the way to a block shown.
+    const dropGoal = () => { scrollGoalHour.current = null }
+    const onScroll = () => {
+      if (scrollGoalHour.current !== null) {
+        // The grid's own scroll on the way to a block shown. There: from now
+        // on, the hours keep whatever the student scrolls to.
+        const goal = Math.min(scrollGoalHour.current * hourPxNow.current - LABEL_ROOM_PX, el.scrollHeight - el.clientHeight)
+        if (Math.abs(el.scrollTop - goal) < 1) scrollGoalHour.current = null
+        return
+      }
+      // Any other scroll the grid didn't make itself is the student's.
+      if (ownScrollTop.current === null || Math.abs(el.scrollTop - ownScrollTop.current) > 1) userScrolled.current = true
+    }
     fit()
     const observer = new ResizeObserver(fit)
     observer.observe(el)
-    el.addEventListener('wheel', markScrolled, { passive: true })
-    el.addEventListener('touchmove', markScrolled, { passive: true })
-    el.addEventListener('keydown', markScrolled)
+    el.addEventListener('wheel', dropGoal, { passive: true })
+    el.addEventListener('touchmove', dropGoal, { passive: true })
+    el.addEventListener('keydown', dropGoal)
+    el.addEventListener('scroll', onScroll, { passive: true })
     return () => {
       observer.disconnect()
-      el.removeEventListener('wheel', markScrolled)
-      el.removeEventListener('touchmove', markScrolled)
-      el.removeEventListener('keydown', markScrolled)
+      el.removeEventListener('wheel', dropGoal)
+      el.removeEventListener('touchmove', dropGoal)
+      el.removeEventListener('keydown', dropGoal)
+      el.removeEventListener('scroll', onScroll)
     }
   }, [])
   useLayoutEffect(() => {
     const el = scrollRef.current
     if (!el || keepTopHour.current === null) return
-    el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+    // On the way to a block shown: carry on there, at the new size.
+    if (scrollGoalHour.current !== null) scrollToGoal(el)
+    else {
+      el.scrollTop = keepTopHour.current * hourPx - LABEL_ROOM_PX
+      ownScrollTop.current = el.scrollTop
+    }
     keepTopHour.current = null
   }, [hourPx])
+
+  // Scrolled to the end, a footer that shrinks or goes would make the browser
+  // pull the scroll back (the hours can't scroll past their end), and every
+  // block would jump down. Instead the hours keep the room it gave up, as
+  // blank space under 24:00, for as long as the grid is scrolled into it.
+  // Measured as the footer resizes, after layout and before paint.
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    const foot = footerRef.current
+    const slack = slackRef.current
+    if (!el || !foot || !slack) return
+    let footHeight = foot.offsetHeight
+    let lastTop = el.scrollTop
+    let room = 0
+    const setRoom = (px: number) => {
+      room = Math.max(0, Math.round(px))
+      slack.style.height = `${room}px`
+    }
+    /** How far the view reaches past the hours' own end. */
+    const overhang = (top: number) => top + el.clientHeight - (el.scrollHeight - room)
+    const onScroll = () => {
+      // A footer resize not yet handled: the browser's own pull-back, not the student.
+      if (foot.offsetHeight !== footHeight) return
+      lastTop = el.scrollTop
+      if (room > 0) setRoom(Math.min(room, overhang(lastTop)))
+    }
+    const observer = new ResizeObserver(() => {
+      const next = foot.offsetHeight
+      if (next < footHeight) {
+        setRoom(Math.max(room, overhang(lastTop)))
+        // On the way to a block shown, it carries on there rather than stopping.
+        if (scrollGoalHour.current !== null) scrollToGoal(el)
+        else el.scrollTop = lastTop
+      }
+      footHeight = next
+    })
+    observer.observe(foot)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      observer.disconnect()
+      el.removeEventListener('scroll', onScroll)
+    }
+  }, [])
 
   // Ghosts are laid out with real blocks, so a dragged one never hides another.
   const segments = useMemo(
     () => layoutDays(proposals?.length ? [...items, ...proposals.map(ghostRow)] : items, days),
     [items, proposals, days],
   )
+  // Blocks and ghosts that arrive while the student watches (a booking, an
+  // Auto-fill draft, the block an accepted ghost becomes, an Undo) come in
+  // with the shared motion; the week's first render, or another week, don't.
+  const arrived = useArrivals(
+    loading ? undefined : segments.flatMap((day) => day.map((seg) => seg.item.occurrence_key)),
+    `${days[0]?.toISOString()}:${days.length}`,
+  )
+  const entering = useEnterOnce(arrived)
+  // And what goes while the student watches (a block deleted, a ghost
+  // dismissed) leaves with it; a ghost accepted settles into its real block.
+  const { leaving, settles } = useDepartures(segments, `${days[0]?.toISOString()}:${days.length}`, !!loading, useReducedMotion())
   // Short blocks' title captions, per day (see captionSides).
   const captions = useMemo(() => segments.map((day) => captionSides(day, hourPx)), [segments, hourPx])
   // "See it" (or a review card landing): once the block is laid out, scroll
@@ -263,12 +382,17 @@ export function TimeGrid({
     const el = scrollRef.current
     const seg = segments.flat().find((s) => s.item.id === reveal.id && !ghostId(s.item))
     if (!el || !seg) return
+    // The grid just resized (a row above it going as the block's week
+    // lands) and its hours are still to re-fit: shown once they have, at
+    // their new size, not measured against the old one.
+    if (fittedHourPx(el, footerRef.current) !== hourPx) return
     handledReveal.current = reveal.requestId
     focusOnReveal.current = reveal.takeFocus ? reveal.requestId : null
     const smooth = !prefersReducedMotion()
     const gridTop = gridScrollFor(seg, hourPx, { scrollTop: el.scrollTop, height: el.clientHeight })
     if (gridTop !== null) {
       userScrolled.current = true
+      scrollGoalHour.current = Math.abs(gridTop - el.scrollTop) < 1 ? null : (gridTop + LABEL_ROOM_PX) / hourPx
       el.scrollTo({ top: gridTop, behavior: smooth ? 'smooth' : 'auto' })
     }
     // Where the block will be on screen once the grid has scrolled.
@@ -402,6 +526,7 @@ export function TimeGrid({
       y: e.clientY,
       dragged: false,
       closedOwnPopover: closedPopoverOf(e.nativeEvent, seg.item.occurrence_key),
+      closedOtherPopover: closedPopover(e.nativeEvent) && !closedPopoverOf(e.nativeEvent, seg.item.occurrence_key),
       span: { top: box.top, bottom: box.bottom },
     }
     spans.spanPointerdown(e.nativeEvent, spanIdOf(seg))
@@ -451,7 +576,7 @@ export function TimeGrid({
     if (!ghost) {
       // A click on the block whose popover it just closed leaves it closed (a toggle).
       if (!current.closedOwnPopover) {
-        onOpen(current.item, { ...anchor, span: current.span })
+        onOpen(current.item, { ...anchor, span: current.span, fromPopover: current.closedOtherPopover || undefined })
         tapOpened.current = e.pointerType === 'touch'
       }
       return
@@ -500,7 +625,7 @@ export function TimeGrid({
   const cols = { gridTemplateColumns: `repeat(${days.length}, minmax(0, 1fr))` }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
+    <div ref={rootRef} className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-item border border-border-subtle bg-surface-raised">
       {/* Day headers (scrollbar gutter kept so columns line up with the body) */}
       <div ref={headerRef} className="flex shrink-0 overflow-hidden border-b border-border-subtle [scrollbar-gutter:stable]">
         <div className={cn(GUTTER, 'shrink-0')} />
@@ -545,7 +670,7 @@ export function TimeGrid({
             {markers.map((dayMarkers, i) => (
               <div key={i} className="flex min-w-0 flex-col gap-1 border-l border-border-subtle p-1">
                 {dayMarkers.map((m) => {
-                  const tone = toneFor(m.item.course)
+                  const tone = toneFor(courseOf(m.item.course)?.tone)
                   const done = m.item.status === 'done'
                   return (
                     <button
@@ -565,7 +690,7 @@ export function TimeGrid({
                       }}
                       title={`${m.item.title} - due ${m.allDay ? 'today' : formatClock(new Date(m.item.due_at!))}`}
                       className={cn(
-                        '@container flex h-[22px] min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 text-left text-meta font-semibold transition-opacity',
+                        '@container flex min-h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-item px-2 py-0.5 text-left text-meta font-semibold leading-tight transition-opacity',
                         tone.due,
                         opacityFor(isDimmed(m.item), m.item.status === 'done'),
                         isLinked(m.item) && 'ring-2 ring-accent',
@@ -573,7 +698,8 @@ export function TimeGrid({
                       )}
                     >
                       {done ? <Check className="h-3 w-3 shrink-0" /> : <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone.bar)} />}
-                      <span className={cn('truncate', done && 'line-through opacity-70')}>{m.item.title}</span>
+                      {/* Two lines before it cuts: 'Chemistry lab report' reads whole in a week column. */}
+                      <span className={cn('line-clamp-2 min-w-0', done && 'line-through opacity-70')}>{m.item.title}</span>
                       {!m.allDay && (
                         // The time gives way first in a narrow column; the title (and tooltip) stay.
                         <span className="ml-auto hidden shrink-0 font-normal tabular-nums opacity-85 @[6rem]:inline">{formatClock(new Date(m.item.due_at!))}</span>
@@ -683,6 +809,7 @@ export function TimeGrid({
                       }}
                       onAccept={() => onProposalAccept?.(ghostId(seg.item)!)}
                       onDismiss={() => onProposalDismiss?.(ghostId(seg.item)!)}
+                      enter={entering(seg.item.occurrence_key)}
                     />
                   ) : (
                     <Block
@@ -703,8 +830,32 @@ export function TimeGrid({
                         onKeyDown: (e) => { spans.keydown(e.nativeEvent, spanIdOf(seg)) },
                       }}
                       tabStop={!coveredDays?.includes(dayIndex)}
+                      enter={entering(seg.item.occurrence_key)}
+                      settle={settles.has(seg.item.occurrence_key)}
                       onKeyOpen={(anchor) => onOpen(seg.item, anchor)}
                       onKeyDelete={onAskDelete && ((anchor) => onAskDelete(seg.item, anchor))}
+                    />
+                  ))}
+
+                  {leaving.filter((seg) => seg.dayIndex === dayIndex).map((seg) => ghostId(seg.item) ? (
+                    <GhostBlock
+                      key={`leaving:${seg.key}`}
+                      seg={seg}
+                      hourPx={hourPx}
+                      saved={false}
+                      lifted={false}
+                      leaving
+                      onAccept={() => {}}
+                      onDismiss={() => {}}
+                    />
+                  ) : (
+                    <Block
+                      key={`leaving:${seg.key}`}
+                      seg={seg}
+                      hourPx={hourPx}
+                      caption={null}
+                      dimmed={isDimmed(seg.item)}
+                      leaving
                     />
                   ))}
 
@@ -723,8 +874,8 @@ export function TimeGrid({
                       className="pointer-events-none absolute inset-x-0 flex items-center"
                       style={{ top: (m.minute / 60) * hourPx - 1 }}
                     >
-                      <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(m.item.course).bar, isDimmed(m.item) && 'opacity-40')} />
-                      <span className={cn('h-px flex-1', toneFor(m.item.course).bar, isDimmed(m.item) ? 'opacity-20' : 'opacity-50')} />
+                      <span className={cn('h-1.5 w-1.5 rounded-full', toneFor(courseOf(m.item.course)?.tone).bar, isDimmed(m.item) && 'opacity-40')} />
+                      <span className={cn('h-px flex-1', toneFor(courseOf(m.item.course)?.tone).bar, isDimmed(m.item) ? 'opacity-20' : 'opacity-50')} />
                     </div>
                   ))}
 
@@ -772,7 +923,9 @@ export function TimeGrid({
             })}
           </div>
         </div>
+        <div ref={slackRef} aria-hidden data-testid="calendar-scroll-slack" className="h-0" />
       </div>
+      <div ref={footerRef} className="shrink-0">{footer}</div>
     </div>
   )
 }
@@ -803,14 +956,24 @@ interface BlockProps {
   span?: SpanBinding
   /** False while something covers it (Help me plan): it is then out of the tab order. */
   tabStop?: boolean
+  /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
+  enter?: boolean
+  /** Mounting where the ghost it was saved from just was: it settles in rather than arriving. */
+  settle?: boolean
+  /** Gone (deleted): drawn a moment longer, out of reach, for the shared leave motion. */
+  leaving?: boolean
   onKeyOpen?: (anchor: Anchor) => void
   /** Delete or Backspace: ask before deleting it (never deleted straight away). */
   onKeyDelete?: (anchor: Anchor) => void
 }
 
-function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, tabStop = true, onKeyOpen, onKeyDelete }: BlockProps) {
+function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, caption, span, tabStop = true, enter, settle, leaving, onKeyOpen, onKeyDelete }: BlockProps) {
   const { item } = seg
-  const tone = toneFor(item.course)
+  // Kept from mount: the motion plays as it arrives, not on later renders.
+  const [entering] = useState(!!enter && !settle)
+  const [settling] = useState(!!settle)
+  const course = useCourse(item.course)
+  const tone = toneFor(course?.tone)
   const isCommitment = item.kind === 'commitment'
   const movable = isMovable(item)
   const done = item.status === 'done'
@@ -827,16 +990,20 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
   const fromMoment = item.source_type === 'recording' && item.source_id != null
   const kindLabel = isCommitment ? (item.subtype ?? 'Fixed') : 'Study time'
   const look = blockLook(item)
-  const twoLines = height >= TWO_LINE_TITLE_PX
+  const twoLines = height >= TWO_LINE_TITLE_PX || (!roomy && height >= TWO_LINE_TITLE_ONLY_PX)
 
   return (
     <div
-      role={preview ? undefined : 'button'}
-      tabIndex={preview ? undefined : tabStop ? 0 : -1}
+      role={preview || leaving ? undefined : 'button'}
+      tabIndex={preview || leaving ? undefined : tabStop ? 0 : -1}
+      inert={leaving || undefined}
+      aria-hidden={leaving || undefined}
+      data-leaving={leaving || undefined}
       data-block={item.kind}
-      data-testid={preview ? 'calendar-block-preview' : 'calendar-block'}
-      data-plan-item-id={preview ? undefined : item.id}
-      data-segment-key={preview ? undefined : seg.key}
+      data-testid={preview ? 'calendar-block-preview' : leaving ? 'calendar-block-leaving' : 'calendar-block'}
+      data-plan-item-id={preview || leaving ? undefined : item.id}
+      data-segment-key={preview || leaving ? undefined : seg.key}
+      data-occurrence-key={preview || leaving ? undefined : item.occurrence_key}
       data-kind={item.kind}
       data-look={look}
       data-dimmed={dimmed || undefined}
@@ -877,10 +1044,14 @@ function Block({ seg, hourPx, dimmed, linked, active, lifted, preview, glow, cap
         active && 'ring-2 ring-accent',
         lifted && 'opacity-30',
         preview && 'pointer-events-none z-30 shadow-pop ring-2 ring-accent',
+        // Grows down from its start time; a glow (its own animation) wins.
+        entering && !glow && 'origin-top motion-safe:animate-enter',
+        settling && !glow && 'motion-safe:animate-settle',
+        leaving && 'pointer-events-none origin-top motion-safe:animate-leave',
         glow && 'z-20 motion-safe:animate-glow-once motion-reduce:glow-ring',
       )}
       style={{
-        ...(glow ? ({ '--glow': courseTone(item.course).solid } as CSSProperties) : {}),
+        ...(glow ? ({ '--glow': (course?.tone ?? NEUTRAL_TONE).solid } as CSSProperties) : {}),
         top: top + 1,
         height,
         left: `calc(${(seg.column / seg.columns) * 100}% + 2px)`,
@@ -982,17 +1153,23 @@ interface GhostBlockProps {
   /** Accepted and saving: drawn until the real block arrives. */
   saved: boolean
   lifted: boolean
-  span: SpanBinding
+  /** Unset while it leaves (nothing to press or drag). */
+  span?: SpanBinding
   onAccept: () => void
   onDismiss: () => void
+  /** Mounting as it arrives (see `useEnterOnce`): it comes in with the shared motion. */
+  enter?: boolean
+  /** Dismissed: drawn a moment longer, out of reach, for the shared leave motion. */
+  leaving?: boolean
 }
 
 /**
  * A drafted, unsaved block. Visibly not real yet (hatched, dashed edge), draggable to adjust, with its own accept and dismiss.
  */
-function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss }: GhostBlockProps) {
+function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, onDismiss, enter, leaving }: GhostBlockProps) {
   const { item } = seg
-  const tone = toneFor(item.course)
+  const [entering] = useState(!!enter)
+  const tone = toneFor(useCourse(item.course)?.tone)
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const top = (seg.startMin / 60) * hourPx
@@ -1003,13 +1180,18 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
   const roomy = height >= 52
   const span = formatSpan(start, end)
   const stop = (e: ReactPointerEvent) => e.stopPropagation()
-  const iconButton = 'flex h-4 w-4 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+  // A 24px hit area (WCAG 2.2 target size) around the 16px circle; the negative margin keeps the circles where they sit.
+  const iconButton = 'group/ghost-action -m-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full focus-visible:outline-none'
+  const iconCircle = 'flex h-4 w-4 items-center justify-center rounded-full transition-colors group-focus-visible/ghost-action:ring-2 group-focus-visible/ghost-action:ring-accent'
 
   return (
     <div
       data-block="ghost"
-      data-testid="calendar-ghost"
-      data-ghost-id={ghostId(item) ?? undefined}
+      data-testid={leaving ? 'calendar-ghost-leaving' : 'calendar-ghost'}
+      inert={leaving || undefined}
+      aria-hidden={leaving || undefined}
+      data-leaving={leaving || undefined}
+      data-ghost-id={leaving ? undefined : (ghostId(item) ?? undefined)}
       data-look="ghost"
       data-saved={saved || undefined}
       aria-label={`Suggested: ${item.title}, ${span}`}
@@ -1027,12 +1209,12 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
         } else if (seg.continuesAfter && e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
           // Its end is the midnight it runs past: no resize there (decision 6).
           e.preventDefault()
-        } else spanBinding.onKeyDown?.(e)
+        } else spanBinding?.onKeyDown?.(e)
       }}
       title={saved ? `${item.title}, ${span} - saving` : `Suggested: ${item.title}, ${span} - drag to adjust`}
-      ref={saved ? undefined : spanBinding.ref}
-      {...(saved ? {} : spanBinding.attrs)}
-      onPointerDown={saved ? undefined : spanBinding.onPointerDown}
+      ref={saved ? undefined : spanBinding?.ref}
+      {...(saved ? {} : spanBinding?.attrs)}
+      onPointerDown={saved ? undefined : spanBinding?.onPointerDown}
       className={cn(
         'group absolute rounded-item text-left outline-none focus-visible:ring-2 focus-visible:ring-accent',
         compact ? 'z-[15] overflow-visible hover:z-20 focus-within:z-20' : 'z-10 overflow-hidden',
@@ -1042,6 +1224,8 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
         seg.continuesBefore && 'rounded-t-none',
         seg.continuesAfter && 'rounded-b-none',
         lifted && 'opacity-30',
+        entering && 'origin-top motion-safe:animate-enter',
+        leaving && 'pointer-events-none origin-top motion-safe:animate-leave',
       )}
       style={{
         top: top + 1,
@@ -1061,7 +1245,7 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
           // Bottom right when there is room; over the title on hover / focus in a short block.
           <div
             className={cn(
-              'flex gap-1',
+              'flex gap-2',
               roomy
                 ? 'mt-auto justify-end pb-0.5'
                 : 'absolute right-1 top-1/2 -translate-y-1/2 rounded-full bg-surface-raised p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus:opacity-100 focus-within:opacity-100',
@@ -1073,9 +1257,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
                 title="Accept"
                 onPointerDown={stop}
                 onClick={onAccept}
-                className={cn(iconButton, 'bg-accent text-accent-foreground hover:opacity-90')}
+                className={iconButton}
               >
-                <Check className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-accent text-accent-foreground group-hover/ghost-action:opacity-90')}>
+                  <Check className="h-2.5 w-2.5" />
+                </span>
               </button>
               <button
                 type="button"
@@ -1083,9 +1269,11 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
                 title="Dismiss"
                 onPointerDown={stop}
                 onClick={onDismiss}
-                className={cn(iconButton, 'bg-surface-raised text-text-secondary ring-1 ring-border hover:bg-surface-overlay hover:text-text-primary')}
+                className={iconButton}
               >
-                <X className="h-2.5 w-2.5" />
+                <span className={cn(iconCircle, 'bg-surface-raised text-text-secondary ring-1 ring-border group-hover/ghost-action:bg-surface-overlay group-hover/ghost-action:text-text-primary')}>
+                  <X className="h-2.5 w-2.5" />
+                </span>
               </button>
           </div>
         )}
@@ -1103,4 +1291,67 @@ function GhostBlock({ seg, hourPx, saved, lifted, span: spanBinding, onAccept, o
       )}
     </div>
   )
+}
+
+/**
+ * Blocks and ghosts that went while the grid was on screen (a block deleted,
+ * a ghost dismissed), kept a moment as they were for the shared leave
+ * motion, and the blocks that took a ghost's place (an Accept saved, its
+ * block arrives where the ghost was): those settle in, neither the ghost
+ * leaving nor the block arriving. Something replaced by a block at the same
+ * time (a save swapping a block's id) just stays. Worked out while
+ * rendering, so nothing shows for a frame without its motion. Another week,
+ * the first load, or reduced motion: nothing leaves, it is just gone.
+ */
+function useDepartures(
+  segments: ReadonlyArray<ReadonlyArray<DaySegment>>,
+  resetKey: string,
+  loading: boolean,
+  reducedMotion: boolean,
+): { leaving: ReadonlyArray<DaySegment>; settles: ReadonlySet<string> } {
+  const last = useRef<{ key: string; byItem: Map<string, DaySegment[]> } | null>(null)
+  const gone = useRef(new Map<string, DaySegment[]>())
+  const settled = useRef<ReadonlySet<string>>(new Set())
+  const [, setTick] = useState(0)
+  const now = new Map<string, DaySegment[]>()
+  for (const day of segments) for (const seg of day) now.set(seg.item.occurrence_key, [...(now.get(seg.item.occurrence_key) ?? []), seg])
+  const memo = useRef<{ segments: typeof segments; result: { leaving: DaySegment[]; settles: ReadonlySet<string> } } | null>(null)
+  if (memo.current?.segments !== segments) {
+    if (loading || reducedMotion || !last.current || last.current.key !== resetKey) {
+      if (gone.current.size) gone.current = new Map()
+    } else {
+      const timeOf = (seg: DaySegment) => `${seg.item.starts_at}/${seg.item.ends_at}`
+      const before = last.current.byItem
+      const arrivedAt = new Map<string, string>()
+      for (const [key, segs] of now) if (!before.has(key)) arrivedAt.set(timeOf(segs[0]), key)
+      const next = new Map([...gone.current].filter(([key]) => !now.has(key)))
+      const settles = new Set<string>()
+      for (const [key, segs] of before) {
+        if (now.has(key)) continue
+        const takenBy = arrivedAt.get(timeOf(segs[0]))
+        if (takenBy !== undefined) {
+          if (ghostId(segs[0].item) && !ghostId(now.get(takenBy)![0].item)) settles.add(takenBy)
+          continue
+        }
+        next.set(key, segs)
+      }
+      gone.current = next
+      if (settles.size) settled.current = settles
+    }
+    last.current = { key: resetKey, byItem: now }
+    memo.current = { segments, result: { leaving: [...gone.current.values()].flat(), settles: settled.current } }
+  }
+  // Each departure goes once its motion has played.
+  const leavingKeys = [...gone.current.keys()].join('\n')
+  useEffect(() => {
+    if (!leavingKeys) return
+    const keys = new Set(leavingKeys.split('\n'))
+    const t = setTimeout(() => {
+      gone.current = new Map([...gone.current].filter(([key]) => !keys.has(key)))
+      memo.current = null
+      setTick((n) => n + 1)
+    }, MOTION_MS)
+    return () => clearTimeout(t)
+  }, [leavingKeys])
+  return memo.current!.result
 }

@@ -14,17 +14,14 @@ const at = (day: number, h: number, m = 0) => new Date(monday.getFullYear(), mon
 const iso = (day: number, h: number, m = 0) => at(day, h, m).toISOString()
 const tz = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id: string; course?: string })[]) {
+function seed(simulator: BackendSimulator, rows: (Partial<StoredPlanItem> & { id: string })[]) {
   for (const { course, ...row } of rows) {
     simulator.db.planItems.push({
       kind: 'task', title: row.id, starts_at: null, ends_at: null, due_at: null, duration_min: null,
       status: 'open', recurrence: null, subtype: null, source_type: null, source_id: null,
-      source_offset_ms: null, created_at: iso(0, 0), updated_at: iso(0, 0),
+      source_offset_ms: null, course: course ?? null, created_at: iso(0, 0), updated_at: iso(0, 0),
       ...row,
     } as StoredPlanItem)
-    if (course) {
-      simulator.db.tags.push({ id: `tag-${row.id}`, target_type: 'plan_item', target_id: row.id, label: course, created_at: iso(0, 0) })
-    }
   }
 }
 
@@ -103,8 +100,10 @@ test('renders the week: fixed commitments, study time and what is due', async ({
 })
 
 // The hour rows are the same whichever day it is, with or without the re-fit
-// banner above the grid (which appears once study blocks have passed): 24
-// equal rows, 08:00 at the top, and 22:00 within the window or one scroll away.
+// banner at the grid's foot (which appears once study blocks have passed): 24
+// equal rows, 08:00 at the top, and 22:00 within the window or one scroll
+// away. The rows are fitted to the grid's room with the banner's, so the
+// banner only covers the last hours shown, never re-sizes them.
 const FROZEN_DAYS: [string, Date, number, number][] = [
   ['Mon', FROZEN_MONDAY, 9, 0], ['Tue', addDays(FROZEN_MONDAY, 1), 12, 0], ['Wed', addDays(FROZEN_MONDAY, 2), 21, 0],
   ['Thu', addDays(FROZEN_MONDAY, 3), 10, 0], ['Fri', addDays(FROZEN_MONDAY, 4), 23, 30],
@@ -124,6 +123,8 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     await point(page, 0, 12) // waits for the grid to stop re-fitting
     const scroll = (await page.getByTestId('calendar-scroll').boundingBox())!
     const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+    const prompts = (await page.getByTestId('calendar-prompts').boundingBox())?.height ?? 0
+    const room = scroll.height + prompts
     // 24 rows of one height, never cramped below 32px.
     const hourPx = grid.height / 24
     expect(hourPx).toBeGreaterThanOrEqual(32 - 0.5)
@@ -131,9 +132,9 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
     expect(grid.y - scroll.y + (8 / 24) * grid.height).toBeCloseTo(8, 0)
     // The whole working day fits when the window is tall enough for it, else
     // the bottom of the grid is a scroll away: never a short grid.
-    const fits = scroll.height >= 14 * 32 + 16
+    const fits = room >= 14 * 32 + 16
     if (fits) {
-      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + scroll.height)
+      expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(scroll.y + room)
     } else {
       expect(hourPx).toBeCloseTo(32, 0)
       await page.getByTestId('calendar-scroll').evaluate((el) => { el.scrollTop = el.scrollHeight })
@@ -143,13 +144,37 @@ for (const [label, day, h, m] of FROZEN_DAYS) {
   })
 }
 
+// Any scroll the student (or a block shown) makes keeps its place, not only
+// touch, wheel and keys: a scrollbar drag or scrollIntoView used to snap back
+// to 08:00 the next time the panel resized.
+test('a scroll by any means keeps its place when the panel resizes', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  const component = await mount(<CalendarHarness height={400} />)
+  await expect(block(page, 'Biology lecture')).toBeVisible()
+  await point(page, 0, 12) // waits for the grid to stop re-fitting
+  const scroll = page.getByTestId('calendar-scroll')
+  const bottom = await scroll.evaluate(async (el) => {
+    el.scrollTop = el.scrollHeight
+    await new Promise((resolve) => el.addEventListener('scrollend', resolve, { once: true }))
+    return el.scrollTop
+  })
+  expect(bottom).toBeGreaterThan(0)
+
+  await component.update(<CalendarHarness height={420} />)
+  await point(page, 0, 12)
+  const box = (await scroll.boundingBox())!
+  const grid = (await page.getByTestId('calendar-grid').boundingBox())!
+  // 22:00 is still in view, not scrolled away to 08:00.
+  expect(grid.y + (22 / 24) * grid.height).toBeLessThanOrEqual(box.y + box.height)
+})
+
 test('block language: a class is a solid course tint, a shift neutral with a cup, study time a soft tint with a bar and a grab handle', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
 
   const lecture = block(page, 'Biology lecture')
   await expect(lecture).toHaveAttribute('data-look', 'class')
-  await expect(lecture).toHaveClass(/bg-course-biology-tint/)
+  await expect(lecture).toHaveClass(/bg-course-green-tint/)
   await expect(lecture.getByTestId('calendar-grip')).toHaveCount(0)
 
   const shift = block(page, 'Cafe shift')
@@ -160,7 +185,7 @@ test('block language: a class is a solid course tint, a shift neutral with a cup
 
   const study = block(page, 'Revise respiration')
   await expect(study).toHaveAttribute('data-look', 'study')
-  await expect(study).toHaveClass(/bg-course-biology-soft/)
+  await expect(study).toHaveClass(/bg-course-green-soft/)
   await expect(study.getByTestId('calendar-grip')).toBeVisible()
   await expect(study.getByTestId('calendar-shift-icon')).toHaveCount(0)
 
@@ -229,16 +254,29 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   })
 
-  // Too narrow for a popover beside the press: it goes above or below the
-  // block pressed, so the block stays in view, and stays inside the window.
+  // Too narrow for a popover beside the press: it opens above the block
+  // pressed when it fits there, else below it, inside the window. What it
+  // shows then loads into it, and it grows around its buttons, which stay
+  // where they are even if it then covers the block (main #113).
   const day = (h: number, m = 0) => new Date(FROZEN_MONDAY.getFullYear(), FROZEN_MONDAY.getMonth(), FROZEN_MONDAY.getDate(), h, m).toISOString()
-  const PLACED: [string, string, string][] = [
-    ['high', 'Early seminar', 'Edit Early seminar'],
-    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance'],
-    ['low', 'Evening shift', 'Edit Evening shift'],
+  const PLACED: [string, string, string, 'above' | 'below'][] = [
+    ['high', 'Early seminar', 'Edit Early seminar', 'below'],
+    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance', 'above'],
+    ['low', 'Evening shift', 'Edit Evening shift', 'above'],
   ]
-  for (const [where, title, dialog] of PLACED) {
-    test(`a popover on a block ${where} on the screen keeps clear of the block, inside the window`, async ({ mount, page, simulator }) => {
+  /** Where `el` is once it has stopped moving. */
+  const settledBox = async (el: Locator) => {
+    let last = ''
+    await expect.poll(async () => {
+      const box = JSON.stringify(await el.boundingBox())
+      const settled = box === last
+      last = box
+      return settled
+    }, { intervals: [100] }).toBe(true)
+    return JSON.parse(last) as { x: number; y: number; width: number; height: number }
+  }
+  for (const [where, title, dialog, side] of PLACED) {
+    test(`a popover on a block ${where} on the screen opens ${side} it, inside the window, and its buttons stay put as it loads`, async ({ mount, page, simulator }) => {
       await freezeAt(page, simulator, FROZEN_MONDAY, 7)
       seed(simulator, [
         { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
@@ -250,28 +288,81 @@ test.describe('on a phone', () => {
       ])
       await mount(<CalendarHarness width="100%" height={800} />)
       await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+      // What the popover shows of the lecture is held, so it opens before it loads.
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => { release = resolve })
+      await page.route(/recordings\.byId|transcripts\.byRecording|tags\.list/, async (route) => {
+        await held
+        await route.fallback()
+      })
 
       await block(page, title).click()
       const popover = page.getByRole('dialog', { name: dialog })
       await expect(popover).toBeVisible()
-      // Measured once it has stopped moving (its content loads, then it is placed again).
-      let last = ''
-      await expect.poll(async () => {
-        const box = JSON.stringify(await popover.boundingBox())
-        const settled = box === last
-        last = box
-        return settled
-      }, { intervals: [100] }).toBe(true)
-      const box = (await popover.boundingBox())!
+      const opened = await settledBox(popover)
       const pressed = (await block(page, title).boundingBox())!
+      const buttons = popover.locator('[data-popover-anchor]').last()
+      const before = await buttons.boundingBox()
 
       const viewport = page.viewportSize()!
-      expect(box.x).toBeGreaterThanOrEqual(0)
-      expect(box.y).toBeGreaterThanOrEqual(0)
-      expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-      expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
-      const clear = box.y + box.height <= pressed.y || box.y >= pressed.y + pressed.height
-      expect(clear, 'the popover is above or below the block, not over it').toBe(true)
+      const inside = (box: typeof opened) => {
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.y).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+      }
+      inside(opened)
+      if (side === 'above') expect(opened.y + opened.height, 'it opens above the block').toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y, 'it opens below the block').toBeGreaterThanOrEqual(pressed.y + pressed.height)
+
+      release()
+      if (title.startsWith('Review')) await expect(popover.getByTestId('calendar-moment-quote').locator('blockquote')).not.toBeEmpty()
+      const loaded = await settledBox(popover)
+      inside(loaded)
+      expect(await buttons.boundingBox(), 'its buttons stay where they are').toEqual(before)
+    })
+  }
+
+  // It scales in from the edge next to its block: its top edge below it, its
+  // bottom edge above it.
+  const SCALED: [string, string, 'above' | 'below'][] = [
+    ['Early seminar', 'Edit Early seminar', 'below'],
+    ['Evening shift', 'Edit Evening shift', 'above'],
+  ]
+  for (const [title, dialog, side] of SCALED) {
+    test(`a popover that opens ${side} its block scales in from its ${side === 'above' ? 'bottom' : 'top'} edge`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        { id: 'late', kind: 'commitment', title: 'Evening shift', subtype: 'shift', starts_at: day(20), ends_at: day(21) },
+      ])
+      await mount(<CalendarHarness width="100%" height={800} />)
+      // Every frame it is scaled (scaling in), for the next 10s or so: its
+      // origin's y, px below its top, as a share of its height.
+      await page.evaluate(() => {
+        const w = window as unknown as { __origins: number[] }
+        w.__origins = []
+        let frames = 0
+        const tick = () => {
+          const el = document.querySelector<HTMLElement>('[data-testid="calendar-popover"]')
+          const style = el && getComputedStyle(el)
+          if (el && style && style.scale !== 'none' && style.scale !== '1') {
+            w.__origins.push(parseFloat(style.transformOrigin.split(' ')[1]) / el.offsetHeight)
+          }
+          if (++frames < 600) requestAnimationFrame(tick)
+        }
+        tick()
+      })
+      await block(page, title).click()
+      const popover = page.getByRole('dialog', { name: dialog })
+      await expect(popover).toBeVisible()
+      const opened = await settledBox(popover)
+      const pressed = (await block(page, title).boundingBox())!
+      if (side === 'above') expect(opened.y + opened.height).toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y).toBeGreaterThanOrEqual(pressed.y + pressed.height)
+      const origins = await page.evaluate(() => (window as unknown as { __origins: number[] }).__origins)
+      expect(origins.length, 'it scaled in').toBeGreaterThan(0)
+      expect([...new Set(origins)]).toEqual([side === 'above' ? 1 : 0])
     })
   }
 
@@ -337,7 +428,7 @@ test('on a wide screen, picking a view saves it', async ({ mount, page, simulato
 
 test('a course highlight dims other courses but never hides them', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
-  await mount(<CalendarHarness highlight={{ courseTag: 'biology', recordingId: 'rec-bio-4' }} />)
+  await mount(<CalendarHarness highlight={{ courseTag: 'biology', lectureId: 'lec-rec-bio-4' }} />)
 
   await expect(page.getByTestId('calendar-highlight')).toHaveText('Biology highlighted')
   await expect(block(page, 'Chemistry lecture')).toBeVisible()
@@ -345,7 +436,7 @@ test('a course highlight dims other courses but never hides them', async ({ moun
   // No course (a shift) is not "another course": it stays undimmed.
   await expect(block(page, 'Cafe shift')).not.toHaveAttribute('data-dimmed')
   await expect(block(page, 'Biology lecture')).not.toHaveAttribute('data-dimmed')
-  // Linked to the focused lecture.
+  // Linked to the selected lecture (made from a moment of its recording).
   await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('data-linked', 'true')
   await expect(block(page, 'Revise respiration')).not.toHaveAttribute('data-linked')
 })
@@ -390,7 +481,8 @@ test('drag over empty time to add study time and something due', async ({ mount,
   await popover.getByRole('button', { name: 'Add' }).click()
   await expect(block(page, 'Problem set')).toHaveAttribute('data-kind', 'task')
   expect(simulator.db.planItems.find((p) => p.title === 'Problem set')).toMatchObject({
-    kind: 'task', starts_at: iso(3, 13), ends_at: iso(3, 14, 30), duration_min: 90, recurrence: null,
+    // Study time made on the calendar is just a block: no estimate (flow-audit decision 15).
+    kind: 'task', starts_at: iso(3, 13), ends_at: iso(3, 14, 30), duration_min: null, recurrence: null,
   })
 
   const due = await point(page, 4, 17.1)
@@ -432,7 +524,19 @@ test('drag study time to another day and resize it', async ({ mount, page, simul
   await page.mouse.move(end.x, end.y, { steps: 5 })
   await page.mouse.up()
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(4, 11, 30))
+  // Lengthened past its 1h estimate: the estimate rises to the 1h 30m booked (flow-audit decision 16).
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: iso(4, 10), duration_min: 90 })
+
+  // Shortened to 10:30: the block is the time booked, and the estimate is never lowered (decision 8).
+  await revise.hover()
+  const edge = await revise.getByTestId('calendar-block-resize').boundingBox()
+  const shorter = await point(page, 4, 10.5)
+  await page.mouse.move(edge!.x + edge!.width / 2, edge!.y + edge!.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(shorter.x, shorter.y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'revise')?.ends_at).toBe(iso(4, 10, 30))
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')?.duration_min).toBe(90)
 })
 
 test('commitments do not move by drag; they move by an explicit edit', async ({ mount, page, simulator }) => {
@@ -484,6 +588,30 @@ test('mark study time done, then delete it', async ({ mount, page, simulator }) 
   await popover.getByRole('button', { name: 'Delete it?' }).click()
   await expect(block(page, 'Revise respiration')).toHaveCount(0)
   expect(simulator.db.planItems.find((p) => p.id === 'revise')).toBeUndefined()
+})
+
+test('deleting a weekly class is confirmed with Undo, which brings back the whole series as it was', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  simulator.db.lectures.push({ id: 'lec-class', title: 'Biology lecture', course: 'biology', starts_at: iso(0, 10), class_item_id: 'bio-lecture', class_date: iso(0, 0).slice(0, 10) } as never)
+  const before = structuredClone(simulator.db.planItems.find((p) => p.id === 'bio-lecture'))
+  await mount(<CalendarHarness toasts />)
+
+  await block(page, 'Biology lecture').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Delete' }).click()
+  await popover.getByRole('button', { name: 'Delete every week?' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(0)
+  const toast = page.getByTestId('toast')
+  await expect(toast).toContainText('Deleted "Biology lecture"')
+
+  await toast.getByRole('button', { name: 'Undo' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')).toEqual(before)
+  expect(simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.course).toBe('biology')
+  expect(simulator.db.lectures.find((l) => l.id === 'lec-class')?.class_item_id).toBe('bio-lecture')
+  // Next week has it too.
+  await page.getByRole('button', { name: 'Next week' }).click()
+  await expect(block(page, 'Biology lecture')).toHaveCount(1)
 })
 
 test('while a save is pending the popover fields are read-only, still legible, and take no edits', async ({ mount, page, simulator }) => {
@@ -656,6 +784,8 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
     id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(16, 21, 15), ends_at: iso(16, 21, 35),
     duration_min: 20, subtype: 'review', source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 78000, course: 'biology',
   }])
+  // The glow's timers wait for the test, however slowly the machine runs.
+  await page.clock.install()
   await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(16, 21, 15) }]} />)
   await expect(block(page, 'Biology lecture')).toBeVisible()
 
@@ -672,9 +802,64 @@ test('"See it" opens the week of the block, scrolls to it and glows it once with
   // It glows once, in its course colour.
   await expect(target).toHaveCSS('animation-name', 'glow-once')
   // Then settles.
-  await expect(target).not.toHaveAttribute('data-revealed', 'true', { timeout: 6000 })
+  await page.clock.runFor(4000)
+  await expect(target).not.toHaveAttribute('data-revealed', 'true')
   await expect(callout).toHaveCount(0)
 })
+
+// The hours re-fit (a row above the grid going as the block's week lands,
+// the panel resized) just as "See it" starts, or while the grid is on its
+// way to the block: it still lands on the block.
+for (const when of ['just before', 'while'] as const) {
+  test(`"See it" lands on the block when the hours re-fit ${when} the grid scrolls to it`, async ({ mount, page, simulator }) => {
+    // Thursday morning, whatever day the suite runs: Wednesday's study block
+    // has passed, so the re-fit prompt sits under the hours, over the
+    // evening, and the block takes a scroll to reach (earlier in the week
+    // the grid shows it already and never scrolls).
+    await freezeAt(page, simulator, addDays(monday, 3), 9)
+    seedWeek(simulator)
+    seed(simulator, [{
+      id: 'later-review', kind: 'task', title: 'Review: paternal leakage', starts_at: iso(4, 21, 15), ends_at: iso(4, 21, 35),
+      duration_min: 20, subtype: 'review', course: 'biology',
+    }])
+    await mount(<CalendarHarness reveal={[{ id: 'later-review', startsAt: iso(4, 21, 15) }]} />)
+    await expect(block(page, 'Biology lecture')).toBeVisible()
+    // The grid has settled at the day's start.
+    const scroll = page.getByTestId('calendar-scroll')
+    let last = -1
+    await expect.poll(async () => {
+      const top = await scroll.evaluate((el) => el.scrollTop)
+      const settled = top === last
+      last = top
+      return settled
+    }, { intervals: [100] }).toBe(true)
+
+    await page.evaluate((when) => new Promise<void>((resolve) => {
+      const grid = document.querySelector<HTMLElement>('[data-testid="calendar-scroll"]')!
+      const panel = document.querySelector<HTMLElement>('[data-testid="calendar-panel"]')!
+      const reveal = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Reveal later-review')!
+      if (when === 'just before') {
+        // Taller in the same task as the click: the hours haven't re-fitted yet as the block is shown.
+        panel.style.height = '700px'
+        reveal.click()
+        resolve()
+        return
+      }
+      const from = grid.scrollTop
+      const onScroll = () => {
+        if (grid.scrollTop <= from) return
+        grid.removeEventListener('scroll', onScroll)
+        panel.style.height = '700px'
+        resolve()
+      }
+      grid.addEventListener('scroll', onScroll)
+      reveal.click()
+    }), when)
+    const target = block(page, 'Review: paternal leakage')
+    await expect(target).toHaveAttribute('data-revealed', 'true')
+    await expect(target).toBeInViewport()
+  })
+}
 
 test('with reduced motion a revealed block holds a still ring instead of glowing', async ({ mount, page, simulator }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
@@ -698,7 +883,8 @@ test('the next and previous weeks are fetched by date range', async ({ mount, pa
   await expect(block(page, 'Field trip')).toHaveCount(0)
 })
 
-test('a move that does not save says so and puts the block back', async ({ mount, page, simulator }) => {
+test('a move that does not save says so and puts the block back', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   await expect(block(page, 'Revise respiration')).toBeVisible()
@@ -784,13 +970,15 @@ test('keyboard: Shift with Up / Down resizes study time from its end', async ({ 
   await block(page, 'Revise respiration').focus()
   await page.keyboard.press('Shift+ArrowDown')
   await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 17, 15))
+  // Lengthened past its 1h estimate: the estimate rises to the 1h 15m booked (flow-audit decision 16).
   expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
   await expect(announced(page)).toHaveText('Revise respiration now 16:00 to 17:15')
 
   await page.keyboard.press('Shift+ArrowUp')
   await page.keyboard.press('Shift+ArrowUp')
   await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 16, 45))
-  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 45 })
+  // Shortened: the block is the time booked, and the estimate is never lowered (flow-audit decision 8).
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
 })
 
 test('eight quick arrow presses leave the block, saved, on the eighth position', async ({ mount, page, simulator }) => {
@@ -805,7 +993,9 @@ test('eight quick arrow presses leave the block, saved, on the eighth position',
   await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
 })
 
-test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator }) => {
+test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator, consoleErrors }) => {
+  // The rows' refetch after the first save is dropped (its batch carries the refit preview too).
+  consoleErrors.allowFailedRequest('planItems.list', 'planItems.refitPreview')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
@@ -827,7 +1017,8 @@ test('a block moved and straight back ends saved where it started, even when the
   await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
 })
 
-test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator }) => {
+test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
@@ -856,7 +1047,8 @@ test('a later move that does not save says where the block is: at the earlier mo
   expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
 })
 
-test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator }) => {
+test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update', 'planItems.list', 'planItems.refitPreview')
   seedWeek(simulator)
   await mount(<CalendarHarness />)
   const revise = block(page, 'Revise respiration')
@@ -1268,4 +1460,117 @@ test('the source line wraps only where it reads well: never on its spaced dash, 
     expect(line, 'a line starts with the dash').not.toMatch(/^-/)
   }
   expect(lines.at(-1)).toBe('DNA - today · 9:00')
+})
+
+test('Find another time offers other free slots this week, and picking one moves the block', async ({ mount, page, simulator }) => {
+  // Wed 28 Oct, 09:00.
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seedWeek(simulator, FROZEN_MONDAY)
+  await mount(<CalendarHarness />)
+  const day = (d: number, h: number, m = 0) => new Date(2026, 9, 26 + d, h, m).toISOString()
+  await block(page, 'Revise respiration').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  const slots = popover.getByTestId('another-time-slot')
+  await expect(slots).toHaveCount(3)
+  // Earliest first, never where it is now (Wed 16:00).
+  await expect(slots.first()).toHaveText('Today 09:00')
+  await expect(slots.filter({ hasText: 'Today 16:00' })).toHaveCount(0)
+  // The fields stay for an exact time.
+  await expect(popover.getByLabel('Start time')).toBeVisible()
+
+  await slots.first().click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'revise')).toMatchObject({ starts_at: day(2, 9), ends_at: day(2, 10), duration_min: 60 })
+  await expect(block(page, 'Revise respiration')).toHaveAttribute('aria-label', /09:00 - 10:00/)
+})
+
+test('Find another time says so when nothing else fits before it is due', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seed(simulator, [
+    { id: 'busy', kind: 'commitment', title: 'Placement', starts_at: new Date(2026, 9, 28, 9).toISOString(), ends_at: new Date(2026, 9, 28, 14).toISOString() },
+    { id: 'notes', kind: 'task', title: 'Tidy notes', starts_at: new Date(2026, 9, 28, 14).toISOString(), ends_at: new Date(2026, 9, 28, 15).toISOString(), duration_min: 60, due_at: new Date(2026, 9, 28, 15).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Tidy notes').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time')).toHaveText('No other free time fits before it is due this week.')
+  await expect(popover.getByTestId('another-time-slot')).toHaveCount(0)
+})
+
+/** A 3h lab report booked in two sessions this week (Wed 14:00, Thu 10:00), the first already ticked. */
+function seedSessions(simulator: BackendSimulator) {
+  const day = (d: number, h: number) => new Date(2026, 9, 26 + d, h).toISOString()
+  seed(simulator, [
+    { id: 'lab', kind: 'task', title: 'Lab report write-up', duration_min: 180, due_at: day(4, 17), course: 'chemistry' },
+    { id: 'lab-1', kind: 'task', title: 'Lab report write-up', starts_at: day(2, 14), ends_at: day(2, 15), duration_min: 60, source_type: 'plan_item', source_id: 'lab', status: 'done', course: 'chemistry' },
+    { id: 'lab-2', kind: 'task', title: 'Lab report write-up', starts_at: day(3, 10), ends_at: day(3, 12), duration_min: 120, source_type: 'plan_item', source_id: 'lab', course: 'chemistry' },
+  ])
+}
+
+test("ticking a to-do's last open session offers to tick the to-do off too", async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 3), 13)
+  seedSessions(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Lab report write-up').last().click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  const offer = popover.getByTestId('tick-todo-too')
+  await expect(offer).toHaveText(/That was its last session\. Tick off Lab report write-up too\?/)
+  // Only the session is ticked until the student says so.
+  expect(simulator.db.planItems.find((p) => p.id === 'lab-2')?.status).toBe('done')
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('open')
+  await expect(offer.getByRole('button', { name: 'Tick it off' })).toBeFocused()
+  await offer.getByRole('button', { name: 'Tick it off' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('done')
+})
+
+test('"Not yet" leaves the to-do open; a session that is not the last one just ticks', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 3), 13)
+  seedSessions(simulator)
+  simulator.db.planItems.find((p) => p.id === 'lab-1')!.status = 'open'
+  await mount(<CalendarHarness />)
+  const popover = page.getByTestId('calendar-popover')
+  await block(page, 'Lab report write-up').first().click()
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab-1')?.status).toBe('done')
+
+  await block(page, 'Lab report write-up').last().click()
+  await popover.getByRole('button', { name: 'Mark done' }).click()
+  await popover.getByTestId('tick-todo-too').getByRole('button', { name: 'Not yet' }).click()
+  await expect(popover).toHaveCount(0)
+  expect(simulator.db.planItems.find((p) => p.id === 'lab')?.status).toBe('open')
+})
+
+test('Find another time on a block past its due time offers this week\'s free slots and says why', async ({ mount, page, simulator }) => {
+  // Wed 28 Oct, 09:00; due Tue 27 Oct 17:00, booked Thu 14:00.
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 2), 9)
+  seed(simulator, [
+    { id: 'late', kind: 'task', title: 'Late essay plan', duration_min: 60, due_at: new Date(2026, 9, 27, 17).toISOString(), starts_at: new Date(2026, 9, 29, 14).toISOString(), ends_at: new Date(2026, 9, 29, 15).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Late essay plan').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time-overdue')).toHaveText("It's past its due time. These are this week's free slots.")
+  await expect(popover.getByTestId('another-time-slot')).toHaveCount(3)
+  // Its due time has passed, so the slots run to the week's end, not stop at it.
+  await expect(popover.getByTestId('another-time-slot').first()).toHaveText('Today 09:00')
+})
+
+test('Find another time on a block with no due date never mentions one', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, addDays(FROZEN_MONDAY, 6), 21)
+  seed(simulator, [
+    { id: 'busy', kind: 'commitment', title: 'Night shift', starts_at: new Date(2026, 10, 1, 21, 30).toISOString(), ends_at: new Date(2026, 10, 1, 22).toISOString() },
+    { id: 'notes', kind: 'task', title: 'Tidy notes', duration_min: null, starts_at: new Date(2026, 10, 1, 21).toISOString(), ends_at: new Date(2026, 10, 1, 21, 30).toISOString() },
+  ])
+  await mount(<CalendarHarness />)
+  await block(page, 'Tidy notes').click()
+  const popover = page.getByTestId('calendar-popover')
+  await popover.getByRole('button', { name: 'Find another time' }).click()
+  await expect(popover.getByTestId('another-time')).toContainText('No other free time fits this week.')
+  await expect(popover.getByTestId('another-time')).not.toContainText('due')
 })

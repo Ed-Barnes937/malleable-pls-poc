@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { test, expect } from '@playwright/test'
+import { test, expect } from './test'
 
 // K0a: a UI SDK popup renders and opens inside the real Vite app (its dev
 // server, plugins and dependency pre-bundling), not only in CT's own Vite.

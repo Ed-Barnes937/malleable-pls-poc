@@ -39,10 +39,10 @@ class LensErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState
 function LoadingSkeleton() {
   return (
     <div className="flex h-full flex-col gap-3 p-1">
-      <div className="h-3 w-2/3 animate-pulse rounded-full bg-surface-overlay" />
-      <div className="h-3 w-full animate-pulse rounded-full bg-surface-overlay/80" />
-      <div className="h-3 w-5/6 animate-pulse rounded-full bg-surface-overlay/60" />
-      <div className="h-3 w-3/4 animate-pulse rounded-full bg-surface-overlay/40" />
+      <div className="h-3 w-2/3 motion-safe:animate-pulse rounded-full bg-surface-overlay" />
+      <div className="h-3 w-full motion-safe:animate-pulse rounded-full bg-surface-overlay/80" />
+      <div className="h-3 w-5/6 motion-safe:animate-pulse rounded-full bg-surface-overlay/60" />
+      <div className="h-3 w-3/4 motion-safe:animate-pulse rounded-full bg-surface-overlay/40" />
     </div>
   )
 }

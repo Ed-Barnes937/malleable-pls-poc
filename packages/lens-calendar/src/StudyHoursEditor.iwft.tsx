@@ -16,7 +16,7 @@ function seed(simulator: BackendSimulator) {
   simulator.db.planItems.push({
     id: 'essay', kind: 'task', title: 'Essay plan', starts_at: null, ends_at: null, due_at: null, duration_min: 120,
     status: 'open', recurrence: null, subtype: null, source_type: null, source_id: null,
-    source_offset_ms: null, created_at: iso(-7, 0), updated_at: iso(-7, 0),
+    source_offset_ms: null, course: null, created_at: iso(-7, 0), updated_at: iso(-7, 0),
   } as StoredPlanItem)
 }
 
@@ -255,7 +255,7 @@ test('study hours saved while Auto-fill is drafting shape the draft it lands', a
 
 test('if the preference cannot load, saving study hours does not set a time zone', async ({ mount, page, simulator }) => {
   seed(simulator)
-  await page.route('**/preferences.get**', (route) => route.fulfill({ status: 500, body: '{}' }))
+  simulator.failProcedure('preferences.get')
   const sent: Record<string, unknown>[] = []
   await page.route('**/preferences.update**', async (route) => {
     sent.push(JSON.parse(route.request().postData() ?? 'null'))
@@ -430,7 +430,8 @@ test('a change shows straight away while it saves, and two quick saves land in o
   await expect(page.getByTestId('plan-capacity')).toContainText('(3h a day)')
 })
 
-test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator }) => {
+test('a save that fails goes back to what is saved, and says so', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('preferences.update')
   seed(simulator)
   await mount(<CalendarHarness />)
   await openPlan(page)

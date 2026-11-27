@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { FocusedPlanItem, PlanItemRef, Scope, ShowMomentResult } from '@pls/lens-framework'
 import CalendarLens from '@pls/lens-calendar'
+import { notifyToast, useToastStore } from '@pls/workspace-shell'
 import { TestProviders } from './mount-wrapper'
 
 /**
@@ -20,8 +21,13 @@ export function CalendarHarness({
   reveal = [],
   width = 1000,
   height = 640,
+  toasts = false,
+  asksAboutMissedBlocks,
 }: {
   highlight?: Scope
+  /** Undo toasts show in a toast bar, as on a board (see TestProviders). */
+  toasts?: boolean
+  asksAboutMissedBlocks?: boolean
   /** The Calendar panel's width (the demo board's is about 900), or e.g. '100%'. */
   width?: number | string
   /** The Calendar panel's height (the demo board's Calendar body is about 712). */
@@ -38,10 +44,13 @@ export function CalendarHarness({
   const [nextRequest, setNextRequest] = useState(1)
   const [configCalls, setConfigCalls] = useState<string[]>([])
   return (
-    <TestProviders>
-      <div className="flex flex-col bg-surface p-3" style={{ width, height }}>
+    <TestProviders toasts={toasts}>
+      <div data-testid="calendar-panel" className="flex flex-col bg-surface p-3" style={{ width, height }}>
         <CalendarLens
           panelId="calendar-test"
+          asksAboutMissedBlocks={asksAboutMissedBlocks}
+          onNotify={toasts ? notifyToast : undefined}
+          onDismissNotice={toasts ? (key) => useToastStore.getState().dismissKey(key) : undefined}
           scope={{}}
           highlight={highlight}
           config={config}

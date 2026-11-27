@@ -84,6 +84,49 @@ AI_MODE=live pnpm demo:live-smoke
 
 It refuses to run unless `AI_MODE=live` is set on the command line (it checks before loading `apps/server/.env`, which is where it reads `OPENROUTER_API_KEY` and `OPENROUTER_LLM_MODEL` from). Agents and CI must never run it.
 
+## Courses (`courses.*`)
+
+A student's courses are their own rows (`courses`, migration 026): an opaque
+`id` (what everything files under; never shown), a `name` and a palette
+`color` (`COURSE_COLORS` in `@pls/substrate`). Lectures, resources and plan
+items reference one by a foreign key on `(user_id, course)`, ON DELETE
+RESTRICT; board course scopes are kept by the app. Every writer checks the
+course is the student's with `requireOwnCourse` (BAD_REQUEST "Unknown
+course"; archived courses are accepted). `list` returns every course,
+archived ones included; `create` picks the least-used colour; `update`
+renames, recolours, archives or restores; `delete` works only when nothing
+uses the course (CONFLICT naming what does) and turns boards on it into "All
+courses". A new student starts with no courses; seeds and the e2e reseed
+give the demo student Biology, Chemistry and Physics (ids `biology`,
+`chemistry`, `physics`). DB-backed tests: `courses.db`, `courses-migration.db`
+(db tests give their students the three with `insertStarterCourses`).
+
+## Lectures (`lectures.*`, `/upload`)
+
+`lectures.list` / `byId` / `create` / `update` and `forClassOccurrence` (the
+lecture of one class occurrence, found or made exactly once, optionally
+selected on a board; see "Lectures and class occurrences" in
+`docs/technical-guidance.md`). `create` with `matchClass` is what Record calls
+when capture starts: during a class of the course it returns that
+occurrence's lecture. Every board scope write goes through `writeBoardScope`
+(`src/routers/_board-scope.ts`) under the board's scope lock, which callers
+take before touching lecture rows. `/upload` records into `x-lecture-id`, or
+makes a lecture and, with `x-select-on-board: 1`, selects it on
+`x-workspace-id` if that board shows no lecture. `x-upload-id` (one per
+capture or file, the same on every try) makes a retry return the recording
+an earlier try saved instead of a second copy. DB-backed tests:
+`TEST_DATABASE_URL=... pnpm test class-lectures.db`.
+
+`deletePreview` / `delete` remove a lecture and everything only there
+because of it (`src/routers/_lecture-deletion.ts`): recordings, transcripts,
+the marks on them (polymorphic rows, listed once in `RECORDING_DATA`, which
+both the preview and `deleteRecordingData` read: add a new target type
+there), unfinished plan items made from its moments (finished ones stay, unlinked), resources and every board's
+selection of it. `delete` takes the preview's `fingerprint` and is CONFLICT
+if anything changed since; audio files go from disk after the commit
+(`src/uploaded-files.ts`). AI jobs whose recording is gone finish as quiet
+skips. Tests: `lecture-delete.db`.
+
 ## Preferences (`preferences.get`, `preferences.update`)
 
 The student's study rhythm, one row per user in `user_preferences` (migration 016, RLS like every table): `study_hours` (`{ mon..sun: { start, end } | null }`, local `HH:MM`, `24:00` allowed as an end, `null` = no study that day), `study_min_per_day` and `time_zone`. A NULL column means the default (09:00-22:00 every day, 2h a day, no zone: callers use their own). `get` returns it with the defaults filled in; `update` takes any subset (`preferencesUpdateInput` in `@pls/substrate`), `null` resetting a field. Every automatic placement reads it server-side (`src/preferences/store.ts`): Auto-fill, re-fit and the confusion automation. Manual create and drag ignore it. DB-backed tests: `TEST_DATABASE_URL=... pnpm test preferences.db`.

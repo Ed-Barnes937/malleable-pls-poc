@@ -1,10 +1,28 @@
 import { SimulatorError, type ProcedureRouter } from '../trpc-protocol'
 import type { InMemoryDb } from '../in-memory-db'
-import { inCourse } from './course-scope'
+import type { BoardScope } from '@pls/substrate'
+import { readBoardScope, writeBoardScope } from './lectures'
+import { requireCourse } from './courses'
+
 
 export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemoryDb): void {
   router.register('workspaces.list', () => {
     return db.workspaces
+  })
+
+  // As the server: tab order, each board's widget types oldest first.
+  router.register('workspaces.summary', () => {
+    return [...db.workspaces]
+      .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+      .map((w) => ({
+        id: w.id,
+        name: w.name,
+        sort_order: w.sort_order,
+        lens_types: db.workspacePanels
+          .filter((p) => p.workspace_id === w.id)
+          .sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id))
+          .map((p) => p.lens_type),
+      }))
   })
 
   router.register('workspaces.panels', (input) => {
@@ -14,6 +32,7 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.create', (input) => {
     const { name, courseTag } = input as { name: string; courseTag?: string }
+    if (courseTag) requireCourse(db, courseTag)
     const ws = {
       id: `ws-${crypto.randomUUID().slice(0, 8)}`,
       name,
@@ -100,44 +119,39 @@ export function registerWorkspacesHandlers(router: ProcedureRouter, db: InMemory
 
   router.register('workspaces.scopes', (input) => {
     const workspaceId = input as string
-    return db.workspaceScopes.filter((s) => s.workspace_id === workspaceId)
+    // Ordered by type, as on the server.
+    return db.workspaceScopes
+      .filter((s) => s.workspace_id === workspaceId)
+      .sort((a, b) => (a.scope_type < b.scope_type ? -1 : a.scope_type > b.scope_type ? 1 : 0))
   })
 
-  router.register('workspaces.setScope', (input) => {
-    const { workspaceId, scopeType, scopeValue } = input as {
-      workspaceId: string; scopeType: string; scopeValue: string | null
-    }
-    // Mirror the server's z.enum: only live board dimensions.
-    if (scopeType !== 'tag' && scopeType !== 'recording') throw new Error(`Unknown scope type: ${scopeType}`)
+  // The one scope write, as on the server (see `writeBoardScope`).
+  router.register('workspaces.setBoardScope', (input) => {
+    const { workspaceId, courseTag, lectureId } = input as { workspaceId: string; courseTag?: string | null; lectureId?: string | null }
+    // Only what the server's input schema accepts (never `courseFollowsLecture`).
+    const patch = { courseTag, lectureId }
+    requireCourse(db, patch.courseTag)
+    return writeBoardScope(db, workspaceId, patch)
+  })
+
+  /** Twin of the server's `restoreBoardScope`: Undo, only while the board shows what the change left. */
+  router.register('workspaces.restoreBoardScope', (input) => {
+    const { workspaceId, to, ifBoardShows } = input as { workspaceId: string; to: BoardScope; ifBoardShows: BoardScope }
     requireBoard(db, workspaceId)
-    // Mirror server invariant: a new course clears a focused recording that
-    // is not in it; "All courses" (null) keeps the focus.
-    if (scopeType === 'tag' && scopeValue !== null) {
-      db.workspaceScopes = db.workspaceScopes.filter(
-        (s) => !(
-          s.workspace_id === workspaceId &&
-          s.scope_type === 'recording' &&
-          !inCourse(db, scopeValue, 'recording', s.scope_value)
-        ),
-      )
+    // As the server: the course it would put back must be the student's; the
+    // one it compares against is only compared.
+    requireCourse(db, to.courseTag)
+    const current = readBoardScope(db, workspaceId)
+    if (current.courseTag !== ifBoardShows.courseTag || current.lectureId !== ifBoardShows.lectureId) {
+      return { restored: false, scope: current }
     }
-    const idx = db.workspaceScopes.findIndex(
-      (s) => s.workspace_id === workspaceId && s.scope_type === scopeType,
-    )
-    if (scopeValue === null) {
-      if (idx >= 0) db.workspaceScopes.splice(idx, 1)
-      return
-    }
-    if (idx >= 0) {
-      db.workspaceScopes[idx].scope_value = scopeValue
-    } else {
-      db.workspaceScopes.push({
-        id: `ws-scope-${crypto.randomUUID().slice(0, 8)}`,
-        workspace_id: workspaceId,
-        scope_type: scopeType,
-        scope_value: scopeValue,
-      })
-    }
+    const lecture = to.lectureId ? db.lectures.find((l) => l.id === to.lectureId) : undefined
+    const patch = !lecture
+      ? { courseTag: to.courseTag, lectureId: null }
+      : to.courseTag === null
+        ? { courseTag: null, lectureId: lecture.id }
+        : { lectureId: lecture.id, courseFollowsLecture: true }
+    return { restored: true, scope: writeBoardScope(db, workspaceId, patch) }
   })
 }
 

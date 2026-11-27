@@ -1,4 +1,5 @@
 import {
+  autofillOrder,
   draftPlan,
   formatMinutes,
   planTasks,
@@ -20,11 +21,16 @@ export interface AutofillDraft {
 }
 
 /**
- * Turns Auto-fill advice into ghost blocks: the to-dos in the advised
- * order, with any trims the student applied, placed by the scheduler around
- * everything busy. `pinned` are ghosts the student already dragged: they stay
- * where they are and their to-dos are not placed again. Pure and
- * deterministic: the same inputs always give the same draft.
+ * Turns Auto-fill advice into ghost blocks: dated to-dos first, soonest due
+ * first, then the rest in the advised order (`autofillOrder`), with any
+ * trims the student applied, placed by the scheduler around everything
+ * busy. A to-do that fits in no single block is split into sessions, shown
+ * "(1 of 2)", "(2 of 2)". `pinned` are ghosts the student already dragged:
+ * they stay where they are and their time is not placed again (the rest of
+ * a split to-do still is). `booked` (to-do id -> minutes) marks to-dos that
+ * already have sessions: their `duration_min` is what is left to book (see
+ * `todosToPlan`), and every block for them is drafted as a session too.
+ * Pure and deterministic: the same inputs always give the same draft.
  */
 export function buildAutofillDraft(args: {
   todos: ReadonlyArray<Todo>
@@ -36,6 +42,7 @@ export function buildAutofillDraft(args: {
   /** Assumed lengths for to-dos with no estimate. */
   estimates?: Readonly<Record<string, number>>
   pinned?: ReadonlyArray<Proposal>
+  booked?: ReadonlyMap<string, number>
 }): AutofillDraft {
   const { layout, now, advice } = args
   const trims = args.trims ?? new Map<string, number>()
@@ -45,11 +52,11 @@ export function buildAutofillDraft(args: {
   })
   const byId = new Map(tasks.map((t) => [t.id, t]))
   const pinned = (args.pinned ?? []).filter((p) => byId.has(p.taskId))
-  const pinnedIds = new Set(pinned.map((p) => p.taskId))
-  const rank = new Map(advice.order.map((id, i) => [id, i]))
-  const ordered = tasks
-    .filter((t) => !pinnedIds.has(t.id))
-    .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity))
+  const pinnedMin = new Map<string, number>()
+  for (const p of pinned) pinnedMin.set(p.taskId, (pinnedMin.get(p.taskId) ?? 0) + proposalMinutes([p]))
+  const ordered = autofillOrder(tasks, advice.order)
+    .map((t) => ({ ...t, durationMin: t.durationMin - (pinnedMin.get(t.id) ?? 0) }))
+    .filter((t) => t.durationMin > 0)
 
   const result = draftPlan(ordered, layout, {
     now,
@@ -61,7 +68,7 @@ export function buildAutofillDraft(args: {
     const task = byId.get(p.taskId)!
     const before = original.get(task.id)
     return {
-      id: task.id,
+      id: `${task.id}@${p.start}`,
       taskId: task.id,
       title: task.title,
       course: task.course,
@@ -70,11 +77,33 @@ export function buildAutofillDraft(args: {
       note: trims.has(task.id) && before ? `Shrunk from ${formatMinutes(before)}` : undefined,
     }
   })
+  const all = [...pinned, ...placed].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt))
   return {
-    proposals: [...pinned, ...placed].sort((a, b) => Date.parse(a.startsAt) - Date.parse(b.startsAt)),
+    proposals: all.map((p) => {
+      const trimmed = trims.get(p.taskId)
+      // A shrunk to-do's new total: what is booked already plus the shrunk rest.
+      const estimateMin = trimmed === undefined ? undefined : (args.booked?.get(p.taskId) ?? 0) + trimmed
+      return numbered(p, all, byId.get(p.taskId)!.title, args.booked?.has(p.taskId) ?? false, estimateMin)
+    }),
     unplaced: result.unplaced.map((u) => ({ ...u, task: byId.get(u.taskId)! })),
     tasks,
   }
+}
+
+/**
+ * A draft block with its session number: a to-do with more than one block
+ * is split ("Lab report write-up (1 of 2)"); its blocks, and any block of a
+ * to-do already booked in sessions, save as sessions. A lone block keeps the
+ * to-do's id, so it saves as the to-do's own time as before. `estimateMin`
+ * is the to-do's total after a Shrink, saved with its sessions.
+ */
+function numbered(p: Proposal, all: ReadonlyArray<Proposal>, title: string, hasSessions: boolean, estimateMin?: number): Proposal {
+  const mine = all.filter((q) => q.taskId === p.taskId)
+  const base = { ...p, title, session: undefined }
+  if (mine.length === 1 && !hasSessions) return { ...base, id: p.taskId }
+  const index = mine.indexOf(p) + 1
+  const count = mine.length
+  return { ...base, title: count > 1 ? `${title} (${index} of ${count})` : title, session: { index, count, estimateMin } }
 }
 
 /**
@@ -98,6 +127,8 @@ export type AutofillState =
       /** Trims the student applied: task id -> length. */
       trims: Map<string, number>
       draft: AutofillDraft
+      /** Book the rest: the draft is for these to-dos only (else every one waiting). */
+      only?: string[]
     }
 
 /** Planned minutes of a set of proposals. */

@@ -27,17 +27,17 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
 
   const conceptLabel = config.conceptLabel as string | undefined
   const conceptSegmentId = conceptLabel ? CONCEPT_SEGMENTS[conceptLabel] : undefined
-  const recordingId = scope.recordingId
+  const lectureId = scope.lectureId
 
   const { data: conceptConnections } = substrate.useConnections(conceptSegmentId ?? '', scope)
   // Unfiltered concept links, only to say what the course filter leaves out.
   const { data: allConceptConnections } = substrate.useConnections(conceptSegmentId ?? '', {})
-  // The targeted lecture's links are never course-filtered.
-  const { data: recordingConnections } = substrate.useRecordingConnections(recordingId)
+  // Links out of the board's lecture (always in the board course).
+  const { data: lectureConnections } = substrate.useLectureConnections(lectureId)
 
   const allConnections = [
     ...(conceptConnections ?? []),
-    ...(recordingConnections ?? []),
+    ...(lectureConnections ?? []),
   ]
 
   const seen = new Set<string>()
@@ -51,8 +51,8 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
   const shownConceptKeys = [...allConceptKeys].filter((key) => seen.has(key)).length
   const hidden = <HiddenElsewhere scopedCount={shownConceptKeys} unscopedCount={allConceptKeys.size} />
 
-  // Nothing to connect from: neither a focused lecture nor a configured concept.
-  if (!recordingId && !conceptSegmentId) {
+  // Nothing to connect from: neither a selected lecture nor a configured concept.
+  if (!lectureId && !conceptSegmentId) {
     return <EmptyState icon={Link2} message="Focus a lecture to see its connections" />
   }
 
@@ -74,7 +74,13 @@ export default function ConnectionsLens({ scope, config }: LensProps) {
       {!connections.length ? (
         <EmptyState message="No connections found" action={hidden} />
       ) : (
-        <div className="-mx-3 min-h-0 flex-1 space-y-1 overflow-y-auto px-3">
+        // Nothing in the list takes focus, so the list itself does: keyboard users can scroll it.
+        <div
+          role="region"
+          aria-label="Connections"
+          tabIndex={0}
+          className="-mx-3 min-h-0 flex-1 space-y-1 overflow-y-auto rounded-item px-3 outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        >
           {connections.map((conn, i) => {
             const Icon = SOURCE_ICONS[conn.sourceType] ?? FileText
             const relLabel = RELATIONSHIP_LABELS[conn.relationship ?? ''] ?? conn.relationship

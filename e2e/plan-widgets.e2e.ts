@@ -1,4 +1,5 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
+import { test, expect } from './test'
+import type { APIRequestContext } from '@playwright/test'
 import { PanelGridPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { apiUrl } from './ports'
@@ -23,7 +24,7 @@ async function call<T>(request: APIRequestContext, procedure: string, input: unk
 async function createBoard(request: APIRequestContext, name: string, course: string | null, lensTypes: string[]) {
   const board = await call<{ id: string }>(request, 'workspaces.create', { name })
   if (course) {
-    await call(request, 'workspaces.setScope', { workspaceId: board.id, scopeType: 'tag', scopeValue: course })
+    await call(request, 'workspaces.setBoardScope', { workspaceId: board.id, courseTag: course })
   }
   for (const [i, lensType] of lensTypes.entries()) {
     await call(request, 'workspaces.addPanel', {
@@ -54,7 +55,7 @@ test.describe('Plan widgets: To-do and Coming up', () => {
 
     // Biology board: Coming up filters to Biology and says what it leaves out.
     await topBar.switchToWorkspace('Biology week')
-    await expect(topBar.scopeChip).toHaveText('Showing: Biology', { timeout: 10000 })
+    await topBar.expectScope('Biology', null, { timeout: 10000 })
     const comingUp = grid.panelByLabel('Coming up')
     await expect(comingUp.getByText('Biology quiz')).toBeVisible({ timeout: 10000 })
     await expect(comingUp.getByText('Chemistry lab report')).toHaveCount(0)

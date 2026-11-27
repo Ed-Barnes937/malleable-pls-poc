@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
 import { useWorkspaces, useReorderWorkspaces } from '@pls/substrate-client'
-import { cn, Sortable, SortableHandle, SortableItem } from '@pls/shared-ui'
+import { cn, Sortable, SortableHandle, SortableItem, useListGlide } from '@pls/shared-ui'
 import { useWorkspaceStore } from './store'
 import { useActiveWorkspaceId } from './activeBoard'
 import { BookOpen, Moon, GraduationCap, Plus, Trash2 } from 'lucide-react'
@@ -24,6 +24,11 @@ export function WorkspaceSwitcher() {
   const reorder = useReorderWorkspaces()
 
   const containerRef = useRef<HTMLDivElement>(null)
+  // A board added, deleted or dragged to a new place: the others glide aside rather than jump.
+  useListGlide(containerRef, workspaces?.map((ws) => ws.id) ?? [], 'x')
+  // After the first render, an open tab's delete button arrives with the shared motion.
+  const shown = useRef(false)
+  useEffect(() => { shown.current = true }, [])
   const tabRefs = useRef<Map<string, HTMLElement>>(new Map())
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
@@ -94,9 +99,10 @@ export function WorkspaceSwitcher() {
                 <SortableItem
                   key={ws.id}
                   value={ws.id}
+                  data-glide-key={ws.id}
                   data-testid="workspace-tab"
                   className={cn(
-                    'relative flex shrink-0 items-center rounded-tab transition-all duration-150',
+                    'relative flex shrink-0 items-center rounded-tab transition-[background-color,box-shadow] duration-150',
                     isActive && 'bg-surface-raised shadow-sm',
                   )}
                 >
@@ -108,33 +114,43 @@ export function WorkspaceSwitcher() {
                     // Enter opens the board; Space picks the tab up to move it.
                     enterActivates
                     aria-current={isActive ? 'page' : undefined}
+                    data-board-id={ws.id}
                     onClick={() => setActiveWorkspaceId(ws.id)}
                     className={cn(
-                      'relative flex h-9 items-center gap-2 whitespace-nowrap rounded-tab text-body transition-all duration-150',
+                      'relative flex h-9 items-center gap-[3.5px] whitespace-nowrap rounded-tab pl-1 pr-0 text-body transition-[background-color,color,opacity] duration-150',
                       isActive
-                        ? 'pl-3.5 pr-1 font-semibold text-text-primary'
-                        : 'px-3.5 text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
+                        ? 'font-semibold text-text-primary'
+                        : 'text-text-secondary hover:bg-surface-raised/60 hover:text-text-primary',
                     )}
                   >
                     <Icon className="h-4 w-4" />
-                    {ws.name}
+                    <TabName name={ws.name} />
                   </SortableHandle>
                   {/* Only the open board can be deleted, so the button sits inside
-                      its tab and never overlaps a neighbour. */}
-                  {isActive && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setDeleteTarget({ id: ws.id, name: ws.name })
-                      }}
-                      aria-label={`Delete ${ws.name}`}
-                      title="Delete board"
-                      className="mr-1.5 rounded-item p-1.5 text-text-muted transition-colors hover:bg-confused-soft hover:text-confused"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                      its tab and never overlaps a neighbour. Every tab keeps its
+                      room, so opening a board never changes a tab's width. */}
+                  <span className={cn(TAB_ACTION_ROOM, 'flex items-center justify-center')}>
+                    {isActive && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setDeleteTarget({ id: ws.id, name: ws.name })
+                        }}
+                        aria-label={`Delete ${ws.name}`}
+                        title="Delete board"
+                        // A 24px target over a 20px room: it reaches 2px past the room on each side.
+                        className={cn(
+                          'group/delete -m-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-item text-text-muted transition-colors hover:text-confused',
+                          shown.current && 'motion-safe:animate-enter',
+                        )}
+                      >
+                        <span className="flex h-5 w-5 items-center justify-center rounded-item transition-colors group-hover/delete:bg-confused-soft">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </span>
+                      </button>
+                    )}
+                  </span>
                 </SortableItem>
               )
             })}
@@ -157,5 +173,29 @@ export function WorkspaceSwitcher() {
         workspace={deleteTarget}
       />
     </>
+  )
+}
+
+/**
+ * The delete button's room at a tab's end: 1.5px, a 20px room, then 2px to
+ * the tab's edge. It mirrors the icon and its gap on the left (4 + 16 + 3.5),
+ * so every tab's name sits in its middle, and no tab is wider than a closed
+ * tab was when the open one grew a delete button (px-3.5 and gap-2).
+ */
+const TAB_ACTION_ROOM = 'ml-[1.5px] mr-0.5 h-5 w-5 shrink-0'
+
+/**
+ * A tab's name, as wide as it is in bold whether it is or not: an invisible
+ * bold copy (drawn by CSS, so it is never read out or counted as text) sets
+ * the width, so opening a board never changes a tab's width.
+ */
+function TabName({ name }: { name: string }) {
+  return (
+    <span
+      data-tab-name={name}
+      className="inline-grid after:invisible after:h-0 after:overflow-hidden after:font-semibold after:content-[attr(data-tab-name)]"
+    >
+      {name}
+    </span>
   )
 }

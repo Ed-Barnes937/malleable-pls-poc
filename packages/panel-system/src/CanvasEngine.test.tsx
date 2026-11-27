@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { render, screen, fireEvent, act, within } from '@testing-library/react'
+import { render, renderHook, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { CanvasEngine } from './CanvasEngine'
+import { CanvasEngine, useShiftHeld } from './CanvasEngine'
 import { useCanvasStore } from './canvas-store'
 
 /**
@@ -36,6 +36,8 @@ describe('CanvasEngine', () => {
       focusModePanelId: null,
       fullscreenPanelId: null,
       preFullscreenLayout: null,
+      gesturePanelId: null,
+      shiftPreview: null,
     })
   })
 
@@ -112,9 +114,54 @@ describe('CanvasEngine', () => {
     const redPanel = screen.getByTestId('panel-red')
     fireEvent.pointerDown(redPanel)
 
-    expect(onLayoutChange).toHaveBeenCalled()
-    const lastCall = onLayoutChange.mock.calls[onLayoutChange.mock.calls.length - 1][0]
-    expect(lastCall.find((p: { id: string }) => p.id === 'red').z_index).toBe(4)
+    // Only the panel that changed is saved.
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'red', z_index: 4 })])
+  })
+
+  it('saves nothing for a new panel set, or a panel added to the board', () => {
+    const onLayoutChange = vi.fn()
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    act(() => {
+      useCanvasStore.getState().setPanels([{ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 }])
+    })
+    act(() => {
+      useCanvasStore.getState().addPanel({ id: 'b', pos_x: 300, pos_y: 0, width: 200, height: 200, z_index: 2 })
+    })
+    expect(onLayoutChange).not.toHaveBeenCalled()
+  })
+
+  it('saves a layout arranged as the panel set arrives (a migrated board tidied up)', () => {
+    const onLayoutChange = vi.fn()
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    act(() => {
+      const store = useCanvasStore.getState()
+      store.setPanels([{ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 }])
+      store.arrangePanels(new Map([['a', { pos_x: 20, pos_y: 20 }]]))
+    })
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'a', pos_x: 20, pos_y: 20 })])
+  })
+
+  it('saves once, at the end of a resize, however many steps it took', () => {
+    const onLayoutChange = vi.fn()
+    useCanvasStore.getState().addPanel({ id: 'r', pos_x: 20, pos_y: 20, width: 300, height: 200, z_index: 1 })
+    render(<CanvasEngine onLayoutChange={onLayoutChange} />)
+    const handle = screen.getAllByTestId('resize-handle-se')[0]!
+    // jsdom has no pointer capture.
+    handle.setPointerCapture = () => {}
+    handle.releasePointerCapture = () => {}
+    // A mouse's primary button, as UI SDK's drags take only that.
+    const mouse = { pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0 }
+    fireEvent.pointerDown(handle, { ...mouse, clientX: 320, clientY: 220, buttons: 1 })
+    for (const d of [10, 20, 30, 40]) fireEvent.pointerMove(handle, { ...mouse, clientX: 320 + d, clientY: 220 + d, buttons: 1 })
+    expect(onLayoutChange).not.toHaveBeenCalled()
+    fireEvent.pointerUp(handle, { ...mouse, clientX: 360, clientY: 260, buttons: 0 })
+    // The click a browser fires after the press lifts. UI SDK swallows it (it
+    // ended a drag); left unfired, its swallow would eat the next test's click.
+    fireEvent.click(handle)
+    expect(onLayoutChange).toHaveBeenCalledTimes(1)
+    expect(onLayoutChange.mock.calls[0][0]).toEqual([expect.objectContaining({ id: 'r', width: 340, height: 240 })])
   })
 
   it('uses design token background instead of meta colour', () => {
@@ -348,7 +395,7 @@ describe('CanvasEngine', () => {
   })
 
   describe('focus mode', () => {
-    it('dims non-focused panels to 0.3 opacity when focus mode is active', () => {
+    it('dims non-focused panels to 0.3 opacity when focus mode is active', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -360,12 +407,14 @@ describe('CanvasEngine', () => {
       const bluePanel = screen.getByTestId('panel-blue')
       const greenPanel = screen.getByTestId('panel-green')
 
-      expect(redPanel.style.opacity).toBe('0.3')
-      expect(bluePanel.style.opacity).toBe('0.3')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('0.3')
+        expect(bluePanel.style.opacity).toBe('0.3')
+      })
       expect(greenPanel.style.opacity).toBe('1')
     })
 
-    it('restores full opacity when focus mode is exited', () => {
+    it('restores full opacity when focus mode is exited', async () => {
       seedPanels()
       render(<CanvasEngine />)
 
@@ -380,8 +429,10 @@ describe('CanvasEngine', () => {
       const redPanel = screen.getByTestId('panel-red')
       const bluePanel = screen.getByTestId('panel-blue')
 
-      expect(redPanel.style.opacity).toBe('1')
-      expect(bluePanel.style.opacity).toBe('1')
+      await waitFor(() => {
+        expect(redPanel.style.opacity).toBe('1')
+        expect(bluePanel.style.opacity).toBe('1')
+      })
     })
 
     it('clicking canvas background exits focus mode', () => {
@@ -401,13 +452,13 @@ describe('CanvasEngine', () => {
       expect(useCanvasStore.getState().focusModePanelId).toBeNull()
     })
 
-    it('opacity transition is included in transition style', () => {
+    it('fades with motion/react alone: no CSS transition on its opacity or box', () => {
       seedPanels()
       render(<CanvasEngine />)
 
-      const redPanel = screen.getByTestId('panel-red')
-      const transition = redPanel.style.transition
-      expect(transition).toContain('opacity')
+      // One engine per element, so a dim, an arrival and a glide never fight.
+      const transition = screen.getByTestId('panel-red').style.transition
+      expect(transition).not.toMatch(/opacity|left|top|width|height/)
     })
   })
 
@@ -462,6 +513,25 @@ describe('CanvasEngine', () => {
       expect(screen.queryAllByRole('button', { name: /^Resize / })).toHaveLength(0)
     })
 
+    it('puts the panels behind a fullscreen one out of reach until it leaves fullscreen', () => {
+      const { addPanel } = useCanvasStore.getState()
+      addPanel({ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 1 })
+      addPanel({ id: 'b', pos_x: 250, pos_y: 0, width: 200, height: 200, z_index: 2 })
+      render(<CanvasEngine />)
+      expect(screen.getByTestId('panel-b')).not.toHaveAttribute('inert')
+
+      act(() => {
+        useCanvasStore.getState().enterFullscreen('a', 800, 600)
+      })
+      expect(screen.getByTestId('panel-b')).toHaveAttribute('inert')
+      expect(screen.getByTestId('panel-a')).not.toHaveAttribute('inert')
+
+      act(() => {
+        useCanvasStore.getState().exitFullscreen()
+      })
+      expect(screen.getByTestId('panel-b')).not.toHaveAttribute('inert')
+    })
+
     it('renders the fullscreen panel above every other, even one sharing its z_index', () => {
       const { addPanel } = useCanvasStore.getState()
       addPanel({ id: 'a', pos_x: 0, pos_y: 0, width: 200, height: 200, z_index: 3 })
@@ -477,7 +547,7 @@ describe('CanvasEngine', () => {
       )
     })
 
-    it('reports the pre-fullscreen layout to onLayoutChange, so fullscreen is never saved', () => {
+    it('saves nothing as a panel goes fullscreen, so fullscreen is never saved', () => {
       useCanvasStore.getState().addPanel({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150, z_index: 1 })
       const onLayoutChange = vi.fn()
       render(<CanvasEngine onLayoutChange={onLayoutChange} />)
@@ -485,9 +555,16 @@ describe('CanvasEngine', () => {
       act(() => {
         useCanvasStore.getState().enterFullscreen('fs', 800, 600)
       })
+      expect(onLayoutChange).not.toHaveBeenCalled()
 
+      // Moved while fullscreen (it can't be, but say it were): saved at its own place.
+      act(() => {
+        useCanvasStore.getState().bringToFront('fs')
+        useCanvasStore.getState().addPanel({ id: 'other', pos_x: 0, pos_y: 0, width: 200, height: 150, z_index: 5 })
+        useCanvasStore.getState().bringToFront('fs')
+      })
       const saved = onLayoutChange.mock.calls.at(-1)![0]
-      expect(saved[0]).toMatchObject({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150 })
+      expect(saved).toEqual([expect.objectContaining({ id: 'fs', pos_x: 10, pos_y: 20, width: 200, height: 150, z_index: 6 })])
     })
   })
 
@@ -745,12 +822,13 @@ describe('CanvasEngine', () => {
             { id: 'other', pos_x: 0, pos_y: 0, width: 300, height: 200, z_index: 1 },
           ])
         })
+        // Saved as the board switches; the new board's panels moved nowhere, so nothing more.
         const saved = onLayoutChange.mock.calls.map(([panels]) => panels.map((p: { id: string }) => p.id))
-        expect(saved).toEqual([['notes', 'plan'], ['other']])
-        expect(onLayoutChange.mock.calls[0][0][1]).toMatchObject({ id: 'plan', pos_x: 420 })
+        expect(saved).toEqual([['plan']])
+        expect(onLayoutChange.mock.calls[0][0][0]).toMatchObject({ id: 'plan', pos_x: 420 })
 
         act(() => { vi.advanceTimersByTime(1000) })
-        expect(onLayoutChange).toHaveBeenCalledTimes(2)
+        expect(onLayoutChange).toHaveBeenCalledTimes(1)
       })
 
       it('saves a pending keyboard move when the board unmounts', () => {
@@ -763,8 +841,102 @@ describe('CanvasEngine', () => {
         altArrow('ArrowRight')
         unmount()
         expect(onLayoutChange).toHaveBeenCalledTimes(1)
-        expect(onLayoutChange.mock.calls[0][0][1]).toMatchObject({ id: 'plan', pos_x: 420 })
+        expect(onLayoutChange.mock.calls[0][0].find((p: { id: string }) => p.id === 'plan')).toMatchObject({ pos_x: 420 })
       })
     })
+  })
+})
+
+describe('a drag during a glide', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({ panels: [], fullscreenPanelId: null, preFullscreenLayout: null, gesturePanelId: null, shiftPreview: null })
+    useCanvasStore.getState().addPanel({ id: 'p', pos_x: 100, pos_y: 100, width: 200, height: 200, z_index: 1 })
+    // jsdom has no pointer capture.
+    Element.prototype.setPointerCapture ??= () => {}
+    Element.prototype.releasePointerCapture ??= () => {}
+    Element.prototype.hasPointerCapture ??= () => false
+  })
+
+  /** Leaves fullscreen, so the panel glides home from where it was drawn. */
+  async function gliding() {
+    render(<CanvasEngine />)
+    act(() => useCanvasStore.getState().enterFullscreen('p', 800, 600))
+    act(() => useCanvasStore.getState().exitFullscreen())
+    const panel = screen.getByTestId('panel-p')
+    await waitFor(() => expect(panel.style.transform).toMatch(/translate/))
+    return panel
+  }
+
+  it('carries on from where the glide has the panel, never jumping by the rest of it, and stops the glide', async () => {
+    const panel = await gliding()
+    const header = within(panel).getByTestId('panel-header')
+    const mouse = { pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0 }
+    fireEvent.pointerDown(header, { ...mouse, clientX: 150, clientY: 120, buttons: 1 })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const held = panel.style.transform
+    // Still drawn where the glide had it, and no longer gliding.
+    expect(held).toMatch(/translate/)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(panel.style.transform).toBe(held)
+    fireEvent.pointerMove(header, { ...mouse, clientX: 170, clientY: 130, buttons: 1 })
+    fireEvent.pointerUp(header, { ...mouse, clientX: 170, clientY: 130, buttons: 0 })
+    // Dropped from where it was drawn: its box takes the glide's offset, and it is drawn there.
+    await waitFor(() => expect(useCanvasStore.getState().panels[0]).not.toMatchObject({ pos_x: 100, pos_y: 100 }))
+    await waitFor(() => expect(panel.style.transform).not.toMatch(/translate\((?!0px, 0px)/))
+  })
+
+  it('a resize starting mid-glide takes the panel to its box first', async () => {
+    const panel = await gliding()
+    fireEvent.mouseEnter(panel)
+    fireEvent.pointerDown(within(panel).getByTestId('resize-handle-se'), { pointerId: 1, pointerType: 'mouse', isPrimary: true, button: 0, buttons: 1, clientX: 300, clientY: 300 })
+    await waitFor(() => expect(panel.style.transform).not.toMatch(/translate\((?!0px, 0px)/))
+  })
+})
+
+describe('useShiftHeld', () => {
+  function fireWindowKey(type: 'keydown' | 'keyup', key: string) {
+    window.dispatchEvent(new KeyboardEvent(type, { key, bubbles: true }))
+  }
+
+  it('is false initially, true on Shift keydown and false on keyup', () => {
+    const { result } = renderHook(() => useShiftHeld())
+    expect(result.current.current).toBe(false)
+    fireWindowKey('keydown', 'Shift')
+    expect(result.current.current).toBe(true)
+    fireWindowKey('keyup', 'Shift')
+    expect(result.current.current).toBe(false)
+  })
+
+  it('resets to false on window blur', () => {
+    const { result } = renderHook(() => useShiftHeld())
+    fireWindowKey('keydown', 'Shift')
+    expect(result.current.current).toBe(true)
+    window.dispatchEvent(new Event('blur'))
+    expect(result.current.current).toBe(false)
+  })
+
+  it('ignores non-Shift keys', () => {
+    const { result } = renderHook(() => useShiftHeld())
+    fireWindowKey('keydown', 'Control')
+    expect(result.current.current).toBe(false)
+    fireWindowKey('keydown', 'a')
+    expect(result.current.current).toBe(false)
+  })
+
+  it('follows the Shift state pointer events carry (pressed before the page had focus)', () => {
+    const { result } = renderHook(() => useShiftHeld())
+    window.dispatchEvent(new MouseEvent('pointermove', { shiftKey: true }))
+    expect(result.current.current).toBe(true)
+    window.dispatchEvent(new MouseEvent('pointermove', { shiftKey: false }))
+    expect(result.current.current).toBe(false)
+  })
+
+  it('tells onChange of each press and release, once', () => {
+    const changes: boolean[] = []
+    renderHook(() => useShiftHeld((held) => changes.push(held)))
+    fireWindowKey('keydown', 'Shift')
+    fireWindowKey('keydown', 'Shift')
+    fireWindowKey('keyup', 'Shift')
+    expect(changes).toEqual([true, false])
   })
 })
