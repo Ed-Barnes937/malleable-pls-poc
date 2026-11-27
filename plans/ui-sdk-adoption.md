@@ -1,7 +1,7 @@
 # UI SDK Adoption - Orchestration Plan
 
 **Date:** 2026-11-25
-**Status:** K0 done; K1 next (decisions settled 2026-11-25, revised after the spikes)
+**Status:** Done, merged to main 2026-11-27 (#166). What shipped, what changed from this plan and what is left: section 10.
 **Owner:** Ed
 **Goal:** Replace the app's hand-rolled interaction code (popups, focus traps, menus, toasts, calendar block drag, board panel drag) with UI SDK behaviours and components, so every direct-manipulation surface also works by keyboard, screen reader and touch, and we stop paying for interaction bugs like #100 and #103.
 
@@ -159,3 +159,57 @@ Our main surfaces (calendar blocks, board panels, tab and step reorder) are dire
 ## 9. Estimated shape
 - K0: 1 ticket with 3 parallel spikes.
 - K1-K5: 6 PRs into `ui-sdk` (K4 split into K4a and K4b), each one implementer, one reviewer, one fix round.
+
+## 10. Outcome (2026-11-27)
+
+Merged to `main` in #166 (`bcf1998`). Each ticket had one review and a full-suite run before it merged into `ui-sdk`.
+
+| Ticket | PR | What |
+|---|---|---|
+| K0 | #146 | Pinned install (`0.1.0-beta.16`), test stubs, `checkPattern`. Spikes: #147 (calendar, kept open as a draft for the mobile work), #148 and #149 (closed). |
+| K1a / K1b / K1c | #152 / #151 / #150 | shared-ui Popover, Dialog, AlertDialog, Menu, Drawer; toast and theme (Light / Dark / System); TimeInput, DatePicker, SegmentedControl. |
+| K2a / K2b | #153 / #154 | Shell overlays (board menu, Activity, dialogs); board tab reorder by keyboard. |
+| K3 | #155 | Calendar popovers and forms on the shared Popover and TimeInput. |
+| K4a1 / K4a2 | #158 / #159 | Calendar grid on `createSpans`: blocks and Help me plan suggestions move and resize by pointer and keyboard, with announcements; midnight rules. |
+| K5 / K5b | #156 / #157 | Board panels on `createMove` / `createResize`, keyboard move and resize; panel layouts no longer revert after switching board. |
+| W1 / W2 / W3 | #161 / #160 / #162 | Review leftovers and the review-ripple flake; Dialog `initialFocus`; keyboard walkthrough fixes. |
+| M1 | #164, #165 | Merged `main` #106-#163 into `ui-sdk` (see "Process lessons"). |
+| S1 | #163 | A Weekly plan board in the seed data (straight to `main`). |
+
+### Where the result differs from this plan
+- **Board canvas:** `main`'s #139 won over K5's always-snap. Placement is free; Shift while dragging or resizing snaps to the 20px grid, shows the outline, nudges covered neighbours and keeps the 20px gap from the canvas edges. K5's Shift aspect lock was dropped. Keyboard is K5's: Alt+arrow moves or resizes 20px, Shift+Alt+arrow 200px.
+- **Calendar popovers:** `main`'s #113 won over K3's "the pressed block stays visible". The buttons stay still while the lecture loads in, even if the popover then covers the block. Bounds: on a phone, the calendar panel within the window (opens above only if it fits, else below); on desktop, the window, so it may spill past the calendar panel. A popover that opens above scales in from its bottom edge.
+- **Calendar keyboard:** Delete on a focused block or commitment opens its existing inline confirm armed (no new dialog or copy). Left/Right on a suggestion on the first or last day shown does nothing. Auto-scroll while dragging stays off. A block can't be dragged across midnight (`createSpans` clamps to the day); each day's piece is its own span and moving either moves the whole block.
+- **Overlays:** Dialog and Drawer slide out and go non-modal as they start closing; AlertDialog hides at once (UI SDK makes it always modal, so an animated exit would keep the page inert).
+- **Reduced motion:** UI SDK's drawer fades for 150ms instead of sliding (it has no option to turn that off). Accepted: nothing moves; `motion.e2e.ts` asserts nothing but the drawer animates.
+- **Seed:** the seeded student has four boards, so Up next is an icon at 1440x900 (accepted).
+- K4b (phone long-press drag) was not built. See below.
+
+### Left for later
+- **Mobile.**
+  - Long-press drag on the calendar grid (K4b). Today the grid is `touch-action: none`, as before the migration. The spike (#147, `localStorage['spike-touch']='hold'`) used `bindHold` (400ms), `pan-y` tracks and a non-passive `touchmove` blocker once held. In Chromium that gave scroll on swipe, drag on long-press and draw on long-press on empty time. On a real iPhone everything worked except **a long-press then slide on a block, which neither moves it nor scrolls**. Start there, red on a real device. Playwright can't swipe-scroll in WebKit.
+  - `PanelChrome.tsx` header is always `touch-action: none`, even when the panel can't move (phone stacked layout, fullscreen).
+  - Native vs UI SDK pickers on phones (Help me plan's PickTime is still a native `datetime-local`); bottom-sheet editing, swipe between days, full-screen calendar, header density, phone overflow (clipped calendar header, popover over the date wheel).
+- **Accessibility pass** (from a keyboard-only walkthrough of every journey):
+  - Focus drops to the page when the pressed control disappears: Test Me (Reveal, Got it / Didn't get it), Upload submit, "Remove X from board", Help me plan "Schedule ...", dismissing a suggestion, To-do "Not doing".
+  - Accepting the last suggestion moves focus to Auto-fill, not the new block; accept and dismiss are not announced.
+  - `ReviewAutomationSentence.tsx`'s resting hint sits in a `role=status`, so it is announced whenever the board menu or Automations dialog opens.
+  - Suggestion blocks are focusable `div`s with no role (committed blocks use `role=button`).
+  - `]` (next panel) does nothing while focus is in the top bar.
+  - The tag toolbar is 18 Tab stops after the selected moment, with no shortcut.
+  - After Create board, focus returns to "New board", not the new board.
+  - Not keyboard: the calendar's "58m free" label can overlap a block.
+- **Up next and board-course popups** (from `main`) are still hand-rolled; move them onto the shared Popover / Menu.
+- Section 6's possibilities and the two cross-component drags are unchanged.
+
+### UI SDK notes
+- Pinned at `0.1.0-beta.16`. Its agent docs ship in the package: `@ui-sdk/core/docs/core.md`, `@ui-sdk/react/docs/llms.txt`. No `web.css`: everything is styled from our Tailwind tokens.
+- The Drawer is removed from the page when closed (not `aria-hidden`).
+- The toast region sits on the top layer at full width on a phone; it is `pointer-events-none` with each toast `pointer-events-auto`, or it eats taps on whatever is under it.
+- `createSpans` deletes a span on Delete; the calendar intercepts it first for our confirm.
+- Popover placement: measure in layout pixels, not on screen during the scale-in (it reads about 4% short), and round the anchor rect and offsets to whole pixels. The calendar places its popover through a virtual anchor that UI SDK reads every frame (`calendar-popover.tsx`).
+
+### Process lessons
+- Cut an integration branch from a freshly fetched `origin/main`. `ui-sdk` was cut from a local `main` that was a month stale (#105), so 26 PRs had to be merged in at the end: 41 conflicting files, about 1.5M tokens of builder time.
+- Merge `main` into a long-lived branch as it moves, not once at the end.
+- Merge a PR that carries a merge of `main` with a merge commit, not a squash. #164 was squashed, which dropped `main` as a parent; `git merge -s ours origin/main` (no content change) restored it before #166.
