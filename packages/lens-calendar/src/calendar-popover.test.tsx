@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 import { useRef, useState } from 'react'
 import { checkPattern, settle } from '@pls/shared-ui/src/testing'
-import { CalendarPopover, anchoredTop, popoverTop, pressPlacement } from './calendar-popover'
+import { CalendarPopover, anchoredTop, popoverTop, pressPlacement, usePlacedTop } from './calendar-popover'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { SubstrateProvider, type SubstrateReader, type SubstrateWriter } from '@pls/lens-framework'
 import { EventPopover } from './EventPopover'
@@ -136,6 +136,40 @@ function Harness({ onClose }: { onClose: () => void }) {
     </div>
   )
 }
+
+describe('usePlacedTop', () => {
+  /** A popover whose height and buttons' offset the test sets, as its content loads. */
+  function content(height: number, anchor: number) {
+    const el = document.createElement('div')
+    const row = document.createElement('div')
+    row.setAttribute('data-popover-anchor', '')
+    el.append(row)
+    const size = { height, anchor }
+    Object.defineProperty(el, 'offsetHeight', { get: () => size.height })
+    Object.defineProperty(el, 'scrollHeight', { get: () => size.height })
+    Object.defineProperty(el, 'clientHeight', { get: () => size.height })
+    Object.defineProperty(row, 'offsetTop', { get: () => size.anchor })
+    Object.defineProperty(row, 'offsetParent', { get: () => el })
+    return { el, size }
+  }
+  const box = (width: number, height: number) => ({ top: 0, width, height }) as DOMRect
+
+  it("keeps its buttons where they were when the calendar's box changes after the content grew", () => {
+    const p = content(300, 100)
+    const at = { placement: 'beside' as const, y: 200, span: { top: 190, bottom: 240 } }
+    const { result } = renderHook(() => usePlacedTop('press'))
+    result.current.ref(p.el)
+    const buttons = () => result.current.placedTop(box(334, 918), at) + p.size.anchor
+    const before = buttons()
+    // "Also open in" arrives above the buttons: the popover grows around them.
+    p.size.height = 420
+    p.size.anchor = 220
+    expect(buttons()).toBe(before)
+    // A scrollbar narrows the calendar for a frame, then goes.
+    expect(result.current.placedTop(box(328, 918), at) + p.size.anchor).toBe(before)
+    expect(result.current.placedTop(box(334, 918), at) + p.size.anchor).toBe(before)
+  })
+})
 
 describe('CalendarPopover', () => {
   it('the create popover is a named dialog (WAI-ARIA dialog pattern)', async () => {

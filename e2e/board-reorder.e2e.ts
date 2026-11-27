@@ -41,12 +41,13 @@ test.describe('Board tab reorder', () => {
     await expect(spoken(page)).toHaveText(`Picked up ${moved} board, position 2 of ${total}.`)
     await page.keyboard.press('ArrowLeft')
     await expect(spoken(page)).toHaveText(`${moved} board moved to position 1 of ${total}`)
-    await page.keyboard.press('ArrowRight')
-    await page.keyboard.press('ArrowRight')
-    await expect(spoken(page)).toHaveText(`${moved} board moved to position 3 of ${total}`)
+    // From position 1, one ArrowRight per step reaches the last position.
+    const rights = total - 1
+    for (let i = 0; i < rights; i++) await page.keyboard.press('ArrowRight')
+    await expect(spoken(page)).toHaveText(`${moved} board moved to position ${total} of ${total}`)
     expect(writes).toHaveLength(0)
     await page.keyboard.press('Space')
-    await expect(spoken(page)).toHaveText(`${moved} board dropped at position 3 of ${total}`)
+    await expect(spoken(page)).toHaveText(`${moved} board dropped at position ${total} of ${total}`)
 
     const expected = [before[0], ...before.slice(2), moved]
     await expect.poll(() => order(topBar)).toEqual(expected)
