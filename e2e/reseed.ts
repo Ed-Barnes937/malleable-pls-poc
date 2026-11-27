@@ -103,8 +103,9 @@ export async function reseed({
       // 010 moves the seeded recording focus from panel config to the
       // workspace scope; 012 drops the timeframe scope rows 002 still inserts;
       // 013 swaps the stub automations for the lecture AI ones; 014 resizes
-      // the seeded panels for the redesigned widget chrome.
-      for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql']) {
+      // the seeded panels for the redesigned widget chrome; 027 adds the
+      // Weekly plan board.
+      for (const file of ['002_seed.sql', '008_seed_panels.sql', '010_seed_recording_focus.sql', '012_drop_timeframe_scope.sql', '013_lecture_ai_automations.sql', '014_seed_panel_sizes.sql', '027_seed_weekly_plan_board.sql']) {
         let seedSql = readFileSync(
           resolve(__dirname, `../packages/db/src/migrations/${file}`),
           'utf-8',

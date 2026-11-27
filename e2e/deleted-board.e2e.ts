@@ -90,7 +90,7 @@ test.describe('Reloading after deleting a board', () => {
     const topBar = new TopBarPom(page)
     const grid = new PanelGridPom(page)
     await page.goto('/')
-    for (const name of ['In Lecture', 'Evening Review', 'Exam Prep']) await deleteBoard(page, name)
+    for (const name of ['In Lecture', 'Evening Review', 'Exam Prep', 'Weekly plan']) await deleteBoard(page, name)
     await expect(topBar.workspaceTabs).toHaveCount(0)
 
     await page.reload()
