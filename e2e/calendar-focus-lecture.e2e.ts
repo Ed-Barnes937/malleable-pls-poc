@@ -186,9 +186,9 @@ test.describe('A calendar class focuses its lecture', () => {
     const section = calendar.popover.getByTestId('class-lecture')
     await expect(section.getByRole('status')).toContainText(cls.title)
     const also = section.getByRole('group', { name: 'Also open in' })
-    // In tab order (the reseeded boards start with Evening Review); Exam Prep
-    // and Plan itself are left out.
-    await expect(topBar.workspaceTabs).toHaveText(['Evening Review', 'Exam Prep', 'In Lecture', 'Plan'])
+    // In tab order (the reseeded boards start with Evening Review); Exam Prep,
+    // Weekly plan (Calendar, To-do and Coming up show no lecture) and Plan itself are left out.
+    await expect(topBar.workspaceTabs).toHaveText(['Evening Review', 'Exam Prep', 'In Lecture', 'Weekly plan', 'Plan'])
     await expect(also.getByRole('button')).toHaveText(['Evening Review', 'In Lecture'])
     await expect(section.getByTestId('class-lecture-hint')).toHaveCount(0)
 
