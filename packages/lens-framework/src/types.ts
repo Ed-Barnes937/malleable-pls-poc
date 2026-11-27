@@ -142,6 +142,8 @@ export interface PlanItemRef {
    * Defaults to the time of the request.
    */
   scrolledSince?: number
+  /** The viewer also moves keyboard focus to the block (e.g. "See it"). */
+  takeFocus?: boolean
 }
 
 /**

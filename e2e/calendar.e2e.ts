@@ -82,7 +82,7 @@ test.describe('Calendar', () => {
     await expect(calendar.popover).toHaveCount(0)
     // The next click on the grid starts a new item straight away.
     await calendar.clickAt(3, 15.1)
-    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('15:00')
+    await calendar.time('Start time').expectValue('15:00')
   })
 
   test('keyboard: Tab reaches a block, Enter opens it, Escape returns focus', async ({ page, request }) => {
@@ -103,6 +103,35 @@ test.describe('Calendar', () => {
     await page.keyboard.press('Escape')
     await expect(calendar.popover).toHaveCount(0)
     await expect(shift).toBeFocused()
+  })
+
+  test('keyboard: Add opens a new block; arrows pick its kind and step its start by 15 minutes; arrows switch the view', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    await calendar.root.getByRole('button', { name: 'Add to calendar' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(calendar.popover.getByLabel('Title')).toBeFocused()
+    await page.keyboard.type('Keyboard reading')
+    await calendar.popover.getByRole('radio', { name: 'Class / commitment' }).focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(calendar.popover.getByRole('radio', { name: 'Study time' })).toBeChecked()
+    const start = calendar.time('Start time')
+    await start.fill('09:00')
+    await start.minute.focus()
+    await page.keyboard.press('ArrowUp')
+    await start.expectValue('09:15')
+    await calendar.time('End time').expectValue('10:15')
+    await calendar.popover.getByRole('button', { name: 'Add' }).press('Enter')
+    await expect(calendar.popover).toHaveCount(0)
+    await expect(calendar.block('Keyboard reading')).toHaveAttribute('aria-label', /study time, 09:15 - 10:15/)
+
+    const week = calendar.root.getByRole('radio', { name: 'Week' })
+    await week.focus()
+    await page.keyboard.press('ArrowRight')
+    await expect(calendar.root.getByRole('radio', { name: 'Day' })).toBeChecked()
+    await expect(calendar.root.getByTestId('calendar-day-header')).toHaveCount(1)
   })
 
   test('on a slow network the pressed button says it is saving until the save lands', async ({ page, request }) => {
@@ -195,6 +224,58 @@ test.describe('Calendar', () => {
     const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: task.id }))}`, { headers })
     const stored = (await res.json()).result.data.json
     expect(stored).toMatchObject({ starts_at: at(4, 10), ends_at: at(4, 11), duration_min: 60 })
+  })
+
+  test('keyboard: arrows move study time to another time and day, and the move persists after reload', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const task = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const revise = calendar.block('Revise respiration')
+    await revise.focus()
+
+    const saved = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
+    await page.keyboard.press('ArrowRight')
+    await expect(revise).toBeFocused()
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+    expect((await saved).ok()).toBe(true)
+    const resized = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().includes('planItems.update'))
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:15/)
+    expect((await resized).ok()).toBe(true)
+
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:15/)
+    const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: task.id }))}`, { headers })
+    expect((await res.json()).result.data.json).toMatchObject({ starts_at: at(3, 16), ends_at: at(3, 17, 15), duration_min: 75 })
+  })
+
+  test('eight quick arrow presses end with the server on the eighth position', async ({ page, request }) => {
+    await board(request, 'Week plan', ['calendar'])
+    const task = await call(request, 'planItems.create', {
+      kind: 'task', title: 'Revise respiration', starts_at: at(2, 16), ends_at: at(2, 17), duration_min: 60, course: 'biology',
+    })
+    await page.goto('/')
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    const calendar = new CalendarPom(page)
+    const revise = calendar.block('Revise respiration')
+    await revise.focus()
+    for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown')
+    await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+
+    const stored = async () => {
+      const res = await request.get(`${apiUrl}/planItems.byId?input=${encodeURIComponent(JSON.stringify({ json: task.id }))}`, { headers })
+      return (await res.json()).result.data.json as { starts_at: string; ends_at: string }
+    }
+    await expect.poll(async () => (await stored()).starts_at).toBe(at(2, 18))
+    expect(await stored()).toMatchObject({ ends_at: at(2, 19) })
+    await page.reload()
+    await new TopBarPom(page).switchToWorkspace('Week plan')
+    await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
   })
 
   test('drag a 20-minute review by its thin bar, within its day and to another day', async ({ page, request }) => {
@@ -330,8 +411,8 @@ test.describe('Calendar', () => {
     const block = calendar.block('Alpha')
 
     await block.click()
-    await calendar.popover.getByLabel('Start time').fill('12:00')
-    await calendar.popover.getByLabel('End time').fill('13:00')
+    await calendar.time('Start time').fill('12:00')
+    await calendar.time('End time').fill('13:00')
     const saved = page.waitForResponse((r) => r.url().includes('planItems.update'))
     await calendar.popover.getByRole('button', { name: 'Save' }).click()
     await expect(calendar.popover.getByRole('status')).toHaveText('Saving...')
@@ -429,7 +510,7 @@ test.describe('Calendar', () => {
 
     // The toasts' live region is there before anything is said, so the first toast is announced.
     const toast = page.getByTestId('toast-host')
-    const announcer = page.getByTestId('toast-announcer')
+    const announcer = page.locator('[data-ui-sdk-announcer=""]')
     await expect(announcer).toBeAttached()
     await expect(announcer).toHaveAttribute('aria-live', 'polite')
     await expect(announcer).toHaveAttribute('role', 'status')
@@ -518,5 +599,14 @@ test.describe('Calendar', () => {
     await expect(madeBy).toContainText('add a 30-min review within 3 days')
     const moved = await trpcQuery<PlanItemOccurrence>(request, 'planItems.byId', review!.id)
     await expect(popover).toContainText(`${hhmm(moved.starts_at!)}-${hhmm(moved.ends_at!)}`)
+
+    // By keyboard: Edit automation opens the dialog with focus in it, and Escape closes it without dropping focus to the page.
+    await madeBy.getByRole('button', { name: 'Edit automation' }).focus()
+    await page.keyboard.press('Enter')
+    await expect(dialog).toBeVisible()
+    expect(await dialog.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(dialog).toBeHidden()
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false)
   })
 })

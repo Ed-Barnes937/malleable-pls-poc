@@ -59,6 +59,14 @@ export class BackendSimulator {
   }
 
   /**
+   * Changes what a procedure answers, for a test that needs an answer the
+   * server's rules never give (e.g. a suggestion across midnight).
+   */
+  rewrite(path: string, change: (data: unknown) => unknown): void {
+    this.router.rewrite(path, change)
+  }
+
+  /**
    * Makes `path` answer with an INTERNAL_SERVER_ERROR from now on, inside
    * whatever batch it is sent in; the other calls in the batch still answer.
    * Unlike failing the request in a route, nothing batched with it fails.

@@ -58,8 +58,8 @@ function recordSaves(page: Page): string[][] {
 /** A panel's box on the board (its layout, not a glide in flight). */
 function layoutOf(panel: Locator): Promise<Box> {
   return panel.evaluate((el: HTMLElement) => ({
-    x: Number(el.style.left.replace('px', '')),
-    y: Number(el.style.top.replace('px', '')),
+    x: el.offsetLeft,
+    y: el.offsetTop,
     width: el.offsetWidth,
     height: el.offsetHeight,
   }))

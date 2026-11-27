@@ -7,7 +7,7 @@
  * supply primitive/serialisable props.
  */
 
-import { useLayoutEffect } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { PanelChrome, type PanelChromeProps } from './PanelChrome'
 import { CanvasEngine } from './CanvasEngine'
 import { useCanvasStore, type PanelItem } from './canvas-store'
@@ -21,6 +21,30 @@ export function PanelChromeWithIcon(
   props: Omit<PanelChromeProps, 'icon'>,
 ) {
   return <PanelChrome icon={StarIcon} {...props} />
+}
+
+/**
+ * A CanvasEngine on a fixed-size board, loaded with `panels`, for the
+ * Playwright CT. `onLayoutChange` reaches the test (CT passes callbacks back).
+ */
+export function BoardHarness({ panels, width = 1000, height = 700, onLayoutChange, withControls }: {
+  panels: PanelItem[]
+  width?: number
+  height?: number
+  onLayoutChange?: (panels: PanelItem[]) => void
+  /** Puts a button inside each panel, as a widget's own controls (a transcript moment). */
+  withControls?: boolean
+}) {
+  // Load the panels before the first render, as the shell's panel sync does.
+  useState(() => useCanvasStore.getState().setPanels(panels))
+  return (
+    <div style={{ width, height }}>
+      <CanvasEngine
+        onLayoutChange={onLayoutChange}
+        renderPanel={withControls ? (id) => <button type="button">{`Moment in ${id}`}</button> : undefined}
+      />
+    </div>
+  )
 }
 
 /**

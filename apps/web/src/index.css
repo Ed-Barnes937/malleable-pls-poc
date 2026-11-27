@@ -1,3 +1,6 @@
+/* UI SDK adds the little CSS its popups need in this layer; declared first so our styles win over it. */
+@layer ui-sdk;
+
 @import "tailwindcss";
 @import "./fonts/fonts.css";
 @source "../../../packages/*/src/**/*.{ts,tsx}";

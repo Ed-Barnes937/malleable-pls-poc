@@ -583,6 +583,95 @@ test('arrow keys hop a ghost past whatever is in the way, within its day', async
   await expect(quiz).toHaveAttribute('aria-label', /12:00 - 13:00/)
 })
 
+const announced = (page: Page) => page.locator('[data-ui-sdk-announcer=""]')
+
+test('keyboard: a ghost moves like a block, Shift resizes it, and each change says where it went', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await draftWithAssumedEstimates(page)
+  const quiz = ghost(page, 'Biology quiz prep')
+  await expect(quiz).toHaveAttribute('aria-label', /09:00 - 10:00/)
+  await quiz.focus()
+
+  await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /09:15 - 10:15/)
+  await expect(announced(page)).toHaveText('Biology quiz prep moved to Monday 09:15 to 10:15')
+  // A hop past the Flashcards ghost says where it landed.
+  await page.keyboard.press('ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /11:15 - 12:15/)
+  await expect(announced(page)).toHaveText('Biology quiz prep moved to Monday 11:15 to 12:15')
+
+  await page.keyboard.press('ArrowRight')
+  await expect(quiz).toHaveAttribute('aria-label', /11:15 - 12:15/)
+  await expect(announced(page)).toHaveText('Biology quiz prep moved to Tuesday 11:15 to 12:15')
+  await expect(quiz).toBeFocused()
+  await page.keyboard.press('ArrowLeft')
+  await expect(announced(page)).toHaveText('Biology quiz prep moved to Monday 11:15 to 12:15')
+  await expect(quiz).toBeFocused()
+
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(quiz).toHaveAttribute('aria-label', /11:15 - 12:30/)
+  await expect(announced(page)).toHaveText('Biology quiz prep now 11:15 to 12:30')
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(quiz).toHaveAttribute('aria-label', /11:15 - 12:00/)
+  await expect(quiz).toBeFocused()
+
+  // Nothing is saved until it is accepted, at the time it was put.
+  expect(stored(simulator, 'quiz')?.starts_at).toBeNull()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => stored(simulator, 'quiz')?.starts_at).toBe(iso(0, 11, 15))
+  expect(stored(simulator, 'quiz')).toMatchObject({ ends_at: iso(0, 12), duration_min: 45 })
+})
+
+test('keyboard: a ghost resized onto something is refused with a notice and not announced', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await draftWithAssumedEstimates(page)
+  const quiz = ghost(page, 'Biology quiz prep')
+  await quiz.focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(announced(page)).toHaveText('Biology quiz prep now 09:00 to 10:15')
+  // 10:30 would run into the Flashcards ghost at 10:15.
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(page.getByTestId('calendar-notice')).toHaveText('Can\'t move "Biology quiz prep" there: that time overlaps "Flashcards: organelles".')
+  await expect(quiz).toHaveAttribute('aria-label', /09:00 - 10:15/)
+  await expect(announced(page)).toHaveText('Biology quiz prep now 09:00 to 10:15')
+  await expect(quiz).toBeFocused()
+})
+
+test('keyboard: Delete and Backspace dismiss a ghost; its to-do stays unscheduled', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await draftWithAssumedEstimates(page)
+  await ghost(page, 'Biology quiz prep').focus()
+  await page.keyboard.press('Delete')
+  await expect(ghost(page, 'Biology quiz prep')).toHaveCount(0)
+  await ghost(page, 'Flashcards').focus()
+  await page.keyboard.press('Backspace')
+  await expect(page.getByTestId('calendar-ghost')).toHaveCount(0)
+  expect(stored(simulator, 'quiz')?.starts_at).toBeNull()
+  expect(stored(simulator, 'cards')?.starts_at).toBeNull()
+})
+
+test('Escape during a ghost drag puts it back', async ({ mount, page, simulator }) => {
+  seedBusyWeek(simulator)
+  await mount(<CalendarHarness />)
+  await draftWithAssumedEstimates(page)
+  const quiz = ghost(page, 'Biology quiz prep')
+  const box = await quiz.boundingBox()
+  const grid = await page.getByTestId('calendar-grid').boundingBox()
+  const hourPx = grid!.height / 24
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 6)
+  await page.mouse.down()
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 6 + 2 * hourPx, { steps: 6 })
+  await expect(page.getByTestId('calendar-block-preview')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('calendar-block-preview')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(quiz).toHaveAttribute('aria-label', /09:00 - 10:00/)
+})
+
 test('"Pick a time" starts at the first free gap long enough for the to-do', async ({ mount, page, simulator }) => {
   // Monday has only 09:00-09:30 free; Tuesday 09:00-11:00.
   seed(simulator, Array.from({ length: 7 }, (_, d) => ({
@@ -713,6 +802,42 @@ test.describe('where the panel floats, by day of the week (frozen clock)', () =>
       const friday = (await page.getByTestId('calendar-day').nth(FRI).boundingBox())!
       expect((await panel.boundingBox())!.x).toBeGreaterThanOrEqual(friday.x + friday.width - 1)
       await expectNoGhostUnder(page, panel)
+    })
+  }
+
+  for (const [name, weekday, hour, side] of [['Wednesday', WED, 12, 'left'], ['Monday', MON, 9, 'right']] as const) {
+    test(`keyboard: on a ${name}, the blocks under the panel are not Tab stops; the rest are`, async ({ mount, page, simulator }) => {
+      await planAt(page, simulator, day(weekday, hour), 0)
+      await mount(<CalendarHarness width={900} />)
+      await page.getByTestId('help-me-plan').click()
+      const panel = page.getByTestId('help-me-plan-panel')
+      await expect(panel.locator('..')).toHaveAttribute('data-placement', side)
+      const box = (await panel.boundingBox())!
+
+      const blocks = page.getByTestId('calendar-block')
+      await expect(blocks).toHaveCount(7)
+      let under = 0
+      for (const b of await blocks.all()) {
+        const r = (await b.boundingBox())!
+        const covered = r.x < box.x + box.width && box.x < r.x + r.width
+        if (covered) under++
+        const label = await b.getAttribute('aria-label')
+        if (covered) await expect(b, `${label} is under the panel`).not.toHaveAttribute('tabindex', '0')
+        else await expect(b, `${label} is in view`).toHaveAttribute('tabindex', '0')
+      }
+      expect(under).toBeGreaterThan(0)
+
+      // Tab from one in view to the next skips the covered days (the weekend, or the days past).
+      const order = await blocks.evaluateAll((els) => els.filter((el) => el.getAttribute('tabindex') === '0').map((el) => el.getAttribute('aria-label')))
+      await blocks.and(page.locator('[tabindex="0"]')).first().focus()
+      for (const label of order.slice(1)) {
+        await page.keyboard.press('Tab')
+        await expect(page.locator(':focus')).toHaveAttribute('aria-label', label!)
+      }
+
+      // Closed, every block is a Tab stop again.
+      await panel.getByRole('button', { name: 'Close Help me plan' }).click()
+      await expect(blocks.and(page.locator('[tabindex="0"]'))).toHaveCount(7)
     })
   }
 

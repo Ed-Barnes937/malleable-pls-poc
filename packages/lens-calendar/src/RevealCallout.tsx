@@ -1,4 +1,5 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef } from 'react'
+import { position } from '@ui-sdk/core'
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { useSubstrate } from '@pls/lens-framework'
 import { NEUTRAL_TONE, cn, useCourse } from '@pls/shared-ui'
@@ -26,38 +27,43 @@ export function RevealCallout({ item, top, alignRight }: RevealCalloutProps) {
   const start = new Date(item.starts_at!)
   const end = new Date(item.ends_at!)
   const minutes = Math.round((end.getTime() - start.getTime()) / 60_000)
-  // Kept inside the grid: a narrow (phone) week has no room either side of a column.
+  // On the top layer, placed by UI SDK's `position` under the block and kept
+  // inside the window (a narrow phone week has no room either side of a
+  // column). Not a UI SDK popup: it takes no focus and no Escape.
+  const anchorRef = useRef<HTMLSpanElement>(null)
   const ref = useRef<HTMLDivElement>(null)
-  const [shift, setShift] = useState(0)
   useLayoutEffect(() => {
     const el = ref.current
-    const grid = el?.closest('[data-testid="calendar-grid"]')?.getBoundingClientRect()
-    if (!el || !grid) return
-    const box = el.getBoundingClientRect()
-    if (box.right > grid.right - 4) setShift(grid.right - 4 - box.right)
-    else if (box.left < grid.left + 4) setShift(grid.left + 4 - box.left)
-  }, [])
+    const anchor = anchorRef.current
+    if (!el || !anchor) return
+    el.showPopover()
+    const stop = position(anchor, el, { side: 'bottom', align: alignRight ? 'end' : 'start', collisionPadding: 4 })
+    return () => {
+      stop()
+      if (el.matches(':popover-open')) el.hidePopover()
+    }
+  }, [alignRight])
   return (
-    <div
-      ref={ref}
-      data-testid="calendar-reveal"
-      role="status"
-      className={cn(
-        'pointer-events-none absolute z-30 w-max max-w-64 rounded-item border border-border-subtle bg-surface-raised px-3 py-2 shadow-pop',
-        alignRight ? 'right-1' : 'left-1',
-      )}
-      style={{ top, transform: shift ? `translateX(${shift}px)` : undefined }}
-    >
-      <p className="text-body font-semibold text-text-primary">{item.title}</p>
-      {recordingId && (
-        <p className={cn('flex items-center gap-1 text-meta font-semibold', (course?.tone ?? NEUTRAL_TONE).ink)}>
-          <AudioLines className="h-3 w-3 shrink-0" aria-hidden />
-          <span className="min-w-0"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', item.source_offset_ms)} /></span>
+    <>
+      <span ref={anchorRef} aria-hidden className={cn('pointer-events-none absolute h-0 w-0', alignRight ? 'right-1' : 'left-1')} style={{ top }} />
+      <div
+        ref={ref}
+        popover="manual"
+        data-testid="calendar-reveal"
+        role="status"
+        className="pointer-events-none m-0 w-max max-w-64 rounded-item border border-border-subtle bg-surface-raised px-3 py-2 text-text-primary shadow-pop"
+      >
+        <p className="text-body font-semibold text-text-primary">{item.title}</p>
+        {recordingId && (
+          <p className={cn('flex items-center gap-1 text-meta font-semibold', (course?.tone ?? NEUTRAL_TONE).ink)}>
+            <AudioLines className="h-3 w-3 shrink-0" aria-hidden />
+            <span className="min-w-0"><MomentSourceText label={momentSourceLabel(recording?.title ?? 'a lecture', item.source_offset_ms)} /></span>
+          </p>
+        )}
+        <p className="text-meta tabular-nums text-text-secondary">
+          {formatWeekday(start)} {formatSpan(start, end)} · {minutes} min
         </p>
-      )}
-      <p className="text-meta tabular-nums text-text-secondary">
-        {formatWeekday(start)} {formatSpan(start, end)} · {minutes} min
-      </p>
-    </div>
+      </div>
+    </>
   )
 }

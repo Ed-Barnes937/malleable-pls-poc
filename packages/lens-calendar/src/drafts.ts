@@ -71,17 +71,19 @@ function shift(row: PlanItemOccurrence, series: string | null, from: string | nu
  * (flow-audit decision 8), so a 2h to-do resized to 1h is "1h of 2h booked"
  * (the server raises the estimate when a booking outgrows it). A review of a
  * moment is its block, as before: its `duration_min` follows its length.
+ * `all` patches every time field, changed or not (a move back to where the
+ * row is stored, after a save that moved it away).
  */
-export function movePatch(row: PlanItemOccurrence, start: Date, end: Date): PlanItemPatch {
+export function movePatch(row: PlanItemOccurrence, start: Date, end: Date, { all = false }: { all?: boolean } = {}): PlanItemPatch {
   const patch: PlanItemPatch = {}
-  if (start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row, row.series_starts_at, row.starts_at, start)
-  if (end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row, row.series_ends_at, row.ends_at, end)
+  if (all || start.getTime() !== Date.parse(row.starts_at!)) patch.starts_at = shift(row, row.series_starts_at, row.starts_at, start)
+  if (all || end.getTime() !== Date.parse(row.ends_at!)) patch.ends_at = shift(row, row.series_ends_at, row.ends_at, end)
   // validatePlanItem needs both ends together.
   if (patch.starts_at && !patch.ends_at) patch.ends_at = row.series_ends_at ?? row.ends_at
   if (patch.ends_at && !patch.starts_at) patch.starts_at = row.series_starts_at ?? row.starts_at
   // A review of a moment (or anything with a source) is its block: its estimate follows its length.
   const length = Math.round((end.getTime() - start.getTime()) / 60_000)
-  if (row.kind === 'task' && !isPlainTodo(row) && !isSession(row) && row.duration_min !== length) patch.duration_min = length
+  if (row.kind === 'task' && !isPlainTodo(row) && !isSession(row) && (all || row.duration_min !== length)) patch.duration_min = length
   return patch
 }
 

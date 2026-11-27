@@ -1,6 +1,8 @@
 import { DEFAULT_SIZE_CONSTRAINTS, clampDimensions, type PanelItem, type PanelLayout } from './canvas-store'
 import { PLACEMENT_GAP } from './geometry'
-import { GRID_SIZE, snapToGrid } from './snap'
+import { GRID_SIZE } from './panel-board'
+
+const snapToGrid = (v: number) => Math.round(v / GRID_SIZE) * GRID_SIZE
 
 /**
  * The canvas's layout rules (flow audit proposal 5, decisions 18 and 26):

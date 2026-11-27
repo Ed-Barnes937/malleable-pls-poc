@@ -22,18 +22,22 @@ async function newBoard(page: Page, name = 'My week') {
 }
 
 /**
- * Where a panel sits in the viewport once settled: its layout (the style the
- * canvas sets, not mid-animation geometry) offset by the canvas's position.
+ * Where a panel sits in the viewport once settled: its layout (the computed
+ * left/top/width/height the canvas sets, not mid-animation geometry) offset by
+ * the canvas's position.
  */
 async function box(grid: PanelGridPom, label: string): Promise<Box> {
   // The board may still be sliding in (a new board arrives with the shared motion).
   await motionSettled(grid.root)
   const canvas = await grid.root.boundingBox()
   if (!canvas) throw new Error('no canvas')
-  const layout = await grid.panelByLabel(label).evaluate((el: HTMLElement) => ({
-    x: parseFloat(el.style.left), y: parseFloat(el.style.top),
-    width: parseFloat(el.style.width), height: parseFloat(el.style.height),
-  }))
+  const layout = await grid.panelByLabel(label).evaluate((el: HTMLElement) => {
+    const style = getComputedStyle(el)
+    return {
+      x: parseFloat(style.left), y: parseFloat(style.top),
+      width: parseFloat(style.width), height: parseFloat(style.height),
+    }
+  })
   return { ...layout, x: canvas.x + layout.x, y: canvas.y + layout.y }
 }
 
@@ -116,7 +120,7 @@ test.describe('First run on an empty board', () => {
     const host = page.getByTestId('toast-host')
     await expect(host).toContainText('Calendar, To-do and Coming up added')
     await expect(host).toHaveAttribute('data-layout', 'bar')
-    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
+    await expect(page.locator('[data-ui-sdk-announcer=""]')).toHaveAttribute('aria-live', 'polite')
     const toast = (await host.getByTestId('toast').boundingBox())!
     const barHeight = (await host.boundingBox())!.height
     // At the right, under the board: the board ends where the bar starts.

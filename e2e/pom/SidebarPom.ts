@@ -10,7 +10,7 @@ export class SidebarPom {
   readonly lensItems: Locator
 
   constructor(private page: Page) {
-    this.root = page.locator('aside')
+    this.root = page.getByTestId('drawer-sidebar')
     this.lensItems = this.root.locator('[draggable="true"]')
   }
 

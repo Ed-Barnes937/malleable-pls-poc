@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from 'react'
-import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemUndoState } from '@pls/substrate'
+import { DEFAULT_PREFERENCES, bookedMinutes, formatMinutes, isSession, sessionParentId, suggestTaskSlots, isClassBlock, newSession, todosToPlan, occurrenceDate, openTime, outsideStudyHours, weekLayout, type BoardScope, type PlanItemOccurrence, type PlanItemPatch, type PlanItemUndoState } from '@pls/substrate'
 import { confirmWithUndo, useDraftUndo, type LensProps, type DateRange, useLinkedToLecture, useMissedBlocks, takeHelpMePlanRequest, useHelpMePlanRequest, useSubstrate, useSubstrateMutations } from '@pls/lens-framework'
-import { Presence, cn, useCourse, useNarrowScreen } from '@pls/shared-ui'
+import { Presence, SegmentedControl, cn, useCourse, useNarrowScreen } from '@pls/shared-ui'
 import { ChevronLeft, ChevronRight, Plus, Sparkles, X } from 'lucide-react'
 import { TimeGrid, type Anchor, type Reveal } from './TimeGrid'
-import { EventPopover } from './EventPopover'
+import { EVENT_POPOVER_WIDTH, EventPopover, eventPopoverLabel } from './EventPopover'
 import type { PendingAction } from './pending'
-import { StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import { STUDY_BLOCK_POPOVER_WIDTH, StudyBlockPopover, type MomentState } from './StudyBlockPopover'
+import { CalendarPopover, type Span } from './calendar-popover'
 import { ClassLectureSection, type ClassLectureState } from './ClassLectureSection'
-import type { Span } from './popover-position'
 import { markClosingPress } from './closing-press'
 import { FindAnotherTime, TickTodoToo } from './StudyBlockActions'
 import { HelpMePlanButton, HelpMePlanPanel, ScheduleClash, type DraggedTodo } from './HelpMePlan'
@@ -17,16 +17,12 @@ import { REFIT_SOURCE, RefitBanner, useRefitDraft } from './RefitBanner'
 import { acceptPatch, useProposalLayer, type Proposal, type ProposalValidator } from './proposals'
 import type { AutofillState } from './autofill'
 import { draftFromRow, movePatch, newItemFromDraft, patchFromDraft, type Draft } from './drafts'
+import { createSaveQueue } from './save-queue'
 import { toneFor } from './colors'
-import { addDays, formatFullDay, formatRangeTitle, localTimeZone, startOfDay, startOfWeek } from './time'
-import { PLAN_PANEL_PX, planPanelPlacement, useWeekGeometry } from './plan-panel'
+import { addDays, formatDayName, formatFullDay, formatRangeTitle, formatSpan, localTimeZone, startOfDay, startOfWeek } from './time'
+import { PLAN_PANEL_PX, coveredDays, planPanelPlacement, useWeekGeometry } from './plan-panel'
 
 type View = 'week' | 'day'
-
-/** Which popover is open: a new block's by its start, a block's by its occurrence. */
-function popoverIdOf(popover: Popover): string {
-  return popover.mode === 'create' ? `create-${popover.draft.start.toISOString()}` : `edit-${popover.key}`
-}
 
 type Popover =
   | { mode: 'create'; x: number; y: number; span?: Span; draft: Draft }
@@ -35,7 +31,7 @@ type Popover =
    * swaps that for the date and time pickers.
    */
   | {
-      mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean
+      mode: 'edit'; x: number; y: number; span?: Span; key: string; moment?: MomentState; editingTime?: boolean; armDelete?: boolean
       /** A class block's lecture, focused on the board as the popover opens. */
       lecture?: ClassLectureState
       /** The last open session of this to-do was just ticked here: "Tick off <to-do> too?". */
@@ -48,6 +44,8 @@ interface PendingMove {
   ends_at: string
   /** The row's `updated_at` when dragged: newer data supersedes the override. */
   basis: string
+  /** Its saves are still going (see `createSaveQueue`): shown here whatever the rows say meanwhile. */
+  saving: boolean
 }
 
 /** How much the calendar's width must change while a popover is open to count as the phone turning (more than a scrollbar). */
@@ -109,10 +107,19 @@ export default function CalendarLens({
   const [view, setViewState] = useState<View>(() => (narrow ? 'day' : savedView))
   const [anchorDay, setAnchorDay] = useState(() => startOfDay(new Date()))
   const [popover, setPopover] = useState<Popover | null>(null)
+  /**
+   * The popover UI SDK is closing, with its row: kept rendered (with
+   * open=false) until its exit animation ends, so it can hand focus back.
+   */
+  const [closing, setClosing] = useState<{ popover: Popover; row?: PlanItemOccurrence } | null>(null)
+  const popoverRef = useRef(popover)
+  popoverRef.current = popover
   /** The popover open when the calendar last turned, until it is placed again beside its block. */
   const turnedRef = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState<Map<string, PendingMove>>(new Map())
+  const pendingRef = useRef(pending)
+  pendingRef.current = pending
   const [planOpen, setPlanOpen] = useState(false)
   /** In a narrow calendar the panel overlays the grid: the student can tuck it away to see the ghosts. */
   const [planCollapsed, setPlanCollapsed] = useState(false)
@@ -124,8 +131,10 @@ export default function CalendarLens({
   const [notice, setNotice] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   const planButtonRef = useRef<HTMLButtonElement>(null)
-  /** What had focus when the popover opened, to return focus to on close. */
+  /** What had focus when the popover opened: focus goes back there when it closes (`finalFocus`). */
   const openerRef = useRef<HTMLElement | null>(null)
+  /** The row the open popover edits, for the popover while it closes (the row may be gone by then). */
+  const editingRef = useRef<PlanItemOccurrence | undefined>(undefined)
 
   useEffect(() => {
     if (!notice) return
@@ -133,44 +142,46 @@ export default function CalendarLens({
     return () => clearTimeout(timer)
   }, [notice])
 
+  /**
+   * Whether the last input was a touch press (not a mouse press or a key). A
+   * popover opened by touch focuses its card, not its first field, so a phone's
+   * on-screen keyboard doesn't open over the block just tapped. Decided by the
+   * press's pointer type, not the screen width: a mouse on a narrow window
+   * still gets the first field, a finger on a tablet doesn't.
+   */
+  const touchedRef = useRef(false)
+  const [touchOpened, setTouchOpened] = useState(false)
   const openPopover = (next: Popover) => {
+    setTouchOpened(touchedRef.current)
     const active = document.activeElement
     openerRef.current = active instanceof HTMLElement && rootRef.current?.contains(active) ? active : null
     setError(null)
     setNotice(null)
+    setClosing(null)
     // A popover opened after the calendar turned is not the one to move.
     turnedRef.current = null
     setPopover(next)
   }
-  /** What focus goes back to once a closed popover has gone from the page. */
-  const focusBackRef = useRef<HTMLElement | null>(null)
+  /**
+   * Closes the popover. UI SDK keeps it on screen while it animates out and
+   * returns focus to what opened it if focus was inside it (`finalFocus`);
+   * a press that closed it then puts focus where it pressed (another block,
+   * a button), as before.
+   */
   const closePopover = useCallback(() => {
+    const open = popoverRef.current
+    if (open) setClosing({ popover: open, row: open.mode === 'edit' ? editingRef.current : undefined })
     setPopover(null)
-    focusBackRef.current = openerRef.current
-    openerRef.current = null
   }, [])
-  // Only once the popover has gone: until then focus is still in it (a save
-  // can close it before React has taken it away), and would read as the
-  // student having moved it elsewhere.
-  useEffect(() => {
-    const opener = focusBackRef.current
-    focusBackRef.current = null
-    if (popover || !opener?.isConnected) return
-    const frame = requestAnimationFrame(() => {
-      // Focus goes back to what opened the popover, unless the press that
-      // closed it put focus on something else in the calendar (another
-      // block and maybe its popover, a button), which keeps it.
-      const active = document.activeElement
-      const elsewhere = active && active !== document.body && rootRef.current?.contains(active)
-      if (!elsewhere) opener.focus()
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [popover])
-  /** Closes the popover for somewhere else that takes focus (another board, the board menu). */
+  const returnFocus = useCallback(() => {
+    const opener = openerRef.current
+    return opener?.isConnected ? opener : null
+  }, [])
+  /** Closes the popover for somewhere else that takes focus (another board, the board menu): focus isn't handed back. */
   const leavePopover = useCallback(() => {
     openerRef.current = null
-    setPopover(null)
-  }, [])
+    closePopover()
+  }, [closePopover])
   /**
    * A press anywhere in the calendar but the popover closes it and still
    * does what it does, so a block can be dragged (or opened) straight away.
@@ -182,6 +193,7 @@ export default function CalendarLens({
    * edits the automation its footer opened.
    */
   const closeOnPressAway = (e: ReactPointerEvent) => {
+    touchedRef.current = e.pointerType === 'touch'
     if (!popover || (e.target as Element).closest?.('[data-calendar-popover]')) return
     markClosingPress(e.nativeEvent, { key: popover.mode === 'edit' ? popover.key : null, closeOnly: !!popoverPending })
     closePopover()
@@ -243,6 +255,7 @@ export default function CalendarLens({
       requestedAt: focusedPlanItem.requestedAt,
       keepInView: focusedPlanItem.keepInView,
       landsInMs: focusedPlanItem.landsInMs,
+      takeFocus: focusedPlanItem.takeFocus,
     })
     onPlanItemShown?.(focusedPlanItem.requestId)
   }, [focusedPlanItem, onPlanItemShown, view])
@@ -276,7 +289,7 @@ export default function CalendarLens({
     const rows = (data ?? []) as PlanItemOccurrence[]
     const moved = pending.size === 0 ? rows : rows.map((r) => {
       const p = pending.get(r.occurrence_key)
-      return p && p.basis === r.updated_at ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
+      return p && (p.saving || p.basis === r.updated_at) ? { ...r, starts_at: p.starts_at, ends_at: p.ends_at } : r
     })
     const extra = [...assigning.values()].filter((a) => !moved.some((r) => r.id === a.id && r.starts_at))
     return extra.length ? [...moved, ...extra] : moved
@@ -303,7 +316,7 @@ export default function CalendarLens({
     if (pending.size === 0 || !data) return
     const stale = [...pending].filter(([key, p]) => {
       const r = (data as PlanItemOccurrence[]).find((row) => row.occurrence_key === key)
-      return !r || r.updated_at !== p.basis
+      return !p.saving && (!r || r.updated_at !== p.basis)
     })
     if (stale.length === 0) return
     setPending((prev) => {
@@ -632,22 +645,60 @@ export default function CalendarLens({
     })
   }
 
+  const handleAskDelete = (item: PlanItemOccurrence, anchor: Anchor) => {
+    // A block from a moment asks in its edit view, where its Delete is.
+    openPopover({ mode: 'edit', ...relative(anchor), key: item.occurrence_key, armDelete: true, editingTime: fromMoment(item) || undefined })
+  }
+
+  /**
+   * Moves save one at a time per block, latest wins (quick arrow presses):
+   * the block shows where it was put until its last save lands.
+   */
+  const dataRef = useRef(data)
+  dataRef.current = data
+  const updateRef = useRef(updateItem)
+  updateRef.current = updateItem
+  const [moveQueue] = useState(() => createSaveQueue<{ id: string; title: string; patch: PlanItemPatch; start: Date; end: Date }>(
+    (_key, save) => updateRef.current.mutateAsync({ id: save.id, patch: save.patch }),
+    {
+      onDone: (key, { value, error, landed }) => {
+        // Never snap back silently: say the move didn't stick, and where the block is.
+        if (error) {
+          setNotice(landed
+            ? `Couldn't move "${value.title}" there - it's at ${formatDayName(landed.start)} ${formatSpan(landed.start, landed.end)}, where it last saved. Try again?`
+            : `Couldn't move "${value.title}" - it's back where it was. Try again?`)
+        }
+        // Saved: shown as put until rows newer than these arrive. Failed after
+        // an earlier save landed: shown there (where it is) on the same terms.
+        // Failed with nothing saved: the rows say where it is.
+        const row = (dataRef.current as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key)
+        setPending((prev) => {
+          const p = prev.get(key)
+          if (!p) return prev
+          const next = new Map(prev)
+          const basis = row?.updated_at ?? p.basis
+          if (!error) next.set(key, { ...p, saving: false, basis })
+          else if (landed) next.set(key, { starts_at: landed.start.toISOString(), ends_at: landed.end.toISOString(), saving: false, basis })
+          else next.delete(key)
+          return next
+        })
+      },
+    },
+  ))
   const handleMove = (item: PlanItemOccurrence, start: Date, end: Date) => {
-    const patch = movePatch(item, start, end)
+    const key = item.occurrence_key
+    // Patched from the row as stored, not as shown while earlier moves save.
+    const stored = (data as PlanItemOccurrence[] | undefined)?.find((r) => r.occurrence_key === key) ?? item
+    // While an earlier move is saving, or saved but its rows not yet here,
+    // the rows may not say where the server is: send every field.
+    const unsure = moveQueue.busy(key) || pendingRef.current.has(key)
+    const patch = movePatch(stored, start, end, { all: unsure })
     if (Object.keys(patch).length === 0) return
-    setPending((prev) => new Map(prev).set(item.occurrence_key, {
-      starts_at: start.toISOString(), ends_at: end.toISOString(), basis: item.updated_at,
+    setPending((prev) => new Map(prev).set(key, {
+      starts_at: start.toISOString(), ends_at: end.toISOString(), basis: stored.updated_at, saving: true,
     }))
     setNotice(null)
-    updateItem.mutateAsync({ id: item.id, patch }).catch(() => {
-      // Never snap back silently: say the move didn't stick.
-      setNotice(`Couldn't move "${item.title}" - it's back where it was. Try again?`)
-      setPending((prev) => {
-        const next = new Map(prev)
-        next.delete(item.occurrence_key)
-        return next
-      })
-    })
+    moveQueue.push(key, { id: item.id, title: item.title, patch, start, end })
   }
 
   /** Which popover is open, so a save that lands after it closed doesn't touch the next one. */
@@ -680,6 +731,7 @@ export default function CalendarLens({
   }
 
   const editing = popover?.mode === 'edit' ? items.find((r) => r.occurrence_key === popover.key) : undefined
+  editingRef.current = editing
 
   /**
    * Mark done / Not done yet from a block's popover. Ticking a session ticks
@@ -725,8 +777,9 @@ export default function CalendarLens({
    * through Edit time), or the offer to tick its to-do off.
    */
   const blockActions = (row: PlanItemOccurrence) => {
-    if (popover?.mode === 'edit' && popover.tickTodo) {
-      const todo = popover.tickTodo
+    // The popover on screen, so one closing keeps what it showed.
+    if (shown?.mode === 'edit' && shown.tickTodo) {
+      const todo = shown.tickTodo
       return (
         <TickTodoToo
           title={todo.title}
@@ -758,8 +811,11 @@ export default function CalendarLens({
   }
   // A deleted or moved-away row closes its popover.
   useEffect(() => {
-    if (popover?.mode === 'edit' && data && !editing) setPopover(null)
-  }, [popover, data, editing])
+    if (popover?.mode === 'edit' && data && !editing) closePopover()
+  }, [popover, data, editing, closePopover])
+  /** The popover on screen: the open one, or the one closing. */
+  const shown = popover ?? closing?.popover ?? null
+  const shownRow = popover ? editing : closing?.row
 
   // The calendar much wider or narrower while a popover is open (a phone
   // turned on its side) lays the blocks out afresh: a block's popover is
@@ -820,7 +876,6 @@ export default function CalendarLens({
   const today = startOfDay(now)
   const showingToday = days.some((d) => d.getTime() === today.getTime())
   const busy = createItem.isPending || updateItem.isPending || completeItem.isPending || deleteItem.isPending
-  const bounds = { width: rootRef.current?.clientWidth ?? 800, height: rootRef.current?.clientHeight ?? 600 }
   // The prompts' place at the grid's foot: clear of the open Help me plan
   // panel, and above Show plan while the panel is tucked away.
   const promptsInset: CSSProperties = {}
@@ -905,7 +960,7 @@ export default function CalendarLens({
   )
 
   return (
-    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway}>
+    <div ref={rootRef} data-testid="calendar" className="relative flex h-full min-h-0 flex-col gap-3" onPointerDownCapture={closeOnPressAway} onKeyDownCapture={() => { touchedRef.current = false }}>
       <header className="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-2">
         {phoneDay ? (
           // Phone: the day in the middle, a step either side.
@@ -956,23 +1011,13 @@ export default function CalendarLens({
         )}
 
         <div className={cn('flex flex-wrap items-center gap-2', phoneDay ? 'w-full justify-between' : 'ml-auto')}>
-          <div role="tablist" aria-label="Calendar view" className="flex rounded-control bg-surface-overlay p-[3px]">
-            {(['week', 'day'] as const).map((v) => (
-              <button
-                key={v}
-                type="button"
-                role="tab"
-                aria-selected={view === v}
-                onClick={() => setView(v)}
-                className={cn(
-                  'inline-flex h-[30px] items-center rounded-item px-3 text-body transition-colors',
-                  view === v ? 'bg-surface-raised font-semibold text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary',
-                )}
-              >
-                {v === 'week' ? 'Week' : 'Day'}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            label="Calendar view"
+            options={VIEW_OPTIONS}
+            value={view}
+            onValueChange={(v) => setView(v as View)}
+            itemClassName="h-[30px]"
+          />
           <button
             type="button"
             onClick={handleAddButton}
@@ -1013,15 +1058,20 @@ export default function CalendarLens({
             onCreate={handleCreate}
             onOpen={handleOpen}
             onMove={handleMove}
+            onAskDelete={handleAskDelete}
             proposals={layer.proposals}
             savedProposalIds={layer.lockedIds}
             onProposalMove={(id, start, end) => layer.move(id, start.toISOString(), end.toISOString())}
-            onProposalNudge={layer.nudge}
+            onProposalNudge={(id, minutes, days) => {
+              const put = layer.nudge(id, minutes, days)
+              return put && { start: new Date(put.startsAt), end: new Date(put.endsAt) }
+            }}
             onProposalAccept={(id) => void layer.accept(id)}
             onProposalDismiss={layer.dismiss}
             freeTime={freeTime}
             outsideStudyHours={offStudyHours}
             reveal={reveal}
+            coveredDays={planLayout && !planCollapsed && geometry ? coveredDays(geometry, placement) : undefined}
             incoming={incoming}
             onDropIncoming={(start) => {
               const todo = incoming
@@ -1102,106 +1152,124 @@ export default function CalendarLens({
         )}
       </div>
 
-      {popover?.mode === 'create' && (
-        <EventPopover
-          key={`create-${popover.draft.start.toISOString()}`}
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
-          bounds={bounds}
-          initial={popover.draft}
-          canEdit
-          busy={busy}
-          pending={popoverPending}
-          error={error}
+      {shown && (shown.mode === 'create' || shownRow) && (
+        <CalendarPopover
+          // One UI SDK Popover per popover opened: pressing block B while A's
+          // is open drops A's at once rather than reopening it as B's, so A's
+          // focus return (to what opened it, now B) can't follow B's first field.
+          key={popoverIdOf(shown)}
+          open={!!popover}
+          root={rootRef}
+          press={shown}
+          width={shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime ? STUDY_BLOCK_POPOVER_WIDTH : EVENT_POPOVER_WIDTH}
+          label={shown.mode === 'create' ? eventPopoverLabel() : shownRow && fromMoment(shownRow) && !shown.editingTime ? shownRow.title : eventPopoverLabel(shownRow)}
+          variant={shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime ? 'study-block' : undefined}
+          touch={touchOpened}
+          finalFocus={returnFocus}
           onClose={closePopover}
-          onSubmit={(draft) => run('add', `Couldn't add "${draft.title}".`, () => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
-        />
-      )}
-      {popover?.mode === 'edit' && editing && fromMoment(editing) && !popover.editingTime && (
-        <StudyBlockPopover
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
-          bounds={bounds}
-          row={editing}
-          moment={popover.moment}
-          canShowMoment={!!onShowMoment}
-          canEdit
-          busy={busy}
-          pending={popoverPending}
-          error={error}
-          onClose={closePopover}
-          onGoToMoment={() => void showMoment(editing, editing.occurrence_key)}
-          onToggleDone={() => void toggleDone(editing)}
-          onEditTime={() => {
-            setError(null)
-            setPopover((p) => (p?.mode === 'edit' ? { ...p, editingTime: true } : p))
-          }}
-          onEditAutomation={onEditAutomation}
-        />
-      )}
-      {popover?.mode === 'edit' && editing && (!fromMoment(editing) || popover.editingTime) && (
-        <EventPopover
-          // Keyed by the stored version too: if the item changes underneath
-          // (an automation moves it), the form starts again from what is
-          // stored instead of showing the old times.
-          key={`edit-${editing.occurrence_key}-${editing.updated_at}`}
-          x={popover.x}
-          y={popover.y}
-          span={popover.span}
-          bounds={bounds}
-          row={editing}
-          initial={draftFromRow(editing)}
-          canEdit
-          busy={busy}
-          pending={popoverPending}
-          error={error}
-          onClose={closePopover}
-          onSubmit={(draft) => {
-            const patch = patchFromDraft(editing, draft, localTimeZone())
-            if (Object.keys(patch).length === 0) return closePopover()
-            void run('save', `Couldn't save "${editing.title}".`, () => updateItem.mutateAsync({ id: editing.id, patch }))
-          }}
-          onDelete={() => run('delete', `Couldn't delete "${editing.title}".`, async () => {
-            await deleteItem.mutateAsync(editing.id)
-            // Undo puts it back as it was: a weekly one as the whole series, a to-do with its sessions.
-            const { id, title } = editing
-            confirmWithUndo(onNotify, {
-              key: 'plan-item-deleted',
-              message: `Deleted "${title}"`,
-              failMessage: `Couldn't bring back "${title}".`,
-              undo: () => restoreItem.mutateAsync(id),
-            })
-          })}
-          // As children, so it isn't remounted when the board's scope changes under it.
-          children={popover.lecture ? (
-            <ClassLectureSection
-              lecture={popover.lecture}
-              occurrence={editing}
-              now={now}
-              lectureBoards={lectureBoards}
-              boardShowsLectures={boardShowsLectures ?? false}
-              board={currentBoard}
-              narrow={narrow}
-              onRetry={() => void focusClass(editing, editing.occurrence_key, true)}
-              onOpenOn={onOpenLectureOn && (async (boardId, lecture) => {
-                const result = await onOpenLectureOn(boardId, lecture)
-                if (result === 'opened') leavePopover()
-                return result
-              })}
-              onAddWidget={onAddWidget && (() => {
-                leavePopover()
-                onAddWidget()
-              })}
+          onClosed={() => setClosing(null)}
+        >
+          {shown.mode === 'create' && (
+            <EventPopover
+              focusFirst={!touchOpened}
+              key={`create-${shown.draft.start.toISOString()}`}
+              initial={shown.draft}
+              canEdit
+              busy={busy}
+              pending={popoverPending}
+              error={error}
+              onClose={closePopover}
+              onSubmit={(draft) => run('add', `Couldn't add "${draft.title}".`, () => createItem.mutateAsync(newItemFromDraft(draft, localTimeZone())))}
             />
-          ) : blockActions(editing)}
-          onToggleDone={editing.kind === 'commitment' ? undefined : () => void toggleDone(editing)}
-        />
+          )}
+          {shown.mode === 'edit' && shownRow && fromMoment(shownRow) && !shown.editingTime && (
+            <StudyBlockPopover
+              focusFirst={!touchOpened}
+              row={shownRow}
+              moment={shown.moment}
+              canShowMoment={!!onShowMoment}
+              canEdit
+              busy={busy}
+              pending={popoverPending}
+              error={error}
+              onClose={closePopover}
+              onGoToMoment={() => void showMoment(shownRow, shownRow.occurrence_key)}
+              onToggleDone={() => void toggleDone(shownRow)}
+              onEditTime={() => {
+                setError(null)
+                setPopover((p) => (p?.mode === 'edit' ? { ...p, editingTime: true } : p))
+              }}
+              onEditAutomation={onEditAutomation}
+            />
+          )}
+          {shown.mode === 'edit' && shownRow && (!fromMoment(shownRow) || shown.editingTime) && (
+            <EventPopover
+              focusFirst={!touchOpened}
+              // Keyed by the stored version too: if the item changes underneath
+              // (an automation moves it), the form starts again from what is
+              // stored instead of showing the old times.
+              key={`edit-${shownRow.occurrence_key}-${shownRow.updated_at}`}
+              row={shownRow}
+              initial={draftFromRow(shownRow)}
+              canEdit
+              busy={busy}
+              pending={popoverPending}
+              error={error}
+              onClose={closePopover}
+              onSubmit={(draft) => {
+                const patch = patchFromDraft(shownRow, draft, localTimeZone())
+                if (Object.keys(patch).length === 0) return closePopover()
+                void run('save', `Couldn't save "${shownRow.title}".`, () => updateItem.mutateAsync({ id: shownRow.id, patch }))
+              }}
+              onDelete={() => run('delete', `Couldn't delete "${shownRow.title}".`, async () => {
+                await deleteItem.mutateAsync(shownRow.id)
+                // Undo puts it back as it was: a weekly one as the whole series, a to-do with its sessions.
+                const { id, title } = shownRow
+                confirmWithUndo(onNotify, {
+                  key: 'plan-item-deleted',
+                  message: `Deleted "${title}"`,
+                  failMessage: `Couldn't bring back "${title}".`,
+                  undo: () => restoreItem.mutateAsync(id),
+                })
+              })}
+              armDelete={shown.armDelete}
+              // As children, so it isn't remounted when the board's scope changes under it.
+              children={shown.lecture ? (
+                <ClassLectureSection
+                  lecture={shown.lecture}
+                  occurrence={shownRow}
+                  now={now}
+                  lectureBoards={lectureBoards}
+                  boardShowsLectures={boardShowsLectures ?? false}
+                  board={currentBoard}
+                  narrow={narrow}
+                  onRetry={() => void focusClass(shownRow, shownRow.occurrence_key, true)}
+                  onOpenOn={onOpenLectureOn && (async (boardId, lecture) => {
+                    const result = await onOpenLectureOn(boardId, lecture)
+                    if (result === 'opened') leavePopover()
+                    return result
+                  })}
+                  onAddWidget={onAddWidget && (() => {
+                    leavePopover()
+                    onAddWidget()
+                  })}
+                />
+              ) : blockActions(shownRow)}
+              onToggleDone={shownRow.kind === 'commitment' ? undefined : () => void toggleDone(shownRow)}
+            />
+          )}
+        </CalendarPopover>
       )}
     </div>
   )
 }
+
+/** Which popover this is: what it creates (by start) or the occurrence it edits. */
+function popoverIdOf(p: Popover) {
+  return p.mode === 'create' ? `create-${p.draft.start.toISOString()}` : `edit-${p.key}`
+}
+
+const VIEW_OPTIONS = [{ value: 'week', label: 'Week' }, { value: 'day', label: 'Day' }]
 
 const navButton = 'inline-flex items-center justify-center rounded-item border border-border bg-surface-raised text-body font-medium text-text-primary transition-colors hover:bg-surface-overlay disabled:opacity-50'
 

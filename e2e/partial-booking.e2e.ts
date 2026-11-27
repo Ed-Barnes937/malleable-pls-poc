@@ -1,7 +1,7 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
 import type { PlanItem } from '../packages/substrate/src'
-import { CalendarPom, TopBarPom } from './pom'
+import { CalendarPom, TimeInputPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { trpcMutation, trpcQuery } from './api'
 import { SEED_TIME_ZONE } from './seed-week'
@@ -164,7 +164,7 @@ test.describe('Partly booked to-dos', () => {
     // Too short to have a resize edge: shortened in its popover (Edit time, then the end time).
     await calendar.block('Review: maternal inheritance').click()
     await calendar.popover.getByRole('button', { name: 'Edit time' }).click()
-    await calendar.popover.getByLabel('End time').fill('14:15')
+    await new TimeInputPom(calendar.popover.getByLabel('End time')).fill('14:15')
     await calendar.popover.getByRole('button', { name: 'Save' }).click()
     await expect.poll(async () => (await byId(request, review.id)).ends_at).toBe('2026-10-29T14:15:00.000Z')
     // Its block is its booking: the estimate follows, and nothing offers to book "the rest".

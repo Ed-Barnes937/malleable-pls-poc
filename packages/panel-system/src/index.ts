@@ -1,4 +1,4 @@
-export { CanvasEngine, STACK_BREAKPOINT, type CanvasEngineProps } from './CanvasEngine'
+export { CanvasEngine, STACK_BREAKPOINT, KEY_SAVE_DELAY, type CanvasEngineProps } from './CanvasEngine'
 export { PanelChrome, type PanelChromeProps } from './PanelChrome'
 export { WorkspaceBackground } from './WorkspaceBackground'
 export { BackgroundPicker } from './BackgroundPicker'
@@ -15,6 +15,6 @@ export {
   type PanelArrangement,
 } from './canvas-store'
 export { tidyLayout } from './layout'
-export { snapToGrid, GRID_SIZE } from './snap'
-export { clampToCanvas, resizeDimensions, anchoredPosition, findFreeSpot, placeNewPanel, layoutGroup, PLACEMENT_GAP, type GroupMember } from './geometry'
+export { GRID_SIZE } from './panel-board'
+export { canvasBounds, findFreeSpot, placeNewPanel, layoutGroup, PLACEMENT_GAP, type GroupMember } from './geometry'
 export { scrollPanelIntoView } from './reveal'

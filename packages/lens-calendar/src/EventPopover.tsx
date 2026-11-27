@@ -1,25 +1,19 @@
-import { useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { PlanItemKind, PlanItemOccurrence } from '@pls/substrate'
-import { CourseOptions, Select, TextField, cn } from '@pls/shared-ui'
+import { CourseOptions, DatePicker, SegmentedControl, Select, TextField, TimeInput } from '@pls/shared-ui'
 import { Check, Loader2, Repeat, RotateCcw, Trash2, X } from 'lucide-react'
 import { KIND_LABELS, validateDraft, type Draft } from './drafts'
 import { fromInputs, formatDuration, toDateInput, toTimeInput } from './time'
-import { useEscapeToClose, usePopoverPosition, type Span } from './popover-position'
 import { PendingStatus, pendingLabel, pendingProps, type PendingAction } from './pending'
 
 export interface EventPopoverProps {
-  /** Position relative to the calendar root. */
-  x: number
-  y: number
-  /** What was pressed, relative to the calendar root: a popover that can't sit beside it goes above or below it. */
-  span?: Span
-  /** Bounds to stay inside. */
-  bounds: { width: number; height: number }
   /** Absent when creating. */
   row?: PlanItemOccurrence
   initial: Draft
   /** Can this widget write? Read-only hosts get a view-only popover. */
   canEdit: boolean
+  /** Focus Title as it opens (not when a touch opened it: the keyboard would rise). Default true. */
+  focusFirst?: boolean
   busy?: boolean
   /** The action this popover is waiting on, named on its button while it saves. */
   pending?: PendingAction | null
@@ -28,26 +22,34 @@ export interface EventPopoverProps {
   children?: ReactNode
   onSubmit: (draft: Draft) => void
   onDelete?: () => void
+  /** Opens with its delete confirm armed and focused (Delete pressed on the block). */
+  armDelete?: boolean
   onToggleDone?: () => void
   onClose: () => void
 }
 
-const WIDTH = 300
+/** How wide the create / edit card is. */
+export const EVENT_POPOVER_WIDTH = 300
 const KINDS: PlanItemKind[] = ['commitment', 'task', 'deadline']
+const KIND_OPTIONS = KINDS.map((kind) => ({ value: kind, label: kind === 'commitment' ? 'Class / commitment' : KIND_LABELS[kind] }))
 
-/** Create / edit card for a calendar item, anchored where the student clicked. */
+/** What a create / edit card is called (its dialog's name). */
+export function eventPopoverLabel(row?: PlanItemOccurrence): string {
+  return row ? `Edit ${row.title}` : 'Add to calendar'
+}
+
+/**
+ * Create / edit card for a calendar item: the body of a `CalendarPopover`,
+ * anchored where the student clicked.
+ */
 export function EventPopover({
-  x, y, span, bounds, row, initial, canEdit, busy, pending, error, children, onSubmit, onDelete, onToggleDone, onClose,
+  row, initial, canEdit, focusFirst = true, busy, pending, error, children, onSubmit, onDelete, armDelete = false, onToggleDone, onClose,
 }: EventPopoverProps) {
-  const ref = useRef<HTMLFormElement>(null)
   const [draft, setDraft] = useState<Draft>(initial)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const pos = usePopoverPosition(ref, { x, y, span, bounds, width: WIDTH })
+  const [confirmDelete, setConfirmDelete] = useState(armDelete && !!onDelete)
   const isCreate = !row
   const invalid = validateDraft(draft)
   const done = row?.status === 'done'
-
-  useEscapeToClose(onClose)
 
   // While a save is in flight the fields stay readable and focusable but
   // refuse edits: they would be lost when the save closes the popover.
@@ -60,12 +62,14 @@ export function EventPopover({
   const lockProps = locked
     ? { 'aria-readonly': true as const, onMouseDown: (e: { preventDefault: () => void }) => e.preventDefault() }
     : {}
-  const setDate = (value: string) => {
+  const setDate = (value: string | null) => {
+    if (!value) return
     const start = fromInputs(value, toTimeInput(draft.start))
     const end = fromInputs(value, toTimeInput(draft.end))
     if (start && end) set({ start, end })
   }
-  const setTime = (which: 'start' | 'end', value: string) => {
+  const setTime = (which: 'start' | 'end', value: string | null) => {
+    if (!value) return
     const next = fromInputs(toDateInput(draft.start), value)
     if (!next) return
     if (which === 'end') return set({ end: next })
@@ -80,24 +84,16 @@ export function EventPopover({
 
   return (
     <form
-      ref={ref}
-      role="dialog"
-      aria-label={isCreate ? 'Add to calendar' : `Edit ${row.title}`}
-      data-testid="calendar-popover"
-      // A press in here doesn't close it (CalendarLens).
-      data-calendar-popover
       onSubmit={(e) => {
         e.preventDefault()
         if (!invalid && canEdit && !busy) onSubmit(draft)
       }}
-      onPointerDown={(e) => e.stopPropagation()}
-      className="absolute z-50 flex flex-col gap-3 rounded-widget border border-border-subtle bg-surface-raised p-4 shadow-pop"
-      style={{ left: pos.left, top: pos.top, width: WIDTH }}
+      className="flex flex-col gap-3 p-4"
     >
       <div className="flex items-start gap-2">
         <TextField
-          // Focus moves into the popover however it was opened (click or Enter).
-          autoFocus
+          // Focus moves into the popover when a click or Enter opened it.
+          autoFocus={focusFirst && !confirmDelete}
           aria-label="Title"
           placeholder={isDue ? "What's due?" : 'What is it?'}
           value={draft.title}
@@ -118,24 +114,14 @@ export function EventPopover({
       </div>
 
       {isCreate ? (
-        <div role="radiogroup" aria-label="Kind" className="grid grid-cols-3 gap-1 rounded-control bg-surface-overlay p-[3px]">
-          {KINDS.map((kind) => (
-            <button
-              key={kind}
-              type="button"
-              role="radio"
-              aria-checked={draft.kind === kind}
-              aria-disabled={locked || undefined}
-              onClick={() => set({ kind })}
-              className={cn(
-                'rounded-item px-1.5 py-1.5 text-meta leading-tight transition-colors',
-                draft.kind === kind ? 'bg-surface-raised font-semibold text-text-primary shadow-sm' : 'text-text-secondary hover:text-text-primary',
-              )}
-            >
-              {kind === 'commitment' ? 'Class / commitment' : KIND_LABELS[kind]}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Kind"
+          options={KIND_OPTIONS}
+          value={draft.kind}
+          onValueChange={(kind) => set({ kind: kind as PlanItemKind })}
+          className="grid w-full grid-cols-3"
+          itemClassName="h-auto min-h-8 px-1.5 py-1.5 text-meta leading-tight"
+        />
       ) : (
         <span className="-mt-1 text-meta font-semibold text-text-muted">
           {row.kind === 'commitment' ? (row.subtype ?? 'Fixed commitment') : KIND_LABELS[row.kind]}
@@ -143,25 +129,23 @@ export function EventPopover({
         </span>
       )}
 
-      <div className="flex flex-col gap-2">
-        <div className="grid grid-cols-2 gap-2">
-          <label className={cn('min-w-0', !isDue && 'col-span-2')}>
-            <span className={fieldLabel}>{isDue ? 'Due' : 'Day'}</span>
-            <TextField type="date" aria-label="Date" value={toDateInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setDate(e.target.value)} />
-          </label>
-          <label className="min-w-0">
-            <span className={fieldLabel}>{isDue ? 'At' : 'From'}</span>
-            <TextField type="time" aria-label={isDue ? 'Due time' : 'Start time'} step={900} value={toTimeInput(draft.start)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('start', e.target.value)} />
-          </label>
-          {!isDue && (
-            <label className="min-w-0">
-              <span className={fieldLabel}>
-                To{length > 0 && <span className="ml-1 font-normal">· {formatDuration(length)}</span>}
-              </span>
-              <TextField type="time" aria-label="End time" step={900} value={toTimeInput(draft.end)} disabled={!canEdit} readOnly={locked} onChange={(e) => setTime('end', e.target.value)} />
-            </label>
-          )}
+      <div className="grid grid-cols-2 gap-2">
+        <div className="col-span-2 min-w-0">
+          <span className={fieldLabel}>{isDue ? 'Due' : 'Day'}</span>
+          <DatePicker label="Date" value={toDateInput(draft.start)} disabled={!canEdit} readOnly={locked} onValueChange={setDate} className="w-full" />
         </div>
+        <div className="min-w-0">
+          <span className={fieldLabel}>{isDue ? 'At' : 'From'}</span>
+          <TimeInput label={isDue ? 'Due time' : 'Start time'} step={15} hourCycle={24} value={toTimeInput(draft.start)} disabled={!canEdit} readOnly={locked} onValueChange={(v) => setTime('start', v)} className="w-full" />
+        </div>
+        {!isDue && (
+          <div className="min-w-0">
+            <span className={fieldLabel}>
+              To{length > 0 && <span className="ml-1 font-normal">· {formatDuration(length)}</span>}
+            </span>
+            <TimeInput label="End time" step={15} hourCycle={24} value={toTimeInput(draft.end)} disabled={!canEdit} readOnly={locked} onValueChange={(v) => setTime('end', v)} className="w-full" />
+          </div>
+        )}
       </div>
 
       <div className="flex items-end gap-2">
@@ -202,6 +186,7 @@ export function EventPopover({
           {onDelete && (confirmDelete ? (
             <button
               type="button"
+              autoFocus={armDelete}
               {...pendingProps(busy, pending === 'delete', onDelete)}
               className="inline-flex h-9 items-center gap-2 rounded-control px-3.5 text-body font-medium transition-colors text-confused hover:bg-confused-soft"
             >

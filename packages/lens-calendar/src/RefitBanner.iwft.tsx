@@ -250,3 +250,34 @@ test('one draft at a time: waits while Auto-fill suggestions are open', async ({
   await page.getByTestId('help-me-plan-panel').getByRole('button', { name: 'Keep my plan' }).click()
   await expect(banner(page).getByRole('button', { name: 'Re-fit' })).toBeEnabled()
 })
+
+test('a suggestion across midnight: its first piece has no end edge, and Shift+Up or Down on it does nothing', async ({ mount, page, simulator }) => {
+  seedMissed(simulator)
+  // Nothing drafts across midnight today (a daily budget keeps blocks within
+  // a day), so the preview is given one: Read chapter 5 at Thursday 23:00 -
+  // Friday 01:00 (decision 6: no resize at the midnight end).
+  simulator.rewrite('planItems.refitPreview', (data) => (data as { item: { id: string } }[]).map((p) =>
+    p.item.id === 'missed-1' ? { ...p, starts_at: fromNow(1, 23), ends_at: fromNow(2, 1) } : p))
+  await mount(<CalendarHarness />)
+
+  await banner(page).getByRole('button', { name: 'Re-fit' }).click()
+  const pieces = ghosts(page).filter({ hasText: 'Read chapter 5' })
+  await expect(pieces).toHaveCount(2)
+  await expect(pieces.nth(0)).toHaveAttribute('aria-label', 'Suggested: Read chapter 5, 23:00 - 01:00')
+  await expect(pieces.nth(0).locator('[data-span-edge="end"]')).toHaveCount(0)
+  // The second piece's end is the block's own: that edge resizes.
+  await expect(pieces.nth(1).locator('[data-span-edge="end"]')).toHaveCount(1)
+
+  await pieces.nth(0).focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect(pieces.nth(0)).toBeFocused()
+  await expect(pieces.nth(0)).toHaveAttribute('aria-label', 'Suggested: Read chapter 5, 23:00 - 01:00')
+  await expect(pieces.nth(1)).toHaveAttribute('aria-label', 'Suggested: Read chapter 5, 23:00 - 01:00')
+  await expect(page.locator('[data-ui-sdk-announcer=""]').filter({ hasText: 'Read chapter 5' })).toHaveCount(0)
+
+  // Shift+ArrowDown on the second piece moves the block's end.
+  await pieces.nth(1).focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect(pieces.nth(1)).toHaveAttribute('aria-label', 'Suggested: Read chapter 5, 23:00 - 01:15')
+})

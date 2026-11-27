@@ -19,7 +19,7 @@ Student-facing copy follows the vocabulary in `plans/student-planning-demo.md` s
 | `ScopePill` | A content-sized dropdown pill: a transparent native `<select>` over a styled label (dot, ellipsis, chevron), so keyboard and the phone's picker are native. A change made by a key (a closed select on Windows and Linux changes per arrow press) is a draft until Enter or leaving the pill; Escape drops it |
 | `DrawerSidebar` | Board menu: widget palette, board automations (and on a phone, Activity, theme and appearance); opens at the top |
 | `PanelContainer` | Wrapper connecting a panel slot to its lens |
-| `ThemeToggle` | Light / dark mode switch |
+| `ThemeToggle` | Light / Dark / System theme menu |
 | `JobStatusIndicator` | Activity button and panel for background automation runs |
 | `WorkspaceSwitcher` | Board tabs (scroll sideways on narrow screens); the open board's tab carries its delete button |
 | `WorkspaceDialogs` | New board (name + optional course) and delete board dialogs |

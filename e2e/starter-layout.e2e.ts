@@ -39,11 +39,11 @@ async function newBoard(page: Page, name: string) {
   return grid
 }
 
-/** A panel's saved layout (the style the canvas sets, not mid-animation geometry), in board coordinates. */
+/** A panel's saved layout (its laid-out box, not mid-animation geometry), in board coordinates. */
 function layout(grid: PanelGridPom, label: string): Promise<Box> {
   return grid.panelByLabel(label).evaluate((el: HTMLElement) => ({
-    x: parseFloat(el.style.left), y: parseFloat(el.style.top),
-    width: parseFloat(el.style.width), height: parseFloat(el.style.height),
+    x: el.offsetLeft, y: el.offsetTop,
+    width: el.offsetWidth, height: el.offsetHeight,
   }))
 }
 

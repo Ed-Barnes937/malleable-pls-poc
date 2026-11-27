@@ -57,17 +57,20 @@ export interface ProposalLayer {
   /** Replaces the layer's proposals. An empty list clears it. */
   propose: (source: string, proposals: Proposal[]) => void
   /**
-   * Drag-to-adjust: moves or resizes one and marks it `adjusted`. Refused
-   * (with a notice) if the new time fails `validate` or overlaps another ghost.
+   * Drag or Shift+arrow adjust: moves or resizes one and marks it `adjusted`.
+   * Refused (with a notice) if the new time fails `validate` or overlaps
+   * another ghost. Returns whether it went through.
    */
-  move: (id: string, startsAt: string, endsAt: string) => void
+  move: (id: string, startsAt: string, endsAt: string) => boolean
   /**
-   * Keyboard adjust: steps one by `minutes` (up / down, within its day) or
-   * `days` (left / right). A step that would land on something keeps going
-   * in the same direction to the next position that holds, so a ghost can
-   * hop past a commitment; if none does, it stays put (with a notice).
+   * The rule behind an arrow key moving a ghost (the grid's keyboard move):
+   * steps one by `minutes` (up / down, within its day) or `days` (left /
+   * right). A step that would land on something keeps going in the same
+   * direction to the next position that holds, so a ghost can hop past a
+   * commitment; if none does, it stays put (with a notice). Returns where it
+   * went, or null.
    */
-  nudge: (id: string, minutes: number, days: number) => void
+  nudge: (id: string, minutes: number, days: number) => Proposal | null
   dismiss: (id: string) => void
   /** "Keep my plan": drops every proposal, writes nothing. */
   dismissAll: () => void
@@ -239,19 +242,20 @@ export function useProposalLayer({
 
   const move = useCallback((id: string, startsAt: string, endsAt: string) => {
     const current = latest.current.find((p) => p.id === id)
-    if (!current || isLocked(id)) return
+    if (!current || isLocked(id)) return false
     const next = { ...current, startsAt, endsAt, adjusted: true }
     const reason = moveProblem(id, next)
     if (reason) {
       setNotice(`Can't move "${current.title}" there: ${reason}.`)
-      return
+      return false
     }
     place(id, next)
+    return true
   }, [moveProblem, place, isLocked])
 
-  const nudge = useCallback((id: string, minutes: number, days: number) => {
+  const nudge = useCallback((id: string, minutes: number, days: number): Proposal | null => {
     const current = latest.current.find((p) => p.id === id)
-    if (!current || isLocked(id)) return
+    if (!current || isLocked(id)) return null
     const shifted = (steps: number) => {
       const [start, end] = [new Date(current.startsAt), new Date(current.endsAt)]
       for (const d of [start, end]) {
@@ -267,10 +271,14 @@ export function useProposalLayer({
       if (minutes !== 0 && !withinDay(start, end, new Date(current.startsAt))) break
       const next = { ...current, startsAt: start.toISOString(), endsAt: end.toISOString(), adjusted: true }
       const reason = moveProblem(id, next)
-      if (!reason) return place(id, next)
+      if (!reason) {
+        place(id, next)
+        return next
+      }
       firstReason ??= reason
     }
     if (firstReason) setNotice(`Can't move "${current.title}" there: ${firstReason}.`)
+    return null
   }, [moveProblem, place, isLocked])
 
   const onDismissRef = useRef(onDismiss)

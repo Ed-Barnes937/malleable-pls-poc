@@ -1,9 +1,13 @@
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import { test, expect } from '../../../playwright/fixtures'
 import { CalendarHarness } from '../../../playwright/calendar-harness'
 import type { BackendSimulator } from '../../../playwright/backend-simulator'
 import type { StoredPlanItem } from '../../../playwright/backend-simulator/in-memory-db'
 import { addDays, formatFullDay, startOfDay, startOfWeek } from './time'
+import { TimeInputPom } from '../../../e2e/pom/TimeInputPom'
+
+/** A time field in the popover (a UI SDK TimeInput: an hour and a minute spinbutton). */
+const time = (scope: Locator, label: string) => new TimeInputPom(scope.getByLabel(label, { exact: true }))
 
 const monday = startOfWeek(new Date())
 const at = (day: number, h: number, m = 0) => new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m)
@@ -205,7 +209,7 @@ test('a weekly class repeats next week; one-off items do not', async ({ mount, p
 test('day view shows one day and navigates by day', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
-  await page.getByRole('tab', { name: 'Day' }).click()
+  await page.getByRole('radio', { name: 'Day' }).click()
   await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   await expect(page.getByTestId('help-me-plan')).toHaveCount(0)
 })
@@ -218,7 +222,7 @@ test.describe('on a phone', () => {
     // Saved as Week on a wide screen: a phone still opens on the day.
     await mount(<CalendarHarness config={{ view: 'week' }} width="100%" />)
 
-    await expect(page.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('radio', { name: 'Day' })).toBeChecked()
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
     const today = new Date()
     await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(today))
@@ -232,7 +236,7 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('calendar-title')).toHaveText(formatFullDay(addDays(startOfDay(today), -1)))
 
     // Week is a tap away, and picking a view on the phone leaves the saved one alone.
-    await page.getByRole('tab', { name: 'Week' }).click()
+    await page.getByRole('radio', { name: 'Week' }).click()
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(7)
     await expect(page.getByTestId('config-calls').getByRole('listitem')).toHaveCount(0)
   })
@@ -249,12 +253,176 @@ test.describe('on a phone', () => {
     await page.setViewportSize({ width: 400, height: 800 })
     await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
   })
+
+  // Too narrow for a popover beside the press: it opens above the block
+  // pressed when it fits there, else below it, inside the window. What it
+  // shows then loads into it, and it grows around its buttons, which stay
+  // where they are even if it then covers the block (main #113).
+  const day = (h: number, m = 0) => new Date(FROZEN_MONDAY.getFullYear(), FROZEN_MONDAY.getMonth(), FROZEN_MONDAY.getDate(), h, m).toISOString()
+  const PLACED: [string, string, string, 'above' | 'below'][] = [
+    ['high', 'Early seminar', 'Edit Early seminar', 'below'],
+    ['in the middle', 'Review: maternal inheritance', 'Review: maternal inheritance', 'above'],
+    ['low', 'Evening shift', 'Edit Evening shift', 'above'],
+  ]
+  /** Where `el` is once it has stopped moving. */
+  const settledBox = async (el: Locator) => {
+    let last = ''
+    await expect.poll(async () => {
+      const box = JSON.stringify(await el.boundingBox())
+      const settled = box === last
+      last = box
+      return settled
+    }, { intervals: [100] }).toBe(true)
+    return JSON.parse(last) as { x: number; y: number; width: number; height: number }
+  }
+  for (const [where, title, dialog, side] of PLACED) {
+    test(`a popover on a block ${where} on the screen opens ${side} it, inside the window, and its buttons stay put as it loads`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        {
+          id: 'review', kind: 'task', title: 'Review: maternal inheritance', starts_at: day(14), ends_at: day(14, 30), duration_min: 30,
+          source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, course: 'biology', created_by_workflow_id: 'wf-confused-review',
+        },
+        { id: 'late', kind: 'commitment', title: 'Evening shift', subtype: 'shift', starts_at: day(20), ends_at: day(21) },
+      ])
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+      // What the popover shows of the lecture is held, so it opens before it loads.
+      let release: () => void = () => {}
+      const held = new Promise<void>((resolve) => { release = resolve })
+      await page.route(/recordings\.byId|transcripts\.byRecording|tags\.list/, async (route) => {
+        await held
+        await route.fallback()
+      })
+
+      await block(page, title).click()
+      const popover = page.getByRole('dialog', { name: dialog })
+      await expect(popover).toBeVisible()
+      const opened = await settledBox(popover)
+      const pressed = (await block(page, title).boundingBox())!
+      const buttons = popover.locator('[data-popover-anchor]').last()
+      const before = await buttons.boundingBox()
+
+      const viewport = page.viewportSize()!
+      const inside = (box: typeof opened) => {
+        expect(box.x).toBeGreaterThanOrEqual(0)
+        expect(box.y).toBeGreaterThanOrEqual(0)
+        expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+      }
+      inside(opened)
+      if (side === 'above') expect(opened.y + opened.height, 'it opens above the block').toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y, 'it opens below the block').toBeGreaterThanOrEqual(pressed.y + pressed.height)
+
+      release()
+      if (title.startsWith('Review')) await expect(popover.getByTestId('calendar-moment-quote').locator('blockquote')).not.toBeEmpty()
+      const loaded = await settledBox(popover)
+      inside(loaded)
+      expect(await buttons.boundingBox(), 'its buttons stay where they are').toEqual(before)
+    })
+  }
+
+  // It scales in from the edge next to its block: its top edge below it, its
+  // bottom edge above it.
+  const SCALED: [string, string, 'above' | 'below'][] = [
+    ['Early seminar', 'Edit Early seminar', 'below'],
+    ['Evening shift', 'Edit Evening shift', 'above'],
+  ]
+  for (const [title, dialog, side] of SCALED) {
+    test(`a popover that opens ${side} its block scales in from its ${side === 'above' ? 'bottom' : 'top'} edge`, async ({ mount, page, simulator }) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        { id: 'late', kind: 'commitment', title: 'Evening shift', subtype: 'shift', starts_at: day(20), ends_at: day(21) },
+      ])
+      await mount(<CalendarHarness width="100%" height={800} />)
+      // Every frame it is scaled (scaling in), for the next 10s or so: its
+      // origin's y, px below its top, as a share of its height.
+      await page.evaluate(() => {
+        const w = window as unknown as { __origins: number[] }
+        w.__origins = []
+        let frames = 0
+        const tick = () => {
+          const el = document.querySelector<HTMLElement>('[data-testid="calendar-popover"]')
+          const style = el && getComputedStyle(el)
+          if (el && style && style.scale !== 'none' && style.scale !== '1') {
+            w.__origins.push(parseFloat(style.transformOrigin.split(' ')[1]) / el.offsetHeight)
+          }
+          if (++frames < 600) requestAnimationFrame(tick)
+        }
+        tick()
+      })
+      await block(page, title).click()
+      const popover = page.getByRole('dialog', { name: dialog })
+      await expect(popover).toBeVisible()
+      const opened = await settledBox(popover)
+      const pressed = (await block(page, title).boundingBox())!
+      if (side === 'above') expect(opened.y + opened.height).toBeLessThanOrEqual(pressed.y)
+      else expect(opened.y).toBeGreaterThanOrEqual(pressed.y + pressed.height)
+      const origins = await page.evaluate(() => (window as unknown as { __origins: number[] }).__origins)
+      expect(origins.length, 'it scaled in').toBeGreaterThan(0)
+      expect([...new Set(origins)]).toEqual([side === 'above' ? 1 : 0])
+    })
+  }
+
+  // A touch press raises the on-screen keyboard if a field takes focus, so the
+  // card itself does; a mouse click or a key still focuses the first field.
+  test.describe('opened by touch', () => {
+    test.use({ hasTouch: true })
+
+    const seedDay = async (page: Page, simulator: BackendSimulator) => {
+      await freezeAt(page, simulator, FROZEN_MONDAY, 7)
+      seed(simulator, [
+        { id: 'early', kind: 'commitment', title: 'Early seminar', subtype: 'class', starts_at: day(8), ends_at: day(9), course: 'biology' },
+        {
+          id: 'review', kind: 'task', title: 'Review: maternal inheritance', starts_at: day(14), ends_at: day(14, 30), duration_min: 30,
+          source_type: 'recording', source_id: 'rec-bio-4', source_offset_ms: 540000, course: 'biology', created_by_workflow_id: 'wf-confused-review',
+        },
+      ])
+    }
+
+    test('a tap on a block opens its popover with focus on the card, not Title', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Early seminar').tap()
+      const popover = page.getByRole('dialog', { name: 'Edit Early seminar' })
+      await expect(popover.getByLabel('Title')).toBeVisible()
+      await expect(popover).toBeFocused()
+      await expect(popover.getByLabel('Title')).not.toBeFocused()
+    })
+
+    test('a tap on a study block opens it with focus on the card, not Go to moment', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Review: maternal inheritance').tap()
+      const popover = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+      await expect(popover.getByRole('button', { name: 'Go to moment' })).toBeVisible()
+      await expect(popover).toBeFocused()
+      await expect(popover.getByRole('button', { name: 'Go to moment' })).not.toBeFocused()
+    })
+
+    test('tapping another block while one is open focuses that block\'s card', async ({ mount, page, simulator }) => {
+      await seedDay(page, simulator)
+      await mount(<CalendarHarness width="100%" height={800} />)
+      await block(page, 'Early seminar').tap()
+      await expect(page.getByRole('dialog', { name: 'Edit Early seminar' })).toBeFocused()
+      await block(page, 'Review: maternal inheritance').tap()
+      const second = page.getByRole('dialog', { name: 'Review: maternal inheritance' })
+      await expect(second).toBeVisible()
+      await expect(page.getByRole('dialog', { name: 'Edit Early seminar' })).toHaveCount(0)
+      await expect(second).toBeFocused()
+      // Still there once the first popover's close has finished (its focus return included).
+      await page.waitForTimeout(1000)
+      await expect(second).toBeFocused()
+    })
+  })
 })
 
 test('on a wide screen, picking a view saves it', async ({ mount, page, simulator }) => {
   seedWeek(simulator)
   await mount(<CalendarHarness />)
-  await page.getByRole('tab', { name: 'Day' }).click()
+  await page.getByRole('radio', { name: 'Day' }).click()
   await expect(page.getByTestId('config-calls')).toHaveText('{"view":"day"}')
 })
 
@@ -280,8 +448,8 @@ test('click empty time to add a weekly class', async ({ mount, page, simulator }
   const p = await point(page, 1, 14.2)
   await page.mouse.click(p.x, p.y)
   const popover = page.getByTestId('calendar-popover')
-  await expect(popover.getByLabel('Start time')).toHaveValue('14:00')
-  await expect(popover.getByLabel('End time')).toHaveValue('15:00')
+  await time(popover, 'Start time').expectValue('14:00')
+  await time(popover, 'End time').expectValue('15:00')
   // New items start in the board's course.
   await expect(popover.getByLabel('Course', { exact: true })).toHaveValue('biology')
   await popover.getByLabel('Title').fill('Genetics seminar')
@@ -386,7 +554,7 @@ test('commitments do not move by drag; they move by an explicit edit', async ({ 
   await block(page, 'Cafe shift').click()
   const popover = page.getByTestId('calendar-popover')
   await expect(popover).toContainText('stays where it is unless you edit it')
-  await popover.getByLabel('Start time').fill('17:00')
+  await time(popover, 'Start time').fill('17:00')
   await popover.getByRole('button', { name: 'Save' }).click()
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'shift')?.starts_at).toBe(iso(3, 17))
   expect(simulator.db.planItems.find((p) => p.id === 'shift')?.ends_at).toBe(iso(3, 21))
@@ -399,7 +567,7 @@ test('edit a weekly class from a later week shifts the whole series', async ({ m
   await block(page, 'Biology lecture').click()
   const popover = page.getByTestId('calendar-popover')
   await expect(popover).toContainText('Changes apply to every week.')
-  await popover.getByLabel('Start time').fill('11:00')
+  await time(popover, 'Start time').fill('11:00')
   await popover.getByRole('button', { name: 'Save' }).click()
   // The stored series (anchored this week) moved by the same hour.
   await expect.poll(() => simulator.db.planItems.find((p) => p.id === 'bio-lecture')?.starts_at).toBe(iso(0, 11))
@@ -458,19 +626,27 @@ test('while a save is pending the popover fields are read-only, still legible, a
   })
   await block(page, 'Biology lecture').click()
   const popover = page.getByTestId('calendar-popover')
-  await popover.getByLabel('Start time').fill('11:00')
+  await time(popover, 'Start time').fill('11:00')
   await popover.getByRole('button', { name: 'Save' }).click()
   await expect(popover.getByRole('button', { name: 'Saving...' })).toHaveAttribute('aria-busy', 'true')
 
   const title = popover.getByLabel('Title')
-  const start = popover.getByLabel('Start time')
+  const start = time(popover, 'Start time')
   const course = popover.getByLabel('Course', { exact: true })
   const weekly = popover.getByRole('checkbox', { name: 'Repeats weekly' })
-  for (const field of [title, start, popover.getByLabel('End time'), popover.getByLabel('Date')]) {
+  for (const field of [title, popover.getByLabel('Date', { exact: true })]) {
     await expect(field).toHaveJSProperty('readOnly', true)
     await expect(field).toBeEnabled()
     // Not greyed out: still legible.
     await expect(field).toHaveCSS('opacity', '1')
+  }
+  // The times (UI SDK TimeInput) are groups of hour and minute inputs: each is read-only, not disabled.
+  for (const field of [start, time(popover, 'End time')]) {
+    for (const segment of [field.hour, field.minute]) {
+      await expect(segment).toHaveJSProperty('readOnly', true)
+      await expect(segment).toBeEnabled()
+    }
+    await expect(field.root).toHaveCSS('opacity', '1')
   }
   await expect(course).toHaveAttribute('aria-readonly', 'true')
   await expect(weekly).toHaveAttribute('aria-readonly', 'true')
@@ -484,7 +660,8 @@ test('while a save is pending the popover fields are read-only, still legible, a
   await expect(course).toHaveValue('biology')
   await weekly.click()
   await expect(weekly).toBeChecked()
-  await expect(start).toHaveValue('11:00')
+  await start.fill('12:30')
+  await start.expectValue('11:00')
 
   release()
   await expect(popover).toHaveCount(0)
@@ -512,10 +689,14 @@ test('a block from a lecture moment leads with where it came from', async ({ mou
   await expect(popover.getByLabel('Start time')).toHaveCount(0)
   await expect(popover.getByTestId('calendar-made-by')).toHaveText(
     'Made by "When I mark something confusing, add a 20-min review within 3 days". Edit',
-  )  // Stays inside the calendar once everything in it has loaded.
+  )  // Stays inside the window once everything in it has loaded (decision 7:
+  // UI SDK keeps it in the viewport, and it may spill past the calendar),
+  // clear of the point pressed (the block's middle).
   const box = (await popover.boundingBox())!
-  const cal = (await page.getByTestId('calendar').boundingBox())!
-  expect(box.y + box.height).toBeLessThanOrEqual(cal.y + cal.height)
+  expect(box.y + box.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+  const pressed = (await block(page, 'Review: maternal inheritance').boundingBox())!
+  const [px, py] = [pressed.x + pressed.width / 2, pressed.y + pressed.height / 2]
+  expect(px >= box.x && px <= box.x + box.width && py >= box.y && py <= box.y + box.height).toBe(false)
 })
 
 test('"Go to moment" asks the board to show that moment', async ({ mount, page, simulator }) => {
@@ -570,7 +751,7 @@ test('"Mark done" and "Edit time" on a block from a lecture moment', async ({ mo
   await block(page, 'Review: maternal inheritance').click()
   await page.getByRole('button', { name: 'Edit time' }).click()
   const form = page.getByRole('dialog', { name: 'Edit Review: maternal inheritance' })
-  await form.getByLabel('Start time').fill('21:00')
+  await time(form, 'Start time').fill('21:00')
   await form.getByRole('button', { name: 'Save' }).click()
   await expect(block(page, 'Review: maternal inheritance')).toHaveAttribute('aria-label', /21:00 - 21:30/)
   expect(simulator.db.planItems.find((p) => p.id === 'review')?.starts_at).toBe(iso(2, 21))
@@ -593,7 +774,7 @@ test('an open popover follows its block when something else moves it', async ({ 
   await expect(popover).toContainText('20 min')
   // The time form, opened now, starts from the new time too.
   await popover.getByRole('button', { name: 'Edit time' }).click()
-  await expect(page.getByLabel('Start time')).toHaveValue('09:00')
+  await time(page.getByTestId('calendar-popover'), 'Start time').expectValue('09:00')
 })
 
 test('"See it" opens the week of the block, scrolls to it and glows it once with where it came from', async ({ mount, page, simulator }) => {
@@ -754,6 +935,352 @@ test('keyboard: Enter opens a block with focus inside, Escape returns focus; Add
   await page.keyboard.press('Enter')
   await expect(block(page, 'Reading week plan')).toBeVisible()
   await expect(add).toBeFocused()
+})
+
+/** What a screen reader hears from the grid (UI SDK's polite live region). */
+const announced = (page: Page) => page.locator('[data-ui-sdk-announcer=""]')
+const stored = (simulator: BackendSimulator, id: string) => simulator.db.planItems.find((p) => p.id === id)
+
+test('keyboard: arrows move study time 15 minutes, Left / Right to another day with focus kept, and say where it went', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 17, 15), duration_min: 60 })
+  await expect(announced(page)).toHaveText('Revise respiration moved to Wednesday 16:15 to 17:15')
+
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(3, 16, 15))
+  await expect(announced(page)).toHaveText('Revise respiration moved to Thursday 16:15 to 17:15')
+  await expect(revise).toBeFocused()
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('ArrowLeft')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+  await expect(revise).toBeFocused()
+})
+
+test('keyboard: Shift with Up / Down resizes study time from its end', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Revise respiration').focus()
+  await page.keyboard.press('Shift+ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 17, 15))
+  // Lengthened past its 1h estimate: the estimate rises to the 1h 15m booked (flow-audit decision 16).
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
+  await expect(announced(page)).toHaveText('Revise respiration now 16:00 to 17:15')
+
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.keyboard.press('Shift+ArrowUp')
+  await expect.poll(() => stored(simulator, 'revise')?.ends_at).toBe(iso(2, 16, 45))
+  // Shortened: the block is the time booked, and the estimate is never lowered (flow-audit decision 8).
+  expect(stored(simulator, 'revise')).toMatchObject({ starts_at: iso(2, 16), duration_min: 75 })
+})
+
+test('eight quick arrow presses leave the block, saved, on the eighth position', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  for (let i = 0; i < 8; i++) await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 18))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 19), duration_min: 60 })
+  await expect(revise).toHaveAttribute('aria-label', /18:00 - 19:00/)
+})
+
+test('a block moved and straight back ends saved where it started, even when the rows after the first save never came', async ({ mount, page, simulator, consoleErrors }) => {
+  // The rows' refetch after the first save is dropped (its batch carries the refit preview too).
+  consoleErrors.allowFailedRequest('planItems.list', 'planItems.refitPreview')
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // After the first save the rows' refetch is dropped: the move back comes
+  // with the page still holding the rows from before that save.
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => { saves++; await route.fallback() })
+  await page.route('**/planItems.list**', (route) => (saves > 0 ? route.abort() : route.fallback()))
+  const refetchDropped = page.waitForEvent('requestfailed', (r) => r.url().includes('planItems.list'))
+
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+  await refetchDropped
+  await page.keyboard.press('ArrowUp')
+
+  await expect.poll(() => stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+  expect(stored(simulator, 'revise')).toMatchObject({ ends_at: iso(2, 17), duration_min: 60 })
+  await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+})
+
+test('a later move that does not save says where the block is: at the earlier move that did', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update')
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // The first save waits until the second move is queued behind it, then
+  // goes through; the second fails.
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => {
+    saves++
+    if (saves === 1) {
+      await held
+      return route.fallback()
+    }
+    return route.fulfill({ status: 500, body: '{}' })
+  })
+
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /16:30 - 17:30/)
+  release()
+
+  await expect(page.getByTestId('calendar-notice')).toHaveText(`Couldn't move "Revise respiration" there - it's at Wednesday 16:15 - 17:15, where it last saved. Try again?`)
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+})
+
+test('a later move that does not save shows the block where it last saved at once, without waiting for fresh rows', async ({ mount, page, simulator, consoleErrors }) => {
+  consoleErrors.allowFailedRequest('planItems.update', 'planItems.list', 'planItems.refitPreview')
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  // As above, but no fresh rows arrive after a save: the page still holds
+  // the rows from before the first move (16:00 - 17:00).
+  let release!: () => void
+  const held = new Promise<void>((resolve) => { release = resolve })
+  let saves = 0
+  await page.route('**/planItems.update**', async (route) => {
+    saves++
+    if (saves === 1) {
+      await held
+      return route.fallback()
+    }
+    return route.fulfill({ status: 500, body: '{}' })
+  })
+  await page.route('**/planItems.list**', (route) => (saves > 0 ? route.abort() : route.fallback()))
+
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(revise).toHaveAttribute('aria-label', /16:30 - 17:30/)
+  release()
+
+  await expect(page.getByTestId('calendar-notice')).toHaveText(`Couldn't move "Revise respiration" there - it's at Wednesday 16:15 - 17:15, where it last saved. Try again?`)
+  await expect(revise).toHaveAttribute('aria-label', /16:15 - 17:15/)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16, 15))
+})
+
+test.describe('a block across midnight', () => {
+  const focusedPiece = (page: Page) => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.segmentKey)
+  const pieces = (page: Page) => block(page, 'Late revision')
+  const seedLate = (simulator: BackendSimulator) => {
+    seedWeek(simulator)
+    seed(simulator, [{ id: 'late', kind: 'task', title: 'Late revision', starts_at: iso(2, 23), ends_at: iso(3, 1), duration_min: 120 }])
+  }
+
+  test('keyboard: arrows on either day piece move the whole block, focus staying on the piece moved, and say where it went', async ({ mount, page, simulator }) => {
+    seedLate(simulator)
+    await mount(<CalendarHarness />)
+    await expect(pieces(page)).toHaveCount(2)
+
+    // The second piece (Thursday's), down a step: the whole block moves.
+    await pieces(page).nth(1).focus()
+    await page.keyboard.press('ArrowDown')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(2, 23, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(3, 1, 15), duration_min: 120 })
+    await expect(announced(page)).toHaveText('Late revision moved to Wednesday 23:15 to 01:15')
+    await expect.poll(() => focusedPiece(page)).toBe('late:3')
+
+    // Right: a day later, focus on the moved piece (now Friday's).
+    await page.keyboard.press('ArrowRight')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(3, 23, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(4, 1, 15) })
+    await expect(announced(page)).toHaveText('Late revision moved to Thursday 23:15 to 01:15')
+    await expect.poll(() => focusedPiece(page)).toBe('late:4')
+
+    // The first piece (Thursday's now), up and back a day.
+    await pieces(page).nth(0).focus()
+    await page.keyboard.press('ArrowUp')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(3, 23))
+    await page.keyboard.press('ArrowLeft')
+    await expect.poll(() => stored(simulator, 'late')?.starts_at).toBe(iso(2, 23))
+    expect(stored(simulator, 'late')).toMatchObject({ ends_at: iso(3, 1), duration_min: 120 })
+    await expect.poll(() => focusedPiece(page)).toBe('late:2')
+  })
+
+  test('the piece running into the next day has no edge to resize at midnight, by pointer or keyboard', async ({ mount, page, simulator }) => {
+    seedLate(simulator)
+    await mount(<CalendarHarness />)
+    const first = pieces(page).nth(0)
+    await expect(first.getByTestId('calendar-block-resize')).toHaveCount(0)
+    // The second piece's end is its own: that edge resizes.
+    await expect(pieces(page).nth(1).getByTestId('calendar-block-resize')).toHaveCount(1)
+
+    await first.focus()
+    await page.keyboard.press('Shift+ArrowDown')
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect(first).toBeFocused()
+    await expect(announced(page).filter({ hasText: 'Late revision' })).toHaveCount(0)
+    expect(stored(simulator, 'late')).toMatchObject({ starts_at: iso(2, 23), ends_at: iso(3, 1), duration_min: 120 })
+
+    // Shift+Down on the second piece moves the block's end.
+    await pieces(page).nth(1).focus()
+    await page.keyboard.press('Shift+ArrowDown')
+    await expect.poll(() => stored(simulator, 'late')?.ends_at).toBe(iso(3, 1, 15))
+    expect(stored(simulator, 'late')).toMatchObject({ starts_at: iso(2, 23), duration_min: 135 })
+  })
+})
+
+test('keyboard: commitments stay where they are; arrow keys change nothing and Enter still opens them', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const shift = block(page, 'Cafe shift')
+  await shift.focus()
+  for (const key of ['ArrowDown', 'ArrowUp', 'ArrowRight', 'ArrowLeft', 'Shift+ArrowDown', 'Shift+ArrowUp']) await page.keyboard.press(key)
+  await expect(shift).toHaveAttribute('aria-label', /18:00 - 22:00/)
+  await expect(shift).toBeFocused()
+  expect(stored(simulator, 'shift')).toMatchObject({ starts_at: iso(3, 18), ends_at: iso(3, 22) })
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('calendar-popover').getByLabel('Title')).toBeFocused()
+})
+
+test('Escape during a drag puts the block back', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const revise = block(page, 'Revise respiration')
+  await expect(revise).toBeVisible()
+  const grab = await point(page, 2, 16.25)
+  const drop = await point(page, 4, 10.25)
+  await page.mouse.move(grab.x, grab.y)
+  await page.mouse.down()
+  await page.mouse.move(drop.x, drop.y, { steps: 8 })
+  await expect(page.getByTestId('calendar-block-preview')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('calendar-block-preview')).toHaveCount(0)
+  await page.mouse.up()
+  await expect(revise).toHaveAttribute('aria-label', /16:00 - 17:00/)
+  await expect(page.getByTestId('calendar-popover')).toHaveCount(0)
+  expect(stored(simulator, 'revise')?.starts_at).toBe(iso(2, 16))
+})
+
+test('keyboard: Delete opens the block with its delete confirm armed; Escape returns focus, Enter deletes', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const popover = page.getByTestId('calendar-popover')
+  const revise = block(page, 'Revise respiration')
+  await revise.focus()
+  await page.keyboard.press('Delete')
+  await expect(popover.getByRole('button', { name: 'Delete it?' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(revise).toBeFocused()
+  expect(stored(simulator, 'revise')).toBeDefined()
+
+  await page.keyboard.press('Delete')
+  await expect(popover.getByRole('button', { name: 'Delete it?' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(revise).toHaveCount(0)
+  await expect.poll(() => stored(simulator, 'revise')).toBeUndefined()
+
+  // A weekly class asks about every week; a commitment can be deleted, never moved.
+  await block(page, 'Biology lecture').first().focus()
+  await page.keyboard.press('Backspace')
+  await expect(popover.getByRole('button', { name: 'Delete every week?' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(block(page, 'Biology lecture').first()).toBeFocused()
+})
+
+test('keyboard: Delete on a block from a lecture moment asks in its edit view', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Review: maternal inheritance').focus()
+  await page.keyboard.press('Delete')
+  await expect(page.getByTestId('calendar-popover').getByRole('button', { name: 'Delete it?' })).toBeFocused()
+})
+
+test('pressing another block while one is open opens that block, focused on its first field', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  await block(page, 'Biology lecture').click()
+  const first = page.getByRole('dialog', { name: 'Edit Biology lecture' })
+  await expect(first.getByLabel('Title')).toBeFocused()
+
+  await block(page, 'Chemistry lecture').click()
+  const second = page.getByRole('dialog', { name: 'Edit Chemistry lecture' })
+  await expect(second).toBeVisible()
+  await expect(first).toHaveCount(0)
+  await expect(second.getByLabel('Title')).toBeFocused()
+  // Still there once the first popover's close has finished (its focus return included).
+  await page.waitForTimeout(1000)
+  await expect(second.getByLabel('Title')).toBeFocused()
+})
+
+test('keyboard: in a new block, arrows pick the kind and step a time by 15 minutes, and the date picks from its calendar', async ({ mount, page, simulator }) => {
+  await freezeAt(page, simulator, FROZEN_MONDAY, 10, 0)
+  await mount(<CalendarHarness />)
+  await page.getByRole('button', { name: 'Add to calendar' }).focus()
+  await page.keyboard.press('Enter')
+  const popover = page.getByTestId('calendar-popover')
+  await expect(popover.getByLabel('Title')).toBeFocused()
+  await page.keyboard.type('Reading')
+
+  // Kind: one tab stop, arrows move the choice.
+  await popover.getByRole('radio', { name: 'Class / commitment' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(popover.getByRole('radio', { name: 'Study time' })).toBeChecked()
+
+  // The next half hour, an hour long; ArrowUp on the minute moves the start on 15 minutes, keeping the length.
+  const start = time(popover, 'Start time')
+  await start.expectValue('10:30')
+  await start.minute.focus()
+  await page.keyboard.press('ArrowUp')
+  await start.expectValue('10:45')
+  await time(popover, 'End time').expectValue('11:45')
+
+  // Date: Alt+ArrowDown opens its calendar; Escape closes only the calendar.
+  const date = popover.getByLabel('Date', { exact: true })
+  await date.focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  const calendar = page.getByRole('dialog', { name: 'Date calendar' })
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(calendar).toBeHidden()
+  await expect(popover).toBeVisible()
+  // Focus stays in the date field (UI SDK hands it to the field's calendar button).
+  await expect(popover.getByRole('button', { name: 'Choose date from calendar' })).toBeFocused()
+  // Then the next day, picked with arrows and Enter.
+  await date.focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(calendar).toBeVisible()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+  await expect(calendar).toBeHidden()
+
+  await popover.getByRole('button', { name: 'Add' }).press('Enter')
+  await expect(block(page, 'Reading')).toBeVisible()
+  const tuesday = (h: number, m: number) => new Date(2026, 9, 27, h, m).toISOString()
+  expect(simulator.db.planItems.find((p) => p.title === 'Reading')).toMatchObject({ kind: 'task', starts_at: tuesday(10, 45), ends_at: tuesday(11, 45) })
+})
+
+test('keyboard: the view switch is one tab stop; arrows move between Week and Day', async ({ mount, page, simulator }) => {
+  seedWeek(simulator)
+  await mount(<CalendarHarness />)
+  const week = page.getByRole('radio', { name: 'Week' })
+  await expect(week).toBeChecked()
+  await expect(page.getByRole('radio', { name: 'Day' })).toHaveAttribute('tabindex', '-1')
+  await week.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.getByRole('radio', { name: 'Day' })).toBeChecked()
+  await expect(page.getByTestId('calendar-day-header')).toHaveCount(1)
+  await expect(page.getByTestId('config-calls')).toHaveText('{"view":"day"}')
 })
 
 test('a 20-minute block, drawn to scale, reads by its title in a caption just under it', async ({ mount, page, simulator }) => {

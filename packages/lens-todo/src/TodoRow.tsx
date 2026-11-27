@@ -149,7 +149,7 @@ export function TodoRow({ item, now, showCourse, highlighted, justDone, fresh, e
           title="Not doing this"
           onClick={onDismiss}
           // Always visible (faint at rest, full on touch) so it can be found without hover.
-          className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-text-muted opacity-50 transition-opacity hover:bg-surface-overlay hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100"
+          className="mt-px flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-text-muted opacity-50 transition-opacity hover:bg-surface-overlay hover:text-text-primary focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-6 pointer-coarse:w-6 pointer-coarse:opacity-100 motion-reduce:transition-none"
         >
           <X className="h-3.5 w-3.5" />
         </button>

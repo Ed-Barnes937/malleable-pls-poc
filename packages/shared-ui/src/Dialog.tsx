@@ -1,6 +1,12 @@
-import { useEffect, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { type ComponentProps, type ReactNode } from 'react'
 import { X } from 'lucide-react'
+import {
+  Dialog as UiDialog,
+  DialogBackdrop,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+} from '@ui-sdk/react/dialog'
 import { cn } from './utils'
 
 export interface DialogProps {
@@ -9,68 +15,64 @@ export interface DialogProps {
   title?: string
   children: ReactNode
   className?: string
+  /** What takes focus when it opens (an element, a function returning one, or 'none'); by default the first thing Tab reaches. */
+  initialFocus?: ComponentProps<typeof DialogContent>['initialFocus']
 }
 
-export function Dialog({ open, onClose, title, children, className }: DialogProps) {
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [open, onClose])
+/**
+ * Modal dialogs ease in and out. UI SDK keeps a closing modal mounted until
+ * its animations end, so both parts ignore presses once closed (`data-closed`):
+ * a quick press on the page right after closing reaches the page, not the
+ * fading backdrop.
+ */
 
-  if (!open) return null
+/** The dimmed page behind a modal dialog (also used by AlertDialog). */
+export const BACKDROP_CLASS =
+  'fixed inset-0 bg-scrim transition-opacity duration-150 data-starting-style:opacity-0 data-ending-style:opacity-0 data-closed:pointer-events-none motion-reduce:transition-none'
 
-  return createPortal(
-    // Above everything else in the page, the top bar (z 9999) and the
-    // activity drawer (10003) included: a dialog is modal, and a full-screen
-    // one (a note on a phone) would otherwise have its header covered.
-    <div
-      className="fixed inset-0 z-[10010] flex items-center justify-center"
-      onPointerDown={(e) => e.stopPropagation()}
+/** The dialog box itself, centred on the top layer (also used by AlertDialog). */
+export const DIALOG_CLASS =
+  'fixed inset-0 m-auto h-fit max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-widget border border-border-subtle bg-surface-raised p-5 text-body text-text-primary shadow-pop outline-none transition-[opacity,scale] duration-150 data-starting-style:scale-96 data-starting-style:opacity-0 data-ending-style:scale-96 data-ending-style:opacity-0 data-closed:pointer-events-none motion-reduce:transition-none'
+
+const CLOSE_CLASS =
+  'rounded-item p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text-primary focus-visible:outline-2 focus-visible:outline-accent'
+
+/**
+ * A modal dialog on the browser's top layer (UI SDK Dialog), so it draws above
+ * any popover it was opened from. Escape closes the topmost dialog only, a
+ * press on the backdrop closes it, Tab stays inside, and focus returns to
+ * where it was when it closes.
+ */
+export function Dialog({ open, onClose, title, children, className, initialFocus }: DialogProps) {
+  return (
+    <UiDialog
+      open={open}
+      modal={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
     >
-      <div
-        data-testid="dialog-backdrop"
-        className="absolute inset-0 bg-scrim"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        className={cn(
-          'relative z-10 max-w-md rounded-widget border border-border-subtle bg-surface-raised p-5 text-body text-text-primary shadow-pop',
-          className,
-        )}
+      <DialogBackdrop data-testid="dialog-backdrop" className={BACKDROP_CLASS} />
+      <DialogContent
+        initialFocus={initialFocus}
+        // It renders in place, so presses would otherwise bubble to what it sits in (a panel's drag).
+        onPointerDown={(e) => e.stopPropagation()}
+        className={cn(DIALOG_CLASS, className)}
       >
-        {title && (
+        {title ? (
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-title font-semibold">{title}</h2>
-            <button
-              type="button"
-              aria-label="Close"
-              onClick={onClose}
-              className="rounded-item p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text-primary"
-            >
+            <DialogTitle className="text-title font-semibold">{title}</DialogTitle>
+            <DialogClose aria-label="Close" className={CLOSE_CLASS}>
               <X className="h-4 w-4" />
-            </button>
+            </DialogClose>
           </div>
-        )}
-        {!title && (
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="absolute right-3 top-3 rounded-item p-1.5 text-text-muted hover:bg-surface-overlay hover:text-text-primary"
-          >
+        ) : (
+          <DialogClose aria-label="Close" className={cn(CLOSE_CLASS, 'absolute right-3 top-3')}>
             <X className="h-4 w-4" />
-          </button>
+          </DialogClose>
         )}
         {children}
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </UiDialog>
   )
 }

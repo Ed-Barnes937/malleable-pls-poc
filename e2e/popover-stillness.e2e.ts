@@ -3,6 +3,7 @@ import type { APIRequestContext, Locator, Page } from '@playwright/test'
 import { CalendarPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { untilFontsLoaded } from './fonts'
+import { motionSettled } from './settle'
 import { trpcMutation } from './api'
 import { startOfLocalDay } from '../packages/scheduler/src'
 import { SEED_TIME_ZONE } from './seed-week'
@@ -91,6 +92,8 @@ for (const viewport of VIEWPORTS) {
           await expect(markDone).toBeVisible()
           await expect(calendar.popover.getByTestId('calendar-moment-quote')).toBeVisible()
           await untilFontsLoaded(page)
+          // The popover opens with a scale-in: measure once it has landed.
+          await motionSettled(calendar.popover)
           const before = (await markDone.boundingBox())!
 
           release()
@@ -117,8 +120,9 @@ const CLASS_OUTCOMES = [
   { name: 'the focus fails', fails: true },
 ]
 
-// Tall enough (the calendar and the window) that a popover isn't pinned to
-// the calendar's bottom edge, where nothing above its buttons could move them.
+// Tall enough that a popover isn't pinned to the bottom edge of its bounds
+// (on a phone, the calendar panel; on desktop, the window), where nothing
+// above its buttons could move them.
 const CLASS_VIEWPORTS = VIEWPORTS.map((v) => ({ ...v, size: { ...v.size, height: 1300 } }))
 
 for (const viewport of CLASS_VIEWPORTS) {

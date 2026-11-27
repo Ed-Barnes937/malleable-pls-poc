@@ -198,11 +198,15 @@ describe('canvas-store', () => {
       expect(panel.z_index).toBe(5)
     })
 
-    it('brings a panel above others sharing the top z_index (a seeded board is all 0)', () => {
-      useCanvasStore.getState().setPanels([makePanel({ id: 'a', z_index: 0 }), makePanel({ id: 'b', z_index: 0 })])
+    it('raises a panel that shares the highest z_index, as every seeded panel does', () => {
+      useCanvasStore.getState().setPanels([
+        makePanel({ id: 'a', z_index: 0 }),
+        makePanel({ id: 'b', z_index: 0 }),
+      ])
       useCanvasStore.getState().bringToFront('a')
-      const [a, b] = useCanvasStore.getState().panels
-      expect(a!.z_index).toBeGreaterThan(b!.z_index)
+      const { panels } = useCanvasStore.getState()
+      expect(panels.find((p) => p.id === 'a')!.z_index).toBe(1)
+      expect(panels.find((p) => p.id === 'b')!.z_index).toBe(0)
     })
 
     it('is a no-op for a non-existent panel', () => {

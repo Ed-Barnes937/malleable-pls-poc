@@ -28,13 +28,29 @@ function focusOutsideCanvas(canvas: HTMLElement | null | undefined): boolean {
   return !canvas?.contains(el)
 }
 
+/**
+ * True when keyboard focus is on a control inside a panel (a transcript
+ * moment, a button, a calendar block), rather than on the panel itself or
+ * outside every panel. Delete belongs to that control then, never to the panel.
+ */
+function focusOnControlInPanel(): boolean {
+  const el = document.activeElement
+  if (!el || el === document.body || el === document.documentElement) return false
+  const panel = el.closest('[data-panel-id]')
+  return panel !== null && panel !== el
+}
+
 export interface CanvasKeyboardOptions {
   /** Remove a panel through the host (so the deletion is also persisted). Falls
    *  back to the store's local removePanel when not provided. */
   onRemovePanel?: (panelId: string) => void
   /** Canvas element — needed to size a panel when toggling fullscreen. */
   canvasRef?: React.RefObject<HTMLDivElement | null>
+  /** Alt+arrow on the selected panel (UI SDK's `move.keydown`). Returns whether it moved it. */
+  onMoveKey?: (event: KeyboardEvent, panelId: string) => boolean
 }
+
+const ARROWS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 /**
  * Keyboard shortcuts that act on the currently selected lens.
@@ -43,14 +59,17 @@ export interface CanvasKeyboardOptions {
  *   left alone so keyboard users can always reach every control.
  * - **f / F** — toggle fullscreen on the selected panel (falls back to the
  *   top-most panel when nothing is selected).
- * - **Backspace / Delete** — remove the selected panel.
+ * - **Backspace / Delete** - remove the selected panel, unless focus is on a
+ *   control inside a panel (the key is that control's then).
  * - **Escape** — exit fullscreen, then focus mode, then clear the selection.
+ * - **Alt+arrow** - move the selected panel one grid step (`onMoveKey`).
+ *   Left to a text field (word jump on macOS) and to a widget that handled it.
  *
  * All shortcuts are suppressed while typing in an input/textarea/
  * contenteditable, and while focus is outside the canvas (top bar, board
  * menu, dialogs), so they don't interfere with other controls.
  */
-export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOptions = {}): void {
+export function useCanvasKeyboard({ onRemovePanel, canvasRef, onMoveKey }: CanvasKeyboardOptions = {}): void {
   useEffect(() => {
     function topPanelId(): string | null {
       const { panels } = useCanvasStore.getState()
@@ -61,6 +80,13 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
     function handleKeyDown(e: KeyboardEvent) {
       const state = useCanvasStore.getState()
       if (focusOutsideCanvas(canvasRef?.current)) return
+
+      // Alt+arrow - move the selected panel
+      if (e.altKey && ARROWS.has(e.key)) {
+        if (isTyping() || e.defaultPrevented || e.metaKey || e.ctrlKey) return
+        if (state.selectedPanelId) onMoveKey?.(e, state.selectedPanelId)
+        return
+      }
 
       // ] / [ - cycle selection
       if (e.key === ']' || e.key === '[') {
@@ -88,9 +114,9 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
         return
       }
 
-      // Backspace / Delete — remove the selected panel
+      // Backspace / Delete - remove the selected panel
       if (e.key === 'Backspace' || e.key === 'Delete') {
-        if (isTyping()) return
+        if (isTyping() || focusOnControlInPanel()) return
         const targetId = state.selectedPanelId
         if (!targetId) return
         if (onRemovePanel) onRemovePanel(targetId)
@@ -121,5 +147,5 @@ export function useCanvasKeyboard({ onRemovePanel, canvasRef }: CanvasKeyboardOp
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [onRemovePanel, canvasRef])
+  }, [onRemovePanel, canvasRef, onMoveKey])
 }

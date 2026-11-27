@@ -4,7 +4,6 @@ export { Presence } from './Presence'
 export { BOARD_SLIDE_PX, ENTER_FROM, MOTION_EASE, MOTION_EASE_BEZIER, MOTION_MS, MOTION_TIMING, SWAP_KEYFRAMES, boardSlideKeyframes, prefersReducedMotion, useListGlide, useReducedMotion, useWidthGlide } from './motion'
 export { BOARD_VIEW_GAP, boardScrollFor, showOnBoard, userScrolledSince, watchUserScroll, type Span } from './board-view'
 export { useNarrowScreen } from './useNarrowScreen'
-export { useFocusTrap } from './useFocusTrap'
 export { EmptyState, type EmptyStateProps } from './EmptyState'
 export { ProgressBar, type ProgressBarProps } from './ProgressBar'
 export { TagPill, TAG_STYLES, leadingTag } from './TagPill'
@@ -14,6 +13,13 @@ export { StatusDot, type StatusDotProps, type StatusDotStatus } from './StatusDo
 export { IconButton, type IconButtonProps } from './IconButton'
 export { SectionLabel, type SectionLabelProps } from './SectionLabel'
 export { Switch, type SwitchProps } from './Switch'
+// K1c form controls
+export { Checkbox, type CheckboxProps } from './Checkbox'
+export { SegmentedControl, type SegmentedControlProps, type SegmentedOption } from './SegmentedControl'
+export { Tabs, TabsList, TabsTab, TabsPanel, type TabsListProps } from './Tabs'
+export { TimeInput, type TimeInputProps } from './TimeInput'
+export { DatePicker, type DatePickerProps } from './DatePicker'
+// end K1c form controls
 export { Dialog, type DialogProps } from './Dialog'
 export { Select, type SelectProps } from './Select'
 export { TextField, type TextFieldProps } from './TextField'
@@ -34,3 +40,19 @@ export {
   isAllDay,
   dueEnd,
 } from './plan-dates'
+
+// Colour scheme (K1b)
+export { colorScheme, followTheme, resolvedTheme, useColorScheme, type Theme, type ThemeChoice } from './theme'
+
+// Toast (K1b)
+export { ToastBar, createToaster, type ToastBarProps, type Toaster, type ToastData } from './Toast'
+
+// Overlays on UI SDK (K1a). Lenses import these, never @ui-sdk/react.
+export { AlertDialog, useConfirm, type AlertDialogProps, type ConfirmRequest } from './AlertDialog'
+export { Popover, PopoverClose, PopoverContent, PopoverDescription, PopoverTitle, PopoverTrigger, createPopoverController, type PopoverContentProps, type PopoverController, type PopoverProps } from './Popover'
+export { Menu, MenuContent, MenuGroup, MenuGroupLabel, MenuItem, MenuRadioGroup, MenuRadioItem, MenuSeparator, MenuTrigger, createMenuController, type MenuController, type MenuProps } from './Menu'
+export { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerTitle, DrawerTrigger, createDrawerController, type DrawerController, type DrawerProps } from './Drawer'
+export { Tooltip, TooltipContent, TooltipTrigger, type TooltipProps } from './Tooltip'
+// Reorder on UI SDK (K2b)
+export { Sortable, SortableItem, SortableHandle, type SortableProps } from './Sortable'
+export { sortableMessage, sortableInstructions } from './sortable-primitive'

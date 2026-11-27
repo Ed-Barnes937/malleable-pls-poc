@@ -1,6 +1,6 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
-import { CalendarPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, PanelGridPom, SidebarPom, TimeInputPom, TopBarPom } from './pom'
 import { reseed } from './reseed'
 import { expectStillAtBottomAsToastLeaves } from './toast-bar'
 import { trpcMutation, trpcQuery } from './api'
@@ -43,7 +43,7 @@ test.describe('Phone', () => {
 
   test('the Calendar opens on today in Day view and steps a day at a time', async ({ page }) => {
     const calendar = new CalendarPom(page)
-    await expect(calendar.root.getByRole('tab', { name: 'Day' })).toHaveAttribute('aria-selected', 'true')
+    await expect(calendar.root.getByRole('radio', { name: 'Day' })).toBeChecked()
     await expect(calendar.days).toHaveCount(1)
     await expect(calendar.root.getByTestId('calendar-title')).toHaveText(fullDay(new Date()))
     await expect(calendar.root.getByText('Today', { exact: true })).toBeVisible()
@@ -265,7 +265,7 @@ test.describe('Phone calendar taps', () => {
     await page.touchscreen.tap(point.x, point.y)
     await expect(calendar.popover).toBeVisible()
     // The block opened at the time tapped, not wherever the grid had moved to.
-    await expect(calendar.popover.getByLabel('Start time')).toHaveValue('03:30')
+    await new TimeInputPom(calendar.popover.getByLabel('Start time')).expectValue('03:30')
     expect(await pressesInPopover(page)).toEqual([])
   })
 })
@@ -287,7 +287,7 @@ test.describe('Phone top bar', () => {
     // The widgets are stacked on a phone: nothing to tidy.
     await expect(page.getByRole('button', { name: 'Tidy up widgets' })).toHaveCount(0)
     await expect(topBar.root.getByTestId('activity-button')).toHaveCount(0)
-    await expect(topBar.root.getByRole('button', { name: /^Switch to (dark|light) mode$/ })).toHaveCount(0)
+    await expect(topBar.root.getByRole('button', { name: 'Theme' })).toHaveCount(0)
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toHaveCount(0)
     // One row: the tabs sit level with the menu button, on screen.
     const menuBox = (await topBar.drawerTrigger.boundingBox())!
@@ -301,9 +301,11 @@ test.describe('Phone top bar', () => {
     await expect(drawer).toBeFocused()
     await expect(topBar.drawerTrigger).toHaveAttribute('aria-expanded', 'true')
     await expect(drawer.getByTestId('drawer-appearance')).toContainText('Background')
-    await drawer.getByRole('button', { name: 'Switch to dark mode' }).click()
+    await drawer.getByRole('button', { name: 'Theme' }).click()
+    await page.getByRole('menuitemradio', { name: 'Dark' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-    await drawer.getByRole('button', { name: 'Switch to light mode' }).click()
+    await drawer.getByRole('button', { name: 'Theme' }).click()
+    await page.getByRole('menuitemradio', { name: 'Light' }).click()
     await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
 
     // Activity opens over the menu with focus in it; Escape closes it alone
@@ -351,7 +353,7 @@ test.describe('Phone top bar', () => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await expect(topBar.root).not.toHaveAttribute('data-layout', 'phone')
     await expect(topBar.root.getByTestId('activity-button')).toBeVisible()
-    await expect(topBar.root.getByRole('button', { name: 'Switch to dark mode' })).toBeVisible()
+    await expect(topBar.root.getByRole('button', { name: 'Theme' })).toBeVisible()
     await expect(topBar.root.getByRole('button', { name: 'Board appearance' })).toBeVisible()
     await expect(drawer.getByTestId('drawer-app-controls')).toHaveCount(0)
     await expect(drawer.getByTestId('drawer-appearance')).toHaveCount(0)
@@ -383,7 +385,7 @@ test.describe('Phone top bar', () => {
 
     const host = page.getByTestId('toast-host')
     await expect(host).toHaveAttribute('data-layout', 'bar')
-    await expect(page.getByTestId('toast-announcer')).toHaveAttribute('aria-live', 'polite')
+    await expect(page.locator('[data-ui-sdk-announcer=""]')).toHaveAttribute('aria-live', 'polite')
     await expect(host).toContainText('Opened 36:40 in Evening Review')
     const back = host.getByRole('button', { name: 'Back to My week' })
     await expect(back).toBeInViewport()

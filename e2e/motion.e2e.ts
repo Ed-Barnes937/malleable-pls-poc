@@ -1,6 +1,6 @@
 import { test, expect } from './test'
 import type { APIRequestContext, Page } from '@playwright/test'
-import { CalendarPom, CreateWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
+import { CalendarPom, CreateWorkspaceDialogPom, DeleteWorkspaceDialogPom, PanelGridPom, SidebarPom, TopBarPom } from './pom'
 import { trpcMutation } from './api'
 import { reseed } from './reseed'
 import { departures, fontsLoaded, motionSettled, recordDepartures } from './settle'
@@ -19,6 +19,8 @@ import { departures, fontsLoaded, motionSettled, recordDepartures } from './sett
 
 interface Animated {
   testid: string | null
+  /** The UI SDK part (`data-slot`) animated, e.g. drawer-backdrop. */
+  slot: string | null
   panel: string | null
   leaving: boolean
   keyframes: string
@@ -32,6 +34,7 @@ async function recordAnimations(page: Page) {
     Element.prototype.animate = function (this: Element, keyframes, options) {
       calls.push({
         testid: this.getAttribute('data-testid'),
+        slot: this.getAttribute('data-slot'),
         panel: this.closest('[data-panel-id]')?.getAttribute('data-panel-id') ?? null,
         leaving: this.hasAttribute('data-leaving'),
         keyframes: JSON.stringify(keyframes),
@@ -43,6 +46,32 @@ async function recordAnimations(page: Page) {
 
 const animated = (page: Page) => page.evaluate(() => (window as unknown as { __animated: Animated[] }).__animated)
 const forget = (page: Page) => page.evaluate(() => { (window as unknown as { __animated: Animated[] }).__animated.length = 0 })
+
+/**
+ * From now until `drawerPositions`, every frame: where the board menu drawer
+ * is drawn (its left and top) whenever any of it is on screen. (Once closed
+ * it is parked off screen, where its fade is not seen.)
+ */
+const watchDrawer = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __drawerSeen: string[]; __drawerWatch: boolean }
+  w.__drawerSeen = []
+  w.__drawerWatch = true
+  const tick = () => {
+    const el = document.querySelector('[data-testid="drawer-sidebar"]')
+    if (el) {
+      const box = el.getBoundingClientRect()
+      const at = `${Math.round(box.left)},${Math.round(box.top)}`
+      if (box.right > 0 && !w.__drawerSeen.includes(at)) w.__drawerSeen.push(at)
+    }
+    if (w.__drawerWatch) requestAnimationFrame(tick)
+  }
+  tick()
+})
+const drawerPositions = (page: Page) => page.evaluate(() => {
+  const w = window as unknown as { __drawerSeen: string[]; __drawerWatch: boolean }
+  w.__drawerWatch = false
+  return w.__drawerSeen
+})
 
 async function calendarBoard(request: APIRequestContext, name: string) {
   const ws = await trpcMutation<{ id: string }>(request, 'workspaces.create', { name })
@@ -200,7 +229,7 @@ test.describe('Motion', () => {
     expect((await animated(page)).filter((a) => a.testid === 'workspace-tab')).toEqual([])
 
     await topBar.deleteWorkspace(second)
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete' }).click()
+    await new DeleteWorkspaceDialogPom(page).confirm()
     await expect(tabs).toHaveCount(before.length - 1)
     // The tabs after it glide left into its room.
     await expect.poll(async () => (await animated(page)).filter((a) => a.testid === 'workspace-tab').map((a) => a.keyframes))
@@ -399,13 +428,17 @@ test.describe('Reduced motion', () => {
     expect(await block.evaluate((el) => el.getAnimations().length)).toBe(0)
 
     // A widget added, made fullscreen and back, and removed: each at once.
+    await watchDrawer(page)
     await topBar.openDrawer()
     await new SidebarPom(page).addWidget('To-do')
     const grid = new PanelGridPom(page)
     await grid.expectPanelCount(2)
     await page.keyboard.press('Escape')
     const todo = grid.panelByLabel('To-do')
+    await expect(page.getByTestId('drawer-sidebar')).toHaveCount(0)
     expect(await todo.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0)
+    // The drawer faded in and out without moving: whenever it was on screen, it was at the one place.
+    expect(await drawerPositions(page)).toHaveLength(1)
     await todo.getByRole('button', { name: 'Fullscreen To-do' }).click()
     await expect(todo.getByRole('button', { name: 'Exit fullscreen' })).toBeVisible()
     // Laid out full size and drawn there: no glide on the way.
@@ -427,8 +460,18 @@ test.describe('Reduced motion', () => {
     await expect(calendar.root.getByTestId('refit-banner')).toHaveCount(0)
     expect((await departures(page)).slice(departed)).toEqual([])
 
-    // Nothing above was animated from script either.
-    expect(await animated(page)).toEqual([])
+    // Nothing above was animated from script either, bar the UI SDK drawer.
+    // The drawer swaps its slide for a 150ms opacity fade and animates its
+    // --drawer-* variables, and the UI SDK has no prop to turn that off. Ed
+    // accepted the fade (decision of 2026-11-26, plans/ui-sdk-adoption/decisions.md
+    // in the ui-sdk worktree): so the rule here is that nothing moves, not that
+    // nothing at all animates. Only the drawer's own parts may, and only by
+    // opacity or its variables (which the position check above shows move nothing).
+    const calls = await animated(page)
+    const others = calls.filter((a) => a.testid !== 'drawer-sidebar' && !a.slot?.startsWith('drawer-'))
+    expect(others).toEqual([])
+    const properties = calls.flatMap((a) => Object.keys(JSON.parse(a.keyframes) as Record<string, unknown>))
+    expect(properties.filter((p) => p !== 'opacity' && !p.startsWith('--drawer-'))).toEqual([])
   })
 
   test('on a phone, Up next takes its new width at once as the pills change', async ({ page }) => {

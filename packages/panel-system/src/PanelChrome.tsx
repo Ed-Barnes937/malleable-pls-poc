@@ -11,7 +11,7 @@ export interface PanelChromeProps {
   icon?: ComponentType<{ className?: string; size?: number }>
   children?: ReactNode
   onClose?: () => void
-  /** Passed down so the header can initiate drag via dragControls */
+  /** Starts a drag of the panel from its header (UI SDK move.pointerdown) */
   onDragHandlePointerDown?: (e: React.PointerEvent) => void
   /** Whether this panel is currently fullscreen */
   isFullscreen?: boolean
@@ -19,6 +19,12 @@ export interface PanelChromeProps {
   onToggleFullscreen?: () => void
   /** Extra header buttons rendered before the fullscreen/close actions. */
   headerActions?: ReactNode
+  /**
+   * Rendered right after the header, before the content: in tab order the
+   * panel's own controls (its resize handles) follow its header, not its
+   * widget's content. Position it absolutely; it takes no room in the column.
+   */
+  afterHeader?: ReactNode
 }
 
 /** The drag handle's tooltip: how to move a widget, and how to place it tidily. */
@@ -36,6 +42,7 @@ export function PanelChrome({
   isFullscreen,
   onToggleFullscreen,
   headerActions,
+  afterHeader,
 }: PanelChromeProps) {
   return (
     <div
@@ -96,6 +103,8 @@ export function PanelChrome({
           <X size={16} />
         </button>
       </div>
+
+      {afterHeader}
 
       {/* ── Content area ── */}
       <div

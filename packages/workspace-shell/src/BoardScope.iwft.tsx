@@ -182,7 +182,7 @@ test.describe('a lecture filed under no course', () => {
     await mount(<BoardScopeHarness workspaceId="ws-in-lecture" />)
     await page.route((url) => url.pathname.split(/[/,]/).includes('lectures.update'), (route) => route.fulfill({ status: 500, body: '{}' }))
     await fileSelect(page).selectOption({ label: 'Physics' })
-    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't file the lecture - try again")
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText("Couldn't file the lecture - try again")
     await expect(page.getByTestId('lecture-file-course').getByTestId('scope-pill-text')).toHaveText('Choose a course')
   })
 
@@ -270,7 +270,7 @@ test('a failed write puts both pills back and says so', async ({ mount, page, si
   await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
   await expect(courseSelect(page)).toHaveValue('biology')
   await expect(lectureSelect(page)).toHaveValue('lec-rec-bio-4')
-  await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't change what this board shows - try again")
+  await expect(page.getByRole('region', { name: 'Notifications' })).toContainText("Couldn't change what this board shows - try again")
 })
 
 test.describe('renaming the lecture inline', () => {
@@ -339,7 +339,7 @@ test.describe('renaming the lecture inline', () => {
     await page.getByRole('textbox', { name: 'Lecture name' }).fill('Never saved')
     await page.keyboard.press('Enter')
     await expect(lecturePill(page)).toHaveText('Biology Lecture: Mitochondrial DNA')
-    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't rename the lecture - try again")
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText("Couldn't rename the lecture - try again")
   })
 
   test('the lecture menu works by keyboard, and Escape closes it back onto its button', async ({ mount, page, simulator: _boards }) => {
@@ -501,7 +501,7 @@ test.describe('two quick changes', () => {
     await expect(coursePill(page)).toHaveText('Biology')
 
     await writes.fail(0)
-    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't change what this board shows - try again")
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText("Couldn't change what this board shows - try again")
     await expect.poll(() => writes.inputs).toHaveLength(2)
     // Not put back to "All courses" over the newer change.
     await expect(coursePill(page)).toHaveText('Biology')
@@ -522,7 +522,7 @@ test.describe('two quick changes', () => {
     await courseSelect(page).selectOption({ label: 'Biology' })
     await writes.answer(0)
     await writes.fail(1)
-    await expect(page.getByRole('status').or(page.getByRole('alert'))).toContainText("Couldn't change what this board shows - try again")
+    await expect(page.getByRole('region', { name: 'Notifications' })).toContainText("Couldn't change what this board shows - try again")
     await expect(coursePill(page)).toHaveText('Chemistry')
     await expect(courseSelect(page)).toHaveValue('chemistry')
     expect(simulator.db.workspaceScopes.filter((s) => s.workspace_id === 'ws-exam-prep').map((s) => s.scope_value)).toEqual(['chemistry'])

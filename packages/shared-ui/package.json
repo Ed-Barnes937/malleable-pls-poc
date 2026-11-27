@@ -5,6 +5,8 @@
   "main": "src/index.ts",
   "types": "src/index.ts",
   "dependencies": {
+    "@ui-sdk/core": "0.1.0-beta.16",
+    "@ui-sdk/react": "0.1.0-beta.16",
     "@pls/substrate": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

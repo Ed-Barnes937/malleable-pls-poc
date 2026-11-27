@@ -41,9 +41,8 @@ async function buildBiologyBoard(page: Page) {
     await grid.expectPanelCount(i + 1)
   }
   await page.keyboard.press('Escape')
-  // Closed, the drawer slides off-screen and leaves the accessibility tree.
-  await expect(drawer).toHaveAttribute('aria-hidden', 'true')
-  await expect(drawer).not.toBeInViewport()
+  // Closed, the drawer is gone from the page: off-screen, out of the accessibility tree and the Tab order.
+  await expect(drawer).toHaveCount(0)
   return { topBar, grid }
 }
 

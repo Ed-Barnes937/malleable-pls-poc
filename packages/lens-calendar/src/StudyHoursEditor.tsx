@@ -1,5 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
-import { createPortal } from 'react-dom'
+import { useId, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_STUDY_HOURS,
   STUDY_PER_DAY_OPTIONS,
@@ -12,7 +11,7 @@ import {
   type StudyWindow,
   type Weekday,
 } from '@pls/substrate'
-import { cn } from '@pls/shared-ui'
+import { PopoverContent, PopoverTitle, TimeInput, cn } from '@pls/shared-ui'
 import { ChevronRight } from 'lucide-react'
 
 /** What the editor saves: only what changed. */
@@ -25,13 +24,16 @@ const DAY_NAMES: Record<Weekday, string> = {
   mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday',
 }
 
+/** ArrowUp / ArrowDown on a minute move it by half an hour, as the choices did before. */
 const STEP_MIN = 30
-const hhmm = (min: number) => `${String(Math.floor(min / 60)).padStart(2, '0')}:${String(min % 60).padStart(2, '0')}`
-/** Every half hour; a start runs 00:00-23:30, an end 00:30-24:00. */
-const START_TIMES = Array.from({ length: 24 * 60 / STEP_MIN }, (_, i) => hhmm(i * STEP_MIN))
-const END_TIMES = Array.from({ length: 24 * 60 / STEP_MIN }, (_, i) => hhmm((i + 1) * STEP_MIN))
-/** The half-hour choices, plus `value` if it is between them (set some other way). */
-const withValue = (times: string[], value: string) => (times.includes(value) ? times : [...times, value].sort())
+/**
+ * The end of the day. A time field can't show 24:00, so an end of 00:00
+ * means midnight at the end of the day (no window runs overnight, so it can
+ * mean nothing else).
+ */
+const END_OF_DAY = '24:00'
+const endShown = (end: string) => (end === END_OF_DAY ? '00:00' : end)
+const endSaved = (end: string) => (end === '00:00' ? END_OF_DAY : end)
 
 /** Zero-padded "HH:MM" compares as text; no overnight windows. */
 const endsAfterStart = (w: StudyWindow) => w.end > w.start
@@ -42,23 +44,52 @@ export const REPLACES_DAYS = 'Saving uses these times for every day, replacing t
 /** Every day has study, all at the same times. */
 const everyDaySame = (h: StudyHours) => WEEKDAYS.every((d) => h[d] && sameStudyWindow(h[d], h.mon))
 
-const popoverWidth = 320
-const margin = 8
-
 /**
  * "When do you study?": study hours as one range for every day, or a range
  * per day (any day can be "No study") under "Different on some days", and
- * study time per day. Nothing is saved until Save. A popover beside its
- * `anchor` (the line's Change button), sized to fit a phone: focus moves in
- * when it opens, stays inside while it is open, and goes back to the anchor
- * when it closes (Save, Cancel, Escape or a press outside).
+ * study time per day. Nothing is saved until Save.
+ *
+ * The content of a shared-ui `Popover` (UI SDK) whose trigger is the line's
+ * Change button, opened with `modal="trap-focus"`: below the button (or
+ * above it), inside the window and sized to fit a phone. Focus moves in when
+ * it opens, stays inside while it is open, and goes back to Change when it
+ * closes (Save, Cancel, Escape or a press outside). It starts afresh each
+ * time it opens.
  */
-export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, onClose }: {
-  anchor: RefObject<HTMLElement | null>
+export function StudyHoursEditor(props: {
   studyHours: StudyHours
   studyMinPerDay: number
   onSave: (change: StudyRhythmChange) => void
-  onClose: () => void
+  /** Save or Cancel: close it. */
+  onDone: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  return (
+    <PopoverContent
+      ref={ref}
+      side="bottom"
+      align="end"
+      sideOffset={6}
+      // The first time (the first field if that day is "No study").
+      initialFocus={() =>
+        ref.current?.querySelector<HTMLElement>('[data-first-time] input:not(:disabled)')
+        ?? ref.current?.querySelector<HTMLElement>('select:not(:disabled), input:not(:disabled), button')}
+      data-testid="study-hours-editor"
+      // Presses inside never reach the board or the grid behind.
+      onPointerDown={(e) => e.stopPropagation()}
+      className="w-80 max-w-[calc(100vw-16px)] gap-3 text-body"
+    >
+      <StudyHoursForm {...props} container={ref} />
+    </PopoverContent>
+  )
+}
+
+function StudyHoursForm({ studyHours, studyMinPerDay, onSave, onDone, container }: {
+  studyHours: StudyHours
+  studyMinPerDay: number
+  onSave: (change: StudyRhythmChange) => void
+  onDone: () => void
+  container: { current: HTMLElement | null }
 }) {
   const studying = WEEKDAYS.map((d) => studyHours[d]).filter((w): w is StudyWindow => !!w)
   const uniform = everyDaySame(studyHours)
@@ -73,18 +104,8 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     setTouched(true)
   }
 
-  const headingId = useId()
   const daysId = useId()
   const noteId = useId()
-  const ref = useRef<HTMLDivElement>(null)
-  const firstFieldRef = useRef<HTMLSelectElement>(null)
-
-  const close = () => {
-    onClose()
-    requestAnimationFrame(() => {
-      if (anchor.current?.isConnected) anchor.current.focus()
-    })
-  }
 
   const everyHours = Object.fromEntries(WEEKDAYS.map((d) => [d, every])) as StudyHours
   const hours: StudyHours = different ? days : everyHours
@@ -99,14 +120,14 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
 
   const save = () => {
     if (invalid.length > 0) {
-      ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus()
+      container.current?.querySelector<HTMLElement>('[aria-invalid="true"] input')?.focus()
       return
     }
     const change: StudyRhythmChange = {}
     if (!sameStudyHours(hours, studyHours)) change.study_hours = hours
     if (perDay !== studyMinPerDay) change.study_min_per_day = perDay
     if (Object.keys(change).length > 0) onSave(change)
-    close()
+    onDone()
   }
 
   const openDifferent = () => {
@@ -116,73 +137,6 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     setDifferent(!different)
   }
 
-  // Focus goes to the first time when it opens (the first field if that day is "No study").
-  useEffect(() => {
-    const first = firstFieldRef.current
-    if (first && !first.disabled) first.focus()
-    else ref.current?.querySelector<HTMLElement>('select:not(:disabled), input, button')?.focus()
-  }, [])
-
-  // Beside the anchor: below it, else above, inside the window.
-  const [pos, setPos] = useState<{ left: number; top: number; width: number; maxHeight: number } | null>(null)
-  useLayoutEffect(() => {
-    const place = () => {
-      const a = anchor.current?.getBoundingClientRect()
-      const el = ref.current
-      if (!a || !el) return
-      const width = Math.min(popoverWidth, window.innerWidth - 2 * margin)
-      const left = Math.min(Math.max(margin, a.right - width), window.innerWidth - width - margin)
-      const maxHeight = window.innerHeight - 2 * margin
-      const height = Math.min(el.scrollHeight, maxHeight)
-      const below = a.bottom + 6
-      const top = below + height <= window.innerHeight - margin ? below : Math.max(margin, Math.min(a.top - 6 - height, window.innerHeight - margin - height))
-      setPos((p) => (p && p.left === left && p.top === top && p.width === width && p.maxHeight === maxHeight ? p : { left, top, width, maxHeight }))
-    }
-    place()
-    window.addEventListener('resize', place)
-    window.addEventListener('scroll', place, true)
-    const observer = new ResizeObserver(place)
-    if (ref.current) observer.observe(ref.current)
-    return () => {
-      window.removeEventListener('resize', place)
-      window.removeEventListener('scroll', place, true)
-      observer.disconnect()
-    }
-    // Placed again, before paint, when the days open or close (it grows or shrinks).
-  }, [anchor, different])
-
-  // A press outside (not on the anchor, which toggles it) cancels.
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Node
-      if (ref.current?.contains(t) || anchor.current?.contains(t)) return
-      onClose()
-    }
-    document.addEventListener('pointerdown', onDown, true)
-    return () => document.removeEventListener('pointerdown', onDown, true)
-  }, [anchor, onClose])
-
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      e.stopPropagation()
-      close()
-      return
-    }
-    if (e.key !== 'Tab') return
-    // Tab stays inside while it is open.
-    const fields = [...(ref.current?.querySelectorAll<HTMLElement>('select, input, button') ?? [])].filter((f) => !f.hasAttribute('disabled'))
-    const first = fields[0]
-    const last = fields[fields.length - 1]
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault()
-      last?.focus()
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault()
-      first?.focus()
-    }
-  }
-
   const perDayOptions = useMemo(
     () => ((STUDY_PER_DAY_OPTIONS as readonly number[]).includes(studyMinPerDay)
       ? [...STUDY_PER_DAY_OPTIONS]
@@ -190,20 +144,9 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
     [studyMinPerDay],
   )
 
-  return createPortal(
-    <div
-      ref={ref}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={headingId}
-      data-testid="study-hours-editor"
-      onKeyDown={onKeyDown}
-      // Presses inside never reach the board or the grid behind.
-      onPointerDown={(e) => e.stopPropagation()}
-      className="fixed z-50 flex flex-col gap-3 overflow-y-auto rounded-widget border border-border-subtle bg-surface-raised p-4 text-body text-text-primary shadow-pop"
-      style={pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.maxHeight } : { left: 0, top: 0, width: popoverWidth, opacity: 0 }}
-    >
-      <h4 id={headingId} className="text-title font-semibold">When do you study?</h4>
+  return (
+    <>
+      <PopoverTitle className="text-title">When do you study?</PopoverTitle>
 
       {!different && (
         <TimeRange
@@ -213,7 +156,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
           window={every}
           onChange={setEvery}
           invalid={invalid.length > 0}
-          startRef={firstFieldRef}
+          first
         />
       )}
       {/* Always rendered (taking no room while empty), so a note that appears is announced. */}
@@ -262,7 +205,7 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
                     onChange={(next) => editDay(d, next)}
                     onOffChange={(off) => editDay(d, off ? null : every)}
                     invalid={invalid.includes(d)}
-                    startRef={i === 0 ? firstFieldRef : undefined}
+                    first={i === 0}
                   />
                 </li>
               )
@@ -272,22 +215,21 @@ export function StudyHoursEditor({ anchor, studyHours, studyMinPerDay, onSave, o
       </div>
 
       <div className="flex justify-end gap-2 pt-1">
-        <button type="button" onClick={close} className="inline-flex h-9 items-center rounded-control px-3 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary">
+        <button type="button" onClick={onDone} className="inline-flex h-9 items-center rounded-control px-3 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary">
           Cancel
         </button>
         <button type="button" onClick={save} aria-describedby={replacesDays ? noteId : undefined} className="inline-flex h-9 items-center rounded-control bg-accent px-4 text-body font-semibold text-accent-foreground transition-opacity hover:opacity-90">
           Save
         </button>
       </div>
-    </div>,
-    document.body,
+    </>
   )
 }
 
 const selectClass = 'h-8 min-w-0 rounded-item border border-border bg-surface-inset px-1.5 text-meta font-semibold text-text-primary disabled:opacity-50 aria-[invalid=true]:border-attn-line'
 
 /** "[label] [start] to [end]", with "No study" when `onOffChange` is given, and the error under it. */
-function TimeRange({ label, labelClassName, name, window: w, off = false, onChange, onOffChange, invalid, startRef }: {
+function TimeRange({ label, labelClassName, name, window: w, off = false, onChange, onOffChange, invalid, first = false }: {
   label: string
   labelClassName: string
   /** For the accessible names: "Monday", "every day". */
@@ -297,36 +239,39 @@ function TimeRange({ label, labelClassName, name, window: w, off = false, onChan
   onChange: (next: StudyWindow) => void
   onOffChange?: (off: boolean) => void
   invalid: boolean
-  startRef?: RefObject<HTMLSelectElement | null>
+  /** The first range: focus starts on its start time. */
+  first?: boolean
 }) {
   const errorId = useId()
   const error = invalid && !off
+  const field = 'min-w-0 flex-1 [&_[data-slot=time-input]]:h-8 [&_[data-slot=time-input]]:px-1.5 [&_[data-slot=time-input]]:text-meta [&_[data-slot=time-input]]:font-semibold'
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-center gap-1.5 text-meta text-text-secondary">
         <span aria-hidden className={cn('shrink-0 font-medium', labelClassName, off && 'text-text-muted')}>{label}</span>
-        <select
-          ref={startRef}
-          aria-label={`Start time, ${name}`}
-          value={w.start}
-          disabled={off}
-          onChange={(e) => onChange({ ...w, start: e.target.value })}
-          className={cn(selectClass, 'flex-1')}
-        >
-          {withValue(START_TIMES, w.start).map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+        <span data-first-time={first || undefined} className="contents">
+          <TimeInput
+            label={`Start time, ${name}`}
+            value={w.start}
+            step={STEP_MIN}
+            hourCycle={24}
+            disabled={off}
+            onValueChange={(v) => v && onChange({ ...w, start: v })}
+            className={field}
+          />
+        </span>
         <span aria-hidden className={cn(off && 'text-text-muted')}>to</span>
-        <select
-          aria-label={`End time, ${name}`}
-          aria-invalid={error || undefined}
-          aria-describedby={error ? errorId : undefined}
-          value={w.end}
+        <TimeInput
+          label={`End time, ${name}`}
+          value={endShown(w.end)}
+          step={STEP_MIN}
+          hourCycle={24}
           disabled={off}
-          onChange={(e) => onChange({ ...w, end: e.target.value })}
-          className={cn(selectClass, 'flex-1')}
-        >
-          {withValue(END_TIMES, w.end).map((t) => <option key={t} value={t}>{t}</option>)}
-        </select>
+          invalid={error}
+          describedBy={error ? errorId : undefined}
+          onValueChange={(v) => v && onChange({ ...w, end: endSaved(v) })}
+          className={field}
+        />
         {onOffChange && (
           <label className="flex shrink-0 items-center gap-1 whitespace-nowrap">
             <input

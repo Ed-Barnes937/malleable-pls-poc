@@ -1,5 +1,6 @@
 import type { PlanItemOccurrence } from '@pls/substrate'
 import { isAllDay } from '@pls/shared-ui'
+import { stackSpans } from '@ui-sdk/core'
 import { MINUTES_PER_DAY, addDays, sameDay, startOfDay, wallMinutes } from './time'
 
 /** One day's slice of a timed block, laid out side by side with overlaps. */
@@ -14,6 +15,8 @@ export interface DaySegment {
   /** The block started on an earlier day / runs into a later one. */
   continuesBefore: boolean
   continuesAfter: boolean
+  /** Which of the block's days this piece is: 0 for the day it starts on. */
+  piece: number
   /** Side-by-side position among overlapping blocks. */
   column: number
   columns: number
@@ -64,42 +67,28 @@ export function layoutDays(items: PlanItemOccurrence[], days: Date[]): DaySegmen
         endMin: continuesAfter || end.getTime() === nextDay ? MINUTES_PER_DAY : wallMinutes(end),
         continuesBefore,
         continuesAfter,
+        piece: continuesBefore ? Math.round((dayStart - startOfDay(start).getTime()) / 86_400_000) : 0,
         column: 0,
         columns: 1,
       })
     })
   }
-  for (const segments of perDay) assignColumns(segments)
+  for (const segments of perDay) assignLanes(segments)
   return perDay
 }
 
-/** Greedy column packing within each cluster of transitively overlapping segments. */
-function assignColumns(segments: DaySegment[]): void {
-  segments.sort((a, b) => a.startMin - b.startMin || b.endMin - a.endMin || a.key.localeCompare(b.key))
-  let cluster: DaySegment[] = []
-  let columnEnds: number[] = []
-  let clusterEnd = -Infinity
-
-  const close = () => {
-    for (const s of cluster) s.columns = columnEnds.length
-    cluster = []
-    columnEnds = []
+/**
+ * Lanes from UI SDK's `stackSpans`, the segments taken in key order so ties
+ * fall the same way every time.
+ */
+function assignLanes(segments: DaySegment[]): void {
+  const ordered = [...segments].sort((a, b) => a.key.localeCompare(b.key))
+  const lanes = stackSpans(ordered.map((s) => ({ id: s.key, track: '0', start: s.startMin, end: s.endMin })))
+  for (const s of segments) {
+    const lane = lanes.get(s.key)!
+    s.column = lane.lane
+    s.columns = lane.lanes
   }
-
-  for (const seg of segments) {
-    if (seg.startMin >= clusterEnd) close()
-    let column = columnEnds.findIndex((end) => end <= seg.startMin)
-    if (column === -1) {
-      column = columnEnds.length
-      columnEnds.push(seg.endMin)
-    } else {
-      columnEnds[column] = seg.endMin
-    }
-    seg.column = column
-    cluster.push(seg)
-    clusterEnd = Math.max(clusterEnd, seg.endMin)
-  }
-  close()
 }
 
 /**

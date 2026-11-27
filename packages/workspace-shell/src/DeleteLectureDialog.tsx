@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useDeleteLecture, useLectureDeletePreview } from '@pls/substrate-client'
 import type { LectureDeletePreview } from '@pls/substrate'
 import { Dialog, dayAndTime, doByLabel } from '@pls/shared-ui'
@@ -51,6 +51,7 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
   onDeleted: (title: string) => void
 }) {
   const [preview, setPreview] = useState(initial)
+  const cancelRef = useRef<HTMLButtonElement>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const deleteLecture = useDeleteLecture()
   const fetchPreview = useLectureDeletePreview()
@@ -93,6 +94,7 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
       open
       onClose={close}
       title={`Delete "${preview.lecture.title}"?`}
+      initialFocus={() => cancelRef.current}
       // Full width on a phone; the list scrolls between the title and the buttons.
       className="flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md flex-col"
     >
@@ -140,8 +142,8 @@ export function DeleteLectureDialog({ preview: initial, hasClass, onClose, onDel
         {notice && <p role="alert" className="text-meta text-confused">{notice}</p>}
         <div className="flex shrink-0 justify-end gap-2">
           <button
+            ref={cancelRef}
             type="button"
-            autoFocus
             onClick={close}
             disabled={deleteLecture.isPending}
             className="h-9 rounded-control px-3.5 text-body font-medium text-text-secondary transition-colors hover:bg-surface-overlay hover:text-text-primary disabled:opacity-40"

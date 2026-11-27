@@ -41,12 +41,16 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
         const w = window as unknown as { seen: Record<string, Seen>; announced: string[] }
         w.seen = {}
         w.announced = []
-        new MutationObserver((records) => {
-          for (const r of records) for (const n of r.addedNodes) w.announced.push(n.textContent ?? '')
-        }).observe(document.querySelector('[data-testid="toast-announcer"]')!, { childList: true })
+        // UI SDK's polite live region: what it holds each time it changes (a burst of toasts may share one update).
+        let last = ''
+        new MutationObserver(() => {
+          const text = document.querySelector('[data-ui-sdk-announcer=""]')?.textContent ?? ''
+          if (text && text !== last) w.announced.push(text)
+          last = text
+        }).observe(document.body, { childList: true, characterData: true, subtree: true })
         const tick = () => {
           for (const el of document.querySelectorAll('[data-testid="toast"]')) {
-            const message = el.querySelector('span')?.textContent ?? ''
+            const message = el.querySelector('[data-slot="toast-title"]')?.textContent ?? ''
             const now = performance.now()
             const s = (w.seen[message] ??= { from: now, to: now, action: false })
             s.to = now
@@ -81,19 +85,32 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
         expect(s.action, t.message).toBe(!!t.action)
       }
       // Each said once, when it happened, naming its action.
-      expect(announced.sort()).toEqual(TOASTS.map((t) => (t.action ? `${t.message}. Notifications has a ${t.action} button.` : t.message)).sort())
+      // (a burst may be said in one update, so count each toast's words in what was said altogether)
+      const said = announced.join('|')
+      let rest = said
+      for (const t of TOASTS) {
+        const words = t.action ? `${t.message}. Notifications has a ${t.action} button.` : t.message
+        expect(said.split(words).length - 1, words).toBe(1)
+        rest = rest.replace(words, '')
+      }
+      expect(rest.replace(/[|. ]/g, ''), 'nothing else was said').toBe('')
     })
 
     test('a toast pushed out by newer ones and shown again is announced once', async ({ page, request }) => {
       await reseed()
       await page.goto('/')
-      await expect(page.getByTestId('toast-announcer')).toBeAttached()
+      await expect(page.getByTestId('toast-host')).toBeAttached()
+      await expect(page.locator('[data-ui-sdk-announcer=""]')).toBeAttached()
       await page.evaluate(() => {
         const w = window as unknown as { announced: string[] }
         w.announced = []
-        new MutationObserver((records) => {
-          for (const r of records) for (const n of r.addedNodes) w.announced.push(n.textContent ?? '')
-        }).observe(document.querySelector('[data-testid="toast-announcer"]')!, { childList: true })
+        // UI SDK's polite live region: what it holds each time it changes (a burst of toasts may share one update).
+        let last = ''
+        new MutationObserver(() => {
+          const text = document.querySelector('[data-ui-sdk-announcer=""]')?.textContent ?? ''
+          if (text && text !== last) w.announced.push(text)
+          last = text
+        }).observe(document.body, { childList: true, characterData: true, subtree: true })
       })
       const push = (message: string) => page.evaluate(async ({ mod, message }) => {
         // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
@@ -112,13 +129,14 @@ for (const viewport of [{ width: 400, height: 860 }, { width: 1440, height: 900 
       if (viewport.width < 640) await toasts.filter({ hasText: 'Lecture summary ready' }).getByRole('button', { name: 'Dismiss' }).click()
       await expect(toasts.filter({ hasText: 'Transcript ready' })).toBeVisible()
       const announced = await page.evaluate(() => (window as unknown as { announced: string[] }).announced)
-      expect(announced.filter((m) => m === 'Transcript ready. Notifications has a Show button.')).toHaveLength(1)
+      expect(announced.join('|').split('Transcript ready. Notifications has a Show button.').length - 1).toBe(1)
     })
 
     test('a toast pushed out while hovered still times out once it is back', async ({ page }) => {
       await reseed()
       await page.goto('/')
-      await expect(page.getByTestId('toast-announcer')).toBeAttached()
+      await expect(page.getByTestId('toast-host')).toBeAttached()
+      await expect(page.locator('[data-ui-sdk-announcer=""]')).toBeAttached()
       const push = (message: string, durationMs?: number) => page.evaluate(async ({ mod, message, durationMs }) => {
         // The very URL the app loaded it from (a dev server's update adds a query, making another instance).
         const loaded = performance.getEntriesByType('resource').map((e) => e.name).filter((n) => new URL(n).pathname.endsWith('/workspace-shell/src/toast.tsx')).at(-1)
