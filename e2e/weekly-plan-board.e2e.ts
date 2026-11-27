@@ -49,8 +49,7 @@ test.describe('The Weekly plan board in the seed', () => {
     await topBar.switchToWorkspace('Weekly plan')
     await grid.expectPanelCount(3)
     const layout = (label: string) => grid.panelByLabel(label).evaluate((el: HTMLElement) => ({
-      x: parseFloat(el.style.left), y: parseFloat(el.style.top),
-      width: parseFloat(el.style.width), height: parseFloat(el.style.height),
+      x: el.offsetLeft, y: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight,
     }))
     expect(await layout('Calendar')).toEqual({ x: 20, y: 20, width: 900, height: 731 })
     expect(await layout('To-do')).toEqual({ x: 940, y: 20, width: 360, height: 411 })

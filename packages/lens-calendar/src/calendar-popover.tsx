@@ -163,15 +163,19 @@ function measure(content: HTMLElement): { anchor: number | null; height: number 
  * as content loads or goes (`anchoredTop`): a lecture line that loads, "Also
  * open in" arriving. Without an anchor it is placed afresh at each size. Kept
  * inside the calendar in the window on a phone, the window beside the press
- * (`boundsOf`). Read by the anchor UI SDK checks every frame, so the first placement at the content's new size already has
- * it: worked out after UI SDK had placed it (a resize callback, a render),
- * the buttons would be drawn out of place for a frame or more.
+ * (`boundsOf`).
+ *
+ * The popover is placed as a side effect of the anchor getter: `placedTop` is
+ * called from the anchor's `getBoundingClientRect`, which UI SDK reads every
+ * frame. So the first placement at the content's new size already has the
+ * anchor in it. Worked out after UI SDK had placed it (a resize callback, a
+ * render), the buttons would be drawn out of place for a frame or more.
  *
  * Where it was placed lasts as long as the press it answers (`pressKey`): a
  * frame's change to the calendar's box (a scrollbar) is no press, and never
  * places it afresh.
  */
-function usePlacedTop(pressKey: string) {
+export function usePlacedTop(pressKey: string) {
   const contentRef = useRef<HTMLElement | null>(null)
   const placedRef = useRef<{ pressKey: string; top: number; anchor: number | null; above: boolean } | null>(null)
   const ref = useCallback((content: HTMLElement | null) => {
